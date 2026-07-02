@@ -281,6 +281,52 @@ create trigger log_project_status_change
 after update on public.projects
 for each row execute function public.log_project_status_change();
 
+create or replace function public.create_profile_for_new_auth_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  matched_team public.team_members%rowtype;
+  profile_name text;
+  profile_role public.app_role := 'employee';
+begin
+  if new.email is null then
+    return new;
+  end if;
+
+  select *
+  into matched_team
+  from public.team_members
+  where lower(email) = lower(new.email)
+  limit 1;
+
+  profile_name := coalesce(
+    matched_team.full_name,
+    new.raw_user_meta_data ->> 'full_name',
+    split_part(new.email, '@', 1)
+  );
+  profile_role := coalesce(matched_team.role, 'employee'::public.app_role);
+
+  insert into public.profiles (id, full_name, email, role, phone, status)
+  values (new.id, profile_name, new.email, profile_role, matched_team.phone, 'active')
+  on conflict (id) do update set
+    full_name = excluded.full_name,
+    email = excluded.email,
+    role = excluded.role,
+    phone = excluded.phone,
+    status = excluded.status;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists create_profile_after_auth_user_created on auth.users;
+create trigger create_profile_after_auth_user_created
+after insert on auth.users
+for each row execute function public.create_profile_for_new_auth_user();
+
 alter table public.profiles enable row level security;
 alter table public.projects enable row level security;
 alter table public.project_payments enable row level security;
@@ -535,8 +581,8 @@ to authenticated
 using (public.current_user_role() = 'admin')
 with check (public.current_user_role() = 'admin');
 
--- Demo team rows for non-authenticated planning. Real login users must be created in Supabase Auth first,
--- then matching rows should be added to public.profiles with the Auth user IDs.
+-- Starter team rows. When a matching email is created in Supabase Auth, a profile row
+-- is created automatically using the role below. Unknown emails default to employee.
 insert into public.team_members (full_name, email, role, phone, status)
 values
   ('Tahir', 'tahir@manuscriptheaven.com', 'admin', '', 'active'),
