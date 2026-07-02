@@ -16,7 +16,7 @@ export function LoginPage({
   error: string | null;
   isLoading: boolean;
 }) {
-  const [email, setEmail] = useState('tahir@manuscriptheaven.com');
+  const [email, setEmail] = useState(isSupabaseConfigured ? '' : 'tahir@manuscriptheaven.com');
   const [password, setPassword] = useState('');
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -88,20 +88,22 @@ export function LoginPage({
             </Button>
           </form>
 
-          <div className="mt-6 border-t border-border pt-5">
-            <p className="mb-3 text-sm font-semibold text-muted">Preview as</p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {(['admin', 'project_manager', 'employee', 'junior_assistant'] as Role[]).map((role) => (
-                <button
-                  key={role}
-                  onClick={() => onDemoLogin(role)}
-                  className="rounded-md border border-border bg-white px-3 py-2 text-sm font-semibold transition hover:border-gold hover:bg-ivory"
-                >
-                  {roleLabels[role]}
-                </button>
-              ))}
+          {!isSupabaseConfigured ? (
+            <div className="mt-6 border-t border-border pt-5">
+              <p className="mb-3 text-sm font-semibold text-muted">Preview as</p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {(['admin', 'project_manager', 'employee', 'junior_assistant'] as Role[]).map((role) => (
+                  <button
+                    key={role}
+                    onClick={() => onDemoLogin(role)}
+                    className="rounded-md border border-border bg-white px-3 py-2 text-sm font-semibold transition hover:border-gold hover:bg-ivory"
+                  >
+                    {roleLabels[role]}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          ) : null}
         </Card>
       </section>
     </main>
