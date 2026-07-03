@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'project_manager' | 'employee' | 'junior_assistant';
+export type Role = 'admin' | 'manager' | 'project_manager' | 'employee' | 'junior_assistant';
 
 export type ProjectStatus =
   | 'New'
@@ -82,6 +82,8 @@ export interface Project {
   advance_paid: number;
   remaining_balance: number;
   payment_status: PaymentStatus;
+  payment_date: string | null;
+  payment_notes: string;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -94,6 +96,11 @@ export interface ProjectPayment {
   advance_paid: number;
   remaining_balance: number;
   payment_status: PaymentStatus;
+  due_date?: string | null;
+  payment_month?: string | null;
+  payment_year?: number | null;
+  payment_date?: string | null;
+  notes?: string | null;
   created_at: string;
   updated_at: string;
 }

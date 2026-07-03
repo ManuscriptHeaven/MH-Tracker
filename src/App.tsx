@@ -20,6 +20,7 @@ export default function App() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [showProjectForm, setShowProjectForm] = useState(false);
+  const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
   const visibleProjects = tracker.visibleProjects;
 
   const selectedProjectFresh = useMemo(() => {
@@ -42,14 +43,33 @@ export default function App() {
     }
   }, [activeView, tracker.canManageAll]);
 
-  async function handleSaveProject(draft: ProjectDraft) {
-    if (editingProject) {
-      await tracker.updateProject(editingProject.id, draft);
-      setEditingProject(null);
+  useEffect(() => {
+    if (!toast) {
       return;
     }
 
-    await tracker.createProject(draft);
+    const timer = window.setTimeout(() => setToast(null), 3500);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  async function handleSaveProject(draft: ProjectDraft) {
+    try {
+      if (editingProject) {
+        await tracker.updateProject(editingProject.id, draft);
+        setEditingProject(null);
+        setToast({ message: 'Project updated successfully.', tone: 'success' });
+        return;
+      }
+
+      await tracker.createProject(draft);
+      setToast({ message: 'Project created successfully.', tone: 'success' });
+    } catch (error) {
+      setToast({
+        message: error instanceof Error ? error.message : 'Project could not be saved.',
+        tone: 'error',
+      });
+      throw error;
+    }
   }
 
   function openAddProject() {
@@ -157,7 +177,16 @@ export default function App() {
       ) : null}
 
       {activeView === 'payments' && tracker.canManageAll ? (
-        <PaymentsPage projects={visibleProjects} onSelectProject={setSelectedProject} />
+        <PaymentsPage
+          projects={visibleProjects}
+          currentProfile={tracker.currentProfile}
+          isLoading={tracker.isLoading}
+          error={tracker.error}
+          onSelectProject={setSelectedProject}
+          onEditProject={openEditProject}
+          onUpdateProject={tracker.updateProject}
+          onDeletePayment={tracker.deletePayment}
+        />
       ) : null}
 
       {activeView === 'settings' ? <SettingsPage mode={tracker.mode} /> : null}
@@ -195,6 +224,18 @@ export default function App() {
             await tracker.addRevision(selectedProjectFresh.id, note, status);
           }}
         />
+      ) : null}
+
+      {toast ? (
+        <div
+          className={`fixed right-4 top-4 z-[70] max-w-sm rounded-md border px-4 py-3 text-sm font-semibold shadow-soft ${
+            toast.tone === 'success'
+              ? 'border-green-200 bg-green-50 text-success'
+              : 'border-red-200 bg-red-50 text-danger'
+          }`}
+        >
+          {toast.message}
+        </div>
       ) : null}
     </Layout>
   );

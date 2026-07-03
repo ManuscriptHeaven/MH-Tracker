@@ -27,7 +27,7 @@ export function initials(name: string) {
 }
 
 export function isManagerRole(role: Role | null | undefined) {
-  return role === 'admin' || role === 'project_manager';
+  return role === 'admin' || role === 'manager' || role === 'project_manager';
 }
 
 export function projectCsv(projects: Project[]) {

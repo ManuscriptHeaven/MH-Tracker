@@ -19,7 +19,8 @@ function defaultDraft(currentProfile: Profile): ProjectDraft {
     image_count: 0,
     platform: 'Amazon KDP',
     assigned_to: null,
-    project_manager: currentProfile.role === 'project_manager' ? currentProfile.id : null,
+    project_manager:
+      currentProfile.role === 'project_manager' || currentProfile.role === 'manager' ? currentProfile.id : null,
     priority: 'Normal',
     start_date: todayInput(),
     due_date: todayInput(),
@@ -42,6 +43,8 @@ function defaultDraft(currentProfile: Profile): ProjectDraft {
     total_price: 0,
     advance_paid: 0,
     payment_status: 'Not Started',
+    payment_date: null,
+    payment_notes: '',
   };
 }
 
@@ -367,7 +370,18 @@ export function ProjectFormModal({
                 <option key={status}>{status}</option>
               ))}
             </SelectField>
+            <Field
+              label="Payment Date"
+              type="date"
+              value={draft.payment_date || ''}
+              onChange={(event) => update('payment_date', event.target.value || null)}
+            />
           </div>
+          <TextareaField
+            label="Payment Notes"
+            value={draft.payment_notes}
+            onChange={(event) => update('payment_notes', event.target.value)}
+          />
         </section>
 
         <div className="sticky bottom-0 flex flex-col gap-3 border-t border-border bg-linen py-4 sm:flex-row sm:justify-end">

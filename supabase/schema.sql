@@ -9,6 +9,13 @@ end $$;
 
 do $$
 begin
+  alter type public.app_role add value if not exists 'manager';
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$
+begin
   create type public.project_priority as enum ('Low', 'Normal', 'High', 'Urgent');
 exception
   when duplicate_object then null;
@@ -126,10 +133,22 @@ create table if not exists public.project_payments (
   advance_paid numeric(10, 2) not null default 0,
   remaining_balance numeric(10, 2) generated always as (greatest(total_price - advance_paid, 0)) stored,
   payment_status public.payment_status not null default 'Not Started',
+  due_date date,
+  payment_month text,
+  payment_year integer,
+  payment_date date,
+  notes text not null default '',
   updated_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.project_payments
+add column if not exists due_date date,
+add column if not exists payment_month text,
+add column if not exists payment_year integer,
+add column if not exists payment_date date,
+add column if not exists notes text not null default '';
 
 create table if not exists public.revision_notes (
   id uuid primary key default gen_random_uuid(),
@@ -239,7 +258,7 @@ stable
 security definer
 set search_path = public
 as $$
-  select public.current_user_role() in ('admin', 'project_manager');
+  select public.current_user_role()::text in ('admin', 'manager', 'project_manager');
 $$;
 
 create or replace function public.project_is_visible(project_row public.projects)

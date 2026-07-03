@@ -2,6 +2,7 @@ import type { PaymentStatus, Priority, ProjectStatus, RevisionStatus, Role } fro
 
 export const roleLabels: Record<Role, string> = {
   admin: 'Admin',
+  manager: 'Manager',
   project_manager: 'Project Manager',
   employee: 'Employee / Designer',
   junior_assistant: 'Junior Assistant',

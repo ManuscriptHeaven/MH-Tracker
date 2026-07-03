@@ -295,6 +295,11 @@ export function ProjectDetail({
                   <Info label="Total Price" value={currency(project.total_price)} />
                   <Info label="Advance Paid" value={currency(project.advance_paid)} />
                   <Info label="Remaining Balance" value={currency(project.remaining_balance)} />
+                  <Info label="Payment Date" value={formatDate(project.payment_date)} />
+                  <div className="rounded-md bg-ivory px-3 py-2">
+                    <p className="text-muted">Payment Notes</p>
+                    <p className="mt-1 font-semibold">{project.payment_notes || 'No notes'}</p>
+                  </div>
                 </div>
               </Card>
             ) : null}

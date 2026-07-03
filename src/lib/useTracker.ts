@@ -31,6 +31,32 @@ function calculateBalance(totalPrice: number, advancePaid: number) {
   return Math.max(Number(totalPrice || 0) - Number(advancePaid || 0), 0);
 }
 
+function cleanDate(value: string | null | undefined) {
+  return value ? value.slice(0, 10) : null;
+}
+
+function cleanText(value: string | null | undefined) {
+  return value || '';
+}
+
+function paymentMonthParts(dueDate: string | null | undefined) {
+  const cleanDueDate = cleanDate(dueDate);
+
+  if (!cleanDueDate) {
+    return {
+      due_date: null,
+      payment_month: null,
+      payment_year: null,
+    };
+  }
+
+  return {
+    due_date: cleanDueDate,
+    payment_month: cleanDueDate.slice(0, 7),
+    payment_year: Number(cleanDueDate.slice(0, 4)),
+  };
+}
+
 function normalizeProject(project: Project): Project {
   const totalPrice = Number(project.total_price || 0);
   const advancePaid = Number(project.advance_paid || 0);
@@ -41,6 +67,8 @@ function normalizeProject(project: Project): Project {
     advance_paid: advancePaid,
     remaining_balance: calculateBalance(totalPrice, advancePaid),
     payment_status: project.payment_status || 'Not Started',
+    payment_date: cleanDate(project.payment_date),
+    payment_notes: cleanText(project.payment_notes),
   };
 }
 
@@ -52,6 +80,9 @@ function supabaseProjectPayload(project: ProjectDraft | Partial<Project>) {
     advance_paid,
     remaining_balance,
     payment_status,
+    payment_date,
+    payment_notes,
+    created_by,
     created_at,
     updated_at,
     ...payload
@@ -63,10 +94,21 @@ function supabaseProjectPayload(project: ProjectDraft | Partial<Project>) {
   void advance_paid;
   void remaining_balance;
   void payment_status;
+  void payment_date;
+  void payment_notes;
+  void created_by;
   void created_at;
   void updated_at;
 
-  return payload;
+  return {
+    ...payload,
+    assigned_to: payload.assigned_to || null,
+    project_manager: payload.project_manager || null,
+    start_date: cleanDate(payload.start_date),
+    due_date: cleanDate(payload.due_date),
+    internal_deadline: cleanDate(payload.internal_deadline),
+    delivery_date: cleanDate(payload.delivery_date),
+  };
 }
 
 function paymentPayload(project: ProjectDraft | Partial<Project>) {
@@ -74,7 +116,63 @@ function paymentPayload(project: ProjectDraft | Partial<Project>) {
     total_price: Number(project.total_price || 0),
     advance_paid: Number(project.advance_paid || 0),
     payment_status: project.payment_status || 'Not Started',
+    ...paymentMonthParts(project.due_date),
+    payment_date: cleanDate(project.payment_date),
+    notes: cleanText(project.payment_notes),
   };
+}
+
+function basePaymentPayload(project: ProjectDraft | Partial<Project>) {
+  return {
+    total_price: Number(project.total_price || 0),
+    advance_paid: Number(project.advance_paid || 0),
+    payment_status: project.payment_status || 'Not Started',
+  };
+}
+
+function isMissingPaymentMetadataColumn(error: unknown) {
+  const message = error instanceof Error ? error.message : String((error as { message?: string })?.message || '');
+  return (
+    message.includes('payment_date') ||
+    message.includes('payment_month') ||
+    message.includes('payment_year') ||
+    message.includes('due_date') ||
+    message.includes('notes')
+  );
+}
+
+async function upsertProjectPayment(
+  projectId: string,
+  project: ProjectDraft | Partial<Project>,
+  updatedBy: string,
+) {
+  if (!supabase) {
+    return;
+  }
+
+  const { error } = await supabase.from('project_payments').upsert({
+    project_id: projectId,
+    ...paymentPayload(project),
+    updated_by: updatedBy,
+  });
+
+  if (!error) {
+    return;
+  }
+
+  if (!isMissingPaymentMetadataColumn(error)) {
+    throw error;
+  }
+
+  const { error: fallbackError } = await supabase.from('project_payments').upsert({
+    project_id: projectId,
+    ...basePaymentPayload(project),
+    updated_by: updatedBy,
+  });
+
+  if (fallbackError) {
+    throw fallbackError;
+  }
 }
 
 function mergePayments(projects: Project[], payments: ProjectPayment[]) {
@@ -89,6 +187,8 @@ function mergePayments(projects: Project[], payments: ProjectPayment[]) {
       advance_paid: payment?.advance_paid || 0,
       remaining_balance: payment?.remaining_balance || 0,
       payment_status: payment?.payment_status || 'Not Started',
+      payment_date: payment?.payment_date || null,
+      payment_notes: payment?.notes || '',
     });
   });
 }
@@ -411,19 +511,15 @@ export function useTracker() {
         }
 
         const projectPayment = paymentPayload(localProject);
-        const { error: paymentError } = await supabase.from('project_payments').upsert({
-          project_id: (inserted as Project).id,
-          ...projectPayment,
-          updated_by: currentProfile.id,
-        });
-
-        if (paymentError) {
-          throw paymentError;
-        }
+        await upsertProjectPayment((inserted as Project).id, localProject, currentProfile.id);
 
         const project = normalizeProject({
           ...(inserted as Project),
-          ...projectPayment,
+          total_price: projectPayment.total_price,
+          advance_paid: projectPayment.advance_paid,
+          payment_status: projectPayment.payment_status,
+          payment_date: projectPayment.payment_date,
+          payment_notes: projectPayment.notes,
         });
         setData((previous) => ({ ...previous, projects: [project, ...previous.projects] }));
         await addActivity({
@@ -452,12 +548,12 @@ export function useTracker() {
   const updateProject = useCallback(
     async (projectId: string, updates: Partial<Project>) => {
       if (!currentProfile) {
-        return null;
+        throw new Error('No signed-in profile found.');
       }
 
       const existing = data.projects.find((project) => project.id === projectId);
       if (!existing) {
-        return null;
+        throw new Error('Project not found in the current project list.');
       }
 
       const nextProject = normalizeProject({
@@ -469,28 +565,32 @@ export function useTracker() {
       if (supabase && mode === 'supabase') {
         const { data: updated, error: updateError } = await supabase
           .from('projects')
-          .update(supabaseProjectPayload(nextProject))
+          .update({
+            ...supabaseProjectPayload(nextProject),
+            updated_at: nextProject.updated_at,
+          })
           .eq('id', projectId)
           .select()
-          .single();
+          .maybeSingle();
 
         if (updateError) {
           throw updateError;
         }
 
+        if (!updated) {
+          throw new Error('No project row was updated. Check the project ID or Supabase RLS policy.');
+        }
+
         const hasPaymentUpdate =
-          'total_price' in updates || 'advance_paid' in updates || 'payment_status' in updates;
+          'total_price' in updates ||
+          'advance_paid' in updates ||
+          'payment_status' in updates ||
+          'payment_date' in updates ||
+          'payment_notes' in updates ||
+          'due_date' in updates;
 
         if (hasPaymentUpdate && canManageEverything(currentProfile)) {
-          const { error: paymentError } = await supabase.from('project_payments').upsert({
-            project_id: projectId,
-            ...paymentPayload(nextProject),
-            updated_by: currentProfile.id,
-          });
-
-          if (paymentError) {
-            throw paymentError;
-          }
+          await upsertProjectPayment(projectId, nextProject, currentProfile.id);
         }
 
         const project = normalizeProject({
@@ -499,6 +599,8 @@ export function useTracker() {
           advance_paid: nextProject.advance_paid,
           remaining_balance: nextProject.remaining_balance,
           payment_status: nextProject.payment_status,
+          payment_date: nextProject.payment_date,
+          payment_notes: nextProject.payment_notes,
         });
         setData((previous) => ({
           ...previous,
@@ -531,9 +633,13 @@ export function useTracker() {
         });
       }
 
+      if (supabase && mode === 'supabase') {
+        await loadSupabaseData(currentProfile);
+      }
+
       return nextProject;
     },
-    [addActivity, currentProfile, data.projects, mode],
+    [addActivity, currentProfile, data.projects, loadSupabaseData, mode],
   );
 
   const deleteProject = useCallback(
@@ -558,6 +664,41 @@ export function useTracker() {
       }));
     },
     [currentProfile, mode],
+  );
+
+  const deletePayment = useCallback(
+    async (projectId: string) => {
+      if (!currentProfile || currentProfile.role !== 'admin') {
+        throw new Error('Only admins can delete payment records.');
+      }
+
+      if (supabase && mode === 'supabase') {
+        const { error: deleteError } = await supabase.from('project_payments').delete().eq('project_id', projectId);
+        if (deleteError) {
+          throw deleteError;
+        }
+
+        await loadSupabaseData(currentProfile);
+        return;
+      }
+
+      setData((previous) => ({
+        ...previous,
+        projects: previous.projects.map((project) =>
+          project.id === projectId
+            ? normalizeProject({
+                ...project,
+                total_price: 0,
+                advance_paid: 0,
+                payment_status: 'Not Started',
+                payment_date: null,
+                payment_notes: '',
+              })
+            : project,
+        ),
+      }));
+    },
+    [currentProfile, loadSupabaseData, mode],
   );
 
   const duplicateProject = useCallback(
@@ -749,6 +890,7 @@ export function useTracker() {
     createProject,
     updateProject,
     deleteProject,
+    deletePayment,
     duplicateProject,
     addRevision,
     addNote,
