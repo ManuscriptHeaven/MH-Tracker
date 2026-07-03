@@ -4,11 +4,12 @@ import { PaymentBadge, PriorityBadge, StatusBadge } from '../components/Badges';
 import { Button, Card, EmptyState, IconButton, SelectField } from '../components/ui';
 import { paymentStatuses, priorityOptions, serviceTypes, statusOptions } from '../lib/constants';
 import { deadlineClass, deadlineLabel, formatDate } from '../lib/date';
-import { currency, downloadTextFile, projectCsv } from '../lib/utils';
+import { currency, downloadTextFile, firstName, projectCsv } from '../lib/utils';
 import type { PaymentStatus, Priority, Profile, Project, ProjectStatus } from '../lib/types';
 
 function profileName(profiles: Profile[], id?: string | null) {
-  return profiles.find((profile) => profile.id === id)?.full_name || 'Unassigned';
+  const profile = profiles.find((item) => item.id === id);
+  return profile ? firstName(profile.full_name) : 'Unassigned';
 }
 
 export function ProjectsPage({
@@ -103,7 +104,7 @@ export function ProjectsPage({
               <option value="all">All employees</option>
               {profiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>
-                  {profile.full_name}
+                  {firstName(profile.full_name)}
                 </option>
               ))}
             </SelectField>

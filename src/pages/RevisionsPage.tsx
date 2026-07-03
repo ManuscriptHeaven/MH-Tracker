@@ -1,10 +1,12 @@
 import { Repeat2 } from 'lucide-react';
 import { StatusBadge } from '../components/Badges';
 import { Card, EmptyState } from '../components/ui';
+import { firstName } from '../lib/utils';
 import type { Profile, Project, RevisionNote } from '../lib/types';
 
 function profileName(profiles: Profile[], id?: string | null) {
-  return profiles.find((profile) => profile.id === id)?.full_name || 'Unknown';
+  const profile = profiles.find((item) => item.id === id);
+  return profile ? firstName(profile.full_name) : 'Unknown';
 }
 
 function projectFor(projects: Project[], id: string) {

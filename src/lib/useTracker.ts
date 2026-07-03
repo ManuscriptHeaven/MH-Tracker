@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from './supabase';
 import { sampleData, sampleProfiles } from './sampleData';
+import { firstName, isManagerRole } from './utils';
 import type {
   ActivityLog,
   NoteType,
@@ -93,7 +94,33 @@ function mergePayments(projects: Project[], payments: ProjectPayment[]) {
 }
 
 function canManageEverything(profile: Profile | null) {
-  return profile?.role === 'admin' || profile?.role === 'project_manager';
+  return isManagerRole(profile?.role);
+}
+
+function normalizeLoginValue(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function profileMatchesLoginName(profile: Profile, loginName: string) {
+  const normalizedLogin = normalizeLoginValue(loginName);
+
+  return [profile.email, profile.full_name, firstName(profile.full_name)].some(
+    (value) => normalizeLoginValue(value) === normalizedLogin,
+  );
+}
+
+function loginErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : 'Login failed.';
+
+  if (message.toLowerCase().includes('invalid login credentials')) {
+    return 'Name or password is incorrect.';
+  }
+
+  if (message.includes('find_login_email')) {
+    return 'Name login is not set up in Supabase yet. Please run the latest database update.';
+  }
+
+  return message;
 }
 
 export function useTracker() {
@@ -243,36 +270,66 @@ export function useTracker() {
   }, [fetchProfile, loadSupabaseData]);
 
   const login = useCallback(
-    async (email: string, password: string) => {
+    async (loginName: string, password: string) => {
       setError(null);
+      const cleanLoginName = loginName.trim();
+
+      if (!cleanLoginName) {
+        const message = 'Please enter your first name.';
+        setError(message);
+        throw new Error(message);
+      }
 
       if (!supabase) {
-        const profile = sampleProfiles.find((item) => item.email.toLowerCase() === email.toLowerCase());
+        const profile = sampleProfiles.find((item) => profileMatchesLoginName(item, cleanLoginName));
         setCurrentProfile(profile || sampleProfiles[0]);
         setMode('demo');
         return;
       }
 
       setIsLoading(true);
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      try {
+        let email = cleanLoginName;
 
-      if (authError || !authData.user) {
+        if (!cleanLoginName.includes('@')) {
+          const { data: loginEmail, error: lookupError } = await supabase.rpc('find_login_email', {
+            login_name: cleanLoginName,
+          });
+
+          if (lookupError) {
+            throw lookupError;
+          }
+
+          if (!loginEmail) {
+            throw new Error('No active user found with that name. Ask admin to check the Supabase profile.');
+          }
+
+          email = String(loginEmail);
+        }
+
+        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (authError || !authData.user) {
+          throw authError || new Error('Login failed.');
+        }
+
+        const profile = await fetchProfile(authData.user.id);
+        if (!profile) {
+          throw new Error('This user does not have a profile record yet.');
+        }
+
+        setMode('supabase');
+        setCurrentProfile(profile);
+        await loadSupabaseData(profile);
+      } catch (loginError) {
+        const message = loginErrorMessage(loginError);
+        setError(message);
         setIsLoading(false);
-        throw authError || new Error('Login failed.');
+        throw new Error(message);
       }
-
-      const profile = await fetchProfile(authData.user.id);
-      if (!profile) {
-        setIsLoading(false);
-        throw new Error('This user does not have a profile record yet.');
-      }
-
-      setMode('supabase');
-      setCurrentProfile(profile);
-      await loadSupabaseData(profile);
     },
     [fetchProfile, loadSupabaseData],
   );

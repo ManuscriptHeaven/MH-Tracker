@@ -1,4 +1,4 @@
-import type { Project } from './types';
+import type { Project, Role } from './types';
 
 export function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(' ');
@@ -12,6 +12,11 @@ export function currency(value: number) {
   }).format(value || 0);
 }
 
+export function firstName(name: string | null | undefined) {
+  const cleanName = (name || '').trim();
+  return cleanName ? cleanName.split(/\s+/)[0] : 'User';
+}
+
 export function initials(name: string) {
   return name
     .split(' ')
@@ -19,6 +24,10 @@ export function initials(name: string) {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join('');
+}
+
+export function isManagerRole(role: Role | null | undefined) {
+  return role === 'admin' || role === 'project_manager';
 }
 
 export function projectCsv(projects: Project[]) {

@@ -15,7 +15,7 @@ import {
   Users,
 } from 'lucide-react';
 import { roleLabels } from '../lib/constants';
-import { initials, cn } from '../lib/utils';
+import { initials, cn, firstName, isManagerRole } from '../lib/utils';
 import type { NotificationItem, Profile } from '../lib/types';
 import { Button, IconButton } from './ui';
 
@@ -64,8 +64,9 @@ export function Layout({
   onSignOut: () => void;
 }) {
   const unreadCount = notifications.filter((notification) => !notification.is_read).length;
-  const canAddProject = currentProfile.role === 'admin' || currentProfile.role === 'project_manager';
-  const canManageAll = currentProfile.role === 'admin' || currentProfile.role === 'project_manager';
+  const canAddProject = isManagerRole(currentProfile.role);
+  const canManageAll = isManagerRole(currentProfile.role);
+  const displayName = firstName(currentProfile.full_name);
   const visibleNavItems = navItems.filter((item) => !('managersOnly' in item) || !item.managersOnly || canManageAll);
 
   return (
@@ -108,10 +109,10 @@ export function Layout({
           <div className="border-t border-white/10 p-4">
             <div className="flex items-center gap-3 rounded-lg bg-white/10 p-3">
               <div className="grid h-10 w-10 place-items-center rounded-full bg-gold text-sm font-bold text-ink">
-                {initials(currentProfile.full_name)}
+                {initials(displayName)}
               </div>
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold">{currentProfile.full_name}</p>
+                <p className="truncate text-sm font-semibold">{displayName}</p>
                 <p className="truncate text-xs text-white/60">{roleLabels[currentProfile.role]}</p>
               </div>
             </div>
@@ -124,7 +125,7 @@ export function Layout({
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="text-sm font-medium text-muted">Welcome back, {currentProfile.full_name}</p>
+                <p className="text-sm font-medium text-muted">Welcome back, {displayName}</p>
                 <h1 className="font-display text-2xl font-semibold text-ink md:text-3xl">
                   {navItems.find((item) => item.id === activeView)?.label}
                 </h1>

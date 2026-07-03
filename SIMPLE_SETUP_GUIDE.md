@@ -10,6 +10,7 @@ You will have:
 
 - A free frontend website on Cloudflare Pages
 - Employee login using Supabase
+- Employees type their first name and password in the app
 - A Supabase database for projects
 - Rules so employees only see their assigned projects
 - Admin and Project Manager accounts that can see all projects
@@ -88,7 +89,7 @@ id: paste the Supabase Auth user ID
 email: your admin email
 full_name: your name
 role: admin
-is_active: true
+status: active
 ```
 
 Save the row.
@@ -111,6 +112,7 @@ Use one of these roles:
 admin
 project_manager
 employee
+junior_assistant
 ```
 
 Most staff should use:
@@ -225,14 +227,14 @@ Open your Cloudflare Pages URL.
 
 Test these accounts:
 
-1. Login as admin.
+1. Login as admin using the first name from the `profiles` table and the Supabase Auth password.
 2. Create a project.
 3. Assign an employee to the project.
-4. Login as that employee.
+4. Login as that employee using their first name and password.
 5. Confirm the employee can see the assigned project.
 6. Login as another employee who is not assigned.
 7. Confirm that employee cannot see the project.
-8. Login as Project Manager.
+8. Login as Project Manager using their first name and password.
 9. Confirm Project Manager can see all projects.
 
 ## Simple Setup Order

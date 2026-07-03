@@ -1,4 +1,4 @@
-import { BookOpen, LockKeyhole, Mail } from 'lucide-react';
+import { BookOpen, LockKeyhole, UserRound } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 import { Button, Card, Field } from '../components/ui';
 import { roleLabels } from '../lib/constants';
@@ -11,17 +11,21 @@ export function LoginPage({
   error,
   isLoading,
 }: {
-  onLogin: (email: string, password: string) => Promise<void>;
+  onLogin: (loginName: string, password: string) => Promise<void>;
   onDemoLogin: (role: Role) => void;
   error: string | null;
   isLoading: boolean;
 }) {
-  const [email, setEmail] = useState(isSupabaseConfigured ? '' : 'tahir@manuscriptheaven.com');
+  const [loginName, setLoginName] = useState(isSupabaseConfigured ? '' : 'Tahir');
   const [password, setPassword] = useState('');
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await onLogin(email, password);
+    try {
+      await onLogin(loginName, password);
+    } catch {
+      // The tracker hook stores the readable error message for the form.
+    }
   }
 
   return (
@@ -61,17 +65,18 @@ export function LoginPage({
             <h2 className="font-display text-3xl font-semibold">Team Login</h2>
             <p className="mt-2 text-sm text-muted">
               {isSupabaseConfigured
-                ? 'Sign in with your Supabase employee account.'
+                ? 'Sign in with your first name and password.'
                 : 'Supabase keys are not set yet, so you can preview with demo users.'}
             </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <Field
-              label="Email"
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              label="Name"
+              type="text"
+              placeholder="First name, for example Tahir"
+              value={loginName}
+              onChange={(event) => setLoginName(event.target.value)}
               required
             />
             <Field
@@ -83,7 +88,7 @@ export function LoginPage({
             />
             {error ? <p className="rounded-md bg-red-50 p-3 text-sm text-danger">{error}</p> : null}
             <Button type="submit" className="w-full" disabled={isLoading}>
-              <Mail className="h-4 w-4" />
+              <UserRound className="h-4 w-4" />
               {isLoading ? 'Signing in' : 'Sign In'}
             </Button>
           </form>

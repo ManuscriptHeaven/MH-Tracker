@@ -2,11 +2,12 @@ import { AlertTriangle, CalendarClock, CheckCircle2, CircleDollarSign, Clock3, F
 import { StatusBadge } from '../components/Badges';
 import { Button, Card } from '../components/ui';
 import { isDueThisWeek, isDueToday, isOverdue, formatDate, deadlineClass, deadlineLabel } from '../lib/date';
-import { currency, initials } from '../lib/utils';
+import { currency, firstName, initials } from '../lib/utils';
 import type { Profile, Project } from '../lib/types';
 
 function profileName(profiles: Profile[], id?: string | null) {
-  return profiles.find((profile) => profile.id === id)?.full_name || 'Unassigned';
+  const profile = profiles.find((item) => item.id === id);
+  return profile ? firstName(profile.full_name) : 'Unassigned';
 }
 
 function StatCard({
@@ -194,10 +195,10 @@ export function DashboardPage({
                 {workload.map(({ profile, active, overdue }) => (
                   <div key={profile.id} className="flex items-center gap-3">
                     <div className="grid h-10 w-10 place-items-center rounded-full bg-gold/20 text-sm font-bold">
-                      {initials(profile.full_name)}
+                      {initials(firstName(profile.full_name))}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-semibold">{profile.full_name}</p>
+                      <p className="truncate font-semibold">{firstName(profile.full_name)}</p>
                       <p className="text-xs text-muted">
                         {active} active | {overdue} overdue
                       </p>

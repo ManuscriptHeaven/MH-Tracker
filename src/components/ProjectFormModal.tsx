@@ -1,9 +1,10 @@
 import { Save } from 'lucide-react';
 import { paymentStatuses, platforms, priorityOptions, serviceTypes, statusOptions } from '../lib/constants';
 import { todayInput } from '../lib/date';
+import { firstName, isManagerRole } from '../lib/utils';
 import type { Profile, Project, ProjectDraft } from '../lib/types';
 import { Button, Field, Modal, SelectField, TextareaField } from './ui';
-import { type FormEvent, useMemo, useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useState } from 'react';
 
 function defaultDraft(currentProfile: Profile): ProjectDraft {
   return {
@@ -75,6 +76,12 @@ export function ProjectFormModal({
     project ? draftFromProject(project) : defaultDraft(currentProfile),
   );
   const [isSaving, setIsSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(project ? draftFromProject(project) : defaultDraft(currentProfile));
+    setFormError(null);
+  }, [currentProfile, project]);
 
   const assignableProfiles = useMemo(
     () => profiles.filter((profile) => profile.role === 'employee' || profile.role === 'junior_assistant'),
@@ -82,7 +89,7 @@ export function ProjectFormModal({
   );
 
   const managers = useMemo(
-    () => profiles.filter((profile) => profile.role === 'admin' || profile.role === 'project_manager'),
+    () => profiles.filter((profile) => isManagerRole(profile.role)),
     [profiles],
   );
 
@@ -95,9 +102,16 @@ export function ProjectFormModal({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSaving(true);
-    await onSubmit(draft);
-    setIsSaving(false);
-    onClose();
+    setFormError(null);
+
+    try {
+      await onSubmit(draft);
+      onClose();
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Project could not be saved.');
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   return (
@@ -183,7 +197,7 @@ export function ProjectFormModal({
               <option value="">Unassigned</option>
               {assignableProfiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>
-                  {profile.full_name}
+                  {firstName(profile.full_name)}
                 </option>
               ))}
             </SelectField>
@@ -195,7 +209,7 @@ export function ProjectFormModal({
               <option value="">Unassigned</option>
               {managers.map((profile) => (
                 <option key={profile.id} value={profile.id}>
-                  {profile.full_name}
+                  {firstName(profile.full_name)}
                 </option>
               ))}
             </SelectField>
@@ -356,7 +370,10 @@ export function ProjectFormModal({
           </div>
         </section>
 
-        <div className="sticky bottom-0 flex justify-end gap-3 border-t border-border bg-linen py-4">
+        <div className="sticky bottom-0 flex flex-col gap-3 border-t border-border bg-linen py-4 sm:flex-row sm:justify-end">
+          {formError ? (
+            <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-danger sm:mr-auto">{formError}</p>
+          ) : null}
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>

@@ -6,7 +6,7 @@ A modern internal project tracker for a book formatting and publishing service t
 
 - React + Vite + TypeScript frontend
 - Tailwind CSS premium dashboard design
-- Supabase Auth-ready login
+- Supabase Auth-ready first-name login
 - Supabase Postgres schema and Row Level Security
 - Separate protected `project_payments` table so only Admin and Project Manager can read payment data
 - Dashboard analytics
@@ -66,6 +66,8 @@ If these are not set, the app opens in demo mode so you can preview the interfac
 6. Add employees in Supabase Auth.
 7. Add employee rows in `public.profiles`.
 8. Add the Supabase URL and anon key to Cloudflare Pages environment variables.
+
+Employees log in with the first name saved in `profiles.full_name` and their Supabase Auth password.
 
 More detailed setup is in:
 

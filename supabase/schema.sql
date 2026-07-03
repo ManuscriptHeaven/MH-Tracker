@@ -327,6 +327,37 @@ create trigger create_profile_after_auth_user_created
 after insert on auth.users
 for each row execute function public.create_profile_for_new_auth_user();
 
+create or replace function public.find_login_email(login_name text)
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with normalized as (
+    select lower(trim(login_name)) as value
+  )
+  select p.email
+  from public.profiles p
+  cross join normalized n
+  where p.status = 'active'
+    and n.value <> ''
+    and (
+      lower(p.full_name) = n.value
+      or lower(split_part(p.full_name, ' ', 1)) = n.value
+      or lower(p.email) = n.value
+    )
+  order by
+    case
+      when lower(p.full_name) = n.value then 1
+      when lower(split_part(p.full_name, ' ', 1)) = n.value then 2
+      when lower(p.email) = n.value then 3
+      else 4
+    end,
+    p.created_at
+  limit 1;
+$$;
+
 alter table public.profiles enable row level security;
 alter table public.projects enable row level security;
 alter table public.project_payments enable row level security;
@@ -336,7 +367,7 @@ alter table public.activity_logs enable row level security;
 alter table public.notifications enable row level security;
 alter table public.team_members enable row level security;
 
-grant usage on schema public to authenticated;
+grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on public.profiles to authenticated;
 grant select, insert, update, delete on public.projects to authenticated;
 grant select, insert, update, delete on public.project_payments to authenticated;
@@ -358,9 +389,11 @@ revoke all on public.team_members from anon;
 revoke all on function public.current_user_role() from public;
 revoke all on function public.can_manage_all_projects() from public;
 revoke all on function public.project_is_visible(public.projects) from public;
+revoke all on function public.find_login_email(text) from public;
 grant execute on function public.current_user_role() to authenticated;
 grant execute on function public.can_manage_all_projects() to authenticated;
 grant execute on function public.project_is_visible(public.projects) to authenticated;
+grant execute on function public.find_login_email(text) to anon, authenticated;
 
 drop policy if exists "Profiles are visible to owner and managers" on public.profiles;
 create policy "Profiles are visible to owner and managers"
@@ -591,3 +624,12 @@ values
   ('Hamza', 'hamza@manuscriptheaven.com', 'employee', '', 'active'),
   ('Irfan', 'irfan@manuscriptheaven.com', 'junior_assistant', '', 'active')
 on conflict (email) do nothing;
+
+update public.profiles p
+set
+  full_name = t.full_name,
+  role = t.role,
+  phone = t.phone,
+  status = t.status
+from public.team_members t
+where lower(p.email) = lower(t.email);

@@ -2,7 +2,7 @@ import { CheckCircle2, Edit, FileText, Plus, Printer, Trash2 } from 'lucide-reac
 import { useMemo, useState } from 'react';
 import { revisionStatuses, statusOptions } from '../lib/constants';
 import { deadlineClass, deadlineLabel, formatDate, todayInput } from '../lib/date';
-import { currency, initials } from '../lib/utils';
+import { currency, firstName, initials } from '../lib/utils';
 import type {
   ActivityLog,
   NoteType,
@@ -26,7 +26,8 @@ const noteTypes: Array<{ value: NoteType; label: string }> = [
 ];
 
 function profileName(profiles: Profile[], id?: string | null) {
-  return profiles.find((profile) => profile.id === id)?.full_name || 'Unassigned';
+  const profile = profiles.find((item) => item.id === id);
+  return profile ? firstName(profile.full_name) : 'Unassigned';
 }
 
 function LinkRow({ label, value }: { label: string; value: string }) {
@@ -310,10 +311,10 @@ export function ProjectDetail({
                   return (
                     <div key={profile.id} className="flex items-center gap-3 rounded-md border border-border p-3">
                       <div className="grid h-10 w-10 place-items-center rounded-full bg-gold/20 text-sm font-bold">
-                        {initials(profile.full_name)}
+                        {initials(firstName(profile.full_name))}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate font-semibold">{profile.full_name}</p>
+                        <p className="truncate font-semibold">{firstName(profile.full_name)}</p>
                         <p className="truncate text-xs text-muted">{profile.email}</p>
                       </div>
                       <RoleBadge role={profile.role} />

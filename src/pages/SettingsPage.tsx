@@ -40,7 +40,7 @@ export function SettingsPage({ mode }: { mode: 'demo' | 'supabase' }) {
             <KeyRound className="h-5 w-5 text-gold" />
             <div>
               <p className="font-semibold">Auth</p>
-              <p className="text-sm text-muted">Email and password login is handled by Supabase Auth.</p>
+              <p className="text-sm text-muted">Name and password login is backed by Supabase Auth.</p>
             </div>
           </div>
         </div>

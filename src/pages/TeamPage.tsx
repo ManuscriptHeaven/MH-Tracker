@@ -2,7 +2,7 @@ import { Mail, Phone } from 'lucide-react';
 import { RoleBadge } from '../components/Badges';
 import { Card } from '../components/ui';
 import { isOverdue } from '../lib/date';
-import { initials } from '../lib/utils';
+import { firstName, initials } from '../lib/utils';
 import type { Profile, Project } from '../lib/types';
 
 export function TeamPage({
@@ -18,15 +18,16 @@ export function TeamPage({
         const assigned = projects.filter((project) => project.assigned_to === profile.id);
         const active = assigned.filter((project) => project.status !== 'Delivered' && project.status !== 'Cancelled');
         const overdue = active.filter(isOverdue);
+        const displayName = firstName(profile.full_name);
 
         return (
           <Card key={profile.id}>
             <div className="flex items-start gap-4">
               <div className="grid h-14 w-14 shrink-0 place-items-center rounded-lg bg-gold/20 text-lg font-bold">
-                {initials(profile.full_name)}
+                {initials(displayName)}
               </div>
               <div className="min-w-0 flex-1">
-                <h3 className="truncate font-display text-xl font-semibold">{profile.full_name}</h3>
+                <h3 className="truncate font-display text-xl font-semibold">{displayName}</h3>
                 <div className="mt-2">
                   <RoleBadge role={profile.role} />
                 </div>
