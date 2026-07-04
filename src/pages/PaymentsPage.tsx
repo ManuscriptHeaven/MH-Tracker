@@ -4,7 +4,7 @@ import { PaymentBadge, StatusBadge } from '../components/Badges';
 import { Button, Card, EmptyState, Field, SelectField } from '../components/ui';
 import { paymentStatuses, statusOptions } from '../lib/constants';
 import { daysUntil, formatDate, todayInput } from '../lib/date';
-import { currency, downloadTextFile } from '../lib/utils';
+import { currency, downloadTextFile, errorMessage } from '../lib/utils';
 import type { PaymentStatus, Profile, Project, ProjectStatus } from '../lib/types';
 
 type PaymentFilter = 'all' | 'paid' | 'partial' | 'unpaid' | 'overdue' | 'due_soon';
@@ -302,7 +302,7 @@ export function PaymentsPage({
         payment_date: todayInput(),
       });
     } catch (markError) {
-      setActionError(markError instanceof Error ? markError.message : 'Payment could not be updated.');
+      setActionError(errorMessage(markError, 'Payment could not be updated.'));
     } finally {
       setBusyProjectId(null);
     }
@@ -320,7 +320,7 @@ export function PaymentsPage({
     try {
       await onDeletePayment(project.id);
     } catch (deleteError) {
-      setActionError(deleteError instanceof Error ? deleteError.message : 'Payment could not be deleted.');
+      setActionError(errorMessage(deleteError, 'Payment could not be deleted.'));
     } finally {
       setBusyProjectId(null);
     }

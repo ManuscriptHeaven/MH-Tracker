@@ -642,7 +642,11 @@ values
   ('Zain', 'zain@manuscriptheaven.com', 'employee', '', 'active'),
   ('Hamza', 'hamza@manuscriptheaven.com', 'employee', '', 'active'),
   ('Irfan', 'irfan@manuscriptheaven.com', 'junior_assistant', '', 'active')
-on conflict (email) do nothing;
+on conflict (email) do update set
+  full_name = excluded.full_name,
+  role = excluded.role,
+  phone = excluded.phone,
+  status = excluded.status;
 
 update public.profiles p
 set

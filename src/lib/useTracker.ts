@@ -197,6 +197,17 @@ function canManageEverything(profile: Profile | null) {
   return isManagerRole(profile?.role);
 }
 
+function paymentFieldsChanged(previous: Project, next: Project) {
+  return (
+    Number(previous.total_price || 0) !== Number(next.total_price || 0) ||
+    Number(previous.advance_paid || 0) !== Number(next.advance_paid || 0) ||
+    previous.payment_status !== next.payment_status ||
+    cleanDate(previous.payment_date) !== cleanDate(next.payment_date) ||
+    cleanText(previous.payment_notes) !== cleanText(next.payment_notes) ||
+    cleanDate(previous.due_date) !== cleanDate(next.due_date)
+  );
+}
+
 function normalizeLoginValue(value: string) {
   return value.trim().toLowerCase();
 }
@@ -581,13 +592,7 @@ export function useTracker() {
           throw new Error('No project row was updated. Check the project ID or Supabase RLS policy.');
         }
 
-        const hasPaymentUpdate =
-          'total_price' in updates ||
-          'advance_paid' in updates ||
-          'payment_status' in updates ||
-          'payment_date' in updates ||
-          'payment_notes' in updates ||
-          'due_date' in updates;
+        const hasPaymentUpdate = paymentFieldsChanged(existing, nextProject);
 
         if (hasPaymentUpdate && canManageEverything(currentProfile)) {
           await upsertProjectPayment(projectId, nextProject, currentProfile.id);

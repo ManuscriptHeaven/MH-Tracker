@@ -1,7 +1,7 @@
 import { Save } from 'lucide-react';
 import { paymentStatuses, platforms, priorityOptions, serviceTypes, statusOptions } from '../lib/constants';
 import { todayInput } from '../lib/date';
-import { firstName, isManagerRole } from '../lib/utils';
+import { errorMessage, firstName, isManagerRole } from '../lib/utils';
 import type { Profile, Project, ProjectDraft } from '../lib/types';
 import { Button, Field, Modal, SelectField, TextareaField } from './ui';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
@@ -111,7 +111,7 @@ export function ProjectFormModal({
       await onSubmit(draft);
       onClose();
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : 'Project could not be saved.');
+      setFormError(errorMessage(error, 'Project could not be saved.'));
     } finally {
       setIsSaving(false);
     }

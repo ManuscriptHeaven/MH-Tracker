@@ -11,6 +11,7 @@ import { RevisionsPage } from './pages/RevisionsPage';
 import { PaymentsPage } from './pages/PaymentsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { useTracker } from './lib/useTracker';
+import { errorMessage } from './lib/utils';
 import type { Project, ProjectDraft } from './lib/types';
 
 export default function App() {
@@ -65,7 +66,7 @@ export default function App() {
       setToast({ message: 'Project created successfully.', tone: 'success' });
     } catch (error) {
       setToast({
-        message: error instanceof Error ? error.message : 'Project could not be saved.',
+        message: errorMessage(error, 'Project could not be saved.'),
         tone: 'error',
       });
       throw error;
