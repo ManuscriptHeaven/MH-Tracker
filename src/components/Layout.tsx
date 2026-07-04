@@ -18,6 +18,7 @@ import { roleLabels } from '../lib/constants';
 import { initials, cn, firstName, isManagerRole } from '../lib/utils';
 import type { NotificationItem, Profile } from '../lib/types';
 import { Button, IconButton } from './ui';
+import { NotificationBell } from './NotificationBell';
 
 export type ViewKey =
   | 'dashboard'
@@ -25,6 +26,7 @@ export type ViewKey =
   | 'my_tasks'
   | 'calendar'
   | 'revisions'
+  | 'notifications'
   | 'team'
   | 'delivered'
   | 'payments'
@@ -36,6 +38,7 @@ const navItems = [
   { id: 'my_tasks', label: 'My Tasks', icon: CheckSquare },
   { id: 'calendar', label: 'Calendar', icon: CalendarDays },
   { id: 'revisions', label: 'Revisions', icon: Repeat2 },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'team', label: 'Team', icon: Users, managersOnly: true },
   { id: 'delivered', label: 'Delivered', icon: PackageCheck },
   { id: 'payments', label: 'Payments', icon: CreditCard, managersOnly: true },
@@ -51,6 +54,10 @@ export function Layout({
   searchTerm,
   setSearchTerm,
   onAddProject,
+  onMarkNotificationRead,
+  onMarkAllNotificationsRead,
+  onViewNotifications,
+  onOpenNotificationProject,
   onSignOut,
 }: {
   children: React.ReactNode;
@@ -61,9 +68,12 @@ export function Layout({
   searchTerm: string;
   setSearchTerm: (value: string) => void;
   onAddProject: () => void;
+  onMarkNotificationRead: (notificationId: string) => void;
+  onMarkAllNotificationsRead: () => void;
+  onViewNotifications: () => void;
+  onOpenNotificationProject: (projectId: string) => void;
   onSignOut: () => void;
 }) {
-  const unreadCount = notifications.filter((notification) => !notification.is_read).length;
   const canAddProject = isManagerRole(currentProfile.role);
   const canManageAll = isManagerRole(currentProfile.role);
   const displayName = firstName(currentProfile.full_name);
@@ -147,9 +157,13 @@ export function Layout({
               </label>
 
               <div className="flex items-center gap-2">
-                <IconButton title={`${unreadCount} unread notifications`}>
-                  <Bell className="h-4 w-4" />
-                </IconButton>
+                <NotificationBell
+                  notifications={notifications}
+                  onMarkRead={onMarkNotificationRead}
+                  onMarkAllRead={onMarkAllNotificationsRead}
+                  onViewAll={onViewNotifications}
+                  onOpenProject={onOpenNotificationProject}
+                />
                 {canAddProject ? (
                   <Button onClick={onAddProject}>
                     <Plus className="h-4 w-4" />

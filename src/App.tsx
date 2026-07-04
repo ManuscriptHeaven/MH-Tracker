@@ -10,6 +10,7 @@ import { TeamPage } from './pages/TeamPage';
 import { RevisionsPage } from './pages/RevisionsPage';
 import { PaymentsPage } from './pages/PaymentsPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { NotificationsPage } from './pages/NotificationsPage';
 import { useTracker } from './lib/useTracker';
 import { errorMessage } from './lib/utils';
 import type { Project, ProjectDraft } from './lib/types';
@@ -53,6 +54,15 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    if (!tracker.notificationToast) {
+      return;
+    }
+
+    setToast({ message: tracker.notificationToast.message, tone: 'success' });
+    tracker.clearNotificationToast();
+  }, [tracker.notificationToast, tracker.clearNotificationToast]);
+
   async function handleSaveProject(draft: ProjectDraft) {
     try {
       if (editingProject) {
@@ -81,6 +91,17 @@ export default function App() {
   function openEditProject(project: Project) {
     setEditingProject(project);
     setShowProjectForm(true);
+  }
+
+  function openProjectById(projectId: string) {
+    const project = visibleProjects.find((item) => item.id === projectId);
+
+    if (!project) {
+      setToast({ message: 'Project is not visible for this user.', tone: 'error' });
+      return;
+    }
+
+    setSelectedProject(project);
   }
 
   async function deleteProject(project: Project) {
@@ -135,6 +156,10 @@ export default function App() {
       searchTerm={searchTerm}
       setSearchTerm={setSearchTerm}
       onAddProject={openAddProject}
+      onMarkNotificationRead={tracker.markNotificationRead}
+      onMarkAllNotificationsRead={tracker.markAllNotificationsRead}
+      onViewNotifications={() => setActiveView('notifications')}
+      onOpenNotificationProject={openProjectById}
       onSignOut={tracker.signOut}
     >
       {activeView === 'dashboard' ? (
@@ -166,6 +191,16 @@ export default function App() {
           projects={visibleProjects}
           profiles={tracker.data.profiles}
           onSelectProject={setSelectedProject}
+        />
+      ) : null}
+
+      {activeView === 'notifications' ? (
+        <NotificationsPage
+          notifications={tracker.visibleNotifications}
+          projects={visibleProjects}
+          onMarkRead={tracker.markNotificationRead}
+          onMarkAllRead={tracker.markAllNotificationsRead}
+          onOpenProject={openProjectById}
         />
       ) : null}
 

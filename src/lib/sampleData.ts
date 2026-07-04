@@ -362,8 +362,9 @@ export const sampleActivityLogs: ActivityLog[] = [
 export const sampleNotifications: NotificationItem[] = [
   {
     id: 'notification-001',
-    user_id: 'zain-designer',
+    recipient_id: 'zain-designer',
     project_id: 'project-001',
+    type: 'project_assigned',
     title: 'Project overdue',
     message: 'The Quiet Atlas is overdue and needs attention.',
     is_read: false,
@@ -371,8 +372,9 @@ export const sampleNotifications: NotificationItem[] = [
   },
   {
     id: 'notification-002',
-    user_id: 'hamza-designer',
+    recipient_id: 'hamza-designer',
     project_id: 'project-005',
+    type: 'status_changed',
     title: 'Revision added',
     message: 'A new revision note was added to Quiet Systems Magazine.',
     is_read: false,

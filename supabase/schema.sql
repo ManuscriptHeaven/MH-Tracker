@@ -182,13 +182,44 @@ create table if not exists public.activity_logs (
 
 create table if not exists public.notifications (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid references public.profiles(id) on delete cascade,
+  recipient_id uuid references public.profiles(id) on delete cascade,
   project_id uuid references public.projects(id) on delete cascade,
+  type text not null default 'general',
   title text not null,
   message text not null,
   is_read boolean not null default false,
   created_at timestamptz not null default now()
 );
+
+alter table public.notifications
+add column if not exists recipient_id uuid references public.profiles(id) on delete cascade,
+add column if not exists project_id uuid references public.projects(id) on delete cascade,
+add column if not exists type text not null default 'general',
+add column if not exists title text not null default 'Notification',
+add column if not exists message text not null default '',
+add column if not exists is_read boolean not null default false,
+add column if not exists created_at timestamptz not null default now();
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'notifications'
+      and column_name = 'user_id'
+  ) then
+    update public.notifications
+    set recipient_id = user_id
+    where recipient_id is null;
+  end if;
+end $$;
+
+delete from public.notifications
+where recipient_id is null;
+
+alter table public.notifications
+alter column recipient_id set not null;
 
 create table if not exists public.team_members (
   id uuid primary key default gen_random_uuid(),
@@ -210,7 +241,25 @@ create index if not exists project_payments_payment_status_idx on public.project
 create index if not exists revision_notes_project_id_idx on public.revision_notes(project_id);
 create index if not exists project_notes_project_id_idx on public.project_notes(project_id);
 create index if not exists activity_logs_project_id_idx on public.activity_logs(project_id);
-create index if not exists notifications_user_id_idx on public.notifications(user_id);
+drop index if exists public.notifications_user_id_idx;
+create index if not exists notifications_recipient_id_idx on public.notifications(recipient_id);
+create index if not exists notifications_project_id_idx on public.notifications(project_id);
+
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
+     and not exists (
+       select 1
+       from pg_publication_tables
+       where pubname = 'supabase_realtime'
+         and schemaname = 'public'
+         and tablename = 'notifications'
+     ) then
+    alter publication supabase_realtime add table public.notifications;
+  end if;
+exception
+  when insufficient_privilege then null;
+end $$;
 
 create or replace function public.touch_updated_at()
 returns trigger
@@ -299,6 +348,102 @@ drop trigger if exists log_project_status_change on public.projects;
 create trigger log_project_status_change
 after update on public.projects
 for each row execute function public.log_project_status_change();
+
+create or replace function public.create_project_notifications()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  project_name text := coalesce(new.project_title, 'Untitled Project');
+begin
+  if tg_op = 'INSERT' then
+    if new.assigned_to is not null then
+      insert into public.notifications (
+        recipient_id,
+        project_id,
+        type,
+        title,
+        message
+      )
+      values (
+        new.assigned_to,
+        new.id,
+        'project_assigned',
+        'New Project Assigned',
+        'You have been assigned a new project: ' || project_name || '.'
+      );
+    end if;
+
+    return new;
+  end if;
+
+  if new.assigned_to is not null
+     and old.assigned_to is distinct from new.assigned_to then
+    insert into public.notifications (
+      recipient_id,
+      project_id,
+      type,
+      title,
+      message
+    )
+    values (
+      new.assigned_to,
+      new.id,
+      'project_assigned',
+      'New Project Assigned',
+      'You have been assigned a new project: ' || project_name || '.'
+    );
+  end if;
+
+  if old.assigned_to is not null
+     and old.assigned_to is distinct from new.assigned_to then
+    insert into public.notifications (
+      recipient_id,
+      project_id,
+      type,
+      title,
+      message
+    )
+    values (
+      old.assigned_to,
+      new.id,
+      'project_reassigned',
+      'Project Reassigned',
+      'Project ' || project_name || ' was reassigned to another employee.'
+    );
+  end if;
+
+  if old.status is distinct from new.status then
+    insert into public.notifications (
+      recipient_id,
+      project_id,
+      type,
+      title,
+      message
+    )
+    select
+      p.id,
+      new.id,
+      'status_changed',
+      'Project Status Updated',
+      'Project ' || project_name ||
+      ' status changed from ' || coalesce(old.status::text, 'No Status') ||
+      ' to ' || coalesce(new.status::text, 'No Status') || '.'
+    from public.profiles p
+    where p.status = 'active'
+      and p.role::text in ('admin', 'manager', 'project_manager');
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists project_notifications_trigger on public.projects;
+create trigger project_notifications_trigger
+after insert or update on public.projects
+for each row execute function public.create_project_notifications();
 
 create or replace function public.create_profile_for_new_auth_user()
 returns trigger
@@ -409,6 +554,7 @@ revoke all on function public.current_user_role() from public;
 revoke all on function public.can_manage_all_projects() from public;
 revoke all on function public.project_is_visible(public.projects) from public;
 revoke all on function public.find_login_email(text) from public;
+revoke all on function public.create_project_notifications() from public;
 grant execute on function public.current_user_role() to authenticated;
 grant execute on function public.can_manage_all_projects() to authenticated;
 grant execute on function public.project_is_visible(public.projects) to authenticated;
@@ -597,26 +743,30 @@ with check (
 );
 
 drop policy if exists "Users can read own notifications" on public.notifications;
-create policy "Users can read own notifications"
+drop policy if exists "Users can view their own notifications" on public.notifications;
+create policy "Users can view their own notifications"
 on public.notifications
 for select
 to authenticated
-using (user_id = auth.uid());
+using (recipient_id = auth.uid());
 
 drop policy if exists "Users can update own notifications" on public.notifications;
-create policy "Users can update own notifications"
+drop policy if exists "Users can update their own notifications" on public.notifications;
+create policy "Users can update their own notifications"
 on public.notifications
 for update
 to authenticated
-using (user_id = auth.uid())
-with check (user_id = auth.uid());
+using (recipient_id = auth.uid())
+with check (recipient_id = auth.uid());
 
 drop policy if exists "Managers can create notifications" on public.notifications;
-create policy "Managers can create notifications"
+drop policy if exists "Users can delete own notifications" on public.notifications;
+drop policy if exists "Users can delete their own notifications" on public.notifications;
+create policy "Users can delete their own notifications"
 on public.notifications
-for insert
+for delete
 to authenticated
-with check (public.can_manage_all_projects());
+using (recipient_id = auth.uid());
 
 drop policy if exists "Managers can read team members" on public.team_members;
 create policy "Managers can read team members"

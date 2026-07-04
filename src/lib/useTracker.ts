@@ -2,8 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from './supabase';
 import { sampleData, sampleProfiles } from './sampleData';
 import { firstName, isManagerRole } from './utils';
+import {
+  fetchNotifications,
+  markAllNotificationsAsRead,
+  markNotificationAsRead,
+  subscribeToNotifications,
+} from './notifications';
 import type {
   ActivityLog,
+  NotificationItem,
   NoteType,
   Profile,
   Project,
@@ -240,6 +247,7 @@ export function useTracker() {
   const [data, setData] = useState<TrackerData>(sampleData);
   const [isLoading, setIsLoading] = useState(Boolean(supabase));
   const [error, setError] = useState<string | null>(null);
+  const [notificationToast, setNotificationToast] = useState<NotificationItem | null>(null);
 
   const loadSupabaseData = useCallback(async (profile: Profile) => {
     if (!supabase) {
@@ -253,7 +261,7 @@ export function useTracker() {
       ? supabase.from('project_payments').select('*')
       : Promise.resolve({ data: [], error: null });
 
-    const [profilesRes, projectsRes, paymentsRes, revisionsRes, notesRes, activityRes, notificationsRes] =
+    const [profilesRes, projectsRes, paymentsRes, revisionsRes, notesRes, activityRes, notifications] =
       await Promise.all([
         supabase.from('profiles').select('*').order('full_name'),
         supabase.from('projects').select('*').order('due_date'),
@@ -261,11 +269,7 @@ export function useTracker() {
         supabase.from('revision_notes').select('*').order('created_at', { ascending: false }),
         supabase.from('project_notes').select('*').order('created_at', { ascending: false }),
         supabase.from('activity_logs').select('*').order('created_at', { ascending: false }),
-        supabase
-          .from('notifications')
-          .select('*')
-          .eq('user_id', profile.id)
-          .order('created_at', { ascending: false }),
+        fetchNotifications(profile.id),
       ]);
 
     const firstError =
@@ -274,8 +278,7 @@ export function useTracker() {
       paymentsRes.error ||
       revisionsRes.error ||
       notesRes.error ||
-      activityRes.error ||
-      notificationsRes.error;
+      activityRes.error;
 
     if (firstError) {
       throw firstError;
@@ -290,7 +293,7 @@ export function useTracker() {
       revisionNotes: (revisionsRes.data || []) as RevisionNote[],
       projectNotes: (notesRes.data || []) as ProjectNote[],
       activityLogs: (activityRes.data || []) as ActivityLog[],
-      notifications: (notificationsRes.data || []) as TrackerData['notifications'],
+      notifications,
     });
 
     setIsLoading(false);
@@ -379,6 +382,45 @@ export function useTracker() {
       authListener?.data.subscription.unsubscribe();
     };
   }, [fetchProfile, loadSupabaseData]);
+
+  useEffect(() => {
+    const supabaseClient = supabase;
+
+    if (!supabaseClient || mode !== 'supabase' || !currentProfile) {
+      return undefined;
+    }
+
+    const subscription = subscribeToNotifications({
+      userId: currentProfile.id,
+      onInserted: (notification) => {
+        setData((previous) => {
+          const exists = previous.notifications.some((item) => item.id === notification.id);
+
+          return {
+            ...previous,
+            notifications: exists
+              ? previous.notifications
+              : [notification, ...previous.notifications].sort(
+                  (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+                ),
+          };
+        });
+        setNotificationToast(notification);
+      },
+      onUpdated: (notification) => {
+        setData((previous) => ({
+          ...previous,
+          notifications: previous.notifications.map((item) => (item.id === notification.id ? notification : item)),
+        }));
+      },
+    });
+
+    return () => {
+      if (subscription) {
+        supabaseClient.removeChannel(subscription);
+      }
+    };
+  }, [currentProfile, mode]);
 
   const login = useCallback(
     async (loginName: string, password: string) => {
@@ -850,11 +892,32 @@ export function useTracker() {
       }));
 
       if (supabase && mode === 'supabase') {
-        await supabase.from('notifications').update({ is_read: true }).eq('id', notificationId);
+        await markNotificationAsRead(notificationId);
       }
     },
     [mode],
   );
+
+  const markAllNotificationsRead = useCallback(async () => {
+    if (!currentProfile) {
+      return;
+    }
+
+    setData((previous) => ({
+      ...previous,
+      notifications: previous.notifications.map((notification) =>
+        notification.recipient_id === currentProfile.id ? { ...notification, is_read: true } : notification,
+      ),
+    }));
+
+    if (supabase && mode === 'supabase') {
+      await markAllNotificationsAsRead(currentProfile.id);
+    }
+  }, [currentProfile, mode]);
+
+  const clearNotificationToast = useCallback(() => {
+    setNotificationToast(null);
+  }, []);
 
   const canManageAll = canManageEverything(currentProfile);
 
@@ -875,7 +938,7 @@ export function useTracker() {
       return [];
     }
 
-    return data.notifications.filter((notification) => notification.user_id === currentProfile.id);
+    return data.notifications.filter((notification) => notification.recipient_id === currentProfile.id);
   }, [currentProfile, data.notifications]);
 
   return {
@@ -900,5 +963,8 @@ export function useTracker() {
     addRevision,
     addNote,
     markNotificationRead,
+    markAllNotificationsRead,
+    notificationToast,
+    clearNotificationToast,
   };
 }
