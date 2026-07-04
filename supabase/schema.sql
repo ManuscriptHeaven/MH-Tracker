@@ -639,7 +639,7 @@ insert into public.team_members (full_name, email, role, phone, status)
 values
   ('Tahir', 'tahir@manuscriptheaven.com', 'admin', '', 'active'),
   ('Atia', 'atia@manuscriptheaven.com', 'project_manager', '', 'active'),
-  ('Zain', 'zain@manuscriptheaven.com', 'employee', '', 'active'),
+  ('Zain', 'hafizainali313@gmail.com', 'employee', '', 'active'),
   ('Hamza', 'hamza@manuscriptheaven.com', 'employee', '', 'active'),
   ('Irfan', 'irfan@manuscriptheaven.com', 'junior_assistant', '', 'active')
 on conflict (email) do update set

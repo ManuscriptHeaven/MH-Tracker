@@ -27,7 +27,7 @@ export const sampleProfiles: Profile[] = [
   {
     id: 'zain-designer',
     full_name: 'Zain',
-    email: 'zain@manuscriptheaven.com',
+    email: 'hafizainali313@gmail.com',
     role: 'employee',
     phone: '+1 555 0103',
     status: 'active',
