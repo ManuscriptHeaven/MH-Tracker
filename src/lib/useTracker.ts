@@ -157,11 +157,14 @@ async function upsertProjectPayment(
     return;
   }
 
-  const { error } = await supabase.from('project_payments').upsert({
-    project_id: projectId,
-    ...paymentPayload(project),
-    updated_by: updatedBy,
-  });
+  const { error } = await supabase.from('project_payments').upsert(
+    {
+      project_id: projectId,
+      ...paymentPayload(project),
+      updated_by: updatedBy,
+    },
+    { onConflict: 'project_id' },
+  );
 
   if (!error) {
     return;
@@ -171,11 +174,14 @@ async function upsertProjectPayment(
     throw error;
   }
 
-  const { error: fallbackError } = await supabase.from('project_payments').upsert({
-    project_id: projectId,
-    ...basePaymentPayload(project),
-    updated_by: updatedBy,
-  });
+  const { error: fallbackError } = await supabase.from('project_payments').upsert(
+    {
+      project_id: projectId,
+      ...basePaymentPayload(project),
+      updated_by: updatedBy,
+    },
+    { onConflict: 'project_id' },
+  );
 
   if (fallbackError) {
     throw fallbackError;
