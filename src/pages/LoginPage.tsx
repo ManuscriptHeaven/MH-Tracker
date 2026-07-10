@@ -97,7 +97,7 @@ export function LoginPage({
             <div className="mt-6 border-t border-border pt-5">
               <p className="mb-3 text-sm font-semibold text-muted">Preview as</p>
               <div className="grid gap-2 sm:grid-cols-2">
-                {(['admin', 'project_manager', 'employee', 'junior_assistant'] as Role[]).map((role) => (
+                {(['admin', 'project_manager', 'employee', 'junior_assistant', 'client'] as Role[]).map((role) => (
                   <button
                     key={role}
                     onClick={() => onDemoLogin(role)}

@@ -15,7 +15,7 @@ import {
   Users,
 } from 'lucide-react';
 import { roleLabels } from '../lib/constants';
-import { initials, cn, firstName, isManagerRole } from '../lib/utils';
+import { initials, cn, firstName, isClientRole, isManagerRole } from '../lib/utils';
 import type { NotificationItem, Profile } from '../lib/types';
 import { Button, IconButton } from './ui';
 import { NotificationBell } from './NotificationBell';
@@ -28,6 +28,7 @@ export type ViewKey =
   | 'revisions'
   | 'notifications'
   | 'team'
+  | 'clients'
   | 'delivered'
   | 'payments'
   | 'settings';
@@ -40,6 +41,7 @@ const navItems = [
   { id: 'revisions', label: 'Revisions', icon: Repeat2 },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'team', label: 'Team', icon: Users, managersOnly: true },
+  { id: 'clients', label: 'Clients', icon: Users, adminOnly: true },
   { id: 'delivered', label: 'Delivered', icon: PackageCheck },
   { id: 'payments', label: 'Payments', icon: CreditCard, managersOnly: true },
   { id: 'settings', label: 'Settings', icon: Settings },
@@ -76,8 +78,19 @@ export function Layout({
 }) {
   const canAddProject = isManagerRole(currentProfile.role);
   const canManageAll = isManagerRole(currentProfile.role);
+  const isClient = isClientRole(currentProfile.role);
   const displayName = firstName(currentProfile.full_name);
-  const visibleNavItems = navItems.filter((item) => !('managersOnly' in item) || !item.managersOnly || canManageAll);
+  const visibleNavItems = navItems.filter((item) => {
+    if (isClient) {
+      return item.id === 'dashboard' || item.id === 'notifications' || item.id === 'settings';
+    }
+
+    if ('adminOnly' in item && item.adminOnly) {
+      return currentProfile.role === 'admin';
+    }
+
+    return !('managersOnly' in item) || !item.managersOnly || canManageAll;
+  });
 
   return (
     <div className="min-h-screen bg-linen text-ink">
@@ -151,7 +164,7 @@ export function Layout({
                 <input
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
-                  placeholder="Search projects or clients"
+                  placeholder={isClient ? 'Search your projects' : 'Search projects or clients'}
                   className="h-11 w-full rounded-md border border-border bg-white pl-10 pr-3 text-sm focus:border-gold"
                 />
               </label>

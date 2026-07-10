@@ -11,8 +11,11 @@ import { RevisionsPage } from './pages/RevisionsPage';
 import { PaymentsPage } from './pages/PaymentsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { NotificationsPage } from './pages/NotificationsPage';
+import { ClientPortalPage } from './pages/ClientPortalPage';
+import { ClientAccessPage } from './pages/ClientAccessPage';
+import { RevisionRequestsPage } from './pages/RevisionRequestsPage';
 import { useTracker } from './lib/useTracker';
-import { errorMessage } from './lib/utils';
+import { errorMessage, isClientRole } from './lib/utils';
 import type { Project, ProjectDraft } from './lib/types';
 
 export default function App() {
@@ -37,13 +40,20 @@ export default function App() {
     ? tracker.data.projects.filter((project) => project.assigned_to === tracker.currentProfile?.id)
     : [];
   const deliveredProjects = visibleProjects.filter((project) => project.status === 'Delivered');
+  const isClient = tracker.currentProfile ? isClientRole(tracker.currentProfile.role) : false;
 
   useEffect(() => {
-    const managerOnlyViews: ViewKey[] = ['team', 'payments'];
+    const managerOnlyViews: ViewKey[] = ['team', 'clients', 'payments'];
     if (!tracker.canManageAll && managerOnlyViews.includes(activeView)) {
       setActiveView('dashboard');
     }
-  }, [activeView, tracker.canManageAll]);
+    if (activeView === 'clients' && tracker.currentProfile?.role !== 'admin') {
+      setActiveView('dashboard');
+    }
+    if (isClient && !['dashboard', 'notifications', 'settings'].includes(activeView)) {
+      setActiveView('dashboard');
+    }
+  }, [activeView, isClient, tracker.canManageAll]);
 
   useEffect(() => {
     if (!toast) {
@@ -162,7 +172,25 @@ export default function App() {
       onOpenNotificationProject={openProjectById}
       onSignOut={tracker.signOut}
     >
-      {activeView === 'dashboard' ? (
+      {activeView === 'dashboard' && isClient ? (
+        <ClientPortalPage
+          projects={visibleProjects}
+          revisionRequests={tracker.data.revisionRequests}
+          revisionItems={tracker.data.revisionItems}
+          revisionAttachments={tracker.data.revisionAttachments}
+          notifications={tracker.visibleNotifications}
+          onCreateRevisionRequest={async (draft) => {
+            await tracker.createRevisionRequest(draft);
+            setToast({ message: 'Revision request submitted.', tone: 'success' });
+          }}
+          onRespondToRevision={async (requestId, decision) => {
+            await tracker.respondToRevisionRequest(requestId, decision);
+            setToast({ message: 'Revision response saved.', tone: 'success' });
+          }}
+        />
+      ) : null}
+
+      {activeView === 'dashboard' && !isClient ? (
         <DashboardPage
           projects={visibleProjects}
           profiles={tracker.data.profiles}
@@ -183,15 +211,32 @@ export default function App() {
         <CalendarPage projects={visibleProjects} onSelectProject={setSelectedProject} />
       ) : null}
 
-      {activeView === 'revisions' ? (
-        <RevisionsPage
-          revisions={tracker.data.revisionNotes.filter((revision) =>
-            visibleProjects.some((project) => project.id === revision.project_id),
-          )}
-          projects={visibleProjects}
-          profiles={tracker.data.profiles}
-          onSelectProject={setSelectedProject}
-        />
+      {activeView === 'revisions' && !isClient ? (
+        <div className="space-y-6">
+          <RevisionRequestsPage
+            revisionRequests={tracker.data.revisionRequests}
+            revisionItems={tracker.data.revisionItems}
+            revisionAttachments={tracker.data.revisionAttachments}
+            revisionActivity={tracker.data.revisionActivity}
+            projects={visibleProjects}
+            profiles={tracker.data.profiles}
+            currentProfile={tracker.currentProfile}
+            canManageAll={tracker.canManageAll}
+            onUpdateRequest={tracker.updateRevisionRequest}
+            onUpdateItem={tracker.updateRevisionItem}
+            onUploadRevisedProof={tracker.uploadRevisedProof}
+          />
+          {tracker.data.revisionNotes.length ? (
+            <RevisionsPage
+              revisions={tracker.data.revisionNotes.filter((revision) =>
+                visibleProjects.some((project) => project.id === revision.project_id),
+              )}
+              projects={visibleProjects}
+              profiles={tracker.data.profiles}
+              onSelectProject={setSelectedProject}
+            />
+          ) : null}
+        </div>
       ) : null}
 
       {activeView === 'notifications' ? (
@@ -206,6 +251,15 @@ export default function App() {
 
       {activeView === 'team' ? (
         <TeamPage profiles={tracker.data.profiles} projects={visibleProjects} />
+      ) : null}
+
+      {activeView === 'clients' && tracker.currentProfile.role === 'admin' ? (
+        <ClientAccessPage
+          profiles={tracker.data.profiles}
+          projects={tracker.data.projects}
+          clientProjectAccess={tracker.data.clientProjectAccess}
+          onInviteClient={tracker.inviteClient}
+        />
       ) : null}
 
       {activeView === 'delivered' ? (
@@ -240,7 +294,7 @@ export default function App() {
         />
       ) : null}
 
-      {selectedProjectFresh ? (
+      {selectedProjectFresh && !isClient ? (
         <ProjectDetail
           project={selectedProjectFresh}
           profiles={tracker.data.profiles}

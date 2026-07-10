@@ -30,6 +30,10 @@ export function isManagerRole(role: Role | null | undefined) {
   return role === 'admin' || role === 'manager' || role === 'project_manager';
 }
 
+export function isClientRole(role: Role | null | undefined) {
+  return role === 'client';
+}
+
 export function errorMessage(error: unknown, fallback = 'Something went wrong.') {
   if (error instanceof Error && error.message) {
     return error.message;

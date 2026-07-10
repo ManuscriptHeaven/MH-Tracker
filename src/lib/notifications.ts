@@ -13,6 +13,7 @@ function normalizeNotification(row: NotificationRow): NotificationItem {
     id: row.id,
     recipient_id: row.recipient_id || row.user_id || '',
     project_id: row.project_id || null,
+    revision_request_id: row.revision_request_id || null,
     type: row.type || 'general',
     title: row.title || 'Notification',
     message: row.message || '',

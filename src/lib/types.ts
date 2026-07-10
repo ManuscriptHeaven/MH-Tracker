@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'manager' | 'project_manager' | 'employee' | 'junior_assistant';
+export type Role = 'admin' | 'manager' | 'project_manager' | 'employee' | 'junior_assistant' | 'client';
 
 export type ProjectStatus =
   | 'New'
@@ -30,6 +30,20 @@ export type PaymentStatus =
   | 'Refunded';
 
 export type RevisionStatus = 'Pending' | 'In Progress' | 'Completed';
+
+export type ClientRevisionPriority = 'Normal' | 'Important' | 'Urgent';
+
+export type ClientRevisionStatus =
+  | 'Submitted'
+  | 'Under Review'
+  | 'Assigned'
+  | 'In Progress'
+  | 'Ready for Client Review'
+  | 'Additional Revision Required'
+  | 'Approved'
+  | 'Completed';
+
+export type RevisionItemStatus = 'Open' | 'Under Review' | 'In Progress' | 'Completed';
 
 export type NoteType = 'general' | 'internal' | 'client_instruction' | 'qa' | 'delivery' | 'work';
 
@@ -148,11 +162,92 @@ export interface NotificationItem {
   id: string;
   recipient_id: string;
   project_id: string | null;
+  revision_request_id?: string | null;
   type: string;
   title: string;
   message: string;
   is_read: boolean;
   created_at: string;
+}
+
+export interface ClientProjectAccess {
+  id: string;
+  client_id: string;
+  project_id: string;
+  created_at: string;
+}
+
+export interface RevisionRequest {
+  id: string;
+  project_id: string;
+  client_id: string;
+  title: string;
+  description: string;
+  priority: ClientRevisionPriority;
+  status: ClientRevisionStatus;
+  assigned_to: string | null;
+  submitted_at: string;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RevisionItem {
+  id: string;
+  revision_request_id: string;
+  sort_order: number;
+  page_reference: string;
+  instruction: string;
+  status: RevisionItemStatus;
+  client_attachment_url: string | null;
+  team_response: string | null;
+  internal_note?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RevisionAttachment {
+  id: string;
+  revision_request_id: string;
+  revision_item_id: string | null;
+  file_name: string;
+  file_url: string;
+  file_type: string;
+  uploaded_by: string;
+  created_at: string;
+}
+
+export interface RevisionActivity {
+  id: string;
+  revision_request_id: string;
+  user_id: string | null;
+  action: string;
+  previous_value: string | null;
+  new_value: string | null;
+  created_at: string;
+}
+
+export interface RevisionRequestItemDraft {
+  page_reference: string;
+  instruction: string;
+  client_attachment_url?: string | null;
+  attachment_file?: File | null;
+}
+
+export interface RevisionRequestDraft {
+  project_id: string;
+  title: string;
+  description: string;
+  priority: ClientRevisionPriority;
+  items: RevisionRequestItemDraft[];
+  attachments?: File[];
+}
+
+export interface ClientInviteDraft {
+  full_name: string;
+  email: string;
+  project_ids: string[];
+  status?: 'active' | 'inactive';
 }
 
 export interface TrackerData {
@@ -162,4 +257,9 @@ export interface TrackerData {
   projectNotes: ProjectNote[];
   activityLogs: ActivityLog[];
   notifications: NotificationItem[];
+  clientProjectAccess: ClientProjectAccess[];
+  revisionRequests: RevisionRequest[];
+  revisionItems: RevisionItem[];
+  revisionAttachments: RevisionAttachment[];
+  revisionActivity: RevisionActivity[];
 }

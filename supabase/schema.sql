@@ -16,6 +16,13 @@ end $$;
 
 do $$
 begin
+  alter type public.app_role add value if not exists 'client';
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$
+begin
   create type public.project_priority as enum ('Low', 'Normal', 'High', 'Urgent');
 exception
   when duplicate_object then null;
@@ -184,6 +191,7 @@ create table if not exists public.notifications (
   id uuid primary key default gen_random_uuid(),
   recipient_id uuid references public.profiles(id) on delete cascade,
   project_id uuid references public.projects(id) on delete cascade,
+  revision_request_id uuid,
   type text not null default 'general',
   title text not null,
   message text not null,
@@ -194,6 +202,7 @@ create table if not exists public.notifications (
 alter table public.notifications
 add column if not exists recipient_id uuid references public.profiles(id) on delete cascade,
 add column if not exists project_id uuid references public.projects(id) on delete cascade,
+add column if not exists revision_request_id uuid,
 add column if not exists type text not null default 'general',
 add column if not exists title text not null default 'Notification',
 add column if not exists message text not null default '',
@@ -221,6 +230,76 @@ where recipient_id is null;
 alter table public.notifications
 alter column recipient_id set not null;
 
+create table if not exists public.client_project_access (
+  id uuid primary key default gen_random_uuid(),
+  client_id uuid not null references public.profiles(id) on delete cascade,
+  project_id uuid not null references public.projects(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (client_id, project_id)
+);
+
+create table if not exists public.revision_requests (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  client_id uuid not null references public.profiles(id) on delete cascade,
+  title text not null,
+  description text not null default '',
+  priority text not null default 'Normal'
+    check (priority in ('Normal', 'Important', 'Urgent')),
+  status text not null default 'Submitted'
+    check (status in (
+      'Submitted',
+      'Under Review',
+      'Assigned',
+      'In Progress',
+      'Ready for Client Review',
+      'Additional Revision Required',
+      'Approved',
+      'Completed'
+    )),
+  assigned_to uuid references public.profiles(id) on delete set null,
+  submitted_at timestamptz not null default now(),
+  completed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.revision_items (
+  id uuid primary key default gen_random_uuid(),
+  revision_request_id uuid not null references public.revision_requests(id) on delete cascade,
+  sort_order integer not null default 1,
+  page_reference text not null default '',
+  instruction text not null,
+  status text not null default 'Open'
+    check (status in ('Open', 'Under Review', 'In Progress', 'Completed')),
+  client_attachment_url text,
+  team_response text,
+  internal_note text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.revision_attachments (
+  id uuid primary key default gen_random_uuid(),
+  revision_request_id uuid not null references public.revision_requests(id) on delete cascade,
+  revision_item_id uuid references public.revision_items(id) on delete cascade,
+  file_name text not null,
+  file_url text not null,
+  file_type text not null default 'client_attachment',
+  uploaded_by uuid not null references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.revision_activity (
+  id uuid primary key default gen_random_uuid(),
+  revision_request_id uuid not null references public.revision_requests(id) on delete cascade,
+  user_id uuid references public.profiles(id) on delete set null,
+  action text not null,
+  previous_value text,
+  new_value text,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.team_members (
   id uuid primary key default gen_random_uuid(),
   full_name text not null,
@@ -244,6 +323,16 @@ create index if not exists activity_logs_project_id_idx on public.activity_logs(
 drop index if exists public.notifications_user_id_idx;
 create index if not exists notifications_recipient_id_idx on public.notifications(recipient_id);
 create index if not exists notifications_project_id_idx on public.notifications(project_id);
+create index if not exists notifications_revision_request_id_idx on public.notifications(revision_request_id);
+create index if not exists client_project_access_client_id_idx on public.client_project_access(client_id);
+create index if not exists client_project_access_project_id_idx on public.client_project_access(project_id);
+create index if not exists revision_requests_project_id_idx on public.revision_requests(project_id);
+create index if not exists revision_requests_client_id_idx on public.revision_requests(client_id);
+create index if not exists revision_requests_assigned_to_idx on public.revision_requests(assigned_to);
+create index if not exists revision_requests_status_idx on public.revision_requests(status);
+create index if not exists revision_items_request_id_idx on public.revision_items(revision_request_id);
+create index if not exists revision_attachments_request_id_idx on public.revision_attachments(revision_request_id);
+create index if not exists revision_activity_request_id_idx on public.revision_activity(revision_request_id);
 
 do $$
 begin
@@ -286,6 +375,16 @@ create trigger touch_project_payments_updated_at
 before update on public.project_payments
 for each row execute function public.touch_updated_at();
 
+drop trigger if exists touch_revision_requests_updated_at on public.revision_requests;
+create trigger touch_revision_requests_updated_at
+before update on public.revision_requests
+for each row execute function public.touch_updated_at();
+
+drop trigger if exists touch_revision_items_updated_at on public.revision_items;
+create trigger touch_revision_items_updated_at
+before update on public.revision_items
+for each row execute function public.touch_updated_at();
+
 create or replace function public.current_user_role()
 returns public.app_role
 language sql
@@ -322,6 +421,130 @@ as $$
     or project_row.assigned_to = auth.uid()
     or project_row.project_manager = auth.uid();
 $$;
+
+create or replace function public.current_user_is_client()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.current_user_role()::text = 'client';
+$$;
+
+create or replace function public.client_has_project_access(project_id uuid, client_id uuid default auth.uid())
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.client_project_access access
+    join public.profiles client on client.id = access.client_id
+    where access.project_id = client_has_project_access.project_id
+      and access.client_id = client_has_project_access.client_id
+      and client.role::text = 'client'
+      and client.status = 'active'
+  );
+$$;
+
+create or replace function public.user_can_access_revision_request(request_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.revision_requests request
+    where request.id = user_can_access_revision_request.request_id
+      and (
+        public.can_manage_all_projects()
+        or request.assigned_to = auth.uid()
+        or request.client_id = auth.uid()
+      )
+  );
+$$;
+
+create or replace view public.client_project_summaries as
+select
+  project.id,
+  project.project_number,
+  project.project_title,
+  project.client_name,
+  project.client_email,
+  project.service_type,
+  project.due_date,
+  project.status,
+  project.proof_pdf_link,
+  project.final_print_pdf_link,
+  project.final_ebook_link,
+  project.cover_file_link,
+  project.updated_at
+from public.projects project
+where public.client_has_project_access(project.id, auth.uid());
+
+create or replace view public.client_revision_requests as
+select
+  request.id,
+  request.project_id,
+  request.client_id,
+  request.title,
+  request.description,
+  request.priority,
+  request.status,
+  request.submitted_at,
+  request.completed_at,
+  request.created_at,
+  request.updated_at
+from public.revision_requests request
+where request.client_id = auth.uid();
+
+create or replace view public.client_revision_items as
+select
+  item.id,
+  item.revision_request_id,
+  item.sort_order,
+  item.page_reference,
+  item.instruction,
+  item.status,
+  item.client_attachment_url,
+  item.team_response,
+  item.created_at,
+  item.updated_at
+from public.revision_items item
+join public.revision_requests request on request.id = item.revision_request_id
+where request.client_id = auth.uid();
+
+create or replace view public.client_revision_attachments as
+select
+  attachment.id,
+  attachment.revision_request_id,
+  attachment.revision_item_id,
+  attachment.file_name,
+  attachment.file_url,
+  attachment.file_type,
+  attachment.uploaded_by,
+  attachment.created_at
+from public.revision_attachments attachment
+join public.revision_requests request on request.id = attachment.revision_request_id
+where request.client_id = auth.uid();
+
+create or replace view public.client_revision_activity as
+select
+  activity.id,
+  activity.revision_request_id,
+  activity.user_id,
+  activity.action,
+  activity.previous_value,
+  activity.new_value,
+  activity.created_at
+from public.revision_activity activity
+join public.revision_requests request on request.id = activity.revision_request_id
+where request.client_id = auth.uid();
 
 create or replace function public.log_project_status_change()
 returns trigger
@@ -445,6 +668,238 @@ create trigger project_notifications_trigger
 after insert or update on public.projects
 for each row execute function public.create_project_notifications();
 
+create or replace function public.notify_revision_watchers()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  project_name text;
+  client_name text;
+begin
+  select project_title into project_name
+  from public.projects
+  where id = new.project_id;
+
+  select full_name into client_name
+  from public.profiles
+  where id = new.client_id;
+
+  if tg_op = 'INSERT' then
+    insert into public.revision_activity (revision_request_id, user_id, action, previous_value, new_value)
+    values (new.id, auth.uid(), 'Revision submitted', null, new.title);
+
+    insert into public.notifications (
+      recipient_id,
+      project_id,
+      revision_request_id,
+      type,
+      title,
+      message
+    )
+    select
+      profile.id,
+      new.project_id,
+      new.id,
+      'revision_submitted',
+      'Client Revision Submitted',
+      coalesce(client_name, 'A client') || ' submitted a revision request for ' ||
+        coalesce(project_name, 'a project') || ': ' || new.title || '.'
+    from public.profiles profile
+    where profile.status = 'active'
+      and profile.role::text in ('admin', 'manager', 'project_manager');
+
+    return new;
+  end if;
+
+  if old.assigned_to is distinct from new.assigned_to and new.assigned_to is not null then
+    insert into public.revision_activity (revision_request_id, user_id, action, previous_value, new_value)
+    values (new.id, auth.uid(), 'Assigned employee changed', old.assigned_to::text, new.assigned_to::text);
+
+    insert into public.notifications (
+      recipient_id,
+      project_id,
+      revision_request_id,
+      type,
+      title,
+      message
+    )
+    values (
+      new.assigned_to,
+      new.project_id,
+      new.id,
+      'revision_assigned',
+      'Revision Assigned',
+      'You have been assigned a revision request for ' || coalesce(project_name, 'a project') || '.'
+    );
+  end if;
+
+  if old.status is distinct from new.status then
+    insert into public.revision_activity (revision_request_id, user_id, action, previous_value, new_value)
+    values (new.id, auth.uid(), 'Revision status changed', old.status, new.status);
+
+    insert into public.notifications (
+      recipient_id,
+      project_id,
+      revision_request_id,
+      type,
+      title,
+      message
+    )
+    values (
+      new.client_id,
+      new.project_id,
+      new.id,
+      'revision_status_changed',
+      'Revision Status Updated',
+      'Your revision request for ' || coalesce(project_name, 'a project') ||
+        ' changed from ' || old.status || ' to ' || new.status || '.'
+    );
+
+    if new.status in ('Additional Revision Required', 'Approved') then
+      insert into public.notifications (
+        recipient_id,
+        project_id,
+        revision_request_id,
+        type,
+        title,
+        message
+      )
+      select distinct
+        profile.id,
+        new.project_id,
+        new.id,
+        case when new.status = 'Approved' then 'revision_approved' else 'additional_revision_required' end,
+        case when new.status = 'Approved' then 'Revision Approved' else 'Additional Revision Required' end,
+        coalesce(client_name, 'The client') || ' marked revision "' || new.title || '" as ' || new.status || '.'
+      from public.profiles profile
+      where profile.status = 'active'
+        and (
+          profile.role::text in ('admin', 'manager', 'project_manager')
+          or profile.id = new.assigned_to
+        );
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+create or replace function public.set_revision_completed_at()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.status in ('Approved', 'Completed') and old.status is distinct from new.status and new.completed_at is null then
+    new.completed_at := now();
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists set_revision_completed_at_trigger on public.revision_requests;
+create trigger set_revision_completed_at_trigger
+before update on public.revision_requests
+for each row execute function public.set_revision_completed_at();
+
+drop trigger if exists revision_request_notifications_trigger on public.revision_requests;
+create trigger revision_request_notifications_trigger
+after insert or update on public.revision_requests
+for each row execute function public.notify_revision_watchers();
+
+create or replace function public.notify_revised_proof_uploaded()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  request_row public.revision_requests%rowtype;
+  project_name text;
+begin
+  if new.file_type <> 'revised_proof' then
+    return new;
+  end if;
+
+  select * into request_row
+  from public.revision_requests
+  where id = new.revision_request_id;
+
+  select project_title into project_name
+  from public.projects
+  where id = request_row.project_id;
+
+  insert into public.revision_activity (revision_request_id, user_id, action, previous_value, new_value)
+  values (new.revision_request_id, new.uploaded_by, 'Revised proof uploaded', null, new.file_name);
+
+  insert into public.notifications (
+    recipient_id,
+    project_id,
+    revision_request_id,
+    type,
+    title,
+    message
+  )
+  values (
+    request_row.client_id,
+    request_row.project_id,
+    request_row.id,
+    'revised_proof_uploaded',
+    'Revised Proof Uploaded',
+    'A revised proof was uploaded for ' || coalesce(project_name, 'your project') || '.'
+  );
+
+  return new;
+end;
+$$;
+
+drop trigger if exists revised_proof_uploaded_trigger on public.revision_attachments;
+create trigger revised_proof_uploaded_trigger
+after insert on public.revision_attachments
+for each row execute function public.notify_revised_proof_uploaded();
+
+create or replace function public.client_respond_revision(request_id uuid, decision text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  request_row public.revision_requests%rowtype;
+  next_status text;
+begin
+  if decision not in ('Approved', 'Additional Revision Required') then
+    raise exception 'Invalid revision decision.';
+  end if;
+
+  select * into request_row
+  from public.revision_requests
+  where id = request_id
+    and client_id = auth.uid()
+  for update;
+
+  if not found then
+    raise exception 'Revision request not found.';
+  end if;
+
+  if request_row.status <> 'Ready for Client Review' then
+    raise exception 'This revision is not ready for client review yet.';
+  end if;
+
+  next_status := decision;
+
+  update public.revision_requests
+  set
+    status = next_status,
+    completed_at = case when next_status = 'Approved' then now() else completed_at end
+  where id = request_id;
+end;
+$$;
+
 create or replace function public.create_profile_for_new_auth_user()
 returns trigger
 language plpgsql
@@ -529,6 +984,11 @@ alter table public.revision_notes enable row level security;
 alter table public.project_notes enable row level security;
 alter table public.activity_logs enable row level security;
 alter table public.notifications enable row level security;
+alter table public.client_project_access enable row level security;
+alter table public.revision_requests enable row level security;
+alter table public.revision_items enable row level security;
+alter table public.revision_attachments enable row level security;
+alter table public.revision_activity enable row level security;
 alter table public.team_members enable row level security;
 
 grant usage on schema public to anon, authenticated;
@@ -539,7 +999,17 @@ grant select, insert, update, delete on public.revision_notes to authenticated;
 grant select, insert, update, delete on public.project_notes to authenticated;
 grant select, insert, update, delete on public.activity_logs to authenticated;
 grant select, insert, update, delete on public.notifications to authenticated;
+grant select, insert, update, delete on public.client_project_access to authenticated;
+grant select, insert, update, delete on public.revision_requests to authenticated;
+grant select, insert, update, delete on public.revision_items to authenticated;
+grant select, insert, update, delete on public.revision_attachments to authenticated;
+grant select, insert, update, delete on public.revision_activity to authenticated;
 grant select, insert, update, delete on public.team_members to authenticated;
+grant select on public.client_project_summaries to authenticated;
+grant select on public.client_revision_requests to authenticated;
+grant select on public.client_revision_items to authenticated;
+grant select on public.client_revision_attachments to authenticated;
+grant select on public.client_revision_activity to authenticated;
 
 revoke all on public.profiles from anon;
 revoke all on public.projects from anon;
@@ -548,17 +1018,33 @@ revoke all on public.revision_notes from anon;
 revoke all on public.project_notes from anon;
 revoke all on public.activity_logs from anon;
 revoke all on public.notifications from anon;
+revoke all on public.client_project_access from anon;
+revoke all on public.revision_requests from anon;
+revoke all on public.revision_items from anon;
+revoke all on public.revision_attachments from anon;
+revoke all on public.revision_activity from anon;
 revoke all on public.team_members from anon;
 
 revoke all on function public.current_user_role() from public;
 revoke all on function public.can_manage_all_projects() from public;
 revoke all on function public.project_is_visible(public.projects) from public;
+revoke all on function public.current_user_is_client() from public;
+revoke all on function public.client_has_project_access(uuid, uuid) from public;
+revoke all on function public.user_can_access_revision_request(uuid) from public;
 revoke all on function public.find_login_email(text) from public;
 revoke all on function public.create_project_notifications() from public;
+revoke all on function public.notify_revision_watchers() from public;
+revoke all on function public.set_revision_completed_at() from public;
+revoke all on function public.notify_revised_proof_uploaded() from public;
+revoke all on function public.client_respond_revision(uuid, text) from public;
 grant execute on function public.current_user_role() to authenticated;
 grant execute on function public.can_manage_all_projects() to authenticated;
 grant execute on function public.project_is_visible(public.projects) to authenticated;
+grant execute on function public.current_user_is_client() to authenticated;
+grant execute on function public.client_has_project_access(uuid, uuid) to authenticated;
+grant execute on function public.user_can_access_revision_request(uuid) to authenticated;
 grant execute on function public.find_login_email(text) to anon, authenticated;
+grant execute on function public.client_respond_revision(uuid, text) to authenticated;
 
 drop policy if exists "Profiles are visible to owner and managers" on public.profiles;
 create policy "Profiles are visible to owner and managers"
@@ -768,6 +1254,240 @@ for delete
 to authenticated
 using (recipient_id = auth.uid());
 
+drop policy if exists "Managers can read client project access" on public.client_project_access;
+create policy "Managers can read client project access"
+on public.client_project_access
+for select
+to authenticated
+using (public.can_manage_all_projects() or client_id = auth.uid());
+
+drop policy if exists "Managers can create client project access" on public.client_project_access;
+create policy "Managers can create client project access"
+on public.client_project_access
+for insert
+to authenticated
+with check (public.can_manage_all_projects());
+
+drop policy if exists "Managers can update client project access" on public.client_project_access;
+create policy "Managers can update client project access"
+on public.client_project_access
+for update
+to authenticated
+using (public.can_manage_all_projects())
+with check (public.can_manage_all_projects());
+
+drop policy if exists "Managers can delete client project access" on public.client_project_access;
+create policy "Managers can delete client project access"
+on public.client_project_access
+for delete
+to authenticated
+using (public.can_manage_all_projects());
+
+drop policy if exists "Team can read assigned revision requests" on public.revision_requests;
+create policy "Team can read assigned revision requests"
+on public.revision_requests
+for select
+to authenticated
+using (public.can_manage_all_projects() or assigned_to = auth.uid());
+
+drop policy if exists "Clients can submit assigned project revisions" on public.revision_requests;
+create policy "Clients can submit assigned project revisions"
+on public.revision_requests
+for insert
+to authenticated
+with check (
+  client_id = auth.uid()
+  and assigned_to is null
+  and status = 'Submitted'
+  and public.client_has_project_access(project_id, auth.uid())
+);
+
+drop policy if exists "Managers can create revision requests" on public.revision_requests;
+create policy "Managers can create revision requests"
+on public.revision_requests
+for insert
+to authenticated
+with check (public.can_manage_all_projects());
+
+drop policy if exists "Team can update revision requests" on public.revision_requests;
+create policy "Team can update revision requests"
+on public.revision_requests
+for update
+to authenticated
+using (public.can_manage_all_projects() or assigned_to = auth.uid())
+with check (public.can_manage_all_projects() or assigned_to = auth.uid());
+
+drop policy if exists "Admins can delete revision requests" on public.revision_requests;
+create policy "Admins can delete revision requests"
+on public.revision_requests
+for delete
+to authenticated
+using (public.current_user_role() = 'admin');
+
+drop policy if exists "Team can read revision items" on public.revision_items;
+create policy "Team can read revision items"
+on public.revision_items
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.revision_requests request
+    where request.id = revision_items.revision_request_id
+      and (public.can_manage_all_projects() or request.assigned_to = auth.uid())
+  )
+);
+
+drop policy if exists "Clients can create revision items" on public.revision_items;
+create policy "Clients can create revision items"
+on public.revision_items
+for insert
+to authenticated
+with check (
+  status = 'Open'
+  and coalesce(team_response, '') = ''
+  and coalesce(internal_note, '') = ''
+  and exists (
+    select 1
+    from public.revision_requests request
+    where request.id = revision_items.revision_request_id
+      and request.client_id = auth.uid()
+      and request.status = 'Submitted'
+  )
+);
+
+drop policy if exists "Team can create revision items" on public.revision_items;
+create policy "Team can create revision items"
+on public.revision_items
+for insert
+to authenticated
+with check (
+  exists (
+    select 1
+    from public.revision_requests request
+    where request.id = revision_items.revision_request_id
+      and (public.can_manage_all_projects() or request.assigned_to = auth.uid())
+  )
+);
+
+drop policy if exists "Team can update revision items" on public.revision_items;
+create policy "Team can update revision items"
+on public.revision_items
+for update
+to authenticated
+using (
+  exists (
+    select 1
+    from public.revision_requests request
+    where request.id = revision_items.revision_request_id
+      and (public.can_manage_all_projects() or request.assigned_to = auth.uid())
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.revision_requests request
+    where request.id = revision_items.revision_request_id
+      and (public.can_manage_all_projects() or request.assigned_to = auth.uid())
+  )
+);
+
+drop policy if exists "Admins can delete revision items" on public.revision_items;
+create policy "Admins can delete revision items"
+on public.revision_items
+for delete
+to authenticated
+using (public.current_user_role() = 'admin');
+
+drop policy if exists "Team can read revision attachments" on public.revision_attachments;
+create policy "Team can read revision attachments"
+on public.revision_attachments
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.revision_requests request
+    where request.id = revision_attachments.revision_request_id
+      and (public.can_manage_all_projects() or request.assigned_to = auth.uid())
+  )
+);
+
+drop policy if exists "Clients can create revision attachments" on public.revision_attachments;
+create policy "Clients can create revision attachments"
+on public.revision_attachments
+for insert
+to authenticated
+with check (
+  uploaded_by = auth.uid()
+  and exists (
+    select 1
+    from public.revision_requests request
+    where request.id = revision_attachments.revision_request_id
+      and request.client_id = auth.uid()
+      and request.status = 'Submitted'
+  )
+);
+
+drop policy if exists "Team can create revision attachments" on public.revision_attachments;
+create policy "Team can create revision attachments"
+on public.revision_attachments
+for insert
+to authenticated
+with check (
+  uploaded_by = auth.uid()
+  and exists (
+    select 1
+    from public.revision_requests request
+    where request.id = revision_attachments.revision_request_id
+      and (public.can_manage_all_projects() or request.assigned_to = auth.uid())
+  )
+);
+
+drop policy if exists "Team can read revision activity" on public.revision_activity;
+create policy "Team can read revision activity"
+on public.revision_activity
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.revision_requests request
+    where request.id = revision_activity.revision_request_id
+      and (public.can_manage_all_projects() or request.assigned_to = auth.uid())
+  )
+);
+
+drop policy if exists "Clients can create own revision activity" on public.revision_activity;
+create policy "Clients can create own revision activity"
+on public.revision_activity
+for insert
+to authenticated
+with check (
+  user_id = auth.uid()
+  and exists (
+    select 1
+    from public.revision_requests request
+    where request.id = revision_activity.revision_request_id
+      and request.client_id = auth.uid()
+  )
+);
+
+drop policy if exists "Team can create revision activity" on public.revision_activity;
+create policy "Team can create revision activity"
+on public.revision_activity
+for insert
+to authenticated
+with check (
+  user_id = auth.uid()
+  and exists (
+    select 1
+    from public.revision_requests request
+    where request.id = revision_activity.revision_request_id
+      and (public.can_manage_all_projects() or request.assigned_to = auth.uid())
+  )
+);
+
 drop policy if exists "Managers can read team members" on public.team_members;
 create policy "Managers can read team members"
 on public.team_members
@@ -783,12 +1503,83 @@ to authenticated
 using (public.current_user_role() = 'admin')
 with check (public.current_user_role() = 'admin');
 
+insert into storage.buckets (id, name, public)
+values ('revision-files', 'revision-files', false)
+on conflict (id) do nothing;
+
+drop policy if exists "Clients can read own revision files" on storage.objects;
+create policy "Clients can read own revision files"
+on storage.objects
+for select
+to authenticated
+using (
+  bucket_id = 'revision-files'
+  and (storage.foldername(name))[1] = auth.uid()::text
+);
+
+drop policy if exists "Team can read assigned revision files" on storage.objects;
+create policy "Team can read assigned revision files"
+on storage.objects
+for select
+to authenticated
+using (
+  bucket_id = 'revision-files'
+  and (
+    public.can_manage_all_projects()
+    or exists (
+      select 1
+      from public.revision_requests request
+      where request.id::text = (storage.foldername(name))[3]
+        and request.assigned_to = auth.uid()
+    )
+  )
+);
+
+drop policy if exists "Clients can upload own revision files" on storage.objects;
+create policy "Clients can upload own revision files"
+on storage.objects
+for insert
+to authenticated
+with check (
+  bucket_id = 'revision-files'
+  and (storage.foldername(name))[1] = auth.uid()::text
+);
+
+drop policy if exists "Team can upload assigned revision files" on storage.objects;
+create policy "Team can upload assigned revision files"
+on storage.objects
+for insert
+to authenticated
+with check (
+  bucket_id = 'revision-files'
+  and (
+    public.can_manage_all_projects()
+    or exists (
+      select 1
+      from public.revision_requests request
+      where request.id::text = (storage.foldername(name))[3]
+        and request.assigned_to = auth.uid()
+    )
+  )
+);
+
+drop policy if exists "Admins can delete revision files" on storage.objects;
+create policy "Admins can delete revision files"
+on storage.objects
+for delete
+to authenticated
+using (
+  bucket_id = 'revision-files'
+  and public.current_user_role() = 'admin'
+);
+
 -- Starter team rows. When a matching email is created in Supabase Auth, a profile row
 -- is created automatically using the role below. Unknown emails default to employee.
 insert into public.team_members (full_name, email, role, phone, status)
 values
   ('Tahir', 'tahir@manuscriptheaven.com', 'admin', '', 'active'),
   ('Atia', 'atia@manuscriptheaven.com', 'project_manager', '', 'active'),
+  ('Amelia Carter', 'amelia@example.com', 'client', '', 'active'),
   ('Zain', 'hafizainali313@gmail.com', 'employee', '', 'active'),
   ('Hamza', 'hamza@manuscriptheaven.com', 'employee', '', 'active'),
   ('Irfan', 'irfan@manuscriptheaven.com', 'junior_assistant', '', 'active')

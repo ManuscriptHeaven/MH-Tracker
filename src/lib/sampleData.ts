@@ -1,5 +1,17 @@
 import { addDays, todayInput } from './date';
-import type { ActivityLog, NotificationItem, Profile, Project, ProjectNote, RevisionNote } from './types';
+import type {
+  ActivityLog,
+  ClientProjectAccess,
+  NotificationItem,
+  Profile,
+  Project,
+  ProjectNote,
+  RevisionActivity,
+  RevisionAttachment,
+  RevisionItem,
+  RevisionNote,
+  RevisionRequest,
+} from './types';
 
 const now = new Date().toISOString();
 
@@ -20,6 +32,16 @@ export const sampleProfiles: Profile[] = [
     email: 'atia@manuscriptheaven.com',
     role: 'project_manager',
     phone: '+1 555 0102',
+    status: 'active',
+    avatar_url: null,
+    created_at: now,
+  },
+  {
+    id: 'amelia-client',
+    full_name: 'Amelia Carter',
+    email: 'amelia@example.com',
+    role: 'client',
+    phone: '+1 555 0190',
     status: 'active',
     avatar_url: null,
     created_at: now,
@@ -380,6 +402,112 @@ export const sampleNotifications: NotificationItem[] = [
     is_read: false,
     created_at: now,
   },
+  {
+    id: 'notification-003',
+    recipient_id: 'amelia-client',
+    project_id: 'project-001',
+    revision_request_id: 'client-revision-001',
+    type: 'revision_status_changed',
+    title: 'Revision In Progress',
+    message: 'Your revision request for The Quiet Atlas is now in progress.',
+    is_read: false,
+    created_at: now,
+  },
+];
+
+export const sampleClientProjectAccess: ClientProjectAccess[] = [
+  {
+    id: 'client-access-001',
+    client_id: 'amelia-client',
+    project_id: 'project-001',
+    created_at: now,
+  },
+  {
+    id: 'client-access-002',
+    client_id: 'amelia-client',
+    project_id: 'project-004',
+    created_at: now,
+  },
+];
+
+export const sampleRevisionRequests: RevisionRequest[] = [
+  {
+    id: 'client-revision-001',
+    project_id: 'project-001',
+    client_id: 'amelia-client',
+    title: 'Chapter opening proof changes',
+    description: 'Please adjust the opening pages and check the image placement before the next proof.',
+    priority: 'Important',
+    status: 'In Progress',
+    assigned_to: 'zain-designer',
+    submitted_at: addDays(-1),
+    completed_at: null,
+    created_at: addDays(-1),
+    updated_at: now,
+  },
+];
+
+export const sampleRevisionItems: RevisionItem[] = [
+  {
+    id: 'client-revision-item-001',
+    revision_request_id: 'client-revision-001',
+    sort_order: 1,
+    page_reference: 'Chapter 2 opening',
+    instruction: 'Please move the chapter title slightly lower and keep the ornament centered.',
+    status: 'Completed',
+    client_attachment_url: '',
+    team_response: 'Adjusted in the latest proof.',
+    internal_note: 'Handled with master page B.',
+    created_at: addDays(-1),
+    updated_at: now,
+  },
+  {
+    id: 'client-revision-item-002',
+    revision_request_id: 'client-revision-001',
+    sort_order: 2,
+    page_reference: 'Page 48',
+    instruction: 'The image caption should match the style used on page 32.',
+    status: 'In Progress',
+    client_attachment_url: '',
+    team_response: 'Reviewing this with the image spread.',
+    internal_note: 'Check source caption doc.',
+    created_at: addDays(-1),
+    updated_at: now,
+  },
+];
+
+export const sampleRevisionAttachments: RevisionAttachment[] = [
+  {
+    id: 'client-revision-attachment-001',
+    revision_request_id: 'client-revision-001',
+    revision_item_id: null,
+    file_name: 'Proof notes.pdf',
+    file_url: 'revision-files/amelia-client/project-001/client-revision-001/proof-notes.pdf',
+    file_type: 'client_attachment',
+    uploaded_by: 'amelia-client',
+    created_at: addDays(-1),
+  },
+];
+
+export const sampleRevisionActivity: RevisionActivity[] = [
+  {
+    id: 'client-revision-activity-001',
+    revision_request_id: 'client-revision-001',
+    user_id: 'amelia-client',
+    action: 'Revision submitted',
+    previous_value: null,
+    new_value: 'Chapter opening proof changes',
+    created_at: addDays(-1),
+  },
+  {
+    id: 'client-revision-activity-002',
+    revision_request_id: 'client-revision-001',
+    user_id: 'atia-manager',
+    action: 'Status changed',
+    previous_value: 'Submitted',
+    new_value: 'In Progress',
+    created_at: now,
+  },
 ];
 
 export const sampleData = {
@@ -389,4 +517,9 @@ export const sampleData = {
   projectNotes: sampleProjectNotes,
   activityLogs: sampleActivityLogs,
   notifications: sampleNotifications,
+  clientProjectAccess: sampleClientProjectAccess,
+  revisionRequests: sampleRevisionRequests,
+  revisionItems: sampleRevisionItems,
+  revisionAttachments: sampleRevisionAttachments,
+  revisionActivity: sampleRevisionActivity,
 };

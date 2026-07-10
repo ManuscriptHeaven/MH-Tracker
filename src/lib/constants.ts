@@ -1,4 +1,13 @@
-import type { PaymentStatus, Priority, ProjectStatus, RevisionStatus, Role } from './types';
+import type {
+  ClientRevisionPriority,
+  ClientRevisionStatus,
+  PaymentStatus,
+  Priority,
+  ProjectStatus,
+  RevisionItemStatus,
+  RevisionStatus,
+  Role,
+} from './types';
 
 export const roleLabels: Record<Role, string> = {
   admin: 'Admin',
@@ -6,6 +15,7 @@ export const roleLabels: Record<Role, string> = {
   project_manager: 'Project Manager',
   employee: 'Employee / Designer',
   junior_assistant: 'Junior Assistant',
+  client: 'Client',
 };
 
 export const serviceTypes = [
@@ -41,6 +51,21 @@ export const paymentStatuses: PaymentStatus[] = [
 ];
 
 export const revisionStatuses: RevisionStatus[] = ['Pending', 'In Progress', 'Completed'];
+
+export const clientRevisionPriorityOptions: ClientRevisionPriority[] = ['Normal', 'Important', 'Urgent'];
+
+export const clientRevisionStatuses: ClientRevisionStatus[] = [
+  'Submitted',
+  'Under Review',
+  'Assigned',
+  'In Progress',
+  'Ready for Client Review',
+  'Additional Revision Required',
+  'Approved',
+  'Completed',
+];
+
+export const revisionItemStatuses: RevisionItemStatus[] = ['Open', 'Under Review', 'In Progress', 'Completed'];
 
 export const statusOptions: ProjectStatus[] = [
   'New',
