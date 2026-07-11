@@ -437,6 +437,8 @@ export const sampleRevisionRequests: RevisionRequest[] = [
     client_id: 'amelia-client',
     title: 'Chapter opening proof changes',
     description: 'Please adjust the opening pages and check the image placement before the next proof.',
+    instructions: 'Please adjust the opening pages and check the image placement before the next proof.',
+    team_response: null,
     priority: 'Important',
     status: 'In Progress',
     assigned_to: 'zain-designer',
