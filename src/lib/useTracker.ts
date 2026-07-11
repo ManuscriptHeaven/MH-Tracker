@@ -23,7 +23,6 @@ import type {
   RevisionActivity,
   RevisionAttachment,
   RevisionItem,
-  RevisionItemStatus,
   ProjectStatus,
   RevisionNote,
   RevisionRequest,
@@ -41,6 +40,16 @@ function createId(prefix: string) {
   }
 
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function createUuid() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (character) =>
+    (Number(character) ^ (Math.random() * 16 >> (Number(character) / 4))).toString(16),
+  );
 }
 
 function calculateBalance(totalPrice: number, advancePaid: number) {
@@ -171,6 +180,8 @@ function normalizeRevisionRequest(request: Partial<RevisionRequest>): RevisionRe
     client_id: request.client_id || '',
     title: request.title || 'Revision Request',
     description: request.description || '',
+    instructions: request.instructions || request.description || request.title || '',
+    team_response: request.team_response || null,
     priority: request.priority || 'Normal',
     status: request.status || 'Submitted',
     assigned_to: request.assigned_to || null,
@@ -1149,117 +1160,79 @@ export function useTracker() {
         throw new Error('Project not found for this client.');
       }
 
-      const cleanItems = draft.items
-        .map((item) => ({
-          ...item,
-          page_reference: item.page_reference.trim(),
-          instruction: item.instruction.trim(),
-        }))
-        .filter((item) => item.page_reference || item.instruction);
+      const instructions = draft.instructions?.trim() || draft.description?.trim() || '';
 
-      if (!cleanItems.length) {
-        throw new Error('Add at least one revision point before submitting.');
+      if (!instructions) {
+        throw new Error('Please add revision instructions before submitting.');
       }
 
       if (supabase && mode === 'supabase') {
-        const supabaseClient = supabase;
-        const { data: insertedRequest, error: requestError } = await supabaseClient
-          .from('revision_requests')
-          .insert({
+        try {
+          const supabaseClient = supabase;
+          const requestId = createUuid();
+          const requestTitle = draft.title?.trim() || `Revision request for ${project.project_title}`;
+          const now = new Date().toISOString();
+          const request = normalizeRevisionRequest({
+            id: requestId,
             project_id: draft.project_id,
             client_id: currentProfile.id,
-            title: draft.title.trim(),
-            description: draft.description.trim(),
-            priority: draft.priority,
+            title: requestTitle,
+            description: instructions,
+            instructions,
+            team_response: null,
+            priority: draft.priority || 'Normal',
             status: 'Submitted',
-          })
-          .select()
-          .single();
+            submitted_at: now,
+            created_at: now,
+            updated_at: now,
+          });
 
-        if (requestError) {
-          throw requestError;
-        }
+          const { error: requestError } = await supabaseClient.from('revision_requests').insert({
+            id: request.id,
+            project_id: request.project_id,
+            client_id: request.client_id,
+            title: request.title,
+            description: request.description,
+            instructions: request.instructions,
+            team_response: request.team_response,
+            priority: request.priority,
+            status: 'Submitted',
+          });
 
-        const request = normalizeRevisionRequest(insertedRequest as RevisionRequest);
-        const itemPayloads = cleanItems.map((item, index) => ({
-          revision_request_id: request.id,
-          sort_order: index + 1,
-          page_reference: item.page_reference,
-          instruction: item.instruction,
-          status: 'Open' as RevisionItemStatus,
-          client_attachment_url: item.client_attachment_url || '',
-        }));
+          if (requestError) {
+            throw requestError;
+          }
 
-        const { data: insertedItems, error: itemsError } = await supabaseClient
-          .from('revision_items')
-          .insert(itemPayloads)
-          .select();
+          await Promise.all(
+            (draft.attachments || []).map(async (file) => {
+              const fileUrl = await uploadRevisionFile({
+                clientId: currentProfile.id,
+                projectId: request.project_id,
+                requestId: request.id,
+                file,
+              });
 
-        if (itemsError) {
-          throw itemsError;
-        }
-
-        const savedItems = ((insertedItems || []) as RevisionItem[]).map(normalizeRevisionItem);
-
-        await Promise.all(
-          (draft.attachments || []).map(async (file) => {
-            const fileUrl = await uploadRevisionFile({
-              clientId: currentProfile.id,
-              projectId: request.project_id,
-              requestId: request.id,
-              file,
-            });
-
-            const { error: attachmentError } = await supabaseClient.from('revision_attachments').insert({
-              revision_request_id: request.id,
-              revision_item_id: null,
-              file_name: file.name,
-              file_url: fileUrl,
-              file_type: 'client_attachment',
-              uploaded_by: currentProfile.id,
-            });
-
-            if (attachmentError) {
-              throw attachmentError;
-            }
-          }),
-        );
-
-        await Promise.all(
-          savedItems.map(async (item, index) => {
-            const file = cleanItems[index]?.attachment_file;
-            if (!file) {
-              return;
-            }
-
-            const fileUrl = await uploadRevisionFile({
-              clientId: currentProfile.id,
-              projectId: request.project_id,
-              requestId: request.id,
-              itemId: item.id,
-              file,
-            });
-
-            const [{ error: updateItemError }, { error: attachmentError }] = await Promise.all([
-              supabaseClient.from('revision_items').update({ client_attachment_url: fileUrl }).eq('id', item.id),
-              supabaseClient.from('revision_attachments').insert({
+              const { error: attachmentError } = await supabaseClient.from('revision_attachments').insert({
                 revision_request_id: request.id,
-                revision_item_id: item.id,
+                revision_item_id: null,
                 file_name: file.name,
                 file_url: fileUrl,
                 file_type: 'client_attachment',
                 uploaded_by: currentProfile.id,
-              }),
-            ]);
+              });
 
-            if (updateItemError || attachmentError) {
-              throw updateItemError || attachmentError;
-            }
-          }),
-        );
+              if (attachmentError) {
+                throw attachmentError;
+              }
+            }),
+          );
 
-        await loadSupabaseData(currentProfile);
-        return request;
+          await loadSupabaseData(currentProfile);
+          return request;
+        } catch (revisionError) {
+          console.error('Supabase revision request error:', revisionError);
+          throw new Error('Revision request could not be submitted. Please try again.');
+        }
       }
 
       const now = new Date().toISOString();
@@ -1267,32 +1240,33 @@ export function useTracker() {
         id: createId('client-revision'),
         project_id: draft.project_id,
         client_id: currentProfile.id,
-        title: draft.title.trim(),
-        description: draft.description.trim(),
-        priority: draft.priority,
+        title: draft.title?.trim() || `Revision request for ${project.project_title}`,
+        description: instructions,
+        instructions,
+        team_response: null,
+        priority: draft.priority || 'Normal',
         status: 'Submitted',
         submitted_at: now,
         created_at: now,
         updated_at: now,
       });
-      const items = cleanItems.map((item, index) =>
-        normalizeRevisionItem({
-          id: createId('client-revision-item'),
+      const attachments = (draft.attachments || []).map((file) =>
+        normalizeRevisionAttachment({
+          id: createId('revision-attachment'),
           revision_request_id: request.id,
-          sort_order: index + 1,
-          page_reference: item.page_reference,
-          instruction: item.instruction,
-          status: 'Open',
-          client_attachment_url: item.client_attachment_url || item.attachment_file?.name || '',
+          revision_item_id: null,
+          file_name: file.name,
+          file_url: file.name,
+          file_type: 'client_attachment',
+          uploaded_by: currentProfile.id,
           created_at: now,
-          updated_at: now,
         }),
       );
 
       setData((previous) => ({
         ...previous,
         revisionRequests: [request, ...previous.revisionRequests],
-        revisionItems: [...items, ...previous.revisionItems],
+        revisionAttachments: [...attachments, ...previous.revisionAttachments],
         revisionActivity: [
           normalizeRevisionActivity({
             id: createId('revision-activity'),
@@ -1300,7 +1274,7 @@ export function useTracker() {
             user_id: currentProfile.id,
             action: 'Revision submitted',
             previous_value: null,
-            new_value: request.title,
+            new_value: request.instructions,
             created_at: now,
           }),
           ...previous.revisionActivity,
@@ -1323,6 +1297,7 @@ export function useTracker() {
           assigned_to: updates.assigned_to,
           status: updates.status,
           priority: updates.priority,
+          team_response: updates.team_response,
           completed_at:
             updates.status === 'Approved' || updates.status === 'Completed' ? new Date().toISOString() : updates.completed_at,
         };
@@ -1452,7 +1427,7 @@ export function useTracker() {
   );
 
   const respondToRevisionRequest = useCallback(
-    async (requestId: string, decision: Extract<ClientRevisionStatus, 'Approved' | 'Additional Revision Required'>) => {
+    async (requestId: string, decision: Extract<ClientRevisionStatus, 'Approved'>) => {
       if (!currentProfile) {
         throw new Error('No signed-in profile found.');
       }
