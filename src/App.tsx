@@ -12,6 +12,7 @@ import { PaymentsPage } from './pages/PaymentsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { ClientPortalPage } from './pages/ClientPortalPage';
+import { ClientProjectsPage } from './pages/ClientProjectsPage';
 import { ClientAccessPage } from './pages/ClientAccessPage';
 import { RevisionRequestsPage } from './pages/RevisionRequestsPage';
 import { useTracker } from './lib/useTracker';
@@ -50,7 +51,7 @@ export default function App() {
     if (activeView === 'clients' && tracker.currentProfile?.role !== 'admin') {
       setActiveView('dashboard');
     }
-    if (isClient && !['dashboard', 'notifications', 'settings'].includes(activeView)) {
+    if (isClient && !['dashboard', 'projects', 'notifications', 'settings'].includes(activeView)) {
       setActiveView('dashboard');
     }
   }, [activeView, isClient, tracker.canManageAll]);
@@ -201,7 +202,11 @@ export default function App() {
         />
       ) : null}
 
-      {activeView === 'projects' ? <ProjectsPage {...pageProps} /> : null}
+      {activeView === 'projects' && isClient ? (
+        <ClientProjectsPage projects={visibleProjects} searchTerm={searchTerm} />
+      ) : null}
+
+      {activeView === 'projects' && !isClient ? <ProjectsPage {...pageProps} /> : null}
 
       {activeView === 'my_tasks' ? (
         <ProjectsPage {...pageProps} title="My Tasks" projects={myTaskProjects} canManageAll={false} />
