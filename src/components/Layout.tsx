@@ -82,7 +82,7 @@ export function Layout({
   const displayName = firstName(currentProfile.full_name);
   const visibleNavItems = navItems.filter((item) => {
     if (isClient) {
-      return item.id === 'dashboard' || item.id === 'notifications' || item.id === 'settings';
+      return item.id === 'dashboard' || item.id === 'projects' || item.id === 'notifications' || item.id === 'settings';
     }
 
     if ('adminOnly' in item && item.adminOnly) {
