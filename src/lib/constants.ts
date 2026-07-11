@@ -57,10 +57,8 @@ export const clientRevisionPriorityOptions: ClientRevisionPriority[] = ['Normal'
 export const clientRevisionStatuses: ClientRevisionStatus[] = [
   'Submitted',
   'Under Review',
-  'Assigned',
   'In Progress',
   'Ready for Client Review',
-  'Additional Revision Required',
   'Approved',
   'Completed',
 ];
@@ -84,10 +82,28 @@ export const statusOptions: ProjectStatus[] = [
   'Ready for Delivery',
   'Delivered',
   'On Hold',
+  'Archived',
   'Cancelled',
 ];
 
 export const closedStatuses: ProjectStatus[] = ['Delivered', 'Cancelled'];
+
+export const activeClientProjectStatuses: ProjectStatus[] = [
+  'New',
+  'Waiting for Files',
+  'Ready to Start',
+  'In Progress',
+  'Formatting',
+  'Cover Design',
+  'eBook Conversion',
+  'First Proof Ready',
+  'Sent to Client',
+  'Client Review',
+  'Revision Requested',
+  'In Revision',
+  'Final QA',
+  'Ready for Delivery',
+];
 
 export const statusBadgeClasses: Record<ProjectStatus, string> = {
   New: 'bg-blue-50 text-info border-blue-100',
@@ -106,6 +122,7 @@ export const statusBadgeClasses: Record<ProjectStatus, string> = {
   'Ready for Delivery': 'bg-green-50 text-success border-green-100',
   Delivered: 'bg-green-50 text-success border-green-100',
   'On Hold': 'bg-stone-100 text-stone-700 border-stone-200',
+  Archived: 'bg-stone-100 text-stone-700 border-stone-200',
   Cancelled: 'bg-red-50 text-danger border-red-100',
 };
 
