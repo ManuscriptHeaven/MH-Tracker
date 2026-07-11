@@ -22,6 +22,46 @@ function projectName(projects: Project[], id: string) {
   return projects.find((project) => project.id === id)?.project_title || 'Project';
 }
 
+function revisionInstructions(request: RevisionRequest) {
+  return request.instructions || request.description || request.title;
+}
+
+function TeamResponseEditor({
+  request,
+  onUpdate,
+}: {
+  request: RevisionRequest;
+  onUpdate: (requestId: string, updates: Partial<RevisionRequest>) => Promise<void>;
+}) {
+  const [teamResponse, setTeamResponse] = useState(request.team_response || '');
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function save() {
+    setIsSaving(true);
+    try {
+      await onUpdate(request.id, { team_response: teamResponse });
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <div className="rounded-md border border-border bg-white p-4">
+      <TextareaField
+        label="Client-visible response"
+        value={teamResponse}
+        onChange={(event) => setTeamResponse(event.target.value)}
+        placeholder="Add a response the client can see."
+      />
+      <div className="mt-3 flex justify-end">
+        <Button type="button" variant="secondary" onClick={save} disabled={isSaving}>
+          {isSaving ? 'Saving' : 'Save Response'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function RevisionItemEditor({
   item,
   onUpdate,
@@ -172,6 +212,12 @@ export function RevisionRequestsPage({
                 {request.description ? (
                   <p className="mt-3 rounded-md bg-ivory p-3 text-sm leading-6 text-charcoal">{request.description}</p>
                 ) : null}
+                {request.instructions && request.instructions !== request.description ? (
+                  <div className="mt-3 rounded-md bg-ivory p-3">
+                    <p className="mb-1 text-sm font-semibold text-ink">Revision instructions</p>
+                    <p className="whitespace-pre-wrap text-sm leading-6 text-charcoal">{revisionInstructions(request)}</p>
+                  </div>
+                ) : null}
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2 xl:w-[34rem]">
@@ -192,7 +238,7 @@ export function RevisionRequestsPage({
                   onChange={(event) =>
                     onUpdateRequest(request.id, {
                       assigned_to: event.target.value || null,
-                      status: event.target.value ? 'Assigned' : request.status,
+                      status: event.target.value ? 'In Progress' : request.status,
                     })
                   }
                   disabled={!canManageAll}
@@ -207,17 +253,30 @@ export function RevisionRequestsPage({
               </div>
             </div>
 
-            <div className="mt-4 h-2 overflow-hidden rounded-full bg-ivory">
-              <div className="h-full rounded-full bg-gold" style={{ width: `${items.length ? (completed / items.length) * 100 : 0}%` }} />
-            </div>
-            <p className="mt-2 text-sm font-semibold text-muted">
-              {completed} of {items.length} revision point{items.length === 1 ? '' : 's'} completed
-            </p>
+            {items.length ? (
+              <>
+                <div className="mt-4 h-2 overflow-hidden rounded-full bg-ivory">
+                  <div className="h-full rounded-full bg-gold" style={{ width: `${(completed / items.length) * 100}%` }} />
+                </div>
+                <p className="mt-2 text-sm font-semibold text-muted">
+                  {completed} of {items.length} revision point{items.length === 1 ? '' : 's'} completed
+                </p>
 
-            <div className="mt-5 space-y-3">
-              {items.map((item) => (
-                <RevisionItemEditor key={item.id} item={item} onUpdate={onUpdateItem} />
-              ))}
+                <div className="mt-5 space-y-3">
+                  {items.map((item) => (
+                    <RevisionItemEditor key={item.id} item={item} onUpdate={onUpdateItem} />
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="mt-5 rounded-md border border-border bg-white p-4">
+                <p className="mb-2 font-semibold">Revision instructions</p>
+                <p className="whitespace-pre-wrap text-sm leading-6 text-charcoal">{revisionInstructions(request)}</p>
+              </div>
+            )}
+
+            <div className="mt-5">
+              <TeamResponseEditor request={request} onUpdate={onUpdateRequest} />
             </div>
 
             <div className="mt-5 grid gap-4 lg:grid-cols-2">
