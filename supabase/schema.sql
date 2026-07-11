@@ -47,8 +47,16 @@ begin
     'Ready for Delivery',
     'Delivered',
     'On Hold',
+    'Archived',
     'Cancelled'
   );
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  alter type public.project_status add value if not exists 'Archived';
 exception
   when duplicate_object then null;
 end $$;
@@ -244,6 +252,8 @@ create table if not exists public.revision_requests (
   client_id uuid not null references public.profiles(id) on delete cascade,
   title text not null,
   description text not null default '',
+  instructions text not null default '',
+  team_response text,
   priority text not null default 'Normal'
     check (priority in ('Normal', 'Important', 'Urgent')),
   status text not null default 'Submitted'
@@ -263,6 +273,14 @@ create table if not exists public.revision_requests (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.revision_requests
+add column if not exists instructions text not null default '',
+add column if not exists team_response text;
+
+update public.revision_requests
+set instructions = coalesce(nullif(instructions, ''), description, title)
+where instructions = '';
 
 create table if not exists public.revision_items (
   id uuid primary key default gen_random_uuid(),
@@ -494,6 +512,8 @@ select
   request.client_id,
   request.title,
   request.description,
+  request.instructions,
+  request.team_response,
   request.priority,
   request.status,
   request.submitted_at,
@@ -1289,6 +1309,13 @@ on public.revision_requests
 for select
 to authenticated
 using (public.can_manage_all_projects() or assigned_to = auth.uid());
+
+drop policy if exists "Clients can read own revision requests" on public.revision_requests;
+create policy "Clients can read own revision requests"
+on public.revision_requests
+for select
+to authenticated
+using (client_id = auth.uid());
 
 drop policy if exists "Clients can submit assigned project revisions" on public.revision_requests;
 create policy "Clients can submit assigned project revisions"
