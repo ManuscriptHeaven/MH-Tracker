@@ -17,6 +17,7 @@ export type ProjectStatus =
   | 'Ready for Delivery'
   | 'Delivered'
   | 'On Hold'
+  | 'Archived'
   | 'Cancelled';
 
 export type Priority = 'Low' | 'Normal' | 'High' | 'Urgent';
@@ -36,12 +37,12 @@ export type ClientRevisionPriority = 'Normal' | 'Important' | 'Urgent';
 export type ClientRevisionStatus =
   | 'Submitted'
   | 'Under Review'
-  | 'Assigned'
   | 'In Progress'
   | 'Ready for Client Review'
-  | 'Additional Revision Required'
   | 'Approved'
-  | 'Completed';
+  | 'Completed'
+  | 'Assigned'
+  | 'Additional Revision Required';
 
 export type RevisionItemStatus = 'Open' | 'Under Review' | 'In Progress' | 'Completed';
 
@@ -183,6 +184,8 @@ export interface RevisionRequest {
   client_id: string;
   title: string;
   description: string;
+  instructions: string;
+  team_response: string | null;
   priority: ClientRevisionPriority;
   status: ClientRevisionStatus;
   assigned_to: string | null;
@@ -236,10 +239,11 @@ export interface RevisionRequestItemDraft {
 
 export interface RevisionRequestDraft {
   project_id: string;
-  title: string;
-  description: string;
-  priority: ClientRevisionPriority;
-  items: RevisionRequestItemDraft[];
+  instructions: string;
+  title?: string;
+  description?: string;
+  priority?: ClientRevisionPriority;
+  items?: RevisionRequestItemDraft[];
   attachments?: File[];
 }
 
