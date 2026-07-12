@@ -1,4 +1,4 @@
-import { Bell, CheckCircle2, FileText, Plus, Repeat2 } from 'lucide-react';
+import { Bell, CalendarDays, CheckCircle2, Clock3, FileText, FolderOpen, MessageSquare, Plus, Repeat2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { StatusBadge } from '../components/Badges';
 import { RevisionRequestModal } from '../components/RevisionRequestModal';
@@ -61,9 +61,18 @@ export function ClientPortalPage({
   onRespondToRevision: (requestId: string, decision: Extract<ClientRevisionStatus, 'Approved'>) => Promise<void>;
 }) {
   const [revisionProjectId, setRevisionProjectId] = useState<string | null>(null);
-  const activeProjects = projects.filter(isActiveOrder);
+  const sortedProjects = useMemo(
+    () => [...projects].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+    [projects],
+  );
+  const activeProjects = sortedProjects.filter(isActiveOrder);
   const openRequests = revisionRequests.filter((request) => !closedRevisionStatuses.includes(request.status));
+  const completedProjects = projects.filter((project) => project.status === 'Delivered');
+  const unreadCount = notifications.filter((item) => !item.is_read).length;
   const latestNotifications = notifications.slice(0, 5);
+  const nextDueProject = [...activeProjects]
+    .filter((project) => project.due_date)
+    .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())[0];
 
   const requestsByProject = useMemo(() => {
     return revisionRequests.reduce<Record<string, RevisionRequest[]>>((groups, request) => {
@@ -91,23 +100,72 @@ export function ClientPortalPage({
 
   return (
     <div className="space-y-6">
-      <section className="grid gap-4 sm:grid-cols-3">
-        <Card className="min-h-28">
-          <p className="text-sm font-medium text-muted">Active Orders</p>
-          <p className="mt-3 text-3xl font-bold">{activeProjects.length}</p>
+      <section className="grid gap-4 xl:grid-cols-[1.35fr_0.75fr]">
+        <Card className="overflow-hidden">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-border bg-ivory px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-gold">
+                <FolderOpen className="h-3.5 w-3.5" />
+                Client Portal
+              </div>
+              <h2 className="font-display text-3xl font-semibold text-ink">Project Dashboard</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
+                Track active book projects, review shared proof files, and send revision notes from one place.
+              </p>
+            </div>
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="rounded-md bg-ivory px-4 py-3">
+                <p className="text-2xl font-bold text-ink">{activeProjects.length}</p>
+                <p className="text-xs font-medium text-muted">Active</p>
+              </div>
+              <div className="rounded-md bg-ivory px-4 py-3">
+                <p className="text-2xl font-bold text-ink">{openRequests.length}</p>
+                <p className="text-xs font-medium text-muted">Revisions</p>
+              </div>
+              <div className="rounded-md bg-ivory px-4 py-3">
+                <p className="text-2xl font-bold text-ink">{unreadCount}</p>
+                <p className="text-xs font-medium text-muted">Unread</p>
+              </div>
+            </div>
+          </div>
         </Card>
-        <Card className="min-h-28">
-          <p className="text-sm font-medium text-muted">Open Revisions</p>
-          <p className="mt-3 text-3xl font-bold">{openRequests.length}</p>
-        </Card>
-        <Card className="min-h-28">
-          <p className="text-sm font-medium text-muted">Unread Notifications</p>
-          <p className="mt-3 text-3xl font-bold">{notifications.filter((item) => !item.is_read).length}</p>
+
+        <Card>
+          <div className="flex items-center gap-2">
+            <Clock3 className="h-5 w-5 text-gold" />
+            <h2 className="font-display text-xl font-semibold">Next Due</h2>
+          </div>
+          {nextDueProject ? (
+            <div className="mt-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <StatusBadge status={nextDueProject.status} />
+                <span className="text-xs font-semibold uppercase tracking-[0.14em] text-gold">
+                  {nextDueProject.project_number}
+                </span>
+              </div>
+              <p className="font-display text-2xl font-semibold leading-tight">{nextDueProject.project_title}</p>
+              <p className="flex items-center gap-2 text-sm font-semibold text-muted">
+                <CalendarDays className="h-4 w-4" />
+                Due {formatDate(nextDueProject.due_date)}
+              </p>
+            </div>
+          ) : (
+            <p className="mt-4 rounded-md border border-dashed border-border p-4 text-sm text-muted">
+              No active project deadline yet.
+            </p>
+          )}
         </Card>
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1.35fr_0.75fr]">
         <div className="space-y-4">
+          <div>
+            <h2 className="font-display text-2xl font-semibold">Active Projects</h2>
+            <p className="mt-1 text-sm text-muted">
+              {completedProjects.length} delivered project{completedProjects.length === 1 ? '' : 's'} are available in Projects.
+            </p>
+          </div>
+
           {activeProjects.length ? (
             activeProjects.map((project) => {
               const projectRequests = requestsByProject[project.id] || [];
@@ -125,10 +183,16 @@ export function ClientPortalPage({
                         <StatusBadge status={project.status} />
                       </div>
                       <h2 className="mt-3 font-display text-2xl font-semibold">{project.project_title}</h2>
-                      <p className="mt-1 text-sm text-muted">Due {formatDate(project.due_date)}</p>
-                      <p className="mt-2 text-sm font-medium text-muted">
-                        {projectOpenRequests.length} open revision request{projectOpenRequests.length === 1 ? '' : 's'}
-                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2 text-sm text-muted">
+                        <span className="inline-flex items-center gap-1 rounded-md bg-ivory px-2 py-1">
+                          <CalendarDays className="h-4 w-4" />
+                          Due {formatDate(project.due_date)}
+                        </span>
+                        <span className="inline-flex items-center gap-1 rounded-md bg-ivory px-2 py-1">
+                          <MessageSquare className="h-4 w-4" />
+                          {projectOpenRequests.length} open revision{projectOpenRequests.length === 1 ? '' : 's'}
+                        </span>
+                      </div>
                     </div>
                     <Button type="button" onClick={() => setRevisionProjectId(project.id)}>
                       <Plus className="h-4 w-4" />
