@@ -1,5 +1,5 @@
 import { Bell, Check, CheckCheck, Inbox } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '../lib/utils';
 import type { NotificationItem } from '../lib/types';
 import { Button, IconButton } from './ui';
@@ -47,8 +47,24 @@ export function NotificationBell({
   onOpenProject: (projectId: string) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const unreadCount = notifications.filter((notification) => !notification.is_read).length;
   const latestNotifications = useMemo(() => notifications.slice(0, 5), [notifications]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    function closeOnOutsideClick(event: PointerEvent) {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    return () => document.removeEventListener('pointerdown', closeOnOutsideClick);
+  }, [isOpen]);
 
   function openNotification(notification: NotificationItem) {
     if (!notification.is_read) {
@@ -62,7 +78,7 @@ export function NotificationBell({
   }
 
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <IconButton
         title={`${unreadCount} unread notifications`}
         className="relative"
