@@ -2,7 +2,7 @@ import { Mail, Phone } from 'lucide-react';
 import { RoleBadge } from '../components/Badges';
 import { Card } from '../components/ui';
 import { isOverdue } from '../lib/date';
-import { firstName, initials } from '../lib/utils';
+import { firstName, initials, isClientRole } from '../lib/utils';
 import type { Profile, Project } from '../lib/types';
 
 export function TeamPage({
@@ -12,9 +12,11 @@ export function TeamPage({
   profiles: Profile[];
   projects: Project[];
 }) {
+  const teamProfiles = profiles.filter((profile) => !isClientRole(profile.role));
+
   return (
     <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-      {profiles.map((profile) => {
+      {teamProfiles.map((profile) => {
         const assigned = projects.filter((project) => project.assigned_to === profile.id);
         const active = assigned.filter((project) => project.status !== 'Delivered' && project.status !== 'Cancelled');
         const overdue = active.filter(isOverdue);
