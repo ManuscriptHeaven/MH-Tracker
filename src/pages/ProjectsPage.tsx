@@ -1,8 +1,15 @@
 import { Copy, Download, Edit, Eye, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { PaymentBadge, PriorityBadge, StatusBadge } from '../components/Badges';
 import { Button, Card, EmptyState, IconButton, SelectField } from '../components/ui';
-import { paymentStatuses, priorityOptions, serviceTypes, statusOptions } from '../lib/constants';
+import {
+  isProjectStatus,
+  paymentStatuses,
+  priorityOptions,
+  projectStatusChoices,
+  serviceTypes,
+  statusOptions,
+} from '../lib/constants';
 import { deadlineClass, deadlineLabel, formatDate } from '../lib/date';
 import { currency, downloadTextFile, firstName, isClientRole, projectCsv } from '../lib/utils';
 import type { PaymentStatus, Priority, Profile, Project, ProjectStatus } from '../lib/types';
@@ -10,6 +17,57 @@ import type { PaymentStatus, Priority, Profile, Project, ProjectStatus } from '.
 function profileName(profiles: Profile[], id?: string | null) {
   const profile = profiles.find((item) => item.id === id);
   return profile ? firstName(profile.full_name) : 'Unassigned';
+}
+
+function QuickStatusInput({
+  project,
+  onUpdateProject,
+}: {
+  project: Project;
+  onUpdateProject: (projectId: string, updates: Partial<Project>) => void;
+}) {
+  const [value, setValue] = useState(project.status);
+  const listId = `project-status-options-${project.id}`;
+
+  useEffect(() => {
+    setValue(project.status);
+  }, [project.status]);
+
+  function commitStatus() {
+    if (value === project.status) {
+      return;
+    }
+
+    if (!isProjectStatus(value)) {
+      setValue(project.status);
+      return;
+    }
+
+    onUpdateProject(project.id, { status: value });
+  }
+
+  return (
+    <>
+      <input
+        list={listId}
+        value={value}
+        onChange={(event) => setValue(event.target.value as ProjectStatus)}
+        onBlur={commitStatus}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.currentTarget.blur();
+          }
+        }}
+        className="h-10 w-40 rounded-md border border-border bg-white px-2 text-xs"
+        title="Type or choose a status, then press Enter."
+      />
+      <datalist id={listId}>
+        {projectStatusChoices(project.status).map((status) => (
+          <option key={status} value={status} />
+        ))}
+      </datalist>
+    </>
+  );
 }
 
 export function ProjectsPage({
@@ -189,17 +247,7 @@ export function ProjectsPage({
                     </td>
                   ) : null}
                   <td className="border-t border-border px-4 py-3">
-                    <select
-                      value={project.status}
-                      onChange={(event) =>
-                        onUpdateProject(project.id, { status: event.target.value as ProjectStatus })
-                      }
-                      className="h-10 rounded-md border border-border bg-white px-2 text-xs"
-                    >
-                      {statusOptions.map((status) => (
-                        <option key={status}>{status}</option>
-                      ))}
-                    </select>
+                    <QuickStatusInput project={project} onUpdateProject={onUpdateProject} />
                   </td>
                   <td className="border-t border-border px-4 py-3">
                     <div className="flex justify-end gap-2">
