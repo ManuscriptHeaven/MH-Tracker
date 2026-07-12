@@ -4,7 +4,7 @@ import { PaymentBadge, PriorityBadge, StatusBadge } from '../components/Badges';
 import { Button, Card, EmptyState, IconButton, SelectField } from '../components/ui';
 import { paymentStatuses, priorityOptions, serviceTypes, statusOptions } from '../lib/constants';
 import { deadlineClass, deadlineLabel, formatDate } from '../lib/date';
-import { currency, downloadTextFile, firstName, projectCsv } from '../lib/utils';
+import { currency, downloadTextFile, firstName, isClientRole, projectCsv } from '../lib/utils';
 import type { PaymentStatus, Priority, Profile, Project, ProjectStatus } from '../lib/types';
 
 function profileName(profiles: Profile[], id?: string | null) {
@@ -25,6 +25,8 @@ export function ProjectsPage({
   onDuplicateProject,
   onUpdateProject,
   onAddProject,
+  emptyTitle = 'No projects yet',
+  emptyMessage = 'Create the first project to begin tracking deadlines, assignments, revisions, and payments.',
 }: {
   title?: string;
   projects: Project[];
@@ -38,6 +40,8 @@ export function ProjectsPage({
   onDuplicateProject: (project: Project) => void;
   onUpdateProject: (projectId: string, updates: Partial<Project>) => void;
   onAddProject: () => void;
+  emptyTitle?: string;
+  emptyMessage?: string;
 }) {
   const canViewPayments = canManageAll;
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'all'>('all');
@@ -45,22 +49,25 @@ export function ProjectsPage({
   const [paymentFilter, setPaymentFilter] = useState<PaymentStatus | 'all'>('all');
   const [serviceFilter, setServiceFilter] = useState<string>('all');
   const [employeeFilter, setEmployeeFilter] = useState<string>('all');
+  const teamProfiles = profiles.filter((profile) => !isClientRole(profile.role));
 
   const normalizedSearch = searchTerm.trim().toLowerCase();
-  const filtered = projects.filter((project) => {
-    const matchesSearch =
-      !normalizedSearch ||
-      project.project_title.toLowerCase().includes(normalizedSearch) ||
-      project.client_name.toLowerCase().includes(normalizedSearch) ||
-      project.project_number.toLowerCase().includes(normalizedSearch);
-    const matchesStatus = statusFilter === 'all' || project.status === statusFilter;
-    const matchesPriority = priorityFilter === 'all' || project.priority === priorityFilter;
-    const matchesPayment = !canViewPayments || paymentFilter === 'all' || project.payment_status === paymentFilter;
-    const matchesService = serviceFilter === 'all' || project.service_type === serviceFilter;
-    const matchesEmployee = employeeFilter === 'all' || project.assigned_to === employeeFilter;
+  const filtered = projects
+    .filter((project) => {
+      const matchesSearch =
+        !normalizedSearch ||
+        project.project_title.toLowerCase().includes(normalizedSearch) ||
+        project.client_name.toLowerCase().includes(normalizedSearch) ||
+        project.project_number.toLowerCase().includes(normalizedSearch);
+      const matchesStatus = statusFilter === 'all' || project.status === statusFilter;
+      const matchesPriority = priorityFilter === 'all' || project.priority === priorityFilter;
+      const matchesPayment = !canViewPayments || paymentFilter === 'all' || project.payment_status === paymentFilter;
+      const matchesService = serviceFilter === 'all' || project.service_type === serviceFilter;
+      const matchesEmployee = employeeFilter === 'all' || project.assigned_to === employeeFilter;
 
-    return matchesSearch && matchesStatus && matchesPriority && matchesPayment && matchesService && matchesEmployee;
-  });
+      return matchesSearch && matchesStatus && matchesPriority && matchesPayment && matchesService && matchesEmployee;
+    })
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   function exportProjects() {
     downloadTextFile('manuscript-heaven-projects.csv', projectCsv(filtered), 'text/csv');
@@ -69,8 +76,8 @@ export function ProjectsPage({
   if (!filtered.length && projects.length === 0) {
     return (
       <EmptyState
-        title="No projects yet"
-        message="Create the first project to begin tracking deadlines, assignments, revisions, and payments."
+        title={emptyTitle}
+        message={emptyMessage}
         action={
           canManageAll ? (
             <Button onClick={onAddProject}>
@@ -102,7 +109,7 @@ export function ProjectsPage({
             </SelectField>
             <SelectField label="Employee" value={employeeFilter} onChange={(event) => setEmployeeFilter(event.target.value)}>
               <option value="all">All employees</option>
-              {profiles.map((profile) => (
+              {teamProfiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>
                   {firstName(profile.full_name)}
                 </option>
