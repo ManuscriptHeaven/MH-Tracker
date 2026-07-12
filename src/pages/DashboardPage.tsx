@@ -2,7 +2,7 @@ import { AlertTriangle, CalendarClock, CheckCircle2, CircleDollarSign, Clock3, F
 import { StatusBadge } from '../components/Badges';
 import { Button, Card } from '../components/ui';
 import { isDueThisWeek, isDueToday, isOverdue, formatDate, deadlineClass, deadlineLabel } from '../lib/date';
-import { currency, firstName, initials } from '../lib/utils';
+import { currency, firstName, initials, isClientRole } from '../lib/utils';
 import type { Profile, Project } from '../lib/types';
 
 function profileName(profiles: Profile[], id?: string | null) {
@@ -51,7 +51,9 @@ export function DashboardPage({
   onAddProject: () => void;
   onSelectProject: (project: Project) => void;
 }) {
-  const activeProjects = projects.filter((project) => project.status !== 'Delivered' && project.status !== 'Cancelled');
+  const activeProjects = projects
+    .filter((project) => project.status !== 'Delivered' && project.status !== 'Cancelled')
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   const overdueProjects = projects.filter(isOverdue);
   const dueToday = projects.filter(isDueToday);
   const dueThisWeek = projects.filter(isDueThisWeek);
@@ -71,7 +73,7 @@ export function DashboardPage({
     .filter((project) => project.priority === 'Urgent' || isOverdue(project) || isDueToday(project))
     .slice(0, 5);
 
-  const workload = profiles.map((profile) => {
+  const workload = profiles.filter((profile) => !isClientRole(profile.role)).map((profile) => {
     const assigned = activeProjects.filter((project) => project.assigned_to === profile.id);
     return {
       profile,
@@ -110,7 +112,7 @@ export function DashboardPage({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="font-display text-2xl font-semibold">Recent Projects</h2>
-              <p className="text-sm text-muted">Current work sorted by upcoming deadlines.</p>
+              <p className="text-sm text-muted">Current work sorted newest first.</p>
             </div>
             {canManageProjects ? (
               <Button onClick={onAddProject}>
