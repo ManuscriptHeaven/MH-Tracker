@@ -65,7 +65,7 @@ export const clientRevisionStatuses: ClientRevisionStatus[] = [
 
 export const revisionItemStatuses: RevisionItemStatus[] = ['Open', 'Under Review', 'In Progress', 'Completed'];
 
-export const statusOptions: ProjectStatus[] = [
+export const allProjectStatuses: ProjectStatus[] = [
   'New',
   'Waiting for Files',
   'Ready to Start',
@@ -86,22 +86,41 @@ export const statusOptions: ProjectStatus[] = [
   'Cancelled',
 ];
 
+export const statusOptions: ProjectStatus[] = [
+  'New',
+  'Ready to Start',
+  'In Progress',
+  'Client Review',
+  'Revision Requested',
+  'In Revision',
+  'Ready for Delivery',
+  'Delivered',
+  'On Hold',
+  'Archived',
+  'Cancelled',
+];
+
+export function isProjectStatus(value: string): value is ProjectStatus {
+  return allProjectStatuses.includes(value as ProjectStatus);
+}
+
+export function projectStatusChoices(currentStatus?: string | null): ProjectStatus[] {
+  if (currentStatus && isProjectStatus(currentStatus) && !statusOptions.includes(currentStatus)) {
+    return [currentStatus, ...statusOptions];
+  }
+
+  return statusOptions;
+}
+
 export const closedStatuses: ProjectStatus[] = ['Delivered', 'Cancelled'];
 
 export const activeClientProjectStatuses: ProjectStatus[] = [
   'New',
-  'Waiting for Files',
   'Ready to Start',
   'In Progress',
-  'Formatting',
-  'Cover Design',
-  'eBook Conversion',
-  'First Proof Ready',
-  'Sent to Client',
   'Client Review',
   'Revision Requested',
   'In Revision',
-  'Final QA',
   'Ready for Delivery',
 ];
 
