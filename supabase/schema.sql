@@ -831,6 +831,29 @@ create trigger revision_request_notifications_trigger
 after insert or update on public.revision_requests
 for each row execute function public.notify_revision_watchers();
 
+create or replace function public.mark_project_revision_requested()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.projects
+  set
+    status = 'Revision Requested',
+    updated_at = now()
+  where id = new.project_id
+    and status is distinct from 'Revision Requested';
+
+  return new;
+end;
+$$;
+
+drop trigger if exists mark_project_revision_requested_trigger on public.revision_requests;
+create trigger mark_project_revision_requested_trigger
+after insert on public.revision_requests
+for each row execute function public.mark_project_revision_requested();
+
 create or replace function public.notify_revised_proof_uploaded()
 returns trigger
 language plpgsql
