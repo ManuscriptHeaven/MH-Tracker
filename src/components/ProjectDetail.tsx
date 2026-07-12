@@ -1,7 +1,7 @@
 import { CheckCircle2, Edit, FileText, Plus, Printer, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { RevisionRequestsPage } from '../pages/RevisionRequestsPage';
-import { revisionStatuses, statusOptions } from '../lib/constants';
+import { isProjectStatus, projectStatusChoices, revisionStatuses } from '../lib/constants';
 import { deadlineClass, deadlineLabel, formatDate, todayInput } from '../lib/date';
 import { currency, firstName, initials } from '../lib/utils';
 import type {
@@ -96,7 +96,7 @@ export function ProjectDetail({
   onUpdateRevisionItem: (itemId: string, updates: Partial<RevisionItem>) => Promise<void>;
   onUploadRevisedProof: (requestId: string, file: File) => Promise<void>;
 }) {
-  const [status, setStatus] = useState<ProjectStatus>(project.status);
+  const [status, setStatus] = useState<string>(project.status);
   const [noteType, setNoteType] = useState<NoteType>('work');
   const [note, setNote] = useState('');
   const [revisionNote, setRevisionNote] = useState('');
@@ -123,6 +123,12 @@ export function ProjectDetail({
   );
 
   async function saveStatus() {
+    if (!isProjectStatus(status)) {
+      window.alert('Please choose a project status from the suggestions.');
+      setStatus(project.status);
+      return;
+    }
+
     await onUpdateProject({
       status,
       delivery_date: status === 'Delivered' ? todayInput() : project.delivery_date,
@@ -223,16 +229,18 @@ export function ProjectDetail({
 
             <Card>
               <div className="flex flex-col gap-3 md:flex-row md:items-end">
-                <SelectField
+                <Field
                   label="Change Status"
+                  list="project-detail-status-options"
                   value={status}
-                  onChange={(event) => setStatus(event.target.value as ProjectStatus)}
+                  onChange={(event) => setStatus(event.target.value)}
                   className="md:w-72"
-                >
-                  {statusOptions.map((item) => (
-                    <option key={item}>{item}</option>
+                />
+                <datalist id="project-detail-status-options">
+                  {projectStatusChoices(project.status).map((item) => (
+                    <option key={item} value={item} />
                   ))}
-                </SelectField>
+                </datalist>
                 <Button onClick={saveStatus}>Save Status</Button>
               </div>
             </Card>
