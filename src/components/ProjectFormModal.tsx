@@ -1,7 +1,7 @@
 import { Save } from 'lucide-react';
 import { paymentStatuses, platforms, priorityOptions, serviceTypes, statusOptions } from '../lib/constants';
 import { todayInput } from '../lib/date';
-import { errorMessage, firstName, isManagerRole } from '../lib/utils';
+import { errorMessage, firstName, isClientRole, isManagerRole } from '../lib/utils';
 import type { Profile, Project, ProjectDraft } from '../lib/types';
 import { Button, Field, Modal, SelectField, TextareaField } from './ui';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
@@ -87,7 +87,7 @@ export function ProjectFormModal({
   }, [currentProfile, project]);
 
   const assignableProfiles = useMemo(
-    () => profiles.filter((profile) => profile.role === 'employee' || profile.role === 'junior_assistant'),
+    () => profiles.filter((profile) => !isClientRole(profile.role)),
     [profiles],
   );
 
