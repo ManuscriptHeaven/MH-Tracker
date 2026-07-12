@@ -273,6 +273,7 @@ export default function App() {
         <ProjectFormModal
           currentProfile={tracker.currentProfile}
           profiles={tracker.data.profiles}
+          projects={tracker.data.projects}
           project={editingProject}
           onClose={() => {
             setShowProjectForm(false);
