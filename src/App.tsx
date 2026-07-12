@@ -7,14 +7,12 @@ import { DashboardPage } from './pages/DashboardPage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { CalendarPage } from './pages/CalendarPage';
 import { TeamPage } from './pages/TeamPage';
-import { RevisionsPage } from './pages/RevisionsPage';
 import { PaymentsPage } from './pages/PaymentsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { ClientPortalPage } from './pages/ClientPortalPage';
 import { ClientProjectsPage } from './pages/ClientProjectsPage';
 import { ClientAccessPage } from './pages/ClientAccessPage';
-import { RevisionRequestsPage } from './pages/RevisionRequestsPage';
 import { useTracker } from './lib/useTracker';
 import { errorMessage, isClientRole } from './lib/utils';
 import type { Project, ProjectDraft } from './lib/types';
@@ -38,7 +36,11 @@ export default function App() {
   }, [selectedProject, visibleProjects]);
 
   const myTaskProjects = tracker.currentProfile
-    ? tracker.data.projects.filter((project) => project.assigned_to === tracker.currentProfile?.id)
+    ? visibleProjects.filter(
+        (project) =>
+          project.assigned_to === tracker.currentProfile?.id ||
+          project.project_manager === tracker.currentProfile?.id,
+      )
     : [];
   const deliveredProjects = visibleProjects.filter((project) => project.status === 'Delivered');
   const isClient = tracker.currentProfile ? isClientRole(tracker.currentProfile.role) : false;
@@ -48,10 +50,10 @@ export default function App() {
     if (!tracker.canManageAll && managerOnlyViews.includes(activeView)) {
       setActiveView('dashboard');
     }
-    if (activeView === 'clients' && tracker.currentProfile?.role !== 'admin') {
+    if ((activeView === 'clients' || activeView === 'settings') && tracker.currentProfile?.role !== 'admin') {
       setActiveView('dashboard');
     }
-    if (isClient && !['dashboard', 'projects', 'notifications', 'settings'].includes(activeView)) {
+    if (isClient && !['dashboard', 'projects', 'notifications'].includes(activeView)) {
       setActiveView('dashboard');
     }
   }, [activeView, isClient, tracker.canManageAll]);
@@ -209,39 +211,18 @@ export default function App() {
       {activeView === 'projects' && !isClient ? <ProjectsPage {...pageProps} /> : null}
 
       {activeView === 'my_tasks' ? (
-        <ProjectsPage {...pageProps} title="My Tasks" projects={myTaskProjects} canManageAll={false} />
+        <ProjectsPage
+          {...pageProps}
+          title="My Tasks"
+          projects={myTaskProjects}
+          canManageAll={tracker.canManageAll}
+          emptyTitle="No tasks assigned to you"
+          emptyMessage="Projects assigned to you or managed by you will appear here."
+        />
       ) : null}
 
       {activeView === 'calendar' ? (
         <CalendarPage projects={visibleProjects} onSelectProject={setSelectedProject} />
-      ) : null}
-
-      {activeView === 'revisions' && !isClient ? (
-        <div className="space-y-6">
-          <RevisionRequestsPage
-            revisionRequests={tracker.data.revisionRequests}
-            revisionItems={tracker.data.revisionItems}
-            revisionAttachments={tracker.data.revisionAttachments}
-            revisionActivity={tracker.data.revisionActivity}
-            projects={visibleProjects}
-            profiles={tracker.data.profiles}
-            currentProfile={tracker.currentProfile}
-            canManageAll={tracker.canManageAll}
-            onUpdateRequest={tracker.updateRevisionRequest}
-            onUpdateItem={tracker.updateRevisionItem}
-            onUploadRevisedProof={tracker.uploadRevisedProof}
-          />
-          {tracker.data.revisionNotes.length ? (
-            <RevisionsPage
-              revisions={tracker.data.revisionNotes.filter((revision) =>
-                visibleProjects.some((project) => project.id === revision.project_id),
-              )}
-              projects={visibleProjects}
-              profiles={tracker.data.profiles}
-              onSelectProject={setSelectedProject}
-            />
-          ) : null}
-        </div>
       ) : null}
 
       {activeView === 'notifications' ? (
@@ -284,7 +265,9 @@ export default function App() {
         />
       ) : null}
 
-      {activeView === 'settings' ? <SettingsPage mode={tracker.mode} /> : null}
+      {activeView === 'settings' && tracker.currentProfile.role === 'admin' ? (
+        <SettingsPage mode={tracker.mode} />
+      ) : null}
 
       {showProjectForm ? (
         <ProjectFormModal
@@ -305,6 +288,10 @@ export default function App() {
           profiles={tracker.data.profiles}
           notes={tracker.data.projectNotes}
           revisions={tracker.data.revisionNotes}
+          revisionRequests={tracker.data.revisionRequests}
+          revisionItems={tracker.data.revisionItems}
+          revisionAttachments={tracker.data.revisionAttachments}
+          revisionActivity={tracker.data.revisionActivity}
           activities={tracker.data.activityLogs}
           currentProfile={tracker.currentProfile}
           canManageAll={tracker.canManageAll}
@@ -318,6 +305,9 @@ export default function App() {
           onAddRevision={async (note, status) => {
             await tracker.addRevision(selectedProjectFresh.id, note, status);
           }}
+          onUpdateRevisionRequest={tracker.updateRevisionRequest}
+          onUpdateRevisionItem={tracker.updateRevisionItem}
+          onUploadRevisedProof={tracker.uploadRevisedProof}
         />
       ) : null}
 
