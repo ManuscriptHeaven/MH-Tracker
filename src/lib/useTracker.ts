@@ -463,8 +463,10 @@ export function useTracker() {
       : safeSelect<Profile>(supabase.from('profiles').select('*').order('full_name'));
 
     const projectsPromise = profileIsClient
-      ? safeSelect<Partial<Project>>(supabase.from('client_project_summaries').select('*').order('due_date'))
-      : safeSelect<Project>(supabase.from('projects').select('*').order('due_date'));
+      ? safeSelect<Partial<Project>>(
+          supabase.from('client_project_summaries').select('*').order('created_at', { ascending: false }),
+        )
+      : safeSelect<Project>(supabase.from('projects').select('*').order('created_at', { ascending: false }));
 
     const paymentsPromise = canManage
       ? safeSelect<ProjectPayment>(supabase.from('project_payments').select('*'))
@@ -1231,7 +1233,7 @@ export function useTracker() {
           return request;
         } catch (revisionError) {
           console.error('Supabase revision request error:', revisionError);
-          throw new Error('Revision request could not be submitted. Please try again.');
+          throw new Error(errorMessage(revisionError, 'Revision request could not be submitted. Please try again.'));
         }
       }
 
@@ -1265,6 +1267,15 @@ export function useTracker() {
 
       setData((previous) => ({
         ...previous,
+        projects: previous.projects.map((item) =>
+          item.id === draft.project_id
+            ? normalizeProject({
+                ...item,
+                status: 'Revision Requested',
+                updated_at: now,
+              })
+            : item,
+        ),
         revisionRequests: [request, ...previous.revisionRequests],
         revisionAttachments: [...attachments, ...previous.revisionAttachments],
         revisionActivity: [
