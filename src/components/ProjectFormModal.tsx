@@ -1,10 +1,37 @@
 import { Save } from 'lucide-react';
-import { paymentStatuses, platforms, priorityOptions, serviceTypes, statusOptions } from '../lib/constants';
+import {
+  isProjectStatus,
+  paymentStatuses,
+  platforms,
+  priorityOptions,
+  projectStatusChoices,
+  serviceTypes,
+} from '../lib/constants';
 import { todayInput } from '../lib/date';
 import { errorMessage, firstName, isClientRole, isManagerRole } from '../lib/utils';
 import type { Profile, Project, ProjectDraft } from '../lib/types';
 import { Button, Field, Modal, SelectField, TextareaField } from './ui';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
+
+function uniqueValues(values: Array<string | null | undefined>) {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => value?.trim())
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ).sort((a, b) => a.localeCompare(b));
+}
+
+function OptionList({ id, values }: { id: string; values: string[] }) {
+  return (
+    <datalist id={id}>
+      {values.map((value) => (
+        <option key={value} value={value} />
+      ))}
+    </datalist>
+  );
+}
 
 function defaultDraft(currentProfile: Profile): ProjectDraft {
   return {
@@ -65,12 +92,14 @@ function draftFromProject(project: Project): ProjectDraft {
 export function ProjectFormModal({
   currentProfile,
   profiles,
+  projects,
   project,
   onClose,
   onSubmit,
 }: {
   currentProfile: Profile;
   profiles: Profile[];
+  projects: Project[];
   project?: Project | null;
   onClose: () => void;
   onSubmit: (draft: ProjectDraft) => Promise<void>;
@@ -96,6 +125,27 @@ export function ProjectFormModal({
     [profiles],
   );
 
+  const suggestions = useMemo(() => {
+    const clientProfiles = profiles.filter((profile) => isClientRole(profile.role));
+
+    return {
+      clientNames: uniqueValues([
+        ...projects.map((item) => item.client_name),
+        ...clientProfiles.map((profile) => profile.full_name),
+      ]),
+      clientEmails: uniqueValues([
+        ...projects.map((item) => item.client_email),
+        ...clientProfiles.map((profile) => profile.email),
+      ]),
+      projectTitles: uniqueValues(projects.map((item) => item.project_title)),
+      serviceTypes: uniqueValues([...serviceTypes, ...projects.map((item) => item.service_type)]),
+      genres: uniqueValues(projects.map((item) => item.genre)),
+      trimSizes: uniqueValues(projects.map((item) => item.trim_size)),
+      platforms: uniqueValues([...platforms, ...projects.map((item) => item.platform)]),
+      statuses: projectStatusChoices(draft.status),
+    };
+  }, [draft.status, profiles, projects]);
+
   const balance = Math.max(Number(draft.total_price || 0) - Number(draft.advance_paid || 0), 0);
 
   function update<K extends keyof ProjectDraft>(key: K, value: ProjectDraft[K]) {
@@ -106,6 +156,12 @@ export function ProjectFormModal({
     event.preventDefault();
     setIsSaving(true);
     setFormError(null);
+
+    if (!isProjectStatus(draft.status)) {
+      setFormError('Please choose a project status from the suggestions.');
+      setIsSaving(false);
+      return;
+    }
 
     try {
       await onSubmit(draft);
@@ -120,39 +176,56 @@ export function ProjectFormModal({
   return (
     <Modal title={project ? 'Edit Project' : 'Add New Project'} onClose={onClose}>
       <form onSubmit={handleSubmit} className="space-y-6">
+        <OptionList id="client-name-options" values={suggestions.clientNames} />
+        <OptionList id="client-email-options" values={suggestions.clientEmails} />
+        <OptionList id="project-title-options" values={suggestions.projectTitles} />
+        <OptionList id="service-type-options" values={suggestions.serviceTypes} />
+        <OptionList id="genre-options" values={suggestions.genres} />
+        <OptionList id="trim-size-options" values={suggestions.trimSizes} />
+        <OptionList id="platform-options" values={suggestions.platforms} />
+        <OptionList id="project-status-options" values={suggestions.statuses} />
+
         <section className="grid gap-4 rounded-lg border border-border bg-white p-4">
           <h3 className="font-display text-lg font-semibold">Basic Information</h3>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <Field
               label="Client Name"
               required
+              list="client-name-options"
+              autoComplete="name"
               value={draft.client_name}
               onChange={(event) => update('client_name', event.target.value)}
             />
             <Field
               label="Client Email"
               type="email"
+              list="client-email-options"
+              autoComplete="email"
               value={draft.client_email}
               onChange={(event) => update('client_email', event.target.value)}
             />
             <Field
               label="Project Title"
               required
+              list="project-title-options"
               value={draft.project_title}
               onChange={(event) => update('project_title', event.target.value)}
             />
-            <SelectField
+            <Field
               label="Service Type"
+              list="service-type-options"
               value={draft.service_type}
               onChange={(event) => update('service_type', event.target.value)}
-            >
-              {serviceTypes.map((service) => (
-                <option key={service}>{service}</option>
-              ))}
-            </SelectField>
-            <Field label="Book Genre" value={draft.genre} onChange={(event) => update('genre', event.target.value)} />
+            />
+            <Field
+              label="Book Genre"
+              list="genre-options"
+              value={draft.genre}
+              onChange={(event) => update('genre', event.target.value)}
+            />
             <Field
               label="Trim Size"
+              list="trim-size-options"
               value={draft.trim_size}
               onChange={(event) => update('trim_size', event.target.value)}
             />
@@ -177,15 +250,12 @@ export function ProjectFormModal({
               value={draft.image_count}
               onChange={(event) => update('image_count', Number(event.target.value))}
             />
-            <SelectField
+            <Field
               label="Platform"
+              list="platform-options"
               value={draft.platform}
               onChange={(event) => update('platform', event.target.value)}
-            >
-              {platforms.map((platform) => (
-                <option key={platform}>{platform}</option>
-              ))}
-            </SelectField>
+            />
           </div>
         </section>
 
@@ -249,15 +319,12 @@ export function ProjectFormModal({
               value={draft.delivery_date || ''}
               onChange={(event) => update('delivery_date', event.target.value || null)}
             />
-            <SelectField
+            <Field
               label="Project Status"
+              list="project-status-options"
               value={draft.status}
               onChange={(event) => update('status', event.target.value as ProjectDraft['status'])}
-            >
-              {statusOptions.map((status) => (
-                <option key={status}>{status}</option>
-              ))}
-            </SelectField>
+            />
           </div>
         </section>
 
