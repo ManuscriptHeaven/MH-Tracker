@@ -1,5 +1,6 @@
 import { CheckCircle2, Edit, FileText, Plus, Printer, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { RevisionRequestsPage } from '../pages/RevisionRequestsPage';
 import { revisionStatuses, statusOptions } from '../lib/constants';
 import { deadlineClass, deadlineLabel, formatDate, todayInput } from '../lib/date';
 import { currency, firstName, initials } from '../lib/utils';
@@ -9,8 +10,12 @@ import type {
   Profile,
   Project,
   ProjectNote,
+  RevisionActivity,
+  RevisionAttachment,
+  RevisionItem,
   ProjectStatus,
   RevisionNote,
+  RevisionRequest,
   RevisionStatus,
 } from '../lib/types';
 import { PaymentBadge, PriorityBadge, RoleBadge, StatusBadge } from './Badges';
@@ -53,6 +58,10 @@ export function ProjectDetail({
   profiles,
   notes,
   revisions,
+  revisionRequests,
+  revisionItems,
+  revisionAttachments,
+  revisionActivity,
   activities,
   currentProfile,
   canManageAll,
@@ -62,11 +71,18 @@ export function ProjectDetail({
   onUpdateProject,
   onAddNote,
   onAddRevision,
+  onUpdateRevisionRequest,
+  onUpdateRevisionItem,
+  onUploadRevisedProof,
 }: {
   project: Project;
   profiles: Profile[];
   notes: ProjectNote[];
   revisions: RevisionNote[];
+  revisionRequests: RevisionRequest[];
+  revisionItems: RevisionItem[];
+  revisionAttachments: RevisionAttachment[];
+  revisionActivity: RevisionActivity[];
   activities: ActivityLog[];
   currentProfile: Profile;
   canManageAll: boolean;
@@ -76,6 +92,9 @@ export function ProjectDetail({
   onUpdateProject: (updates: Partial<Project>) => Promise<void>;
   onAddNote: (noteType: NoteType, note: string) => Promise<void>;
   onAddRevision: (note: string, status: RevisionStatus) => Promise<void>;
+  onUpdateRevisionRequest: (requestId: string, updates: Partial<RevisionRequest>) => Promise<void>;
+  onUpdateRevisionItem: (itemId: string, updates: Partial<RevisionItem>) => Promise<void>;
+  onUploadRevisedProof: (requestId: string, file: File) => Promise<void>;
 }) {
   const [status, setStatus] = useState<ProjectStatus>(project.status);
   const [noteType, setNoteType] = useState<NoteType>('work');
@@ -91,6 +110,11 @@ export function ProjectDetail({
   const projectRevisions = useMemo(
     () => revisions.filter((item) => item.project_id === project.id),
     [revisions, project.id],
+  );
+
+  const projectRevisionRequests = useMemo(
+    () => revisionRequests.filter((item) => item.project_id === project.id),
+    [revisionRequests, project.id],
   );
 
   const projectActivities = useMemo(
@@ -307,7 +331,7 @@ export function ProjectDetail({
             <Card>
               <h3 className="font-display text-xl font-semibold">Assigned Team</h3>
               <div className="mt-4 space-y-3">
-                {[project.assigned_to, project.project_manager].filter(Boolean).map((id) => {
+                {Array.from(new Set([project.assigned_to, project.project_manager].filter(Boolean))).map((id) => {
                   const profile = profiles.find((item) => item.id === id);
                   if (!profile) {
                     return null;
@@ -330,10 +354,10 @@ export function ProjectDetail({
             </Card>
 
             <Card>
-              <h3 className="font-display text-xl font-semibold">Revision Notes</h3>
+              <h3 className="font-display text-xl font-semibold">Internal Revision Notes</h3>
               <div className="mt-4 grid gap-3">
                 <TextareaField
-                  label="New Revision"
+                  label="New Internal Revision Note"
                   value={revisionNote}
                   onChange={(event) => setRevisionNote(event.target.value)}
                 />
@@ -408,6 +432,28 @@ export function ProjectDetail({
             </Card>
           </div>
         </div>
+
+        <section className="space-y-4">
+          <div>
+            <h3 className="font-display text-2xl font-semibold">Client Revision Requests</h3>
+            <p className="mt-1 text-sm text-muted">
+              Revision requests submitted by the client for this project stay here with the project.
+            </p>
+          </div>
+          <RevisionRequestsPage
+            revisionRequests={projectRevisionRequests}
+            revisionItems={revisionItems}
+            revisionAttachments={revisionAttachments}
+            revisionActivity={revisionActivity}
+            projects={[project]}
+            profiles={profiles}
+            currentProfile={currentProfile}
+            canManageAll={canManageAll}
+            onUpdateRequest={onUpdateRevisionRequest}
+            onUpdateItem={onUpdateRevisionItem}
+            onUploadRevisedProof={onUploadRevisedProof}
+          />
+        </section>
       </div>
     </Modal>
   );
