@@ -60,16 +60,18 @@ export function ClientProjectsPage({
 
   const filteredProjects = useMemo(
     () =>
-      projects.filter((project) => {
-        const matchesFilter = projectMatchesFilter(project, filter);
-        const matchesSearch =
-          !normalizedSearch ||
-          project.project_title.toLowerCase().includes(normalizedSearch) ||
-          project.project_number.toLowerCase().includes(normalizedSearch) ||
-          project.client_name.toLowerCase().includes(normalizedSearch);
+      projects
+        .filter((project) => {
+          const matchesFilter = projectMatchesFilter(project, filter);
+          const matchesSearch =
+            !normalizedSearch ||
+            project.project_title.toLowerCase().includes(normalizedSearch) ||
+            project.project_number.toLowerCase().includes(normalizedSearch) ||
+            project.client_name.toLowerCase().includes(normalizedSearch);
 
-        return matchesFilter && matchesSearch;
-      }),
+          return matchesFilter && matchesSearch;
+        })
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
     [filter, normalizedSearch, projects],
   );
 
