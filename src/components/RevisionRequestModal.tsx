@@ -1,9 +1,11 @@
 import { FileUp, Trash2 } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import type { Project, RevisionRequestDraft } from '../lib/types';
+import { errorMessage } from '../lib/utils';
 import { Button, IconButton, Modal, SelectField, TextareaField } from './ui';
 
-const allowedAttachmentTypes = '.pdf,.jpg,.jpeg,.png,.doc,.docx';
+const allowedAttachmentTypes =
+  '.pdf,.jpg,.jpeg,.png,.doc,.docx,.txt,.rtf,.zip,.rar,.xls,.xlsx,.ai,.psd,.indd';
 
 export function RevisionRequestModal({
   projects,
@@ -81,7 +83,7 @@ export function RevisionRequestModal({
       onClose();
     } catch (error) {
       console.error('Revision request submission failed:', error);
-      setFormError('Revision request could not be submitted. Please check your connection and try again.');
+      setFormError(errorMessage(error, 'Revision request could not be submitted. Please check your connection and try again.'));
     } finally {
       setIsSaving(false);
     }
@@ -112,8 +114,11 @@ export function RevisionRequestModal({
           className="min-h-56"
         />
 
-        <label className="grid gap-1.5 text-sm font-medium text-ink">
+        <label className="grid gap-2 text-sm font-medium text-ink">
           <span>Request Attachments</span>
+          <span className="rounded-md border border-dashed border-border bg-white p-4 text-sm text-muted">
+            Attach PDFs, images, documents, zip files, or source-file references for the revision.
+          </span>
           <input
             ref={fileInputRef}
             type="file"
