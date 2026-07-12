@@ -9,7 +9,6 @@ import {
   Menu,
   PackageCheck,
   Plus,
-  Repeat2,
   Search,
   Settings,
   Users,
@@ -25,7 +24,6 @@ export type ViewKey =
   | 'projects'
   | 'my_tasks'
   | 'calendar'
-  | 'revisions'
   | 'notifications'
   | 'team'
   | 'clients'
@@ -38,13 +36,12 @@ const navItems = [
   { id: 'projects', label: 'Projects', icon: FolderKanban },
   { id: 'my_tasks', label: 'My Tasks', icon: CheckSquare },
   { id: 'calendar', label: 'Calendar', icon: CalendarDays },
-  { id: 'revisions', label: 'Revisions', icon: Repeat2 },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'team', label: 'Team', icon: Users, managersOnly: true },
   { id: 'clients', label: 'Clients', icon: Users, adminOnly: true },
   { id: 'delivered', label: 'Delivered', icon: PackageCheck },
   { id: 'payments', label: 'Payments', icon: CreditCard, managersOnly: true },
-  { id: 'settings', label: 'Settings', icon: Settings },
+  { id: 'settings', label: 'Settings', icon: Settings, adminOnly: true },
 ] as const;
 
 export function Layout({
@@ -82,7 +79,7 @@ export function Layout({
   const displayName = firstName(currentProfile.full_name);
   const visibleNavItems = navItems.filter((item) => {
     if (isClient) {
-      return item.id === 'dashboard' || item.id === 'projects' || item.id === 'notifications' || item.id === 'settings';
+      return item.id === 'dashboard' || item.id === 'projects' || item.id === 'notifications';
     }
 
     if ('adminOnly' in item && item.adminOnly) {
