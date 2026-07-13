@@ -13,6 +13,7 @@ import { NotificationsPage } from './pages/NotificationsPage';
 import { ClientPortalPage } from './pages/ClientPortalPage';
 import { ClientProjectsPage } from './pages/ClientProjectsPage';
 import { ClientAccessPage } from './pages/ClientAccessPage';
+import { TasksPage } from './pages/TasksPage';
 import { useTracker } from './lib/useTracker';
 import { errorMessage, isClientRole } from './lib/utils';
 import type { Project, ProjectDraft } from './lib/types';
@@ -35,13 +36,6 @@ export default function App() {
     return visibleProjects.find((project) => project.id === selectedProject.id) || null;
   }, [selectedProject, visibleProjects]);
 
-  const myTaskProjects = tracker.currentProfile
-    ? visibleProjects.filter(
-        (project) =>
-          project.assigned_to === tracker.currentProfile?.id ||
-          project.project_manager === tracker.currentProfile?.id,
-      )
-    : [];
   const deliveredProjects = visibleProjects.filter((project) => project.status === 'Delivered');
   const isClient = tracker.currentProfile ? isClientRole(tracker.currentProfile.role) : false;
 
@@ -211,13 +205,20 @@ export default function App() {
       {activeView === 'projects' && !isClient ? <ProjectsPage {...pageProps} /> : null}
 
       {activeView === 'my_tasks' ? (
-        <ProjectsPage
-          {...pageProps}
-          title="My Tasks"
-          projects={myTaskProjects}
-          canManageAll={tracker.canManageAll}
-          emptyTitle="No tasks assigned to you"
-          emptyMessage="Projects assigned to you or managed by you will appear here."
+        <TasksPage
+          tasks={tracker.visibleTasks}
+          projects={tracker.data.projects}
+          profiles={tracker.data.profiles}
+          currentProfile={tracker.currentProfile}
+          searchTerm={searchTerm}
+          onCreateTask={async (draft) => {
+            await tracker.createTask(draft);
+            setToast({ message: 'Task added.', tone: 'success' });
+          }}
+          onUpdateTask={async (taskId, updates) => {
+            await tracker.updateTask(taskId, updates);
+            setToast({ message: 'Task updated.', tone: 'success' });
+          }}
         />
       ) : null}
 
