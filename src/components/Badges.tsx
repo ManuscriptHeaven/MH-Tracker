@@ -1,7 +1,13 @@
 import type { ReactNode } from 'react';
-import { paymentBadgeClasses, priorityBadgeClasses, roleLabels, statusBadgeClasses } from '../lib/constants';
+import {
+  paymentBadgeClasses,
+  priorityBadgeClasses,
+  roleLabels,
+  statusBadgeClasses,
+  taskStatusBadgeClasses,
+} from '../lib/constants';
 import { cn } from '../lib/utils';
-import type { PaymentStatus, Priority, ProjectStatus, Role } from '../lib/types';
+import type { PaymentStatus, Priority, ProjectStatus, Role, TaskStatus } from '../lib/types';
 
 function Badge({ children, className }: { children: ReactNode; className: string }) {
   return (
@@ -30,4 +36,8 @@ export function PaymentBadge({ status }: { status: PaymentStatus }) {
 
 export function RoleBadge({ role }: { role: Role }) {
   return <Badge className="border-gold/40 bg-gold/10 text-ink">{roleLabels[role]}</Badge>;
+}
+
+export function TaskStatusBadge({ status }: { status: TaskStatus }) {
+  return <Badge className={taskStatusBadgeClasses[status]}>{status}</Badge>;
 }
