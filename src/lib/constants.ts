@@ -7,6 +7,7 @@ import type {
   RevisionItemStatus,
   RevisionStatus,
   Role,
+  TaskStatus,
 } from './types';
 
 export const roleLabels: Record<Role, string> = {
@@ -64,6 +65,8 @@ export const clientRevisionStatuses: ClientRevisionStatus[] = [
 ];
 
 export const revisionItemStatuses: RevisionItemStatus[] = ['Open', 'Under Review', 'In Progress', 'Completed'];
+
+export const taskStatuses: TaskStatus[] = ['To Do', 'In Progress', 'Done'];
 
 export const allProjectStatuses: ProjectStatus[] = [
   'New',
@@ -150,6 +153,12 @@ export const priorityBadgeClasses: Record<Priority, string> = {
   Normal: 'bg-blue-50 text-info border-blue-100',
   High: 'bg-orange-50 text-orange-700 border-orange-100',
   Urgent: 'bg-red-50 text-danger border-red-100',
+};
+
+export const taskStatusBadgeClasses: Record<TaskStatus, string> = {
+  'To Do': 'bg-stone-100 text-stone-700 border-stone-200',
+  'In Progress': 'bg-amber-50 text-amber-800 border-amber-200',
+  Done: 'bg-green-50 text-success border-green-100',
 };
 
 export const paymentBadgeClasses: Record<PaymentStatus, string> = {
