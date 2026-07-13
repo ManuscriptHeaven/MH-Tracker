@@ -59,7 +59,8 @@ select
   project.final_print_pdf_link,
   project.final_ebook_link,
   project.cover_file_link,
-  project.updated_at
+  project.updated_at,
+  project.created_at
 from public.projects project
 where public.client_has_project_access(project.id, auth.uid());
 
