@@ -11,6 +11,7 @@ import type {
   RevisionItem,
   RevisionNote,
   RevisionRequest,
+  Task,
 } from './types';
 
 const now = new Date().toISOString();
@@ -430,6 +431,37 @@ export const sampleClientProjectAccess: ClientProjectAccess[] = [
   },
 ];
 
+export const sampleTasks: Task[] = [
+  {
+    id: 'task-001',
+    title: 'Export proof for The Quiet Atlas',
+    description: 'Prepare the latest PDF proof and attach it to the project before client review.',
+    project_id: 'project-001',
+    assigned_to: 'zain-designer',
+    created_by: 'atia-manager',
+    status: 'In Progress',
+    priority: 'High',
+    due_date: todayInput(),
+    completed_at: null,
+    created_at: now,
+    updated_at: now,
+  },
+  {
+    id: 'task-002',
+    title: 'Check picture book bleed',
+    description: 'Review all illustrated spreads for bleed and margin safety.',
+    project_id: 'project-002',
+    assigned_to: 'hamza-designer',
+    created_by: 'tahir-admin',
+    status: 'To Do',
+    priority: 'Normal',
+    due_date: addDays(1),
+    completed_at: null,
+    created_at: now,
+    updated_at: now,
+  },
+];
+
 export const sampleRevisionRequests: RevisionRequest[] = [
   {
     id: 'client-revision-001',
@@ -520,6 +552,7 @@ export const sampleData = {
   activityLogs: sampleActivityLogs,
   notifications: sampleNotifications,
   clientProjectAccess: sampleClientProjectAccess,
+  tasks: sampleTasks,
   revisionRequests: sampleRevisionRequests,
   revisionItems: sampleRevisionItems,
   revisionAttachments: sampleRevisionAttachments,
