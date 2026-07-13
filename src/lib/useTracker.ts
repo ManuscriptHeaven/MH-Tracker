@@ -501,7 +501,7 @@ export function useTracker() {
 
     const projectsPromise = profileIsClient
       ? safeSelect<Partial<Project>>(
-          supabase.from('client_project_summaries').select('*').order('created_at', { ascending: false }),
+          supabase.from('client_project_summaries').select('*').order('updated_at', { ascending: false }),
         )
       : safeSelect<Project>(supabase.from('projects').select('*').order('created_at', { ascending: false }));
 
