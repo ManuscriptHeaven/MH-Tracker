@@ -48,6 +48,8 @@ export type RevisionItemStatus = 'Open' | 'Under Review' | 'In Progress' | 'Comp
 
 export type NoteType = 'general' | 'internal' | 'client_instruction' | 'qa' | 'delivery' | 'work';
 
+export type TaskStatus = 'To Do' | 'In Progress' | 'Done';
+
 export interface Profile {
   id: string;
   full_name: string;
@@ -178,6 +180,23 @@ export interface ClientProjectAccess {
   created_at: string;
 }
 
+export interface Task {
+  id: string;
+  title: string;
+  description: string;
+  project_id: string | null;
+  assigned_to: string | null;
+  created_by: string;
+  status: TaskStatus;
+  priority: Priority;
+  due_date: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type TaskDraft = Omit<Task, 'id' | 'created_by' | 'completed_at' | 'created_at' | 'updated_at'>;
+
 export interface RevisionRequest {
   id: string;
   project_id: string;
@@ -262,6 +281,7 @@ export interface TrackerData {
   activityLogs: ActivityLog[];
   notifications: NotificationItem[];
   clientProjectAccess: ClientProjectAccess[];
+  tasks: Task[];
   revisionRequests: RevisionRequest[];
   revisionItems: RevisionItem[];
   revisionAttachments: RevisionAttachment[];
