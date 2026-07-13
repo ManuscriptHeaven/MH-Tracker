@@ -29,6 +29,8 @@ import type {
   RevisionRequestDraft,
   RevisionStatus,
   Role,
+  Task,
+  TaskDraft,
   TrackerData,
 } from './types';
 
@@ -232,6 +234,41 @@ function normalizeRevisionActivity(activity: Partial<RevisionActivity>): Revisio
     previous_value: activity.previous_value || null,
     new_value: activity.new_value || null,
     created_at: activity.created_at || new Date().toISOString(),
+  };
+}
+
+function normalizeTask(task: Partial<Task>): Task {
+  const now = new Date().toISOString();
+
+  return {
+    id: task.id || createId('task'),
+    title: task.title || 'Untitled task',
+    description: task.description || '',
+    project_id: task.project_id || null,
+    assigned_to: task.assigned_to || null,
+    created_by: task.created_by || '',
+    status: task.status || 'To Do',
+    priority: task.priority || 'Normal',
+    due_date: cleanDate(task.due_date),
+    completed_at: task.completed_at || null,
+    created_at: task.created_at || now,
+    updated_at: task.updated_at || now,
+  };
+}
+
+function taskPayload(task: TaskDraft | Partial<Task>, createdBy?: string) {
+  const existingCompletedAt = (task as Partial<Task>).completed_at;
+
+  return {
+    title: task.title?.trim() || 'Untitled task',
+    description: cleanText(task.description),
+    project_id: task.project_id || null,
+    assigned_to: task.assigned_to || null,
+    status: task.status || 'To Do',
+    priority: task.priority || 'Normal',
+    due_date: cleanDate(task.due_date),
+    completed_at: task.status === 'Done' ? existingCompletedAt || new Date().toISOString() : null,
+    ...(createdBy ? { created_by: createdBy } : {}),
   };
 }
 
@@ -484,6 +521,17 @@ export function useTracker() {
       ? emptyResult
       : safeSelect<ActivityLog>(supabase.from('activity_logs').select('*').order('created_at', { ascending: false }));
 
+    const tasksPromise = profileIsClient
+      ? emptyResult
+      : safeSelect<Task>(
+          supabase
+            .from('tasks')
+            .select('*')
+            .order('status', { ascending: true })
+            .order('due_date', { ascending: true, nullsFirst: false })
+            .order('created_at', { ascending: false }),
+        );
+
     const clientAccessPromise = canManage || profileIsClient
       ? safeSelect<ClientProjectAccess>(supabase.from('client_project_access').select('*').order('created_at'))
       : emptyResult;
@@ -521,6 +569,7 @@ export function useTracker() {
       revisionsRes,
       notesRes,
       activityRes,
+      tasksRes,
       clientAccessRes,
       revisionRequestsRes,
       revisionItemsRes,
@@ -534,6 +583,7 @@ export function useTracker() {
       revisionNotesPromise,
       projectNotesPromise,
       activityPromise,
+      tasksPromise,
       clientAccessPromise,
       revisionRequestsPromise,
       revisionItemsPromise,
@@ -553,6 +603,7 @@ export function useTracker() {
       revisionNotes: revisionsRes.data as RevisionNote[],
       projectNotes: notesRes.data as ProjectNote[],
       activityLogs: activityRes.data as ActivityLog[],
+      tasks: (tasksRes.data as Partial<Task>[]).map(normalizeTask),
       notifications,
       clientProjectAccess: clientAccessRes.data as ClientProjectAccess[],
       revisionRequests: (revisionRequestsRes.data as Partial<RevisionRequest>[]).map(normalizeRevisionRequest),
@@ -1462,6 +1513,105 @@ export function useTracker() {
     [currentProfile, loadSupabaseData, mode, updateRevisionRequest],
   );
 
+  const createTask = useCallback(
+    async (draft: TaskDraft) => {
+      if (!currentProfile || isClientRole(currentProfile.role)) {
+        throw new Error('Only team members can create tasks.');
+      }
+
+      const task = normalizeTask({
+        ...draft,
+        id: createId('task'),
+        created_by: currentProfile.id,
+        completed_at: draft.status === 'Done' ? new Date().toISOString() : null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      if (supabase && mode === 'supabase') {
+        const { data: inserted, error: insertError } = await supabase
+          .from('tasks')
+          .insert(taskPayload(draft, currentProfile.id))
+          .select()
+          .single();
+
+        if (insertError) {
+          throw insertError;
+        }
+
+        setData((previous) => ({
+          ...previous,
+          tasks: [normalizeTask(inserted as Partial<Task>), ...previous.tasks],
+        }));
+        return inserted as Task;
+      }
+
+      setData((previous) => ({
+        ...previous,
+        tasks: [task, ...previous.tasks],
+      }));
+
+      return task;
+    },
+    [currentProfile, mode],
+  );
+
+  const updateTask = useCallback(
+    async (taskId: string, updates: Partial<Task>) => {
+      if (!currentProfile || isClientRole(currentProfile.role)) {
+        throw new Error('Only team members can update tasks.');
+      }
+
+      const existing = data.tasks.find((task) => task.id === taskId);
+      if (!existing) {
+        throw new Error('Task not found.');
+      }
+
+      const nextTask = normalizeTask({
+        ...existing,
+        ...updates,
+        completed_at:
+          updates.status === 'Done' && !existing.completed_at
+            ? new Date().toISOString()
+            : updates.status && updates.status !== 'Done'
+              ? null
+              : updates.completed_at ?? existing.completed_at,
+        updated_at: new Date().toISOString(),
+      });
+
+      if (supabase && mode === 'supabase') {
+        const { data: updated, error: updateError } = await supabase
+          .from('tasks')
+          .update(taskPayload(nextTask))
+          .eq('id', taskId)
+          .select()
+          .maybeSingle();
+
+        if (updateError) {
+          throw updateError;
+        }
+
+        if (!updated) {
+          throw new Error('No task row was updated. Check task permissions.');
+        }
+
+        setData((previous) => ({
+          ...previous,
+          tasks: previous.tasks.map((task) => (task.id === taskId ? normalizeTask(updated as Partial<Task>) : task)),
+        }));
+        return updated as Task;
+      }
+
+      setData((previous) => ({
+        ...previous,
+        tasks: previous.tasks.map((task) => (task.id === taskId ? nextTask : task)),
+      }));
+
+      return nextTask;
+    },
+    [currentProfile, data.tasks, mode],
+  );
+
   const inviteClient = useCallback(
     async (draft: ClientInviteDraft) => {
       if (!currentProfile || currentProfile.role !== 'admin') {
@@ -1644,6 +1794,20 @@ export function useTracker() {
     return data.projects.filter((project) => project.assigned_to === currentProfile.id);
   }, [canManageAll, currentProfile, data.clientProjectAccess, data.projects]);
 
+  const visibleTasks = useMemo(() => {
+    if (!currentProfile || isClientRole(currentProfile.role)) {
+      return [];
+    }
+
+    if (canManageAll) {
+      return data.tasks;
+    }
+
+    return data.tasks.filter(
+      (task) => task.assigned_to === currentProfile.id || task.created_by === currentProfile.id,
+    );
+  }, [canManageAll, currentProfile, data.tasks]);
+
   const visibleNotifications = useMemo(() => {
     if (!currentProfile) {
       return [];
@@ -1661,6 +1825,7 @@ export function useTracker() {
     setError,
     canManageAll,
     visibleProjects,
+    visibleTasks,
     visibleNotifications,
     login,
     loginDemo,
@@ -1678,6 +1843,8 @@ export function useTracker() {
     updateRevisionItem,
     uploadRevisedProof,
     respondToRevisionRequest,
+    createTask,
+    updateTask,
     inviteClient,
     markNotificationRead,
     markAllNotificationsRead,
