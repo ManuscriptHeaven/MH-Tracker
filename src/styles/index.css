@@ -7,28 +7,52 @@
 body { margin: 0; min-width: 320px; min-height: 100vh; }
 button, input, select, textarea { font: inherit; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid #c8a96b; outline-offset: 2px; }
+
 @media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+
   .no-print {
     display: none !important;
   }
-  body {
+
+  html, body {
     background: white !important;
     color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
   }
+
   .printable-invoice-modal {
     position: absolute !important;
-    inset: 0 !important;
+    left: 0 !important;
+    top: 0 !important;
+    right: 0 !important;
+    bottom: auto !important;
+    width: 100% !important;
+    height: auto !important;
     background: white !important;
     padding: 0 !important;
-    z-index: 9999 !important;
+    margin: 0 !important;
+    z-index: 99999 !important;
+    overflow: visible !important;
   }
+
   .printable-invoice-content {
     max-height: none !important;
+    height: auto !important;
     box-shadow: none !important;
     border: none !important;
     width: 100% !important;
-    max-w: 100% !important;
+    max-width: 100% !important;
     margin: 0 !important;
     padding: 0 !important;
+    overflow: visible !important;
+    page-break-inside: avoid;
   }
 }

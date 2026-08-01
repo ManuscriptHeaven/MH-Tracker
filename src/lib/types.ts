@@ -159,9 +159,41 @@ export interface Project {
   delay_reason?: string;
   client_action_required?: string;
   print_timeline_days?: PrintTimelineDays;
+  invoiced?: boolean;
+  invoice_id?: string | null;
+  invoiced_at?: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface InvoiceItem {
+  project_id: string;
+  project_number: string;
+  project_title: string;
+  service_type: string;
+  total_price: number;
+  advance_paid: number;
+  due_amount: number;
+  completion_date?: string | null;
+}
+
+export interface Invoice {
+  id: string;
+  invoice_number: string;
+  client_name: string;
+  client_email: string;
+  month: number;
+  year: number;
+  month_label: string;
+  created_at: string;
+  due_date: string;
+  items: InvoiceItem[];
+  subtotal: number;
+  total_paid: number;
+  total_due: number;
+  notes?: string;
+  status: 'Draft' | 'Sent' | 'Paid';
 }
 
 export interface ProjectPayment {

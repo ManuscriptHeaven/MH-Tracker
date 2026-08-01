@@ -1,12 +1,13 @@
-import { AlertTriangle, CheckCircle2, CircleDollarSign, Download, Edit, Printer, RotateCcw, Trash2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CircleDollarSign, Download, Edit, FileText, Printer, RotateCcw, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { PaymentBadge, StatusBadge } from '../components/Badges';
 import { InvoiceModal } from '../components/InvoiceModal';
 import { Button, Card, EmptyState, Field, SelectField } from '../components/ui';
 import { paymentStatuses, statusOptions } from '../lib/constants';
 import { daysUntil, formatDate, todayInput } from '../lib/date';
+import { calculateDueAmount, createBulkInvoice, getEligibleProjectsForClient } from '../lib/invoiceUtils';
 import { currency, downloadTextFile, errorMessage } from '../lib/utils';
-import type { PaymentStatus, Profile, Project, ProjectStatus } from '../lib/types';
+import type { Invoice, PaymentStatus, Profile, Project, ProjectStatus } from '../lib/types';
 
 type PaymentFilter = 'all' | 'paid' | 'partial' | 'unpaid' | 'overdue' | 'due_soon';
 
@@ -200,6 +201,14 @@ export function PaymentsPage({
   const [actionError, setActionError] = useState<string | null>(null);
   const [invoiceProject, setInvoiceProject] = useState<Project | null>(null);
 
+  // Bulk Monthly Invoice State
+  const [bulkClient, setBulkClient] = useState('all');
+  const [bulkMonth, setBulkMonth] = useState<number | 'all'>('all');
+  const [bulkYear, setBulkYear] = useState<number | 'all'>('all');
+  const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
+  const [selectedBulkInvoice, setSelectedBulkInvoice] = useState<Invoice | null>(null);
+  const [generatedInvoices, setGeneratedInvoices] = useState<Invoice[]>([]);
+
   const clients = useMemo(() => [...new Set(projects.map((project) => project.client_name).filter(Boolean))].sort(), [
     projects,
   ]);
@@ -207,6 +216,49 @@ export function PaymentsPage({
     () => [...new Set(projects.map(yearValue).filter(Boolean))].sort((a, b) => b - a),
     [projects],
   );
+
+  const eligibleProjectsForBulk = useMemo(() => {
+    if (bulkClient === 'all') {
+      return [];
+    }
+    return getEligibleProjectsForClient(projects, bulkClient, bulkMonth, bulkYear);
+  }, [projects, bulkClient, bulkMonth, bulkYear]);
+
+  async function handleGenerateBulkInvoice() {
+    if (!bulkClient || bulkClient === 'all' || eligibleProjectsForBulk.length === 0) {
+      return;
+    }
+
+    setIsGeneratingInvoice(true);
+    setActionError(null);
+
+    try {
+      const clientEmail = eligibleProjectsForBulk[0]?.client_email || '';
+      const newInvoice = createBulkInvoice(
+        bulkClient,
+        clientEmail,
+        eligibleProjectsForBulk,
+        bulkMonth,
+        bulkYear,
+      );
+
+      // Associate projects with invoice and mark them as invoiced to prevent duplicate invoicing
+      for (const project of eligibleProjectsForBulk) {
+        await onUpdateProject(project.id, {
+          invoiced: true,
+          invoice_id: newInvoice.invoice_number,
+          invoiced_at: new Date().toISOString(),
+        });
+      }
+
+      setGeneratedInvoices((prev) => [newInvoice, ...prev]);
+      setSelectedBulkInvoice(newInvoice);
+    } catch (err) {
+      setActionError(errorMessage(err, 'Failed to generate monthly bulk invoice.'));
+    } finally {
+      setIsGeneratingInvoice(false);
+    }
+  }
 
   const filteredProjects = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
@@ -364,6 +416,128 @@ export function PaymentsPage({
           <p className="mt-3 text-2xl font-bold">{currency(selectedClientDue)}</p>
         </Card>
       </section>
+
+      {/* Monthly Bulk Invoice Generator */}
+      <Card className="border-gold/30 bg-gradient-to-r from-white to-ivory/50">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between border-b border-border pb-4">
+          <div className="flex items-center gap-3">
+            <div className="grid h-11 w-11 place-items-center rounded-md bg-gold text-ink font-bold">
+              <FileText className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="font-display text-xl font-semibold text-ink">Monthly Bulk Invoice Generator</h2>
+              <p className="text-xs text-muted">
+                Generate a single combined invoice for all eligible completed projects for a client in a selected month.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 items-end">
+          <SelectField
+            label="Client"
+            value={bulkClient}
+            onChange={(e) => setBulkClient(e.target.value)}
+          >
+            <option value="all">-- Select Client --</option>
+            {clients.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </SelectField>
+
+          <SelectField
+            label="Month"
+            value={String(bulkMonth)}
+            onChange={(e) => setBulkMonth(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+          >
+            <option value="all">All Months</option>
+            {monthNames.map((m, idx) => (
+              <option key={m} value={idx + 1}>{m}</option>
+            ))}
+          </SelectField>
+
+          <SelectField
+            label="Year"
+            value={String(bulkYear)}
+            onChange={(e) => setBulkYear(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+          >
+            <option value="all">All Years</option>
+            {years.map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </SelectField>
+
+          <div>
+            <Button
+              type="button"
+              className="w-full"
+              disabled={bulkClient === 'all' || eligibleProjectsForBulk.length === 0 || isGeneratingInvoice}
+              onClick={handleGenerateBulkInvoice}
+            >
+              <Printer className="h-4 w-4" />
+              {isGeneratingInvoice ? 'Generating...' : 'Generate Monthly Invoice'}
+            </Button>
+          </div>
+        </div>
+
+        {/* Selected Candidate Projects Preview */}
+        {bulkClient !== 'all' ? (
+          <div className="mt-4 rounded-md border border-border bg-white p-4">
+            {eligibleProjectsForBulk.length > 0 ? (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm font-semibold text-ink">
+                  <span>
+                    Found {eligibleProjectsForBulk.length} eligible completed project{eligibleProjectsForBulk.length === 1 ? '' : 's'} for {bulkClient}
+                  </span>
+                  <span className="text-warning">
+                    Total Due: {currency(eligibleProjectsForBulk.reduce((acc, p) => acc + calculateDueAmount(p), 0))}
+                  </span>
+                </div>
+                <div className="divide-y divide-border text-xs text-muted max-h-44 overflow-y-auto">
+                  {eligibleProjectsForBulk.map((p) => (
+                    <div key={p.id} className="py-2 flex items-center justify-between gap-2">
+                      <div>
+                        <span className="font-semibold text-ink">{p.project_title}</span>
+                        <span className="ml-2 text-muted">(#{p.project_number})</span>
+                        <span className="ml-2 rounded bg-ivory px-1.5 py-0.5 border border-border">{p.service_type || 'Service'}</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span>Total: {currency(p.total_price)}</span>
+                        <span>Paid: {currency(p.advance_paid)}</span>
+                        <span className="font-semibold text-warning">Due: {currency(calculateDueAmount(p))}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-muted italic text-center py-2">
+                No uninvoiced completed projects found for {bulkClient} in the selected month/year.
+              </p>
+            )}
+          </div>
+        ) : null}
+
+        {/* Recently Generated Invoices List */}
+        {generatedInvoices.length > 0 ? (
+          <div className="mt-4 border-t border-border pt-4">
+            <p className="text-xs uppercase tracking-wider font-semibold text-muted mb-2">Recently Generated Monthly Invoices</p>
+            <div className="flex flex-wrap gap-2">
+              {generatedInvoices.map((inv) => (
+                <button
+                  key={inv.id}
+                  onClick={() => setSelectedBulkInvoice(inv)}
+                  className="flex items-center gap-2 rounded-md border border-border bg-white px-3 py-1.5 text-xs font-semibold hover:border-gold transition text-ink"
+                >
+                  <FileText className="h-3.5 w-3.5 text-gold" />
+                  <span>{inv.invoice_number}</span>
+                  <span className="text-muted">({inv.month_label})</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </Card>
 
       <Card>
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -612,6 +786,10 @@ export function PaymentsPage({
 
       {invoiceProject ? (
         <InvoiceModal project={invoiceProject} onClose={() => setInvoiceProject(null)} />
+      ) : null}
+
+      {selectedBulkInvoice ? (
+        <InvoiceModal invoice={selectedBulkInvoice} onClose={() => setSelectedBulkInvoice(null)} />
       ) : null}
     </div>
   );
