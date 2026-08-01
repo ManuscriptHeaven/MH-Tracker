@@ -206,6 +206,7 @@ export function PaymentsPage({
   const [bulkMonth, setBulkMonth] = useState<number | 'all'>('all');
   const [bulkYear, setBulkYear] = useState<number | 'all'>('all');
   const [bulkPaymentStatus, setBulkPaymentStatus] = useState<string>('all');
+  const [includeInvoiced, setIncludeInvoiced] = useState<boolean>(false);
   const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
   const [selectedBulkInvoice, setSelectedBulkInvoice] = useState<Invoice | null>(null);
   const [generatedInvoices, setGeneratedInvoices] = useState<Invoice[]>([]);
@@ -222,8 +223,8 @@ export function PaymentsPage({
     if (bulkClient === 'all') {
       return [];
     }
-    return getEligibleProjectsForClient(projects, bulkClient, bulkMonth, bulkYear, bulkPaymentStatus);
-  }, [projects, bulkClient, bulkMonth, bulkYear, bulkPaymentStatus]);
+    return getEligibleProjectsForClient(projects, bulkClient, bulkMonth, bulkYear, bulkPaymentStatus, includeInvoiced);
+  }, [projects, bulkClient, bulkMonth, bulkYear, bulkPaymentStatus, includeInvoiced]);
 
   async function handleGenerateBulkInvoice() {
     if (!bulkClient || bulkClient === 'all' || eligibleProjectsForBulk.length === 0) {
@@ -493,6 +494,19 @@ export function PaymentsPage({
               {isGeneratingInvoice ? 'Generating...' : 'Generate Monthly Invoice'}
             </Button>
           </div>
+        </div>
+
+        <div className="mt-3 flex items-center gap-2 text-xs text-muted">
+          <input
+            type="checkbox"
+            id="includeInvoicedCheckbox"
+            checked={includeInvoiced}
+            onChange={(e) => setIncludeInvoiced(e.target.checked)}
+            className="rounded border-border text-gold focus:ring-gold"
+          />
+          <label htmlFor="includeInvoicedCheckbox" className="cursor-pointer font-medium select-none">
+            Include projects already invoiced previously
+          </label>
         </div>
 
         {/* Selected Candidate Projects Preview */}

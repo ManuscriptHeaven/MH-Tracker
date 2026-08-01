@@ -51,6 +51,7 @@ export function getEligibleProjectsForClient(
   month: number | 'all',
   year: number | 'all',
   paymentStatus: string = 'all',
+  includeInvoiced: boolean = false,
 ): Project[] {
   if (!clientName || clientName === 'all') {
     return [];
@@ -62,8 +63,8 @@ export function getEligibleProjectsForClient(
       return false;
     }
 
-    // Must not already be invoiced
-    if (project.invoiced || project.invoice_id) {
+    // Unless includeInvoiced is true, exclude projects already invoiced
+    if (!includeInvoiced && (project.invoiced || project.invoice_id)) {
       return false;
     }
 
@@ -84,20 +85,30 @@ export function getEligibleProjectsForClient(
       const pStatus = (project.payment_status || '').toLowerCase();
       const target = paymentStatus.toLowerCase();
 
-      if (target === 'paid' || target === 'fully paid') {
-        if (due > 0 || (total > 0 && paid < total && pStatus !== 'fully paid')) {
+      if (target === 'pending' || target === 'unpaid') {
+        const isPendingOrUnpaid =
+          due > 0 ||
+          pStatus === 'pending' ||
+          pStatus === 'not started' ||
+          pStatus === 'advance paid' ||
+          pStatus === 'partially paid';
+        if (!isPendingOrUnpaid) {
           return false;
         }
-      } else if (target === 'unpaid') {
-        if (paid > 0 || due <= 0) {
+      } else if (target === 'paid' || target === 'fully paid') {
+        const isPaid = (due === 0 && total > 0) || pStatus === 'fully paid' || pStatus === 'paid';
+        if (!isPaid) {
           return false;
         }
       } else if (target === 'partial' || target === 'partially paid') {
-        if (paid <= 0 || due <= 0) {
+        const isPartial = (paid > 0 && due > 0) || pStatus === 'partially paid' || pStatus === 'partial';
+        if (!isPartial) {
           return false;
         }
-      } else if (pStatus !== target && project.payment_status !== paymentStatus) {
-        return false;
+      } else {
+        if (pStatus !== target && project.payment_status !== paymentStatus) {
+          return false;
+        }
       }
     }
 
