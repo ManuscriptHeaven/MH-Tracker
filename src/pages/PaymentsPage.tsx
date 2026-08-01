@@ -246,11 +246,18 @@ export function PaymentsPage({
 
       // Associate projects with invoice and mark them as invoiced to prevent duplicate invoicing
       for (const project of eligibleProjectsForBulk) {
-        await onUpdateProject(project.id, {
-          invoiced: true,
-          invoice_id: newInvoice.invoice_number,
-          invoiced_at: new Date().toISOString(),
-        });
+        try {
+          await onUpdateProject(project.id, {
+            invoiced: true,
+            invoice_id: newInvoice.invoice_number,
+            invoiced_at: new Date().toISOString(),
+          });
+        } catch (updateErr) {
+          console.warn(`Could not persist invoice_id for project ${project.id}:`, updateErr);
+          project.invoiced = true;
+          project.invoice_id = newInvoice.invoice_number;
+          project.invoiced_at = new Date().toISOString();
+        }
       }
 
       setGeneratedInvoices((prev) => [newInvoice, ...prev]);
