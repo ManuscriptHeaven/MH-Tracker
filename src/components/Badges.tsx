@@ -30,8 +30,11 @@ export function PriorityBadge({ priority }: { priority: Priority }) {
   return <Badge className={priorityBadgeClasses[priority]}>{priority}</Badge>;
 }
 
-export function PaymentBadge({ status }: { status: PaymentStatus }) {
-  return <Badge className={paymentBadgeClasses[status]}>{status}</Badge>;
+export function PaymentBadge({ status }: { status: PaymentStatus | string }) {
+  const badgeClass =
+    paymentBadgeClasses[status as PaymentStatus] ||
+    'bg-amber-50 text-amber-800 border-amber-200';
+  return <Badge className={badgeClass}>{status || 'Pending'}</Badge>;
 }
 
 export function RoleBadge({ role }: { role: Role }) {

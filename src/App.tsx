@@ -15,6 +15,7 @@ import { ClientProjectsPage } from './pages/ClientProjectsPage';
 import { ClientAccessPage } from './pages/ClientAccessPage';
 import { TasksPage } from './pages/TasksPage';
 import { FinancePage } from './pages/FinancePage';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { useTracker } from './lib/useTracker';
 import { errorMessage, isClientRole } from './lib/utils';
 import type { Project, ProjectDraft } from './lib/types';
@@ -100,7 +101,11 @@ export default function App() {
     {activeView === 'team' && <TeamPage profiles={tracker.data.profiles} projects={visibleProjects} />}
     {activeView === 'clients' && tracker.currentProfile.role === 'admin' && <ClientAccessPage profiles={tracker.data.profiles} projects={tracker.data.projects} clientProjectAccess={tracker.data.clientProjectAccess} onInviteClient={tracker.inviteClient} />}
     {activeView === 'delivered' && <ProjectsPage {...pageProps} title="Delivered Projects" projects={deliveredProjects} />}
-    {activeView === 'payments' && tracker.canManageAll && <PaymentsPage projects={visibleProjects} currentProfile={tracker.currentProfile} isLoading={tracker.isLoading} error={tracker.error} onSelectProject={setSelectedProject} onEditProject={openEditProject} onUpdateProject={tracker.updateProject} onDeletePayment={tracker.deletePayment} />}
+    {activeView === 'payments' && tracker.canManageAll && (
+      <ErrorBoundary>
+        <PaymentsPage projects={visibleProjects} currentProfile={tracker.currentProfile} isLoading={tracker.isLoading} error={tracker.error} onSelectProject={setSelectedProject} onEditProject={openEditProject} onUpdateProject={tracker.updateProject} onDeletePayment={tracker.deletePayment} />
+      </ErrorBoundary>
+    )}
     {activeView === 'finance' && tracker.currentProfile.role === 'admin' && <FinancePage currentProfile={tracker.currentProfile} projects={tracker.data.projects} />}
     {activeView === 'settings' && tracker.currentProfile.role === 'admin' && <SettingsPage mode={tracker.mode} />}
     {showProjectForm && <ProjectFormModal currentProfile={tracker.currentProfile} profiles={tracker.data.profiles} projects={tracker.data.projects} project={editingProject} onClose={() => { setShowProjectForm(false); setEditingProject(null); }} onSubmit={handleSaveProject} />}

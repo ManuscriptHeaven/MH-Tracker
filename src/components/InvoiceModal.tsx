@@ -24,9 +24,9 @@ export function InvoiceModal({
     window.print();
   }
 
-  // Normalize single project or bulk invoice into uniform data
+  // Normalize single project or bulk invoice into uniform data safely
   const invoiceNumber = invoice
-    ? invoice.invoice_number
+    ? invoice.invoice_number || 'INV-000'
     : `INV-${project?.project_number || '001'}`;
 
   const invoiceDate = invoice
@@ -51,13 +51,13 @@ export function InvoiceModal({
   const lastPaymentDate = !invoice && project?.payment_date ? formatDate(project.payment_date) : null;
 
   const items: InvoiceItem[] = invoice
-    ? invoice.items
+    ? invoice.items || []
     : project
     ? [
         {
           project_id: project.id,
-          project_number: project.project_number,
-          project_title: project.project_title,
+          project_number: project.project_number || '000',
+          project_title: project.project_title || 'Publishing Service',
           service_type: project.service_type || 'Publishing Services',
           total_price: Number(project.total_price || 0),
           advance_paid: Number(project.advance_paid || 0),
@@ -68,18 +68,24 @@ export function InvoiceModal({
     : [];
 
   const subtotal = invoice
-    ? invoice.subtotal
-    : Number(project?.total_price || 0);
+    ? Number(invoice.subtotal || 0)
+    : project
+    ? Number(project.total_price || 0)
+    : 0;
 
   const totalPaid = invoice
-    ? invoice.total_paid
-    : Number(project?.advance_paid || 0);
+    ? Number(invoice.total_paid || 0)
+    : project
+    ? Number(project.advance_paid || 0)
+    : 0;
 
   const totalDue = invoice
-    ? invoice.total_due
-    : calculateDueAmount(project!);
+    ? Number(invoice.total_due || 0)
+    : project
+    ? calculateDueAmount(project)
+    : 0;
 
-  const paymentNotes = !invoice ? project?.payment_notes : invoice.notes;
+  const paymentNotes = !invoice ? project?.payment_notes : invoice?.notes;
 
   return (
     <div className="printable-invoice-modal fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4">
