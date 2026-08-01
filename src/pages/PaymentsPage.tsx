@@ -428,7 +428,7 @@ export function PaymentsPage({
             <div>
               <h2 className="font-display text-xl font-semibold text-ink">Monthly Bulk Invoice Generator</h2>
               <p className="text-xs text-muted">
-                Generate a single combined invoice for all eligible completed projects for a client in a selected month.
+                Generate a single combined invoice for all eligible projects for a client in a selected month.
               </p>
             </div>
           </div>
@@ -502,7 +502,7 @@ export function PaymentsPage({
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2 text-sm font-semibold text-ink">
                   <span>
-                    Found {eligibleProjectsForBulk.length} eligible completed project{eligibleProjectsForBulk.length === 1 ? '' : 's'} for {bulkClient}
+                    Found {eligibleProjectsForBulk.length} eligible project{eligibleProjectsForBulk.length === 1 ? '' : 's'} for {bulkClient}
                   </span>
                   <span className="text-warning">
                     Total Due: {currency(eligibleProjectsForBulk.reduce((acc, p) => acc + calculateDueAmount(p), 0))}
@@ -515,6 +515,7 @@ export function PaymentsPage({
                         <span className="font-semibold text-ink">{p.project_title}</span>
                         <span className="ml-2 text-muted">(#{p.project_number})</span>
                         <span className="ml-2 rounded bg-ivory px-1.5 py-0.5 border border-border">{p.service_type || 'Service'}</span>
+                        <span className="ml-2 font-medium text-ink">[{p.status}]</span>
                       </div>
                       <div className="flex items-center gap-3">
                         <span>Total: {currency(p.total_price)}</span>
@@ -527,7 +528,7 @@ export function PaymentsPage({
               </div>
             ) : (
               <p className="text-xs text-muted italic text-center py-2">
-                No uninvoiced completed projects found for {bulkClient} in the selected month/year.
+                No uninvoiced projects found for {bulkClient} in the selected month/year/status.
               </p>
             )}
           </div>

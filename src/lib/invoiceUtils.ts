@@ -62,11 +62,6 @@ export function getEligibleProjectsForClient(
       return false;
     }
 
-    // Must be completed
-    if (!isProjectCompleted(project)) {
-      return false;
-    }
-
     // Must not already be invoiced
     if (project.invoiced || project.invoice_id) {
       return false;
@@ -190,7 +185,7 @@ export function getAllClientsWithEligibleProjects(
   const grouped = new Map<string, { clientName: string; clientEmail: string; projects: Project[] }>();
 
   projects.forEach((project) => {
-    if (!isProjectCompleted(project) || project.invoiced || project.invoice_id) {
+    if (project.invoiced || project.invoice_id) {
       return;
     }
 
