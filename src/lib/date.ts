@@ -21,11 +21,19 @@ export function formatDate(value?: string | null) {
     return 'Not set';
   }
 
+  // Strip to date-only portion (handles both "2026-08-01" and "2026-08-01T15:00:00Z")
+  const datePart = value.slice(0, 10);
+
+  const parsed = new Date(`${datePart}T12:00:00`);
+  if (isNaN(parsed.getTime())) {
+    return 'Not set';
+  }
+
   return new Intl.DateTimeFormat('en', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
-  }).format(new Date(`${value}T12:00:00`));
+  }).format(parsed);
 }
 
 export function daysUntil(value: string) {
