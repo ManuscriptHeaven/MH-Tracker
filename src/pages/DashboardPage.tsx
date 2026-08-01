@@ -1,6 +1,8 @@
 import { AlertTriangle, CalendarClock, CheckCircle2, CircleDollarSign, Clock3, FolderOpen, Plus } from 'lucide-react';
 import { StatusBadge } from '../components/Badges';
+import { ProjectTimelineCompact } from '../components/ProjectTimeline';
 import { Button, Card } from '../components/ui';
+import { closedStatuses } from '../lib/constants';
 import { isDueThisWeek, isDueToday, isOverdue, formatDate, deadlineClass, deadlineLabel } from '../lib/date';
 import { currency, firstName, initials, isClientRole } from '../lib/utils';
 import type { Profile, Project } from '../lib/types';
@@ -52,19 +54,32 @@ export function DashboardPage({
   onSelectProject: (project: Project) => void;
 }) {
   const activeProjects = projects
-    .filter((project) => project.status !== 'Delivered' && project.status !== 'Cancelled')
+    .filter((project) => !closedStatuses.includes(project.status))
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  const overdueProjects = projects.filter(isOverdue);
-  const dueToday = projects.filter(isDueToday);
-  const dueThisWeek = projects.filter(isDueThisWeek);
-  const inRevision = projects.filter((project) => project.status === 'In Revision' || project.status === 'Revision Requested');
-  const clientReview = projects.filter((project) => project.status === 'Client Review');
+  const overdueProjects = activeProjects.filter(isOverdue);
+  const dueToday = activeProjects.filter(isDueToday);
+  const dueThisWeek = activeProjects.filter(isDueThisWeek);
+  const inRevision = activeProjects.filter(
+    (project) =>
+      project.status === 'In Revision' ||
+      project.status === 'Revision Requested' ||
+      project.status === 'Concept Revisions' ||
+      project.status === 'Print Revisions',
+  );
+  const clientReview = activeProjects.filter(
+    (project) =>
+      project.status === 'Client Review' ||
+      project.status === 'Awaiting Concept Approval' ||
+      project.status === 'Awaiting Print Approval' ||
+      project.status === 'eBook Review',
+  );
   const deliveredThisMonth = projects.filter((project) => {
-    if (project.status !== 'Delivered' || !project.delivery_date) {
+    const deliveryDate = project.delivery_date || project.final_delivery_date;
+    if (!closedStatuses.includes(project.status) || !deliveryDate) {
       return false;
     }
 
-    const delivered = new Date(`${project.delivery_date}T12:00:00`);
+    const delivered = new Date(`${deliveryDate}T12:00:00`);
     const now = new Date();
     return delivered.getMonth() === now.getMonth() && delivered.getFullYear() === now.getFullYear();
   });
@@ -111,8 +126,10 @@ export function DashboardPage({
         <Card>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="font-display text-2xl font-semibold">Recent Projects</h2>
-              <p className="text-sm text-muted">Current work sorted newest first.</p>
+              <h2 className="font-display text-2xl font-semibold">Open Projects</h2>
+              <p className="text-sm text-muted">
+                Showing all {activeProjects.length} open project{activeProjects.length === 1 ? '' : 's'}, newest first.
+              </p>
             </div>
             {canManageProjects ? (
               <Button onClick={onAddProject}>
@@ -123,18 +140,19 @@ export function DashboardPage({
           </div>
 
           <div className="mt-5 overflow-x-auto">
-            <table className="w-full min-w-[760px] border-separate border-spacing-0 text-left text-sm">
+            <table className="w-full min-w-[900px] border-separate border-spacing-0 text-left text-sm">
               <thead>
                 <tr className="text-xs uppercase tracking-[0.12em] text-muted">
                   <th className="border-b border-border pb-3">Project</th>
                   <th className="border-b border-border pb-3">Client</th>
                   <th className="border-b border-border pb-3">Assigned</th>
                   <th className="border-b border-border pb-3">Status</th>
+                  <th className="border-b border-border pb-3">Timeline</th>
                   <th className="border-b border-border pb-3">Due</th>
                 </tr>
               </thead>
               <tbody>
-                {activeProjects.slice(0, 7).map((project) => (
+                {activeProjects.map((project) => (
                   <tr
                     key={project.id}
                     className="cursor-pointer transition hover:bg-ivory"
@@ -148,6 +166,9 @@ export function DashboardPage({
                     <td className="border-b border-border/70 py-3">{profileName(profiles, project.assigned_to)}</td>
                     <td className="border-b border-border/70 py-3">
                       <StatusBadge status={project.status} />
+                    </td>
+                    <td className="border-b border-border/70 py-3">
+                      <ProjectTimelineCompact project={project} />
                     </td>
                     <td className="border-b border-border/70 py-3">
                       <p className={deadlineClass(project)}>{deadlineLabel(project)}</p>
@@ -179,6 +200,9 @@ export function DashboardPage({
                       <span className={`text-sm font-semibold ${deadlineClass(project)}`}>
                         {deadlineLabel(project)}
                       </span>
+                    </div>
+                    <div className="mt-3">
+                      <ProjectTimelineCompact project={project} />
                     </div>
                   </button>
                 ))

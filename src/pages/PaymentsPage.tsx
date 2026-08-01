@@ -1,6 +1,7 @@
-import { AlertTriangle, CheckCircle2, CircleDollarSign, Download, Edit, RotateCcw, Trash2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CircleDollarSign, Download, Edit, Printer, RotateCcw, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { PaymentBadge, StatusBadge } from '../components/Badges';
+import { InvoiceModal } from '../components/InvoiceModal';
 import { Button, Card, EmptyState, Field, SelectField } from '../components/ui';
 import { paymentStatuses, statusOptions } from '../lib/constants';
 import { daysUntil, formatDate, todayInput } from '../lib/date';
@@ -197,6 +198,7 @@ export function PaymentsPage({
   const [searchTerm, setSearchTerm] = useState('');
   const [busyProjectId, setBusyProjectId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [invoiceProject, setInvoiceProject] = useState<Project | null>(null);
 
   const clients = useMemo(() => [...new Set(projects.map((project) => project.client_name).filter(Boolean))].sort(), [
     projects,
@@ -507,6 +509,10 @@ export function PaymentsPage({
                       </td>
                       <td className="border-t border-border px-4 py-3">
                         <div className="flex justify-end gap-2">
+                          <Button type="button" variant="secondary" onClick={() => setInvoiceProject(project)}>
+                            <Printer className="h-4 w-4" />
+                            Print
+                          </Button>
                           <Button type="button" variant="secondary" onClick={() => onEditProject(project)}>
                             <Edit className="h-4 w-4" />
                             Edit
@@ -560,6 +566,10 @@ export function PaymentsPage({
                   </div>
                   <p className="mt-3 text-sm text-muted">{project.payment_notes || 'No notes'}</p>
                   <div className="mt-4 flex flex-wrap gap-2">
+                    <Button type="button" variant="secondary" onClick={() => setInvoiceProject(project)}>
+                      <Printer className="h-4 w-4" />
+                      Print
+                    </Button>
                     <Button type="button" variant="secondary" onClick={() => onEditProject(project)}>
                       <Edit className="h-4 w-4" />
                       Edit
@@ -598,6 +608,10 @@ export function PaymentsPage({
           <AlertTriangle className="h-4 w-4" />
           Overdue amount in the current filter is {currency(summary.overdue)}.
         </div>
+      ) : null}
+
+      {invoiceProject ? (
+        <InvoiceModal project={invoiceProject} onClose={() => setInvoiceProject(null)} />
       ) : null}
     </div>
   );

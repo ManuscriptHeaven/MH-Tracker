@@ -4,10 +4,20 @@ import {
   paymentStatuses,
   platforms,
   priorityOptions,
-  projectStatusChoices,
   serviceTypes,
 } from '../lib/constants';
-import { todayInput } from '../lib/date';
+import { formatDate, todayInput } from '../lib/date';
+import {
+  addCalendarDays,
+  estimatedFinalDueDate,
+  FULL_PROJECT_TIMELINE_DAYS,
+  PRINT_ONLY_TIMELINE_DAYS,
+  PRINT_VERSION_CALENDAR_DAYS,
+  projectRequiresEbook,
+  deriveProjectTimeline,
+  getTimelineSummary,
+  validateTimelineDates,
+} from '../lib/timeline';
 import { errorMessage, firstName, isClientRole, isManagerRole } from '../lib/utils';
 import type { Profile, Project, ProjectDraft } from '../lib/types';
 import { Button, Field, Modal, SelectField, TextareaField } from './ui';
@@ -34,6 +44,9 @@ function OptionList({ id, values }: { id: string; values: string[] }) {
 }
 
 function defaultDraft(currentProfile: Profile): ProjectDraft {
+  const startDate = todayInput();
+  const estimatedDueDate = addCalendarDays(startDate, PRINT_ONLY_TIMELINE_DAYS);
+
   return {
     client_name: '',
     client_email: '',
@@ -49,11 +62,11 @@ function defaultDraft(currentProfile: Profile): ProjectDraft {
     project_manager:
       currentProfile.role === 'project_manager' || currentProfile.role === 'manager' ? currentProfile.id : null,
     priority: 'Normal',
-    start_date: todayInput(),
-    due_date: todayInput(),
-    internal_deadline: todayInput(),
+    start_date: startDate,
+    due_date: estimatedDueDate,
+    internal_deadline: estimatedDueDate,
     delivery_date: null,
-    status: 'New',
+    status: 'Files Required',
     general_notes: '',
     internal_notes: '',
     client_instructions: '',
@@ -72,6 +85,30 @@ function defaultDraft(currentProfile: Profile): ProjectDraft {
     payment_status: 'Not Started',
     payment_date: null,
     payment_notes: '',
+    files_received_date: null,
+    design_concept_due_date: null,
+    design_concept_due_date_manual: false,
+    design_concept_submitted_date: null,
+    design_concept_approval_date: null,
+    concept_revision_due_date: null,
+    print_version_due_date: null,
+    print_version_due_date_manual: false,
+    print_version_submitted_date: null,
+    print_version_approval_date: null,
+    print_revision_due_date: null,
+    ebook_due_date: null,
+    ebook_due_date_manual: false,
+    ebook_submitted_date: null,
+    ebook_approval_date: null,
+    final_delivery_date: null,
+    current_stage: 'Files Required',
+    progress_percentage: 0,
+    waiting_on: 'Client',
+    timeline_status: 'Paused',
+    production_days_used: 0,
+    delay_reason: '',
+    client_action_required: 'Upload required project files',
+    print_timeline_days: 5,
   };
 }
 
@@ -87,6 +124,30 @@ function draftFromProject(project: Project): ProjectDraft {
     project_number,
     created_by,
   };
+}
+
+function estimatedProjectDueDate(draft: ProjectDraft) {
+  const anchorDate = draft.files_received_date || draft.start_date || todayInput();
+  const totalDays = projectRequiresEbook(draft) ? FULL_PROJECT_TIMELINE_DAYS : PRINT_ONLY_TIMELINE_DAYS;
+  const hasTimelineDates = Boolean(
+    draft.files_received_date ||
+      draft.design_concept_approval_date ||
+      draft.print_version_approval_date ||
+      draft.final_delivery_date,
+  );
+
+  return (hasTimelineDates ? estimatedFinalDueDate(draft) : null) || addCalendarDays(anchorDate, totalDays);
+}
+
+function ReadOnlyValue({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid gap-1.5 text-sm font-medium text-ink">
+      <span>{label}</span>
+      <div className="grid min-h-11 items-center rounded-md border border-border bg-ivory px-3 text-sm font-semibold text-ink">
+        {value}
+      </div>
+    </div>
+  );
 }
 
 export function ProjectFormModal({
@@ -109,6 +170,7 @@ export function ProjectFormModal({
   );
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const isEditing = Boolean(project);
 
   useEffect(() => {
     setDraft(project ? draftFromProject(project) : defaultDraft(currentProfile));
@@ -142,20 +204,52 @@ export function ProjectFormModal({
       genres: uniqueValues(projects.map((item) => item.genre)),
       trimSizes: uniqueValues(projects.map((item) => item.trim_size)),
       platforms: uniqueValues([...platforms, ...projects.map((item) => item.platform)]),
-      statuses: projectStatusChoices(draft.status),
     };
-  }, [draft.status, profiles, projects]);
+  }, [profiles, projects]);
 
   const balance = Math.max(Number(draft.total_price || 0) - Number(draft.advance_paid || 0), 0);
+  const timelinePreview = useMemo(() => deriveProjectTimeline(draft), [draft]);
+  const timelineSummary = useMemo(() => getTimelineSummary(timelinePreview), [timelinePreview]);
 
   function update<K extends keyof ProjectDraft>(key: K, value: ProjectDraft[K]) {
     setDraft((previous) => ({ ...previous, [key]: value }));
+  }
+
+  function updateNewProjectTimeline(updates: Partial<ProjectDraft>) {
+    setDraft((previous) => {
+      const next: ProjectDraft = {
+        ...previous,
+        ...updates,
+        print_timeline_days: PRINT_VERSION_CALENDAR_DAYS as ProjectDraft['print_timeline_days'],
+      };
+      const estimatedDueDate = estimatedProjectDueDate(next);
+      return {
+        ...next,
+        due_date: estimatedDueDate,
+        internal_deadline: estimatedDueDate,
+      };
+    });
+  }
+
+  function updateManualDate<K extends keyof ProjectDraft>(
+    key: K,
+    value: ProjectDraft[K],
+    manualKey: keyof ProjectDraft,
+  ) {
+    setDraft((previous) => ({ ...previous, [key]: value, [manualKey]: Boolean(value) }));
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSaving(true);
     setFormError(null);
+
+    const timelineErrors = validateTimelineDates(draft);
+    if (timelineErrors.length) {
+      setFormError(timelineErrors[0]);
+      setIsSaving(false);
+      return;
+    }
 
     if (!isProjectStatus(draft.status)) {
       setFormError('Please choose a project status from the suggestions.');
@@ -164,7 +258,7 @@ export function ProjectFormModal({
     }
 
     try {
-      await onSubmit(draft);
+      await onSubmit(deriveProjectTimeline(draft, { syncStatus: true }));
       onClose();
     } catch (error) {
       setFormError(errorMessage(error, 'Project could not be saved.'));
@@ -183,7 +277,6 @@ export function ProjectFormModal({
         <OptionList id="genre-options" values={suggestions.genres} />
         <OptionList id="trim-size-options" values={suggestions.trimSizes} />
         <OptionList id="platform-options" values={suggestions.platforms} />
-        <OptionList id="project-status-options" values={suggestions.statuses} />
 
         <section className="grid gap-4 rounded-lg border border-border bg-white p-4">
           <h3 className="font-display text-lg font-semibold">Basic Information</h3>
@@ -215,7 +308,9 @@ export function ProjectFormModal({
               label="Service Type"
               list="service-type-options"
               value={draft.service_type}
-              onChange={(event) => update('service_type', event.target.value)}
+              onChange={(event) =>
+                isEditing ? update('service_type', event.target.value) : updateNewProjectTimeline({ service_type: event.target.value })
+              }
             />
             <Field
               label="Book Genre"
@@ -299,33 +394,172 @@ export function ProjectFormModal({
               label="Start Date"
               type="date"
               value={draft.start_date}
-              onChange={(event) => update('start_date', event.target.value)}
+              onChange={(event) =>
+                isEditing ? update('start_date', event.target.value) : updateNewProjectTimeline({ start_date: event.target.value })
+              }
             />
-            <Field
-              label="Due Date"
-              type="date"
-              value={draft.due_date}
-              onChange={(event) => update('due_date', event.target.value)}
-            />
-            <Field
-              label="Internal Deadline"
-              type="date"
-              value={draft.internal_deadline}
-              onChange={(event) => update('internal_deadline', event.target.value)}
-            />
-            <Field
-              label="Delivery Date"
-              type="date"
-              value={draft.delivery_date || ''}
-              onChange={(event) => update('delivery_date', event.target.value || null)}
-            />
-            <Field
-              label="Project Status"
-              list="project-status-options"
-              value={draft.status}
-              onChange={(event) => update('status', event.target.value as ProjectDraft['status'])}
-            />
+            {isEditing ? (
+              <>
+                <Field
+                  label="Due Date"
+                  type="date"
+                  value={draft.due_date}
+                  onChange={(event) => update('due_date', event.target.value)}
+                />
+                <Field
+                  label="Internal Deadline"
+                  type="date"
+                  value={draft.internal_deadline}
+                  onChange={(event) => update('internal_deadline', event.target.value)}
+                />
+                <Field
+                  label="Delivery Date"
+                  type="date"
+                  value={draft.delivery_date || ''}
+                  onChange={(event) => update('delivery_date', event.target.value || null)}
+                />
+                <ReadOnlyValue label="Timeline Stage" value={timelineSummary.stage} />
+              </>
+            ) : (
+              <>
+                <ReadOnlyValue label="Estimated Project Due Date" value={formatDate(draft.due_date)} />
+                <ReadOnlyValue label="Initial Timeline Stage" value={timelineSummary.stage} />
+              </>
+            )}
           </div>
+        </section>
+
+        <section className="grid gap-4 rounded-lg border border-border bg-white p-4">
+          <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h3 className="font-display text-lg font-semibold">Project Timeline</h3>
+              <p className="text-sm text-muted">
+                Deadlines use calendar days and include weekends. Client review time pauses the active stage.
+              </p>
+            </div>
+            <div className="rounded-md border border-border bg-ivory px-3 py-2 text-sm">
+              <span className="font-semibold">{timelineSummary.stage}</span>
+              <span className="text-muted"> | {timelineSummary.progress}% | {timelineSummary.timelineStatus}</span>
+            </div>
+          </div>
+
+          {!isEditing ? (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <Field
+                label="Files Received Date"
+                type="date"
+                value={draft.files_received_date || ''}
+                onChange={(event) => updateNewProjectTimeline({ files_received_date: event.target.value || null })}
+              />
+              <ReadOnlyValue label="Print Timeline" value="5 calendar days" />
+              <ReadOnlyValue
+                label="Design Concept Due Date"
+                value={timelinePreview.design_concept_due_date ? formatDate(timelinePreview.design_concept_due_date) : 'After files received'}
+              />
+              <ReadOnlyValue label="Final Due Date" value={timelineSummary.finalDueDate ? formatDate(timelineSummary.finalDueDate) : 'After files received'} />
+            </div>
+          ) : (
+            <>
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <Field
+                  label="Files Received Date"
+                  type="date"
+                  value={draft.files_received_date || ''}
+                  onChange={(event) => update('files_received_date', event.target.value || null)}
+                />
+                <Field
+                  label={`Design Concept Due Date${draft.design_concept_due_date_manual ? ' (Manually adjusted)' : ''}`}
+                  type="date"
+                  value={timelinePreview.design_concept_due_date || ''}
+                  onChange={(event) =>
+                    updateManualDate('design_concept_due_date', event.target.value || null, 'design_concept_due_date_manual')
+                  }
+                />
+                <Field
+                  label="Design Concept Submitted Date"
+                  type="date"
+                  value={draft.design_concept_submitted_date || ''}
+                  onChange={(event) => update('design_concept_submitted_date', event.target.value || null)}
+                />
+                <Field
+                  label="Design Concept Approval Date"
+                  type="date"
+                  value={draft.design_concept_approval_date || ''}
+                  onChange={(event) => update('design_concept_approval_date', event.target.value || null)}
+                />
+                <Field
+                  label="Concept Revision Due Date"
+                  type="date"
+                  value={draft.concept_revision_due_date || ''}
+                  onChange={(event) => update('concept_revision_due_date', event.target.value || null)}
+                />
+                <ReadOnlyValue label="Print Timeline" value="5 calendar days" />
+                <Field
+                  label={`Print Version Due Date${draft.print_version_due_date_manual ? ' (Manually adjusted)' : ''}`}
+                  type="date"
+                  value={timelinePreview.print_version_due_date || ''}
+                  onChange={(event) =>
+                    updateManualDate('print_version_due_date', event.target.value || null, 'print_version_due_date_manual')
+                  }
+                />
+                <Field
+                  label="Print Version Submitted Date"
+                  type="date"
+                  value={draft.print_version_submitted_date || ''}
+                  onChange={(event) => update('print_version_submitted_date', event.target.value || null)}
+                />
+                <Field
+                  label="Print Version Approval Date"
+                  type="date"
+                  value={draft.print_version_approval_date || ''}
+                  onChange={(event) => update('print_version_approval_date', event.target.value || null)}
+                />
+                <Field
+                  label="Print Revision Due Date"
+                  type="date"
+                  value={draft.print_revision_due_date || ''}
+                  onChange={(event) => update('print_revision_due_date', event.target.value || null)}
+                />
+                <Field
+                  label={`eBook Due Date${draft.ebook_due_date_manual ? ' (Manually adjusted)' : ''}`}
+                  type="date"
+                  value={timelinePreview.ebook_due_date || ''}
+                  onChange={(event) => updateManualDate('ebook_due_date', event.target.value || null, 'ebook_due_date_manual')}
+                />
+                <Field
+                  label="eBook Submitted Date"
+                  type="date"
+                  value={draft.ebook_submitted_date || ''}
+                  onChange={(event) => update('ebook_submitted_date', event.target.value || null)}
+                />
+                <Field
+                  label="eBook Approval Date"
+                  type="date"
+                  value={draft.ebook_approval_date || ''}
+                  onChange={(event) => update('ebook_approval_date', event.target.value || null)}
+                />
+                <Field
+                  label="Final Delivery Date"
+                  type="date"
+                  value={draft.final_delivery_date || ''}
+                  onChange={(event) => update('final_delivery_date', event.target.value || null)}
+                />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <TextareaField
+                  label="Delay Reason"
+                  value={draft.delay_reason || ''}
+                  onChange={(event) => update('delay_reason', event.target.value)}
+                />
+                <TextareaField
+                  label="Client Action Required"
+                  value={timelinePreview.client_action_required || ''}
+                  onChange={(event) => update('client_action_required', event.target.value)}
+                />
+              </div>
+            </>
+          )}
         </section>
 
         <section className="grid gap-4 rounded-lg border border-border bg-white p-4">

@@ -8,6 +8,7 @@ import type {
   RevisionStatus,
   Role,
   TaskStatus,
+  TimelineStage,
 } from './types';
 
 export const roleLabels: Record<Role, string> = {
@@ -71,6 +72,18 @@ export const taskStatuses: TaskStatus[] = ['To Do', 'In Progress', 'Done'];
 export const allProjectStatuses: ProjectStatus[] = [
   'New',
   'Waiting for Files',
+  'Files Required',
+  'Files Received',
+  'Design Concept in Progress',
+  'Awaiting Concept Approval',
+  'Concept Revisions',
+  'Print Version in Progress',
+  'Awaiting Print Approval',
+  'Print Revisions',
+  'eBook in Progress',
+  'eBook Review',
+  'Final Quality Check',
+  'Completed',
   'Ready to Start',
   'In Progress',
   'Formatting',
@@ -90,16 +103,19 @@ export const allProjectStatuses: ProjectStatus[] = [
 ];
 
 export const statusOptions: ProjectStatus[] = [
-  'New',
-  'Ready to Start',
-  'In Progress',
-  'Client Review',
-  'Revision Requested',
-  'In Revision',
-  'Ready for Delivery',
-  'Delivered',
+  'Files Required',
+  'Files Received',
+  'Design Concept in Progress',
+  'Awaiting Concept Approval',
+  'Concept Revisions',
+  'Print Version in Progress',
+  'Awaiting Print Approval',
+  'Print Revisions',
+  'eBook in Progress',
+  'eBook Review',
+  'Final Quality Check',
+  'Completed',
   'On Hold',
-  'Archived',
   'Cancelled',
 ];
 
@@ -115,10 +131,21 @@ export function projectStatusChoices(currentStatus?: string | null): ProjectStat
   return statusOptions;
 }
 
-export const closedStatuses: ProjectStatus[] = ['Delivered', 'Cancelled'];
+export const closedStatuses: ProjectStatus[] = ['Delivered', 'Completed', 'Cancelled', 'Archived'];
 
 export const activeClientProjectStatuses: ProjectStatus[] = [
   'New',
+  'Files Required',
+  'Files Received',
+  'Design Concept in Progress',
+  'Awaiting Concept Approval',
+  'Concept Revisions',
+  'Print Version in Progress',
+  'Awaiting Print Approval',
+  'Print Revisions',
+  'eBook in Progress',
+  'eBook Review',
+  'Final Quality Check',
   'Ready to Start',
   'In Progress',
   'Client Review',
@@ -130,6 +157,18 @@ export const activeClientProjectStatuses: ProjectStatus[] = [
 export const statusBadgeClasses: Record<ProjectStatus, string> = {
   New: 'bg-blue-50 text-info border-blue-100',
   'Waiting for Files': 'bg-stone-100 text-stone-700 border-stone-200',
+  'Files Required': 'bg-stone-100 text-stone-700 border-stone-200',
+  'Files Received': 'bg-blue-50 text-info border-blue-100',
+  'Design Concept in Progress': 'bg-blue-50 text-blue-700 border-blue-100',
+  'Awaiting Concept Approval': 'bg-amber-50 text-amber-800 border-amber-200',
+  'Concept Revisions': 'bg-orange-50 text-orange-700 border-orange-100',
+  'Print Version in Progress': 'bg-sky-50 text-sky-700 border-sky-100',
+  'Awaiting Print Approval': 'bg-amber-50 text-amber-800 border-amber-200',
+  'Print Revisions': 'bg-orange-50 text-orange-700 border-orange-100',
+  'eBook in Progress': 'bg-indigo-50 text-indigo-700 border-indigo-100',
+  'eBook Review': 'bg-amber-50 text-amber-800 border-amber-200',
+  'Final Quality Check': 'bg-yellow-50 text-yellow-800 border-yellow-200',
+  Completed: 'bg-green-50 text-success border-green-100',
   'Ready to Start': 'bg-blue-50 text-info border-blue-100',
   'In Progress': 'bg-amber-50 text-amber-800 border-amber-200',
   Formatting: 'bg-amber-50 text-amber-800 border-amber-200',
@@ -168,4 +207,38 @@ export const paymentBadgeClasses: Record<PaymentStatus, string> = {
   'Fully Paid': 'bg-green-50 text-success border-green-100',
   Pending: 'bg-orange-50 text-orange-700 border-orange-100',
   Refunded: 'bg-red-50 text-danger border-red-100',
+};
+
+export const timelineStages: TimelineStage[] = [
+  'Files Required',
+  'Files Received',
+  'Design Concept in Progress',
+  'Awaiting Concept Approval',
+  'Concept Revisions',
+  'Print Version in Progress',
+  'Awaiting Print Approval',
+  'Print Revisions',
+  'eBook in Progress',
+  'eBook Review',
+  'Final Quality Check',
+  'Completed',
+  'On Hold',
+  'Cancelled',
+];
+
+export const timelineProgressByStage: Record<TimelineStage, number> = {
+  'Files Required': 0,
+  'Files Received': 10,
+  'Design Concept in Progress': 20,
+  'Awaiting Concept Approval': 30,
+  'Concept Revisions': 35,
+  'Print Version in Progress': 50,
+  'Awaiting Print Approval': 70,
+  'Print Revisions': 75,
+  'eBook in Progress': 85,
+  'eBook Review': 90,
+  'Final Quality Check': 95,
+  Completed: 100,
+  'On Hold': 0,
+  Cancelled: 0,
 };

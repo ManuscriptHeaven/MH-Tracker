@@ -1,6 +1,7 @@
 import { Copy, Download, Edit, Eye, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { PaymentBadge, PriorityBadge, StatusBadge } from '../components/Badges';
+import { ProjectTimelineCompact } from '../components/ProjectTimeline';
 import { Button, Card, EmptyState, IconButton, SelectField } from '../components/ui';
 import {
   isProjectStatus,
@@ -205,13 +206,14 @@ export function ProjectsPage({
 
       <Card className="overflow-hidden p-0">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[960px] border-separate border-spacing-0 text-left text-sm">
+          <table className="w-full min-w-[1120px] border-separate border-spacing-0 text-left text-sm">
             <thead className="bg-ivory text-xs uppercase tracking-[0.12em] text-muted">
               <tr>
                 <th className="px-4 py-3">Project</th>
                 <th className="px-4 py-3">Client</th>
                 <th className="px-4 py-3">Assigned To</th>
                 <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Timeline</th>
                 <th className="px-4 py-3">Priority</th>
                 <th className="px-4 py-3">Due Date</th>
                 {canViewPayments ? <th className="px-4 py-3">Payment</th> : null}
@@ -232,6 +234,9 @@ export function ProjectsPage({
                   <td className="border-t border-border px-4 py-3">{profileName(profiles, project.assigned_to)}</td>
                   <td className="border-t border-border px-4 py-3">
                     <StatusBadge status={project.status} />
+                  </td>
+                  <td className="border-t border-border px-4 py-3">
+                    <ProjectTimelineCompact project={project} />
                   </td>
                   <td className="border-t border-border px-4 py-3">
                     <PriorityBadge priority={project.priority} />

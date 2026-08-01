@@ -1,8 +1,9 @@
 import { CheckCircle2, Edit, FileText, Plus, Printer, Trash2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { RevisionRequestsPage } from '../pages/RevisionRequestsPage';
-import { isProjectStatus, projectStatusChoices, revisionStatuses } from '../lib/constants';
+import { revisionStatuses, timelineStages } from '../lib/constants';
 import { deadlineClass, deadlineLabel, formatDate, todayInput } from '../lib/date';
+import { timelineUpdateForStage } from '../lib/timeline';
 import { currency, firstName, initials } from '../lib/utils';
 import type {
   ActivityLog,
@@ -13,12 +14,13 @@ import type {
   RevisionActivity,
   RevisionAttachment,
   RevisionItem,
-  ProjectStatus,
   RevisionNote,
   RevisionRequest,
   RevisionStatus,
+  TimelineStage,
 } from '../lib/types';
 import { PaymentBadge, PriorityBadge, RoleBadge, StatusBadge } from './Badges';
+import { ProjectTimelinePanel } from './ProjectTimeline';
 import { Button, Card, Field, Modal, SelectField, TextareaField } from './ui';
 
 const noteTypes: Array<{ value: NoteType; label: string }> = [
@@ -96,7 +98,7 @@ export function ProjectDetail({
   onUpdateRevisionItem: (itemId: string, updates: Partial<RevisionItem>) => Promise<void>;
   onUploadRevisedProof: (requestId: string, file: File) => Promise<void>;
 }) {
-  const [status, setStatus] = useState<string>(project.status);
+  const [stage, setStage] = useState<TimelineStage>(project.current_stage || 'Files Required');
   const [noteType, setNoteType] = useState<NoteType>('work');
   const [note, setNote] = useState('');
   const [revisionNote, setRevisionNote] = useState('');
@@ -122,25 +124,17 @@ export function ProjectDetail({
     [activities, project.id],
   );
 
-  async function saveStatus() {
-    if (!isProjectStatus(status)) {
-      window.alert('Please choose a project status from the suggestions.');
-      setStatus(project.status);
-      return;
-    }
+  useEffect(() => {
+    setStage(project.current_stage || 'Files Required');
+  }, [project.current_stage, project.id]);
 
-    await onUpdateProject({
-      status,
-      delivery_date: status === 'Delivered' ? todayInput() : project.delivery_date,
-    });
+  async function saveStage() {
+    await onUpdateProject(timelineUpdateForStage(project, stage));
   }
 
   async function markDelivered() {
-    setStatus('Delivered');
-    await onUpdateProject({
-      status: 'Delivered',
-      delivery_date: todayInput(),
-    });
+    setStage('Completed');
+    await onUpdateProject(timelineUpdateForStage({ ...project, final_delivery_date: todayInput() }, 'Completed'));
   }
 
   async function submitNote() {
@@ -209,6 +203,8 @@ export function ProjectDetail({
           </div>
         </Card>
 
+        <ProjectTimelinePanel project={project} />
+
         <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
           <div className="space-y-5">
             <Card>
@@ -229,19 +225,19 @@ export function ProjectDetail({
 
             <Card>
               <div className="flex flex-col gap-3 md:flex-row md:items-end">
-                <Field
-                  label="Change Status"
-                  list="project-detail-status-options"
-                  value={status}
-                  onChange={(event) => setStatus(event.target.value)}
+                <SelectField
+                  label="Change Timeline Stage"
+                  value={stage}
+                  onChange={(event) => setStage(event.target.value as TimelineStage)}
                   className="md:w-72"
-                />
-                <datalist id="project-detail-status-options">
-                  {projectStatusChoices(project.status).map((item) => (
-                    <option key={item} value={item} />
+                >
+                  {timelineStages.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
                   ))}
-                </datalist>
-                <Button onClick={saveStatus}>Save Status</Button>
+                </SelectField>
+                <Button onClick={saveStage}>Save Stage</Button>
               </div>
             </Card>
 

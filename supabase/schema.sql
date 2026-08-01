@@ -33,6 +33,18 @@ begin
   create type public.project_status as enum (
     'New',
     'Waiting for Files',
+    'Files Required',
+    'Files Received',
+    'Design Concept in Progress',
+    'Awaiting Concept Approval',
+    'Concept Revisions',
+    'Print Version in Progress',
+    'Awaiting Print Approval',
+    'Print Revisions',
+    'eBook in Progress',
+    'eBook Review',
+    'Final Quality Check',
+    'Completed',
     'Ready to Start',
     'In Progress',
     'Formatting',
@@ -57,6 +69,24 @@ end $$;
 do $$
 begin
   alter type public.project_status add value if not exists 'Archived';
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  alter type public.project_status add value if not exists 'Files Required';
+  alter type public.project_status add value if not exists 'Files Received';
+  alter type public.project_status add value if not exists 'Design Concept in Progress';
+  alter type public.project_status add value if not exists 'Awaiting Concept Approval';
+  alter type public.project_status add value if not exists 'Concept Revisions';
+  alter type public.project_status add value if not exists 'Print Version in Progress';
+  alter type public.project_status add value if not exists 'Awaiting Print Approval';
+  alter type public.project_status add value if not exists 'Print Revisions';
+  alter type public.project_status add value if not exists 'eBook in Progress';
+  alter type public.project_status add value if not exists 'eBook Review';
+  alter type public.project_status add value if not exists 'Final Quality Check';
+  alter type public.project_status add value if not exists 'Completed';
 exception
   when duplicate_object then null;
 end $$;
@@ -136,10 +166,60 @@ create table if not exists public.projects (
   final_ebook_link text not null default '',
   cover_file_link text not null default '',
   other_links text not null default '',
+  files_received_date date,
+  design_concept_due_date date,
+  design_concept_due_date_manual boolean not null default false,
+  design_concept_submitted_date date,
+  design_concept_approval_date date,
+  concept_revision_due_date date,
+  print_version_due_date date,
+  print_version_due_date_manual boolean not null default false,
+  print_version_submitted_date date,
+  print_version_approval_date date,
+  print_revision_due_date date,
+  ebook_due_date date,
+  ebook_due_date_manual boolean not null default false,
+  ebook_submitted_date date,
+  ebook_approval_date date,
+  final_delivery_date date,
+  current_stage text,
+  progress_percentage integer not null default 0,
+  waiting_on text not null default 'None',
+  timeline_status text not null default 'Paused',
+  production_days_used integer not null default 0,
+  delay_reason text not null default '',
+  client_action_required text not null default '',
+  print_timeline_days integer not null default 5,
   created_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.projects
+add column if not exists files_received_date date,
+add column if not exists design_concept_due_date date,
+add column if not exists design_concept_due_date_manual boolean not null default false,
+add column if not exists design_concept_submitted_date date,
+add column if not exists design_concept_approval_date date,
+add column if not exists concept_revision_due_date date,
+add column if not exists print_version_due_date date,
+add column if not exists print_version_due_date_manual boolean not null default false,
+add column if not exists print_version_submitted_date date,
+add column if not exists print_version_approval_date date,
+add column if not exists print_revision_due_date date,
+add column if not exists ebook_due_date date,
+add column if not exists ebook_due_date_manual boolean not null default false,
+add column if not exists ebook_submitted_date date,
+add column if not exists ebook_approval_date date,
+add column if not exists final_delivery_date date,
+add column if not exists current_stage text,
+add column if not exists progress_percentage integer not null default 0,
+add column if not exists waiting_on text not null default 'None',
+add column if not exists timeline_status text not null default 'Paused',
+add column if not exists production_days_used integer not null default 0,
+add column if not exists delay_reason text not null default '',
+add column if not exists client_action_required text not null default '',
+add column if not exists print_timeline_days integer not null default 5;
 
 create table if not exists public.project_payments (
   id uuid primary key default gen_random_uuid(),
@@ -513,7 +593,11 @@ as $$
   );
 $$;
 
-create or replace view public.client_project_summaries as
+drop view if exists public.client_project_summaries;
+
+create or replace view public.client_project_summaries
+with (security_invoker = false)
+as
 select
   project.id,
   project.project_number,
@@ -527,6 +611,28 @@ select
   project.final_print_pdf_link,
   project.final_ebook_link,
   project.cover_file_link,
+  project.files_received_date,
+  project.design_concept_due_date,
+  project.design_concept_due_date_manual,
+  project.design_concept_submitted_date,
+  project.design_concept_approval_date,
+  project.concept_revision_due_date,
+  project.print_version_due_date,
+  project.print_version_due_date_manual,
+  project.print_version_submitted_date,
+  project.print_version_approval_date,
+  project.print_revision_due_date,
+  project.ebook_due_date,
+  project.ebook_due_date_manual,
+  project.ebook_submitted_date,
+  project.ebook_approval_date,
+  project.final_delivery_date,
+  project.current_stage,
+  project.progress_percentage,
+  project.waiting_on,
+  project.timeline_status,
+  project.client_action_required,
+  project.print_timeline_days,
   project.updated_at,
   project.created_at
 from public.projects project

@@ -3,6 +3,18 @@ export type Role = 'admin' | 'manager' | 'project_manager' | 'employee' | 'junio
 export type ProjectStatus =
   | 'New'
   | 'Waiting for Files'
+  | 'Files Required'
+  | 'Files Received'
+  | 'Design Concept in Progress'
+  | 'Awaiting Concept Approval'
+  | 'Concept Revisions'
+  | 'Print Version in Progress'
+  | 'Awaiting Print Approval'
+  | 'Print Revisions'
+  | 'eBook in Progress'
+  | 'eBook Review'
+  | 'Final Quality Check'
+  | 'Completed'
   | 'Ready to Start'
   | 'In Progress'
   | 'Formatting'
@@ -19,6 +31,28 @@ export type ProjectStatus =
   | 'On Hold'
   | 'Archived'
   | 'Cancelled';
+
+export type TimelineStage =
+  | 'Files Required'
+  | 'Files Received'
+  | 'Design Concept in Progress'
+  | 'Awaiting Concept Approval'
+  | 'Concept Revisions'
+  | 'Print Version in Progress'
+  | 'Awaiting Print Approval'
+  | 'Print Revisions'
+  | 'eBook in Progress'
+  | 'eBook Review'
+  | 'Final Quality Check'
+  | 'Completed'
+  | 'On Hold'
+  | 'Cancelled';
+
+export type TimelineStatus = 'Active' | 'Paused' | 'Completed' | 'On Hold' | 'Cancelled';
+
+export type TimelineWaitingOn = 'Manuscript Heaven' | 'Client' | 'None';
+
+export type PrintTimelineDays = 3 | 4 | 5;
 
 export type Priority = 'Low' | 'Normal' | 'High' | 'Urgent';
 
@@ -101,6 +135,30 @@ export interface Project {
   payment_status: PaymentStatus;
   payment_date: string | null;
   payment_notes: string;
+  files_received_date?: string | null;
+  design_concept_due_date?: string | null;
+  design_concept_due_date_manual?: boolean;
+  design_concept_submitted_date?: string | null;
+  design_concept_approval_date?: string | null;
+  concept_revision_due_date?: string | null;
+  print_version_due_date?: string | null;
+  print_version_due_date_manual?: boolean;
+  print_version_submitted_date?: string | null;
+  print_version_approval_date?: string | null;
+  print_revision_due_date?: string | null;
+  ebook_due_date?: string | null;
+  ebook_due_date_manual?: boolean;
+  ebook_submitted_date?: string | null;
+  ebook_approval_date?: string | null;
+  final_delivery_date?: string | null;
+  current_stage?: TimelineStage;
+  progress_percentage?: number;
+  waiting_on?: TimelineWaitingOn;
+  timeline_status?: TimelineStatus;
+  production_days_used?: number;
+  delay_reason?: string;
+  client_action_required?: string;
+  print_timeline_days?: PrintTimelineDays;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -155,9 +213,13 @@ export interface ActivityLog {
   id: string;
   project_id: string;
   action: string;
+  activity_type?: string | null;
+  description?: string | null;
   old_value: string | null;
   new_value: string | null;
   user_id: string;
+  attachment_url?: string | null;
+  internal_note?: string | null;
   created_at: string;
 }
 

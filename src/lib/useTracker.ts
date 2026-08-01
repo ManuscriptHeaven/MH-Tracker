@@ -8,6 +8,13 @@ import {
   markNotificationAsRead,
   subscribeToNotifications,
 } from './notifications';
+import {
+  approvalUpdateForMilestone,
+  deriveProjectTimeline,
+  revisionStageForProject,
+  validateTimelineDates,
+  type ApprovalMilestone,
+} from './timeline';
 import type {
   ActivityLog,
   ClientInviteDraft,
@@ -115,7 +122,7 @@ function normalizeProject(project: Project): Project {
   const totalPrice = Number(project.total_price || 0);
   const advancePaid = Number(project.advance_paid || 0);
 
-  return {
+  return deriveProjectTimeline({
     ...project,
     total_price: totalPrice,
     advance_paid: advancePaid,
@@ -123,7 +130,26 @@ function normalizeProject(project: Project): Project {
     payment_status: project.payment_status || 'Not Started',
     payment_date: cleanDate(project.payment_date),
     payment_notes: cleanText(project.payment_notes),
-  };
+    files_received_date: cleanDate(project.files_received_date),
+    design_concept_due_date: cleanDate(project.design_concept_due_date),
+    design_concept_due_date_manual: Boolean(project.design_concept_due_date_manual),
+    design_concept_submitted_date: cleanDate(project.design_concept_submitted_date),
+    design_concept_approval_date: cleanDate(project.design_concept_approval_date),
+    concept_revision_due_date: cleanDate(project.concept_revision_due_date),
+    print_version_due_date: cleanDate(project.print_version_due_date),
+    print_version_due_date_manual: Boolean(project.print_version_due_date_manual),
+    print_version_submitted_date: cleanDate(project.print_version_submitted_date),
+    print_version_approval_date: cleanDate(project.print_version_approval_date),
+    print_revision_due_date: cleanDate(project.print_revision_due_date),
+    ebook_due_date: cleanDate(project.ebook_due_date),
+    ebook_due_date_manual: Boolean(project.ebook_due_date_manual),
+    ebook_submitted_date: cleanDate(project.ebook_submitted_date),
+    ebook_approval_date: cleanDate(project.ebook_approval_date),
+    final_delivery_date: cleanDate(project.final_delivery_date),
+    delay_reason: cleanText(project.delay_reason),
+    client_action_required: cleanText(project.client_action_required),
+    print_timeline_days: project.print_timeline_days || 5,
+  });
 }
 
 function normalizeClientProject(project: Partial<Project>): Project {
@@ -167,6 +193,30 @@ function normalizeClientProject(project: Partial<Project>): Project {
     payment_status: 'Not Started',
     payment_date: null,
     payment_notes: '',
+    files_received_date: cleanDate(project.files_received_date),
+    design_concept_due_date: cleanDate(project.design_concept_due_date),
+    design_concept_due_date_manual: Boolean(project.design_concept_due_date_manual),
+    design_concept_submitted_date: cleanDate(project.design_concept_submitted_date),
+    design_concept_approval_date: cleanDate(project.design_concept_approval_date),
+    concept_revision_due_date: cleanDate(project.concept_revision_due_date),
+    print_version_due_date: cleanDate(project.print_version_due_date),
+    print_version_due_date_manual: Boolean(project.print_version_due_date_manual),
+    print_version_submitted_date: cleanDate(project.print_version_submitted_date),
+    print_version_approval_date: cleanDate(project.print_version_approval_date),
+    print_revision_due_date: cleanDate(project.print_revision_due_date),
+    ebook_due_date: cleanDate(project.ebook_due_date),
+    ebook_due_date_manual: Boolean(project.ebook_due_date_manual),
+    ebook_submitted_date: cleanDate(project.ebook_submitted_date),
+    ebook_approval_date: cleanDate(project.ebook_approval_date),
+    final_delivery_date: cleanDate(project.final_delivery_date),
+    current_stage: project.current_stage,
+    progress_percentage: Number(project.progress_percentage || 0),
+    waiting_on: project.waiting_on,
+    timeline_status: project.timeline_status,
+    production_days_used: Number(project.production_days_used || 0),
+    delay_reason: cleanText(project.delay_reason),
+    client_action_required: cleanText(project.client_action_required),
+    print_timeline_days: project.print_timeline_days || 5,
     created_by: null,
     created_at: project.created_at || new Date().toISOString(),
     updated_at: project.updated_at || new Date().toISOString(),
@@ -308,6 +358,24 @@ function supabaseProjectPayload(project: ProjectDraft | Partial<Project>) {
     due_date: cleanDate(payload.due_date),
     internal_deadline: cleanDate(payload.internal_deadline),
     delivery_date: cleanDate(payload.delivery_date),
+    files_received_date: cleanDate(payload.files_received_date),
+    design_concept_due_date: cleanDate(payload.design_concept_due_date),
+    design_concept_submitted_date: cleanDate(payload.design_concept_submitted_date),
+    design_concept_approval_date: cleanDate(payload.design_concept_approval_date),
+    concept_revision_due_date: cleanDate(payload.concept_revision_due_date),
+    print_version_due_date: cleanDate(payload.print_version_due_date),
+    print_version_submitted_date: cleanDate(payload.print_version_submitted_date),
+    print_version_approval_date: cleanDate(payload.print_version_approval_date),
+    print_revision_due_date: cleanDate(payload.print_revision_due_date),
+    ebook_due_date: cleanDate(payload.ebook_due_date),
+    ebook_submitted_date: cleanDate(payload.ebook_submitted_date),
+    ebook_approval_date: cleanDate(payload.ebook_approval_date),
+    final_delivery_date: cleanDate(payload.final_delivery_date),
+    print_timeline_days: payload.print_timeline_days || 5,
+    progress_percentage: Number(payload.progress_percentage || 0),
+    production_days_used: Number(payload.production_days_used || 0),
+    client_action_required: cleanText(payload.client_action_required),
+    delay_reason: cleanText(payload.delay_reason),
   };
 }
 
@@ -495,13 +563,20 @@ export function useTracker() {
     const canManage = canManageEverything(profile);
     const emptyResult = Promise.resolve({ data: [], error: null });
 
+    if (canManage) {
+      const { error: timelineNotificationError } = await supabase.rpc('create_timeline_deadline_notifications');
+      if (timelineNotificationError && !isMissingSchemaError(timelineNotificationError)) {
+        console.warn('Timeline notification check failed:', timelineNotificationError);
+      }
+    }
+
     const profilesPromise = profileIsClient
       ? safeSelect<Profile>(supabase.from('profiles').select('*').eq('id', profile.id))
       : safeSelect<Profile>(supabase.from('profiles').select('*').order('full_name'));
 
     const projectsPromise = profileIsClient
       ? safeSelect<Partial<Project>>(
-          supabase.from('client_project_summaries').select('*').order('updated_at', { ascending: false }),
+          supabase.from('client_project_summaries').select('*'),
         )
       : safeSelect<Project>(supabase.from('projects').select('*').order('created_at', { ascending: false }));
 
@@ -593,7 +668,12 @@ export function useTracker() {
     ]);
 
     const projects = profileIsClient
-      ? (projectsRes.data as Partial<Project>[]).map(normalizeClientProject)
+      ? (projectsRes.data as Partial<Project>[])
+          .map(normalizeClientProject)
+          .sort(
+            (a, b) =>
+              new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime(),
+          )
       : (projectsRes.data as Project[]).map(normalizeProject);
     const payments = paymentsRes.data as ProjectPayment[];
 
@@ -855,14 +935,20 @@ export function useTracker() {
       }
 
       const now = new Date().toISOString();
+      const timelineErrors = validateTimelineDates(draft);
+      if (timelineErrors.length) {
+        throw new Error(timelineErrors[0]);
+      }
+
+      const timelineDraft = deriveProjectTimeline(draft, { syncStatus: true });
       const localProject: Project = normalizeProject({
-        ...draft,
+        ...timelineDraft,
         id: createId('project'),
-        project_number: draft.project_number || `MH-${1001 + data.projects.length}`,
+        project_number: timelineDraft.project_number || `MH-${1001 + data.projects.length}`,
         created_by: currentProfile.id,
         created_at: now,
         updated_at: now,
-        remaining_balance: calculateBalance(draft.total_price, draft.advance_paid),
+        remaining_balance: calculateBalance(timelineDraft.total_price, timelineDraft.advance_paid),
       });
 
       if (supabase && mode === 'supabase') {
@@ -898,6 +984,13 @@ export function useTracker() {
           new_value: project.project_title,
           user_id: currentProfile.id,
         });
+        await addActivity({
+          project_id: project.id,
+          action: 'Timeline started',
+          old_value: null,
+          new_value: project.current_stage || project.status,
+          user_id: currentProfile.id,
+        });
         return project;
       }
 
@@ -907,6 +1000,13 @@ export function useTracker() {
         action: 'Project created',
         old_value: null,
         new_value: localProject.project_title,
+        user_id: currentProfile.id,
+      });
+      await addActivity({
+        project_id: localProject.id,
+        action: 'Timeline started',
+        old_value: null,
+        new_value: localProject.current_stage || localProject.status,
         user_id: currentProfile.id,
       });
       return localProject;
@@ -925,9 +1025,13 @@ export function useTracker() {
         throw new Error('Project not found in the current project list.');
       }
 
+      const timelineErrors = validateTimelineDates({ ...existing, ...updates });
+      if (timelineErrors.length) {
+        throw new Error(timelineErrors[0]);
+      }
+
       const nextProject = normalizeProject({
-        ...existing,
-        ...updates,
+        ...deriveProjectTimeline({ ...existing, ...updates }, { syncStatus: true }),
         updated_at: new Date().toISOString(),
       });
 
@@ -982,6 +1086,16 @@ export function useTracker() {
           action: 'Status changed',
           old_value: existing.status,
           new_value: updates.status,
+          user_id: currentProfile.id,
+        });
+      }
+
+      if (nextProject.current_stage && nextProject.current_stage !== existing.current_stage) {
+        await addActivity({
+          project_id: projectId,
+          action: 'Timeline stage changed',
+          old_value: existing.current_stage || existing.status,
+          new_value: nextProject.current_stage,
           user_id: currentProfile.id,
         });
       }
@@ -1219,6 +1333,8 @@ export function useTracker() {
         throw new Error('Please add revision instructions before submitting.');
       }
 
+      const revisionStage = revisionStageForProject(project);
+
       if (supabase && mode === 'supabase') {
         try {
           const supabaseClient = supabase;
@@ -1255,6 +1371,17 @@ export function useTracker() {
           if (requestError) {
             throw requestError;
           }
+
+          await supabaseClient
+            .from('projects')
+            .update({
+              status: revisionStage,
+              current_stage: revisionStage,
+              waiting_on: 'Manuscript Heaven',
+              timeline_status: 'Active',
+              client_action_required: '',
+            })
+            .eq('id', project.id);
 
           await Promise.all(
             (draft.attachments || []).map(async (file) => {
@@ -1322,7 +1449,11 @@ export function useTracker() {
           item.id === draft.project_id
             ? normalizeProject({
                 ...item,
-                status: 'Revision Requested',
+                status: revisionStage,
+                current_stage: revisionStage,
+                waiting_on: 'Manuscript Heaven',
+                timeline_status: 'Active',
+                client_action_required: '',
                 updated_at: now,
               })
             : item,
@@ -1511,6 +1642,33 @@ export function useTracker() {
       await updateRevisionRequest(requestId, { status: decision });
     },
     [currentProfile, loadSupabaseData, mode, updateRevisionRequest],
+  );
+
+  const approveProjectMilestone = useCallback(
+    async (projectId: string, milestone: ApprovalMilestone) => {
+      if (!currentProfile) {
+        throw new Error('No signed-in profile found.');
+      }
+
+      const updates = approvalUpdateForMilestone(milestone);
+
+      if (supabase && mode === 'supabase' && isClientRole(currentProfile.role)) {
+        const { error } = await supabase.rpc('client_approve_project_milestone', {
+          project_id: projectId,
+          milestone,
+        });
+
+        if (error) {
+          throw error;
+        }
+
+        await loadSupabaseData(currentProfile);
+        return;
+      }
+
+      await updateProject(projectId, updates);
+    },
+    [currentProfile, loadSupabaseData, mode, updateProject],
   );
 
   const createTask = useCallback(
@@ -1843,6 +2001,7 @@ export function useTracker() {
     updateRevisionItem,
     uploadRevisedProof,
     respondToRevisionRequest,
+    approveProjectMilestone,
     createTask,
     updateTask,
     inviteClient,

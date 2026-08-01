@@ -3,6 +3,7 @@ import {
   CalendarDays,
   CheckSquare,
   CreditCard,
+  Landmark,
   FolderKanban,
   Home,
   LogOut,
@@ -29,6 +30,7 @@ export type ViewKey =
   | 'clients'
   | 'delivered'
   | 'payments'
+  | 'finance'
   | 'settings';
 
 const navItems = [
@@ -41,6 +43,7 @@ const navItems = [
   { id: 'clients', label: 'Clients', icon: Users, adminOnly: true },
   { id: 'delivered', label: 'Delivered', icon: PackageCheck },
   { id: 'payments', label: 'Payments', icon: CreditCard, managersOnly: true },
+  { id: 'finance', label: 'Finance', icon: Landmark, adminOnly: true },
   { id: 'settings', label: 'Settings', icon: Settings, adminOnly: true },
 ] as const;
 
@@ -91,7 +94,7 @@ export function Layout({
 
   return (
     <div className="min-h-screen bg-linen text-ink">
-      <aside className="fixed left-0 top-0 z-30 hidden h-screen w-72 border-r border-border bg-ink text-white lg:block">
+      <aside className="no-print fixed left-0 top-0 z-30 hidden h-screen w-72 border-r border-border bg-ink text-white lg:block">
         <div className="flex h-full flex-col">
           <div className="border-b border-white/10 p-6">
             <div className="flex items-center gap-3">
@@ -141,7 +144,7 @@ export function Layout({
       </aside>
 
       <main className="pb-24 lg:ml-72 lg:pb-0">
-        <header className="sticky top-0 z-20 border-b border-border bg-linen/95 px-4 py-4 backdrop-blur lg:px-8">
+        <header className="no-print sticky top-0 z-20 border-b border-border bg-linen/95 px-4 py-4 backdrop-blur lg:px-8">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex items-center justify-between gap-4">
               <div>
@@ -191,7 +194,7 @@ export function Layout({
         <div className="p-4 lg:p-8">{children}</div>
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-40 grid grid-cols-5 border-t border-border bg-white px-2 py-2 shadow-[0_-8px_20px_rgba(26,26,26,0.08)] lg:hidden">
+      <nav className="no-print fixed bottom-0 left-0 right-0 z-40 grid grid-cols-5 border-t border-border bg-white px-2 py-2 shadow-[0_-8px_20px_rgba(26,26,26,0.08)] lg:hidden">
         {visibleNavItems.slice(0, 5).map((item) => {
           const Icon = item.icon;
           const active = activeView === item.id;

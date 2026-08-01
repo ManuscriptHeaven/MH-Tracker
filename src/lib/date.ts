@@ -40,6 +40,30 @@ export function isClosed(project: Project) {
 }
 
 export function isOverdue(project: Project) {
+  if (project.timeline_status || project.waiting_on || project.current_stage) {
+    const dueDate =
+      project.current_stage === 'Design Concept in Progress'
+        ? project.design_concept_due_date
+        : project.current_stage === 'Concept Revisions'
+          ? project.concept_revision_due_date || project.design_concept_due_date
+          : project.current_stage === 'Print Version in Progress'
+            ? project.print_version_due_date
+            : project.current_stage === 'Print Revisions'
+              ? project.print_revision_due_date || project.print_version_due_date
+              : project.current_stage === 'eBook in Progress'
+                ? project.ebook_due_date
+                : project.current_stage === 'Final Quality Check'
+                  ? project.final_delivery_date || project.due_date
+                  : null;
+
+    return (
+      project.timeline_status === 'Active' &&
+      project.waiting_on === 'Manuscript Heaven' &&
+      Boolean(dueDate) &&
+      daysUntil(dueDate as string) < 0
+    );
+  }
+
   return !isClosed(project) && daysUntil(project.due_date) < 0;
 }
 
