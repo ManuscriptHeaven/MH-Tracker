@@ -50,6 +50,7 @@ export function getEligibleProjectsForClient(
   clientName: string,
   month: number | 'all',
   year: number | 'all',
+  paymentStatus: string = 'all',
 ): Project[] {
   if (!clientName || clientName === 'all') {
     return [];
@@ -78,6 +79,31 @@ export function getEligibleProjectsForClient(
 
     if (year !== 'all' && getProjectYear(project) !== Number(year)) {
       return false;
+    }
+
+    // Filter by Payment Status if specified
+    if (paymentStatus && paymentStatus !== 'all') {
+      const due = calculateDueAmount(project);
+      const paid = Number(project.advance_paid || 0);
+      const total = Number(project.total_price || 0);
+      const pStatus = (project.payment_status || '').toLowerCase();
+      const target = paymentStatus.toLowerCase();
+
+      if (target === 'paid' || target === 'fully paid') {
+        if (due > 0 || (total > 0 && paid < total && pStatus !== 'fully paid')) {
+          return false;
+        }
+      } else if (target === 'unpaid') {
+        if (paid > 0 || due <= 0) {
+          return false;
+        }
+      } else if (target === 'partial' || target === 'partially paid') {
+        if (paid <= 0 || due <= 0) {
+          return false;
+        }
+      } else if (pStatus !== target && project.payment_status !== paymentStatus) {
+        return false;
+      }
     }
 
     return true;

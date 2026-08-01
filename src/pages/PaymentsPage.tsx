@@ -205,6 +205,7 @@ export function PaymentsPage({
   const [bulkClient, setBulkClient] = useState('all');
   const [bulkMonth, setBulkMonth] = useState<number | 'all'>('all');
   const [bulkYear, setBulkYear] = useState<number | 'all'>('all');
+  const [bulkPaymentStatus, setBulkPaymentStatus] = useState<string>('all');
   const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
   const [selectedBulkInvoice, setSelectedBulkInvoice] = useState<Invoice | null>(null);
   const [generatedInvoices, setGeneratedInvoices] = useState<Invoice[]>([]);
@@ -221,8 +222,8 @@ export function PaymentsPage({
     if (bulkClient === 'all') {
       return [];
     }
-    return getEligibleProjectsForClient(projects, bulkClient, bulkMonth, bulkYear);
-  }, [projects, bulkClient, bulkMonth, bulkYear]);
+    return getEligibleProjectsForClient(projects, bulkClient, bulkMonth, bulkYear, bulkPaymentStatus);
+  }, [projects, bulkClient, bulkMonth, bulkYear, bulkPaymentStatus]);
 
   async function handleGenerateBulkInvoice() {
     if (!bulkClient || bulkClient === 'all' || eligibleProjectsForBulk.length === 0) {
@@ -433,7 +434,7 @@ export function PaymentsPage({
           </div>
         </div>
 
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 items-end">
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5 items-end">
           <SelectField
             label="Client"
             value={bulkClient}
@@ -464,6 +465,20 @@ export function PaymentsPage({
             <option value="all">All Years</option>
             {years.map((y) => (
               <option key={y} value={y}>{y}</option>
+            ))}
+          </SelectField>
+
+          <SelectField
+            label="Payment Status"
+            value={bulkPaymentStatus}
+            onChange={(e) => setBulkPaymentStatus(e.target.value)}
+          >
+            <option value="all">All Statuses</option>
+            <option value="unpaid">Unpaid (Balance Due)</option>
+            <option value="partial">Partially Paid</option>
+            <option value="paid">Fully Paid</option>
+            {paymentStatuses.map((st) => (
+              <option key={st} value={st}>{st}</option>
             ))}
           </SelectField>
 

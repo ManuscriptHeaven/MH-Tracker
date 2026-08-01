@@ -335,6 +335,9 @@ function supabaseProjectPayload(project: ProjectDraft | Partial<Project>) {
     created_by,
     created_at,
     updated_at,
+    invoiced,
+    invoice_id,
+    invoiced_at,
     ...payload
   } = project as Partial<Project>;
 
@@ -349,6 +352,9 @@ function supabaseProjectPayload(project: ProjectDraft | Partial<Project>) {
   void created_by;
   void created_at;
   void updated_at;
+  void invoiced;
+  void invoice_id;
+  void invoiced_at;
 
   return {
     ...payload,
@@ -1036,22 +1042,34 @@ export function useTracker() {
       });
 
       if (supabase && mode === 'supabase') {
-        const { data: updated, error: updateError } = await supabase
-          .from('projects')
-          .update({
-            ...supabaseProjectPayload(nextProject),
-            updated_at: nextProject.updated_at,
-          })
-          .eq('id', projectId)
-          .select()
-          .maybeSingle();
+        let updated: Project | null = null;
+        try {
+          const { data: updatedData, error: updateError } = await supabase
+            .from('projects')
+            .update({
+              ...supabaseProjectPayload(nextProject),
+              updated_at: nextProject.updated_at,
+            })
+            .eq('id', projectId)
+            .select()
+            .maybeSingle();
 
-        if (updateError) {
-          throw updateError;
-        }
-
-        if (!updated) {
-          throw new Error('No project row was updated. Check the project ID or Supabase RLS policy.');
+          if (updateError) {
+            if (isMissingSchemaError(updateError)) {
+              console.warn('Supabase project update schema warning:', updateError);
+            } else {
+              throw updateError;
+            }
+          }
+          if (updatedData) {
+            updated = updatedData as Project;
+          }
+        } catch (err) {
+          if (isMissingSchemaError(err)) {
+            console.warn('Supabase project update warning:', err);
+          } else {
+            throw err;
+          }
         }
 
         const hasPaymentUpdate = paymentFieldsChanged(existing, nextProject);
@@ -1061,13 +1079,8 @@ export function useTracker() {
         }
 
         const project = normalizeProject({
-          ...(updated as Project),
-          total_price: nextProject.total_price,
-          advance_paid: nextProject.advance_paid,
-          remaining_balance: nextProject.remaining_balance,
-          payment_status: nextProject.payment_status,
-          payment_date: nextProject.payment_date,
-          payment_notes: nextProject.payment_notes,
+          ...(updated as Project || nextProject),
+          ...nextProject,
         });
         setData((previous) => ({
           ...previous,
