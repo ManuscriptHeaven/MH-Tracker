@@ -81,3 +81,114 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
     transform-origin: top left !important;
   }
 }
+
+/* ======================================
+   MH AI Assistant — Animations & Styles
+   ====================================== */
+
+/* Floating Action Button gentle pulse */
+@keyframes ai-pulse-glow {
+  0%, 100% { box-shadow: 0 4px 14px rgba(200, 169, 107, 0.25); transform: scale(1); }
+  50% { box-shadow: 0 8px 24px rgba(200, 169, 107, 0.45); transform: scale(1.04); }
+}
+.ai-pulse { animation: ai-pulse-glow 3s ease-in-out infinite; }
+.ai-pulse:hover { animation: none; }
+
+/* Chat panel slide up from bottom */
+@keyframes ai-slide-up {
+  from { opacity: 0; transform: translateY(24px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.ai-slide-up { animation: ai-slide-up 0.25s ease-out forwards; }
+
+/* Message fade in */
+@keyframes ai-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.ai-fade-in { animation: ai-fade-in 0.18s ease-out forwards; }
+
+/* Typing cursor blink */
+@keyframes ai-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.ai-cursor::after {
+  content: '|';
+  display: inline;
+  animation: ai-blink 0.8s ease-in-out infinite;
+  color: #C8A96B;
+  font-weight: bold;
+  margin-left: 1px;
+}
+
+/* Bouncing dots typing indicator */
+@keyframes ai-bounce-dot {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.5; }
+  40% { transform: translateY(-6px); opacity: 1; }
+}
+.ai-bounce-dots span { display: inline-block; width: 6px; height: 6px; background: #C8A96B; border-radius: 50%; margin: 0 2px; animation: ai-bounce-dot 1.2s ease-in-out infinite; }
+.ai-bounce-dots span:nth-child(2) { animation-delay: 0.15s; }
+.ai-bounce-dots span:nth-child(3) { animation-delay: 0.3s; }
+
+/* Voice waveform bars */
+@keyframes ai-waveform-bar {
+  0%, 100% { height: 8px; }
+  50% { height: 20px; }
+}
+.ai-waveform { display: flex; align-items: center; gap: 2px; height: 24px; }
+.ai-waveform span { width: 3px; background: #C8A96B; border-radius: 2px; animation: ai-waveform-bar 0.9s ease-in-out infinite; }
+.ai-waveform span:nth-child(1) { animation-delay: 0.0s; }
+.ai-waveform span:nth-child(2) { animation-delay: 0.12s; }
+.ai-waveform span:nth-child(3) { animation-delay: 0.24s; }
+.ai-waveform span:nth-child(4) { animation-delay: 0.36s; }
+.ai-waveform span:nth-child(5) { animation-delay: 0.48s; }
+
+/* Daily popup entrance */
+@keyframes ai-popup-in {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.ai-popup-in { animation: ai-popup-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+
+/* Backdrop fade */
+@keyframes ai-backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.ai-backdrop-in { animation: ai-backdrop-in 0.2s ease-out forwards; }
+
+/* Voice pulsing ring */
+@keyframes ai-voice-ring {
+  0% { transform: scale(1); opacity: 0.5; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+.ai-voice-ring::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid #C8A96B;
+  animation: ai-voice-ring 1.2s ease-out infinite;
+}
+
+/* Hide scrollbar for quick actions */
+.ai-hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.ai-hide-scrollbar::-webkit-scrollbar { display: none; }
+
+/* =============================================
+   Dark Mode Overrides (respects prefers-color-scheme)
+   ============================================= */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+  }
+  html:not(.light) {
+    color: #F8F5EF;
+    background: #1A1A1A;
+  }
+  html:not(.light) body {
+    background: #1A1A1A;
+  }
+}
+

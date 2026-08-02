@@ -16,6 +16,10 @@ import { ClientAccessPage } from './pages/ClientAccessPage';
 import { TasksPage } from './pages/TasksPage';
 import { FinancePage } from './pages/FinancePage';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { AIProvider } from './lib/ai/aiContext';
+import { AIChatButton } from './components/ai/AIChatButton';
+import { AIChatPanel } from './components/ai/AIChatPanel';
+import { AIDailyPopup } from './components/ai/AIDailyPopup';
 import { useTracker } from './lib/useTracker';
 import { errorMessage, isClientRole } from './lib/utils';
 import type { Project, ProjectDraft } from './lib/types';
@@ -88,9 +92,12 @@ export default function App() {
 
   if (!tracker.currentProfile) return <LoginPage onLogin={tracker.login} onDemoLogin={tracker.loginDemo} error={tracker.error} isLoading={tracker.isLoading} />;
 
+  /* ---------- AI Assistant Integration ---------- */
+
   const pageProps = { projects: visibleProjects, profiles: tracker.data.profiles, searchTerm, canManageAll: tracker.canManageAll, currentProfile: tracker.currentProfile, onSelectProject: setSelectedProject, onEditProject: openEditProject, onDeleteProject: deleteProject, onDuplicateProject: tracker.duplicateProject, onUpdateProject: tracker.updateProject, onAddProject: openAddProject };
 
-  return <Layout activeView={activeView} setActiveView={setActiveView} currentProfile={tracker.currentProfile} notifications={tracker.visibleNotifications} searchTerm={searchTerm} setSearchTerm={setSearchTerm} onAddProject={openAddProject} onMarkNotificationRead={tracker.markNotificationRead} onMarkAllNotificationsRead={tracker.markAllNotificationsRead} onViewNotifications={() => setActiveView('notifications')} onOpenNotificationProject={openProjectById} onSignOut={tracker.signOut}>
+  return <AIProvider tracker={tracker}>
+  <Layout activeView={activeView} setActiveView={setActiveView} currentProfile={tracker.currentProfile} notifications={tracker.visibleNotifications} searchTerm={searchTerm} setSearchTerm={setSearchTerm} onAddProject={openAddProject} onMarkNotificationRead={tracker.markNotificationRead} onMarkAllNotificationsRead={tracker.markAllNotificationsRead} onViewNotifications={() => setActiveView('notifications')} onOpenNotificationProject={openProjectById} onSignOut={tracker.signOut}>
     {activeView === 'dashboard' && isClient && <ClientPortalPage projects={visibleProjects} revisionRequests={tracker.data.revisionRequests} revisionItems={tracker.data.revisionItems} revisionAttachments={tracker.data.revisionAttachments} notifications={tracker.visibleNotifications} onCreateRevisionRequest={async (draft) => { await tracker.createRevisionRequest(draft); }} onRespondToRevision={async (requestId, decision) => { await tracker.respondToRevisionRequest(requestId, decision); }} onApproveMilestone={tracker.approveProjectMilestone} />}
     {activeView === 'dashboard' && !isClient && <DashboardPage projects={visibleProjects} profiles={tracker.data.profiles} canViewPayments={tracker.canManageAll} canManageProjects={tracker.canManageAll} onAddProject={openAddProject} onSelectProject={setSelectedProject} />}
     {activeView === 'projects' && isClient && <ClientProjectsPage projects={visibleProjects} searchTerm={searchTerm} />}
@@ -111,5 +118,9 @@ export default function App() {
     {showProjectForm && <ProjectFormModal currentProfile={tracker.currentProfile} profiles={tracker.data.profiles} projects={tracker.data.projects} project={editingProject} onClose={() => { setShowProjectForm(false); setEditingProject(null); }} onSubmit={handleSaveProject} />}
     {selectedProjectFresh && !isClient && <ProjectDetail project={selectedProjectFresh} profiles={tracker.data.profiles} notes={tracker.data.projectNotes} revisions={tracker.data.revisionNotes} revisionRequests={tracker.data.revisionRequests} revisionItems={tracker.data.revisionItems} revisionAttachments={tracker.data.revisionAttachments} revisionActivity={tracker.data.revisionActivity} activities={tracker.data.activityLogs} currentProfile={tracker.currentProfile} canManageAll={tracker.canManageAll} onClose={() => setSelectedProject(null)} onEdit={() => openEditProject(selectedProjectFresh)} onDelete={() => deleteProject(selectedProjectFresh)} onUpdateProject={updateSelectedProject} onAddNote={async (noteType, note) => { await tracker.addNote(selectedProjectFresh.id, noteType, note); }} onAddRevision={async (note, status) => { await tracker.addRevision(selectedProjectFresh.id, note, status); }} onUpdateRevisionRequest={tracker.updateRevisionRequest} onUpdateRevisionItem={tracker.updateRevisionItem} onUploadRevisedProof={tracker.uploadRevisedProof} />}
     {toast && <div className={`fixed right-4 top-4 z-[70] max-w-sm rounded-md border px-4 py-3 text-sm font-semibold shadow-soft ${toast.tone === 'success' ? 'border-green-200 bg-green-50 text-success' : 'border-red-200 bg-red-50 text-danger'}`}>{toast.message}</div>}
-  </Layout>;
+    <AIDailyPopup />
+  </Layout>
+  <AIChatButton />
+  <AIChatPanel />
+  </AIProvider>;
 }
