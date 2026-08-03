@@ -263,29 +263,50 @@ function ClientProjectCard({
   projectRequests,
   onRequestRevision,
   onApproveMilestone,
+  onSelectProject,
 }: {
   project: Project;
   projectRequests: RevisionRequest[];
   onRequestRevision: (projectId: string) => void;
   onApproveMilestone: (project: Project, milestone: ApprovalMilestone) => Promise<void>;
+  onSelectProject?: (project: Project) => void;
 }) {
   const summary = getTimelineSummary(project);
   const projectOpenRequests = projectRequests.filter((request) => !closedRevisionStatuses.includes(request.status));
   const proof = latestProof(project);
 
   return (
-    <Card className="overflow-hidden p-0">
+    <Card className="overflow-hidden p-0 transition hover:border-gold/60">
       <div className="border-b border-border bg-white p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-md bg-ivory px-2 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-gold">
+              <span className="rounded-md bg-ivory px-2 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-gold border border-gold/20">
                 {project.project_number}
               </span>
               <StatusBadge status={project.status} />
             </div>
-            <h2 className="mt-3 font-display text-2xl font-semibold leading-tight text-ink">{project.project_title}</h2>
-            <p className="mt-1 text-sm text-muted">{project.service_type}</p>
+            <h2
+              className={cn(
+                'mt-3 font-display text-2xl font-semibold leading-tight text-ink',
+                onSelectProject && 'cursor-pointer hover:text-gold transition',
+              )}
+              onClick={() => onSelectProject?.(project)}
+            >
+              {project.project_title}
+            </h2>
+            <div className="mt-1 flex items-center gap-3">
+              <span className="text-sm text-muted">{project.service_type}</span>
+              {onSelectProject ? (
+                <button
+                  type="button"
+                  onClick={() => onSelectProject(project)}
+                  className="text-xs font-bold uppercase tracking-wider text-gold hover:underline"
+                >
+                  View Details →
+                </button>
+              ) : null}
+            </div>
           </div>
           <ProjectQuickActions project={project} onRequestRevision={onRequestRevision} onApproveMilestone={onApproveMilestone} />
         </div>
@@ -406,6 +427,7 @@ export function ClientPortalPage({
   onCreateRevisionRequest,
   onRespondToRevision,
   onApproveMilestone,
+  onSelectProject,
 }: {
   projects: Project[];
   revisionRequests: RevisionRequest[];
@@ -415,6 +437,7 @@ export function ClientPortalPage({
   onCreateRevisionRequest: (draft: RevisionRequestDraft) => Promise<void>;
   onRespondToRevision: (requestId: string, decision: Extract<ClientRevisionStatus, 'Approved'>) => Promise<void>;
   onApproveMilestone: (projectId: string, milestone: ApprovalMilestone) => Promise<void>;
+  onSelectProject?: (project: Project) => void;
 }) {
   const [revisionProjectId, setRevisionProjectId] = useState<string | null>(null);
   const sortedProjects = useMemo(
@@ -514,7 +537,15 @@ export function ClientPortalPage({
                   {nextDueProject.project_number}
                 </span>
               </div>
-              <p className="font-display text-2xl font-semibold leading-tight">{nextDueProject.project_title}</p>
+              <p
+                className={cn(
+                  'font-display text-2xl font-semibold leading-tight',
+                  onSelectProject && 'cursor-pointer hover:text-gold transition',
+                )}
+                onClick={() => onSelectProject?.(nextDueProject)}
+              >
+                {nextDueProject.project_title}
+              </p>
               <p className="flex items-center gap-2 text-sm font-semibold text-muted">
                 <CalendarDays className="h-4 w-4" />
                 Due {formatDate(nextDueProject.due_date)}
@@ -552,6 +583,7 @@ export function ClientPortalPage({
                   projectRequests={requestsByProject[project.id] || []}
                   onRequestRevision={setRevisionProjectId}
                   onApproveMilestone={approveMilestone}
+                  onSelectProject={onSelectProject}
                 />
               ))}
             </div>

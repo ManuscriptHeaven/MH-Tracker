@@ -5,6 +5,7 @@ import { Button, Card, EmptyState } from '../components/ui';
 import { activeClientProjectStatuses, closedStatuses } from '../lib/constants';
 import { formatDate } from '../lib/date';
 import type { Project } from '../lib/types';
+import { cn } from '../lib/utils';
 
 type ClientProjectFilter = 'all' | 'active' | 'completed' | 'cancelled' | 'archived';
 
@@ -51,9 +52,11 @@ function projectMatchesFilter(project: Project, filter: ClientProjectFilter) {
 export function ClientProjectsPage({
   projects,
   searchTerm,
+  onSelectProject,
 }: {
   projects: Project[];
   searchTerm: string;
+  onSelectProject?: (project: Project) => void;
 }) {
   const [filter, setFilter] = useState<ClientProjectFilter>('all');
   const normalizedSearch = searchTerm.trim().toLowerCase();
@@ -114,7 +117,7 @@ export function ClientProjectsPage({
           const proof = latestProof(project);
 
           return (
-            <Card key={project.id}>
+            <Card key={project.id} className="transition hover:border-gold/60">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -124,10 +127,27 @@ export function ClientProjectsPage({
                     <StatusBadge status={project.status} />
                     <PriorityBadge priority={project.priority} />
                   </div>
-                  <h3 className="mt-3 font-display text-2xl font-semibold">{project.project_title}</h3>
+                  <h3
+                    className={cn(
+                      'mt-3 font-display text-2xl font-semibold',
+                      onSelectProject && 'cursor-pointer hover:text-gold transition',
+                    )}
+                    onClick={() => onSelectProject?.(project)}
+                  >
+                    {project.project_title}
+                  </h3>
                   <p className="mt-1 text-sm text-muted">
                     {project.service_type} | Due {formatDate(project.due_date)}
                   </p>
+                  {onSelectProject ? (
+                    <button
+                      type="button"
+                      onClick={() => onSelectProject(project)}
+                      className="mt-3 text-xs font-bold uppercase tracking-wider text-gold hover:underline"
+                    >
+                      View Full Details →
+                    </button>
+                  ) : null}
                 </div>
 
                 <div className="rounded-md border border-border bg-ivory p-4 lg:w-80">
