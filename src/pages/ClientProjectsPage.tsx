@@ -2,7 +2,7 @@ import { FileText } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { PriorityBadge, StatusBadge } from '../components/Badges';
 import { Button, Card, EmptyState } from '../components/ui';
-import { activeClientProjectStatuses } from '../lib/constants';
+import { activeClientProjectStatuses, closedStatuses } from '../lib/constants';
 import { formatDate } from '../lib/date';
 import type { Project } from '../lib/types';
 
@@ -30,7 +30,7 @@ function projectMatchesFilter(project: Project, filter: ClientProjectFilter) {
   const status = project.status as string;
 
   if (filter === 'active') {
-    return activeClientProjectStatuses.includes(project.status);
+    return status === 'Active' || !closedStatuses.includes(project.status) || activeClientProjectStatuses.includes(project.status);
   }
 
   if (filter === 'completed') {

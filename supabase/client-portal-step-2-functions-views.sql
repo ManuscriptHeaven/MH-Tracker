@@ -17,12 +17,24 @@ set search_path = public
 as $$
   select exists (
     select 1
-    from public.client_project_access access
-    join public.profiles client on client.id = access.client_id
-    where access.project_id = client_has_project_access.project_id
-      and access.client_id = client_has_project_access.client_id
-      and client.role::text = 'client'
-      and client.status = 'active'
+    from public.projects p
+    left join public.profiles c on c.id = client_has_project_access.client_id
+    where p.id = client_has_project_access.project_id
+      and (
+        exists (
+          select 1
+          from public.client_project_access access
+          where access.project_id = p.id
+            and access.client_id = client_has_project_access.client_id
+        )
+        or (c.email is not null and lower(trim(p.client_email)) = lower(trim(c.email)))
+        or (c.full_name is not null and (
+          lower(trim(p.client_name)) = lower(trim(c.full_name))
+          or lower(trim(c.full_name)) like '%' || lower(trim(p.client_name)) || '%'
+          or lower(trim(p.client_name)) like '%' || lower(trim(c.full_name)) || '%'
+        ))
+        or p.created_by = client_has_project_access.client_id
+      )
   );
 $$;
 
