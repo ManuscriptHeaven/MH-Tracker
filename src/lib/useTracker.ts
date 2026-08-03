@@ -358,6 +358,7 @@ function supabaseProjectPayload(project: ProjectDraft | Partial<Project>) {
 
   return {
     ...payload,
+    client_profile_id: payload.client_profile_id ?? null,
     assigned_to: payload.assigned_to || null,
     project_manager: payload.project_manager || null,
     start_date: cleanDate(payload.start_date),
@@ -982,6 +983,17 @@ export function useTracker() {
           payment_date: projectPayment.payment_date,
           payment_notes: projectPayment.notes,
         });
+
+        // Auto-link to client_project_access if a client profile is selected
+        if (localProject.client_profile_id) {
+          await supabase
+            .from('client_project_access')
+            .upsert(
+              { client_id: localProject.client_profile_id, project_id: project.id },
+              { onConflict: 'client_id,project_id' },
+            );
+        }
+
         setData((previous) => ({ ...previous, projects: [project, ...previous.projects] }));
         await addActivity({
           project_id: project.id,
@@ -998,6 +1010,7 @@ export function useTracker() {
           user_id: currentProfile.id,
         });
         return project;
+
       }
 
       setData((previous) => ({ ...previous, projects: [localProject, ...previous.projects] }));
@@ -1960,6 +1973,11 @@ export function useTracker() {
 
       return data.projects.filter((project) => {
         if (clientProjectIds.has(project.id)) {
+          return true;
+        }
+
+        // Direct client_profile_id match — most reliable
+        if (project.client_profile_id && project.client_profile_id === currentProfile.id) {
           return true;
         }
 
