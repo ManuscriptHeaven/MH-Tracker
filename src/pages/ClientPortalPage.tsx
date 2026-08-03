@@ -272,101 +272,86 @@ function ClientProjectCard({
   onSelectProject?: (project: Project) => void;
 }) {
   const summary = getTimelineSummary(project);
-  const projectOpenRequests = projectRequests.filter((request) => !closedRevisionStatuses.includes(request.status));
-  const proof = latestProof(project);
+  void projectRequests;
 
   return (
-    <Card className="overflow-hidden p-0 transition hover:border-gold/60">
-      <div className="border-b border-border bg-white p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-md bg-ivory px-2 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-gold border border-gold/20">
-                {project.project_number}
-              </span>
-              <StatusBadge status={project.status} />
-            </div>
-            <h2
-              className={cn(
-                'mt-3 font-display text-2xl font-semibold leading-tight text-ink',
-                onSelectProject && 'cursor-pointer hover:text-gold transition',
-              )}
-              onClick={() => onSelectProject?.(project)}
-            >
-              {project.project_title}
-            </h2>
-            <div className="mt-1 flex items-center gap-3">
-              <span className="text-sm text-muted">{project.service_type}</span>
-              {onSelectProject ? (
-                <button
-                  type="button"
-                  onClick={() => onSelectProject(project)}
-                  className="text-xs font-bold uppercase tracking-wider text-gold hover:underline"
-                >
-                  View Details →
-                </button>
-              ) : null}
-            </div>
+    <Card className="overflow-hidden p-5 transition hover:border-gold/60 hover:shadow-md flex flex-col justify-between space-y-4">
+      <div>
+        {/* Top Badges & Actions */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-md bg-ivory px-2.5 py-1 text-xs font-bold uppercase tracking-[0.14em] text-gold border border-gold/30">
+              {project.project_number}
+            </span>
+            <StatusBadge status={project.status} />
           </div>
           <ProjectQuickActions project={project} onRequestRevision={onRequestRevision} onApproveMilestone={onApproveMilestone} />
         </div>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <InfoTile label="Current Due" value={summary.dueDate ? formatDate(summary.dueDate) : 'Paused'} />
-          <InfoTile label="Final Due" value={summary.finalDueDate ? formatDate(summary.finalDueDate) : formatDate(project.due_date)} />
-          <InfoTile label="Time Remaining" value={daysRemainingText(summary)} accent={summary.waitingOn === 'Client' || summary.isOverdue} />
-          <InfoTile label="Waiting On" value={summary.waitingOn} />
+        {/* Project Title & Service */}
+        <div className="mt-3">
+          <h2
+            className={cn(
+              'font-display text-2xl font-semibold leading-tight text-ink',
+              onSelectProject && 'cursor-pointer hover:text-gold transition',
+            )}
+            onClick={() => onSelectProject?.(project)}
+          >
+            {project.project_title}
+          </h2>
+          <p className="mt-1 text-sm font-medium text-muted">{project.service_type}</p>
         </div>
-      </div>
 
-      <div className="space-y-4 p-5">
+        {/* Action Required Banner */}
         {summary.clientActionRequired ? (
-          <div className="rounded-md border border-gold/60 bg-[#fff8e8] px-3 py-2 text-sm font-semibold text-ink">
-            Your action: {summary.clientActionRequired}
+          <div className="mt-3 rounded-md border border-gold/60 bg-[#fff8e8] px-3 py-2 text-xs font-semibold text-ink flex items-center gap-2">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0 text-gold" />
+            <span>Your action: {summary.clientActionRequired}</span>
           </div>
         ) : null}
 
-        <ClientMiniTimeline project={project} />
-
-        <div className="grid gap-3 lg:grid-cols-2">
-          <div className="rounded-md border border-border bg-ivory p-4">
-            <div className="mb-2 flex items-center gap-2 font-semibold">
-              <FileText className="h-4 w-4 text-gold" />
-              Latest Proof
-            </div>
-            {proof ? (
-              <a href={proof} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 break-all text-sm font-semibold text-info">
-                Open shared proof
-                <ArrowUpRight className="h-4 w-4 shrink-0" />
-              </a>
-            ) : (
-              <p className="text-sm text-muted">No proof file has been shared yet.</p>
-            )}
+        {/* Basic Info Row */}
+        <div className="mt-4 grid grid-cols-2 gap-3 rounded-lg border border-border bg-ivory/60 p-3">
+          <div>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-muted block">Next Delivery / Due</span>
+            <p className="mt-0.5 text-sm font-semibold text-ink flex items-center gap-1.5">
+              <CalendarDays className="h-3.5 w-3.5 text-gold shrink-0" />
+              {summary.dueDate ? formatDate(summary.dueDate) : formatDate(project.due_date)}
+            </p>
           </div>
-
-          <div className="rounded-md border border-border bg-ivory p-4">
-            <div className="mb-2 flex items-center gap-2 font-semibold">
-              <Repeat2 className="h-4 w-4 text-gold" />
-              Recent Revisions
-            </div>
-            {projectRequests.length ? (
-              <div className="space-y-2">
-                {projectRequests.slice(0, 2).map((request) => (
-                  <div key={request.id} className="text-sm">
-                    <p className="line-clamp-2 font-semibold">{revisionText(request)}</p>
-                    <p className="text-muted">{request.status}</p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-muted">No revision requests yet.</p>
-            )}
-            <p className="mt-3 text-xs font-semibold text-muted">
-              {projectOpenRequests.length} open revision{projectOpenRequests.length === 1 ? '' : 's'}
+          <div>
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-muted block">Waiting On</span>
+            <p className={cn("mt-0.5 text-sm font-semibold", summary.waitingOn === 'Client' ? 'text-amber-800' : 'text-ink')}>
+              {summary.waitingOn}
             </p>
           </div>
         </div>
+
+        {/* Progress Bar */}
+        <div className="mt-3 space-y-1">
+          <div className="flex justify-between text-xs font-semibold">
+            <span className="text-muted">Progress</span>
+            <span className="text-gold font-bold">{summary.progress}%</span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-border">
+            <div className="h-full bg-gold transition-all duration-300" style={{ width: `${summary.progress}%` }} />
+          </div>
+        </div>
       </div>
+
+      {/* Footer / View Details */}
+      {onSelectProject ? (
+        <div className="pt-2 border-t border-border flex items-center justify-between">
+          <span className="text-xs text-muted font-medium">Click for files, notes & timeline</span>
+          <button
+            type="button"
+            onClick={() => onSelectProject(project)}
+            className="text-xs font-bold uppercase tracking-wider text-gold hover:underline flex items-center gap-1"
+          >
+            View Details →
+          </button>
+        </div>
+      ) : null}
     </Card>
   );
 }
