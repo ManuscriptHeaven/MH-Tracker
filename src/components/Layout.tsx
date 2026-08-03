@@ -76,7 +76,7 @@ export function Layout({
   onOpenNotificationProject: (projectId: string) => void;
   onSignOut: () => void;
 }) {
-  const canAddProject = isManagerRole(currentProfile.role);
+  const canAddProject = isManagerRole(currentProfile.role) && (activeView === 'dashboard' || activeView === 'projects');
   const canManageAll = isManagerRole(currentProfile.role);
   const isClient = isClientRole(currentProfile.role);
   const displayName = firstName(currentProfile.full_name);

@@ -134,7 +134,9 @@ export function projectStatusChoices(currentStatus?: string | null): ProjectStat
 export const closedStatuses: ProjectStatus[] = ['Delivered', 'Completed', 'Cancelled', 'Archived'];
 
 export const activeClientProjectStatuses: ProjectStatus[] = [
+  'Active',
   'New',
+  'Waiting for Files',
   'Files Required',
   'Files Received',
   'Design Concept in Progress',
@@ -143,8 +145,14 @@ export const activeClientProjectStatuses: ProjectStatus[] = [
   'Print Version in Progress',
   'Awaiting Print Approval',
   'Print Revisions',
+  'Formatting',
+  'Cover Design',
+  'eBook Conversion',
   'eBook in Progress',
   'eBook Review',
+  'First Proof Ready',
+  'Sent to Client',
+  'Final QA',
   'Final Quality Check',
   'Ready to Start',
   'In Progress',
@@ -152,9 +160,11 @@ export const activeClientProjectStatuses: ProjectStatus[] = [
   'Revision Requested',
   'In Revision',
   'Ready for Delivery',
+  'On Hold',
 ];
 
 export const statusBadgeClasses: Record<ProjectStatus, string> = {
+  Active: 'bg-blue-50 text-blue-700 border-blue-100',
   New: 'bg-blue-50 text-info border-blue-100',
   'Waiting for Files': 'bg-stone-100 text-stone-700 border-stone-200',
   'Files Required': 'bg-stone-100 text-stone-700 border-stone-200',

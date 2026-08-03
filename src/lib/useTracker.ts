@@ -1955,11 +1955,31 @@ export function useTracker() {
           .map((access) => access.project_id),
       );
 
-      if (!clientProjectIds.size) {
-        return data.projects;
-      }
+      const clientNameLower = (currentProfile.full_name || '').toLowerCase().trim();
+      const clientEmailLower = (currentProfile.email || '').toLowerCase().trim();
 
-      return data.projects.filter((project) => clientProjectIds.has(project.id));
+      return data.projects.filter((project) => {
+        if (clientProjectIds.has(project.id)) {
+          return true;
+        }
+
+        const projClientName = (project.client_name || '').toLowerCase().trim();
+        const projClientEmail = (project.client_email || '').toLowerCase().trim();
+
+        if (clientNameLower && projClientName && (projClientName === clientNameLower || clientNameLower.includes(projClientName) || projClientName.includes(clientNameLower))) {
+          return true;
+        }
+
+        if (clientEmailLower && projClientEmail && projClientEmail === clientEmailLower) {
+          return true;
+        }
+
+        if (project.created_by === currentProfile.id) {
+          return true;
+        }
+
+        return false;
+      });
     }
 
     return data.projects.filter((project) => project.assigned_to === currentProfile.id);

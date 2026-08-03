@@ -1,6 +1,7 @@
 export type Role = 'admin' | 'manager' | 'project_manager' | 'employee' | 'junior_assistant' | 'client';
 
 export type ProjectStatus =
+  | 'Active'
   | 'New'
   | 'Waiting for Files'
   | 'Files Required'

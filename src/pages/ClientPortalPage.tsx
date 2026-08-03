@@ -18,7 +18,7 @@ import { StatusBadge } from '../components/Badges';
 import { TimelineBadge } from '../components/ProjectTimeline';
 import { RevisionRequestModal } from '../components/RevisionRequestModal';
 import { Button, Card, EmptyState } from '../components/ui';
-import { activeClientProjectStatuses } from '../lib/constants';
+import { activeClientProjectStatuses, closedStatuses } from '../lib/constants';
 import { formatDate } from '../lib/date';
 import { getTimelineMilestones, getTimelineSummary, type ApprovalMilestone } from '../lib/timeline';
 import type {
@@ -49,7 +49,7 @@ function revisionText(request: RevisionRequest) {
 }
 
 function isActiveOrder(project: Project) {
-  return activeClientProjectStatuses.includes(project.status);
+  return project.status === 'Active' || !closedStatuses.includes(project.status) || activeClientProjectStatuses.includes(project.status);
 }
 
 function fileLabel(attachment: RevisionAttachment) {
