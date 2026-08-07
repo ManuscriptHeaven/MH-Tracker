@@ -95,21 +95,29 @@ export function SelectField({
   className,
   ...props
 }: SelectHTMLAttributes<HTMLSelectElement> & {
-  label: string;
+  label?: string;
   children: ReactNode;
 }) {
+  const select = (
+    <select
+      className={cn(
+        'min-h-11 rounded-md border border-border bg-white px-3 text-sm text-ink transition focus:border-gold',
+        className,
+      )}
+      {...props}
+    >
+      {children}
+    </select>
+  );
+
+  if (!label) {
+    return select;
+  }
+
   return (
     <label className="grid gap-1.5 text-sm font-medium text-ink">
       <span>{label}</span>
-      <select
-        className={cn(
-          'min-h-11 rounded-md border border-border bg-white px-3 text-sm text-ink transition focus:border-gold',
-          className,
-        )}
-        {...props}
-      >
-        {children}
-      </select>
+      {select}
     </label>
   );
 }

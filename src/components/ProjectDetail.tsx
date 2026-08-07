@@ -18,6 +18,7 @@ import type {
   RevisionRequest,
   RevisionStatus,
   TimelineStage,
+  Task,
 } from '../lib/types';
 import { PaymentBadge, PriorityBadge, RoleBadge, StatusBadge } from './Badges';
 import { ProjectTimelinePanel } from './ProjectTimeline';
@@ -65,6 +66,7 @@ export function ProjectDetail({
   revisionAttachments,
   revisionActivity,
   activities,
+  tasks,
   currentProfile,
   canManageAll,
   onClose,
@@ -86,6 +88,7 @@ export function ProjectDetail({
   revisionAttachments: RevisionAttachment[];
   revisionActivity: RevisionActivity[];
   activities: ActivityLog[];
+  tasks: Task[];
   currentProfile: Profile;
   canManageAll: boolean;
   onClose: () => void;
@@ -123,6 +126,7 @@ export function ProjectDetail({
     () => activities.filter((item) => item.project_id === project.id),
     [activities, project.id],
   );
+  const projectTasks = useMemo(() => tasks.filter((task) => task.project_id === project.id), [project.id, tasks]);
 
   useEffect(() => {
     setStage(project.current_stage || 'Files Required');
@@ -261,6 +265,65 @@ export function ProjectDetail({
                     No file links added yet.
                   </p>
                 ) : null}
+              </div>
+            </Card>
+
+            <Card>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-display text-xl font-semibold text-ink">Project Tasks</h3>
+                  {projectTasks.length ? (
+                    <p className="mt-1 text-xs text-muted">
+                      {projectTasks.filter((t) => t.status === 'Done').length} of {projectTasks.length} tasks completed ({Math.round((projectTasks.filter((t) => t.status === 'Done').length / projectTasks.length) * 100)}%)
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs text-muted">No tasks currently assigned to this project.</p>
+                  )}
+                </div>
+              </div>
+
+              {projectTasks.length ? (
+                <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-ivory">
+                  <div
+                    className="h-full bg-gold transition-all duration-300"
+                    style={{
+                      width: `${(projectTasks.filter((t) => t.status === 'Done').length / projectTasks.length) * 100}%`,
+                    }}
+                  />
+                </div>
+              ) : null}
+
+              <div className="mt-4 space-y-2">
+                {projectTasks.length ? (
+                  projectTasks.map((task) => (
+                    <div
+                      key={task.id}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-border/80 bg-white p-3 text-sm shadow-xs transition hover:border-gold/50"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-ink truncate">{task.title}</p>
+                        <p className="text-xs text-muted mt-0.5">
+                          Assigned: <span className="font-medium text-charcoal">{profileName(profiles, task.assigned_to)}</span> · Due: {formatDate(task.due_date)}
+                        </p>
+                      </div>
+                      <span
+                        className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                          task.status === 'Done'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : task.status === 'In Progress'
+                              ? 'bg-blue-100 text-blue-800'
+                              : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {task.status}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <p className="rounded-md border border-dashed border-border p-3 text-sm text-muted">
+                    No tasks linked to this project yet. Create tasks from "My Tasks" or "Team Tasks" to link them here.
+                  </p>
+                )}
               </div>
             </Card>
 

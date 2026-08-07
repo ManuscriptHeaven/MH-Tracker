@@ -609,14 +609,24 @@ export function useTracker() {
 
     const tasksPromise = profileIsClient
       ? emptyResult
-      : safeSelect<Task>(
-          supabase
-            .from('tasks')
-            .select('*')
-            .order('status', { ascending: true })
-            .order('due_date', { ascending: true, nullsFirst: false })
-            .order('created_at', { ascending: false }),
-        );
+      : canManage
+        ? safeSelect<Task>(
+            supabase
+              .from('tasks')
+              .select('*')
+              .order('status', { ascending: true })
+              .order('due_date', { ascending: true, nullsFirst: false })
+              .order('created_at', { ascending: false }),
+          )
+        : safeSelect<Task>(
+            supabase
+              .from('tasks')
+              .select('*')
+              .eq('assigned_to', profile.id)
+              .order('status', { ascending: true })
+              .order('due_date', { ascending: true, nullsFirst: false })
+              .order('created_at', { ascending: false }),
+          );
 
     const clientAccessPromise = canManage || profileIsClient
       ? safeSelect<ClientProjectAccess>(supabase.from('client_project_access').select('*').order('created_at'))
@@ -1739,8 +1749,11 @@ export function useTracker() {
         throw new Error('Only team members can create tasks.');
       }
 
+      const assignedTo = draft.assigned_to || currentProfile.id;
+      const fullDraft = { ...draft, assigned_to: assignedTo };
+
       const task = normalizeTask({
-        ...draft,
+        ...fullDraft,
         id: createId('task'),
         created_by: currentProfile.id,
         completed_at: draft.status === 'Done' ? new Date().toISOString() : null,
@@ -1751,7 +1764,7 @@ export function useTracker() {
       if (supabase && mode === 'supabase') {
         const { data: inserted, error: insertError } = await supabase
           .from('tasks')
-          .insert(taskPayload(draft, currentProfile.id))
+          .insert(taskPayload(fullDraft, currentProfile.id))
           .select()
           .single();
 
@@ -2039,13 +2052,12 @@ export function useTracker() {
       return [];
     }
 
-    if (canManageAll) {
-      return data.tasks;
-    }
+    return data.tasks.filter((task) => task.assigned_to === currentProfile.id);
+  }, [currentProfile, data.tasks]);
 
-    return data.tasks.filter(
-      (task) => task.assigned_to === currentProfile.id || task.created_by === currentProfile.id,
-    );
+  const teamTasks = useMemo(() => {
+    if (!currentProfile || !canManageAll) return [];
+    return data.tasks;
   }, [canManageAll, currentProfile, data.tasks]);
 
   const visibleNotifications = useMemo(() => {
@@ -2103,6 +2115,7 @@ export function useTracker() {
     canManageAll,
     visibleProjects,
     visibleTasks,
+    teamTasks,
     visibleNotifications,
     login,
     loginDemo,

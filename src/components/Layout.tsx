@@ -24,6 +24,7 @@ export type ViewKey =
   | 'dashboard'
   | 'projects'
   | 'my_tasks'
+  | 'team_tasks'
   | 'calendar'
   | 'notifications'
   | 'team'
@@ -37,6 +38,7 @@ const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: Home },
   { id: 'projects', label: 'Projects', icon: FolderKanban },
   { id: 'my_tasks', label: 'My Tasks', icon: CheckSquare },
+  { id: 'team_tasks', label: 'Team Tasks', icon: CheckSquare, managersOnly: true },
   { id: 'calendar', label: 'Calendar', icon: CalendarDays },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'team', label: 'Team', icon: Users, managersOnly: true },
