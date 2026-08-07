@@ -2158,16 +2158,50 @@ export function useTracker() {
       };
 
       if (supabase && mode === 'supabase') {
+        const { id: _unusedId, ...fullPayload } = transaction;
+
         const { data: inserted, error: insertError } = await supabase
           .from('finance_transactions')
-          .insert({
-            ...transaction,
-            id: undefined,
-          })
+          .insert(fullPayload)
           .select()
           .single();
 
         if (insertError) {
+          const isColumnError =
+            insertError.code === 'PGRST204' ||
+            insertError.code === '42703' ||
+            insertError.message?.toLowerCase().includes('column') ||
+            insertError.message?.toLowerCase().includes('schema');
+
+          if (isColumnError) {
+            const basePayload = {
+              type: transaction.type,
+              category: transaction.category,
+              description: transaction.description,
+              amount: transaction.amount,
+              transaction_date: transaction.transaction_date,
+              project_id: transaction.project_id || null,
+              created_by: currentProfile.id,
+            };
+
+            const { data: baseInserted, error: baseError } = await supabase
+              .from('finance_transactions')
+              .insert(basePayload)
+              .select()
+              .single();
+
+            if (baseError) {
+              throw baseError;
+            }
+
+            const newFtx = { ...transaction, ...(baseInserted as object) };
+            setData((previous) => ({
+              ...previous,
+              financeTransactions: [newFtx, ...(previous.financeTransactions || [])],
+            }));
+            return newFtx;
+          }
+
           throw insertError;
         }
 

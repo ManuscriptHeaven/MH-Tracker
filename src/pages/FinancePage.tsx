@@ -65,7 +65,7 @@ import type {
   EmployeeCompensation,
   EmployeeLedgerEntry,
 } from '../lib/types';
-import { firstName, isManagerRole } from '../lib/utils';
+import { errorMessage, firstName, isManagerRole } from '../lib/utils';
 
 type FinanceTab =
   | 'overview'
@@ -1409,7 +1409,7 @@ function TransactionModal({
         notes: notes || null,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Transaction could not be saved.');
+      setError(errorMessage(err, 'Transaction could not be saved.'));
     } finally {
       setSaving(false);
     }
