@@ -409,4 +409,134 @@ export interface TrackerData {
   revisionActivity: RevisionActivity[];
   employeeCompensation: EmployeeCompensation[];
   employeeLedger: EmployeeLedgerEntry[];
+  financeTransactions?: FinanceTransaction[];
+  financeBudgets?: FinanceBudget[];
+  projectProfitability?: ProjectProfitabilityItem[];
+  clientReceivables?: ClientReceivableItem[];
+  teamPayroll?: TeamPayrollItem[];
 }
+
+export type CurrencyCode = 'PKR' | 'USD' | 'EUR' | 'GBP';
+
+export type IncomeCategory =
+  | 'Book Formatting'
+  | 'eBook Formatting'
+  | 'Cover Design'
+  | 'Publishing Support'
+  | 'Other Services'
+  | 'Other Income';
+
+export type ExpenseCategory =
+  | 'Office'
+  | 'Software'
+  | 'Adobe'
+  | 'AI/API'
+  | 'Hosting'
+  | 'Domain'
+  | 'Marketing'
+  | 'Advertising'
+  | 'Freelancers'
+  | 'Team'
+  | 'Equipment'
+  | 'Internet'
+  | 'Utilities'
+  | 'Bank Fees'
+  | 'Payment Processing Fees'
+  | 'Taxes'
+  | 'Miscellaneous';
+
+export type FinanceTransactionType = 'income' | 'expense';
+
+export type RecurringStatus = 'none' | 'monthly' | 'quarterly' | 'yearly';
+
+export interface FinanceTransaction {
+  id: string;
+  type: FinanceTransactionType;
+  category: string;
+  description: string;
+  amount: number;
+  currency: CurrencyCode;
+  exchange_rate: number;
+  amount_pkr: number;
+  transaction_date: string;
+  client_name?: string | null;
+  project_id?: string | null;
+  invoice_id?: string | null;
+  payment_method: string;
+  reference_no?: string | null;
+  vendor?: string | null;
+  recurring_status?: RecurringStatus;
+  next_recurring_date?: string | null;
+  notes?: string | null;
+  attachment_url?: string | null;
+  is_soft_deleted?: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_by?: string | null;
+  updated_at?: string;
+}
+
+export type FinanceTransactionDraft = Omit<
+  FinanceTransaction,
+  'id' | 'created_at' | 'created_by' | 'amount_pkr' | 'updated_at' | 'updated_by'
+> & {
+  id?: string;
+  amount_pkr?: number;
+};
+
+export interface FinanceBudget {
+  category: string;
+  monthly_budget_pkr: number;
+  updated_by?: string | null;
+  updated_at?: string;
+}
+
+export interface ProjectProfitabilityItem {
+  project_id: string;
+  project_number: string;
+  project_title: string;
+  client_name: string;
+  revenue_pkr: number;
+  team_cost_pkr: number;
+  direct_expenses_pkr: number;
+  payment_fees_pkr: number;
+  total_cost_pkr: number;
+  net_profit_pkr: number;
+  profit_margin_percent: number;
+}
+
+export interface ClientReceivableItem {
+  client_name: string;
+  client_email: string;
+  total_invoiced_pkr: number;
+  total_paid_pkr: number;
+  outstanding_pkr: number;
+  overdue_pkr: number;
+  project_count: number;
+  invoices_count: number;
+}
+
+export interface TeamPayrollItem {
+  employee_id: string;
+  employee_name: string;
+  monthly_salary_pkr: number;
+  per_project_rate_pkr: number;
+  advance_pkr: number;
+  bonus_pkr: number;
+  deduction_pkr: number;
+  paid_pkr: number;
+  net_payable_pkr: number;
+  remaining_due_pkr: number;
+  payment_date: string | null;
+  status: 'Paid' | 'Partial' | 'Pending';
+}
+
+export type FinancialReportType =
+  | 'pnl'
+  | 'income'
+  | 'expense'
+  | 'cash_flow'
+  | 'receivables'
+  | 'payroll'
+  | 'profitability'
+  | 'tax';

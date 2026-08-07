@@ -42,7 +42,11 @@ import type {
   Task,
   TaskDraft,
   TrackerData,
+  FinanceBudget,
+  FinanceTransaction,
+  FinanceTransactionDraft,
 } from './types';
+import { DEFAULT_EXCHANGE_RATES } from './financeUtils';
 
 type AuthMode = 'demo' | 'supabase';
 
@@ -658,11 +662,17 @@ export function useTracker() {
         )
       : safeSelect<RevisionActivity>(supabase.from('revision_activity').select('*').order('created_at', { ascending: false }));
 
-    const employeeCompensationPromise = profile.role === 'admin'
+    const employeeCompensationPromise = profile.role === 'admin' || profile.role === 'manager'
       ? safeSelect<EmployeeCompensation>(supabase.from('employee_compensation').select('*'))
       : emptyResult;
-    const employeeLedgerPromise = profile.role === 'admin'
+    const employeeLedgerPromise = profile.role === 'admin' || profile.role === 'manager'
       ? safeSelect<EmployeeLedgerEntry>(supabase.from('employee_ledger').select('*').order('paid_at', { ascending: false }))
+      : emptyResult;
+    const financeTransactionsPromise = canManage
+      ? safeSelect<FinanceTransaction>(supabase.from('finance_transactions').select('*').order('transaction_date', { ascending: false }))
+      : emptyResult;
+    const financeBudgetsPromise = canManage
+      ? safeSelect<FinanceBudget>(supabase.from('finance_budgets').select('*'))
       : emptyResult;
 
     const [
@@ -680,6 +690,8 @@ export function useTracker() {
       revisionActivityRes,
       employeeCompensationRes,
       employeeLedgerRes,
+      financeTransactionsRes,
+      financeBudgetsRes,
       notifications,
     ] = await Promise.all([
       profilesPromise,
@@ -696,6 +708,8 @@ export function useTracker() {
       revisionActivityPromise,
       employeeCompensationPromise,
       employeeLedgerPromise,
+      financeTransactionsPromise,
+      financeBudgetsPromise,
       fetchNotifications(profile.id),
     ]);
 
@@ -724,6 +738,8 @@ export function useTracker() {
       revisionActivity: (revisionActivityRes.data as Partial<RevisionActivity>[]).map(normalizeRevisionActivity),
       employeeCompensation: employeeCompensationRes.data as EmployeeCompensation[],
       employeeLedger: employeeLedgerRes.data as EmployeeLedgerEntry[],
+      financeTransactions: financeTransactionsRes.data as FinanceTransaction[],
+      financeBudgets: financeBudgetsRes.data as FinanceBudget[],
     });
 
     setIsLoading(false);
@@ -2091,7 +2107,6 @@ export function useTracker() {
     },
     [currentProfile, data.employeeCompensation, mode],
   );
-
   const addEmployeeLedgerEntry = useCallback(
     async (entry: Omit<EmployeeLedgerEntry, 'id' | 'created_at'>) => {
       if (!currentProfile || currentProfile.role !== 'admin') throw new Error('Only admins can manage employee payroll.');
@@ -2101,6 +2116,160 @@ export function useTracker() {
         if (entryError) throw entryError;
       }
       setData((previous) => ({ ...previous, employeeLedger: [ledgerEntry, ...previous.employeeLedger] }));
+    },
+    [currentProfile, mode],
+  );
+
+  const createFinanceTransaction = useCallback(
+    async (draft: FinanceTransactionDraft) => {
+      if (!currentProfile || !canManageEverything(currentProfile)) {
+        throw new Error('Only admins and authorized managers can create finance transactions.');
+      }
+
+      const rate = draft.exchange_rate && draft.exchange_rate > 0 ? draft.exchange_rate : (DEFAULT_EXCHANGE_RATES[draft.currency || 'PKR'] || 1.0);
+      const amountPkr = Math.round((draft.amount || 0) * rate);
+      const now = new Date().toISOString();
+
+      const transaction: FinanceTransaction = {
+        id: draft.id || createId('ftx'),
+        type: draft.type,
+        category: draft.category,
+        description: draft.description,
+        amount: Number(draft.amount || 0),
+        currency: draft.currency || 'PKR',
+        exchange_rate: rate,
+        amount_pkr: amountPkr,
+        transaction_date: draft.transaction_date || new Date().toISOString().slice(0, 10),
+        client_name: draft.client_name || null,
+        project_id: draft.project_id || null,
+        invoice_id: draft.invoice_id || null,
+        payment_method: draft.payment_method || 'Bank Transfer',
+        reference_no: draft.reference_no || null,
+        vendor: draft.vendor || null,
+        recurring_status: draft.recurring_status || 'none',
+        next_recurring_date: draft.next_recurring_date || null,
+        notes: draft.notes || null,
+        attachment_url: draft.attachment_url || null,
+        is_soft_deleted: false,
+        created_by: currentProfile.id,
+        created_at: now,
+        updated_by: currentProfile.id,
+        updated_at: now,
+      };
+
+      if (supabase && mode === 'supabase') {
+        const { data: inserted, error: insertError } = await supabase
+          .from('finance_transactions')
+          .insert({
+            ...transaction,
+            id: undefined,
+          })
+          .select()
+          .single();
+
+        if (insertError) {
+          throw insertError;
+        }
+
+        const newFtx = (inserted as FinanceTransaction) || transaction;
+        setData((previous) => ({
+          ...previous,
+          financeTransactions: [newFtx, ...(previous.financeTransactions || [])],
+        }));
+        return newFtx;
+      }
+
+      setData((previous) => ({
+        ...previous,
+        financeTransactions: [transaction, ...(previous.financeTransactions || [])],
+      }));
+
+      return transaction;
+    },
+    [currentProfile, mode],
+  );
+
+  const updateFinanceTransaction = useCallback(
+    async (id: string, updates: Partial<FinanceTransaction>) => {
+      if (!currentProfile || !canManageEverything(currentProfile)) {
+        throw new Error('Only authorized managers can update finance transactions.');
+      }
+
+      const now = new Date().toISOString();
+
+      if (supabase && mode === 'supabase') {
+        const { error: updateError } = await supabase
+          .from('finance_transactions')
+          .update({
+            ...updates,
+            updated_by: currentProfile.id,
+            updated_at: now,
+          })
+          .eq('id', id);
+
+        if (updateError) {
+          throw updateError;
+        }
+
+        await loadSupabaseData(currentProfile);
+        return;
+      }
+
+      setData((previous) => ({
+        ...previous,
+        financeTransactions: (previous.financeTransactions || []).map((t) =>
+          t.id === id ? { ...t, ...updates, updated_by: currentProfile.id, updated_at: now } : t,
+        ),
+      }));
+    },
+    [currentProfile, loadSupabaseData, mode],
+  );
+
+  const softDeleteFinanceTransaction = useCallback(
+    async (id: string) => {
+      return updateFinanceTransaction(id, { is_soft_deleted: true });
+    },
+    [updateFinanceTransaction],
+  );
+
+  const restoreFinanceTransaction = useCallback(
+    async (id: string) => {
+      return updateFinanceTransaction(id, { is_soft_deleted: false });
+    },
+    [updateFinanceTransaction],
+  );
+
+  const saveFinanceBudget = useCallback(
+    async (category: string, monthlyBudgetPkr: number) => {
+      if (!currentProfile || !canManageEverything(currentProfile)) {
+        throw new Error('Only authorized managers can set category budgets.');
+      }
+
+      const now = new Date().toISOString();
+      const budgetItem: FinanceBudget = {
+        category,
+        monthly_budget_pkr: Number(monthlyBudgetPkr || 0),
+        updated_by: currentProfile.id,
+        updated_at: now,
+      };
+
+      if (supabase && mode === 'supabase') {
+        const { error: upsertError } = await supabase
+          .from('finance_budgets')
+          .upsert(budgetItem, { onConflict: 'category' });
+
+        if (upsertError) {
+          throw upsertError;
+        }
+      }
+
+      setData((previous) => ({
+        ...previous,
+        financeBudgets: [
+          budgetItem,
+          ...(previous.financeBudgets || []).filter((b) => b.category !== category),
+        ],
+      }));
     },
     [currentProfile, mode],
   );
@@ -2143,5 +2312,10 @@ export function useTracker() {
     clearNotificationToast,
     saveEmployeeCompensation,
     addEmployeeLedgerEntry,
+    createFinanceTransaction,
+    updateFinanceTransaction,
+    softDeleteFinanceTransaction,
+    restoreFinanceTransaction,
+    saveFinanceBudget,
   };
 }

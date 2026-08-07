@@ -115,7 +115,21 @@ export default function App() {
         <PaymentsPage projects={visibleProjects} currentProfile={tracker.currentProfile} isLoading={tracker.isLoading} error={tracker.error} onSelectProject={setSelectedProject} onEditProject={openEditProject} onUpdateProject={tracker.updateProject} onDeletePayment={tracker.deletePayment} />
       </ErrorBoundary>
     )}
-    {activeView === 'finance' && tracker.currentProfile.role === 'admin' && <FinancePage currentProfile={tracker.currentProfile} projects={tracker.data.projects} />}
+    {activeView === 'finance' && tracker.currentProfile.role === 'admin' && (
+      <FinancePage
+        currentProfile={tracker.currentProfile}
+        projects={tracker.data.projects}
+        profiles={tracker.data.profiles}
+        employeeCompensation={tracker.data.employeeCompensation}
+        employeeLedger={tracker.data.employeeLedger}
+        financeTransactions={tracker.data.financeTransactions}
+        financeBudgets={tracker.data.financeBudgets}
+        onCreateTransaction={tracker.createFinanceTransaction}
+        onUpdateTransaction={tracker.updateFinanceTransaction}
+        onSoftDeleteTransaction={tracker.softDeleteFinanceTransaction}
+        onSaveBudget={tracker.saveFinanceBudget}
+      />
+    )}
     {activeView === 'settings' && tracker.currentProfile.role === 'admin' && <SettingsPage mode={tracker.mode} />}
     {showProjectForm && <ProjectFormModal currentProfile={tracker.currentProfile} profiles={tracker.data.profiles} projects={tracker.data.projects} project={editingProject} onClose={() => { setShowProjectForm(false); setEditingProject(null); }} onSubmit={handleSaveProject} />}
     {selectedProjectFresh && !isClient && <ProjectDetail project={selectedProjectFresh} profiles={tracker.data.profiles} notes={tracker.data.projectNotes} revisions={tracker.data.revisionNotes} revisionRequests={tracker.data.revisionRequests} revisionItems={tracker.data.revisionItems} revisionAttachments={tracker.data.revisionAttachments} revisionActivity={tracker.data.revisionActivity} activities={tracker.data.activityLogs} tasks={tracker.data.tasks} currentProfile={tracker.currentProfile} canManageAll={tracker.canManageAll} onClose={() => setSelectedProject(null)} onEdit={() => openEditProject(selectedProjectFresh)} onDelete={() => deleteProject(selectedProjectFresh)} onUpdateProject={updateSelectedProject} onAddNote={async (noteType, note) => { await tracker.addNote(selectedProjectFresh.id, noteType, note); }} onAddRevision={async (note, status) => { await tracker.addRevision(selectedProjectFresh.id, note, status); }} onUpdateRevisionRequest={tracker.updateRevisionRequest} onUpdateRevisionItem={tracker.updateRevisionItem} onUploadRevisedProof={tracker.uploadRevisedProof} />}
