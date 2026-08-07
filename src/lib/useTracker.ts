@@ -826,6 +826,31 @@ export function useTracker() {
     };
   }, [currentProfile, mode]);
 
+  useEffect(() => {
+    const supabaseClient = supabase;
+
+    if (!supabaseClient || mode !== 'supabase' || !currentProfile) {
+      return undefined;
+    }
+
+    // A client submits a revision in a separate session. Refresh the project
+    // list when either the request or its project is changed so dashboard cards
+    // immediately show the new revision stage for admin, managers, and staff.
+    const subscription = supabaseClient
+      .channel(`project-revision-sync:${currentProfile.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'revision_requests' }, () => {
+        void loadSupabaseData(currentProfile);
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'projects' }, () => {
+        void loadSupabaseData(currentProfile);
+      })
+      .subscribe();
+
+    return () => {
+      supabaseClient.removeChannel(subscription);
+    };
+  }, [currentProfile, loadSupabaseData, mode]);
+
   const login = useCallback(
     async (loginName: string, password: string) => {
       setError(null);
@@ -1403,17 +1428,6 @@ export function useTracker() {
           if (requestError) {
             throw requestError;
           }
-
-          await supabaseClient
-            .from('projects')
-            .update({
-              status: revisionStage,
-              current_stage: revisionStage,
-              waiting_on: 'Manuscript Heaven',
-              timeline_status: 'Active',
-              client_action_required: '',
-            })
-            .eq('id', project.id);
 
           await Promise.all(
             (draft.attachments || []).map(async (file) => {

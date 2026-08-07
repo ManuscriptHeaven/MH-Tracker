@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ImageDown, Mail, Printer, X } from 'lucide-react';
 import { PaymentBadge } from './Badges';
 import { Button, IconButton } from './ui';
@@ -17,7 +18,7 @@ export function InvoiceModal({
   onClose: () => void;
 }) {
   const invoiceRef = useRef<HTMLDivElement>(null);
-  const [savingPng, setSavingPng] = useState(false);
+  const [savingJpg, setSavingJpg] = useState(false);
 
   if (!project && !invoice) {
     return null;
@@ -27,9 +28,9 @@ export function InvoiceModal({
     window.print();
   }
 
-  async function handleSavePng() {
+  async function handleSaveJpg() {
     if (!invoiceRef.current) return;
-    setSavingPng(true);
+    setSavingJpg(true);
     try {
       // Load html2canvas from CDN if not already loaded
       if (!(window as unknown as Record<string, unknown>)['html2canvas']) {
@@ -53,14 +54,14 @@ export function InvoiceModal({
         logging: false,
       });
       const link = document.createElement('a');
-      link.download = `Invoice-${invoiceNumber}.png`;
-      link.href = canvas.toDataURL('image/png');
+      link.download = `Invoice-${invoiceNumber}.jpg`;
+      link.href = canvas.toDataURL('image/jpeg', 0.95);
       link.click();
     } catch (err) {
-      console.error('PNG export failed:', err);
-      alert('PNG export failed. Use Print / Save PDF to save as PDF instead.');
+      console.error('JPG export failed:', err);
+      alert('JPG export failed. Use Print / Save PDF to save as PDF instead.');
     } finally {
-      setSavingPng(false);
+      setSavingJpg(false);
     }
   }
 
@@ -165,7 +166,7 @@ export function InvoiceModal({
     td: { padding: '10px 12px', borderBottom: '1px solid #f0e8dc' },
   };
 
-  return (
+  return createPortal(
     <div className="printable-invoice-modal fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
       <div className="printable-invoice-wrapper flex max-h-[95vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl border border-border">
 
@@ -181,9 +182,9 @@ export function InvoiceModal({
               <Printer className="h-4 w-4" />
               Print / Save PDF
             </Button>
-            <Button type="button" variant="secondary" onClick={handleSavePng} disabled={savingPng}>
+            <Button type="button" variant="secondary" onClick={handleSaveJpg} disabled={savingJpg}>
               <ImageDown className="h-4 w-4" />
-              {savingPng ? 'Saving…' : 'Save as PNG'}
+              {savingJpg ? 'Saving…' : 'Save as JPG'}
             </Button>
             <IconButton title="Close" onClick={onClose}>
               <X className="h-4 w-4" />
@@ -195,7 +196,7 @@ export function InvoiceModal({
         <div className="flex-1 overflow-auto bg-gray-100 p-6 flex justify-center">
 
           {/* The actual A4 invoice — this div is captured for PNG and printed */}
-          <div ref={invoiceRef} style={s.root}>
+          <div ref={invoiceRef} className="printable-invoice-content" style={s.root}>
 
             {/* Brand Header */}
             <div style={s.header}>
@@ -315,6 +316,7 @@ export function InvoiceModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
