@@ -19,6 +19,9 @@ import type {
   ActivityLog,
   ClientInviteDraft,
   ClientProjectAccess,
+  EmployeeCompensation,
+  EmployeeLedgerEntry,
+  EmployeeLedgerType,
   ClientRevisionStatus,
   NotificationItem,
   NoteType,
@@ -645,6 +648,13 @@ export function useTracker() {
         )
       : safeSelect<RevisionActivity>(supabase.from('revision_activity').select('*').order('created_at', { ascending: false }));
 
+    const employeeCompensationPromise = profile.role === 'admin'
+      ? safeSelect<EmployeeCompensation>(supabase.from('employee_compensation').select('*'))
+      : emptyResult;
+    const employeeLedgerPromise = profile.role === 'admin'
+      ? safeSelect<EmployeeLedgerEntry>(supabase.from('employee_ledger').select('*').order('paid_at', { ascending: false }))
+      : emptyResult;
+
     const [
       profilesRes,
       projectsRes,
@@ -658,6 +668,8 @@ export function useTracker() {
       revisionItemsRes,
       revisionAttachmentsRes,
       revisionActivityRes,
+      employeeCompensationRes,
+      employeeLedgerRes,
       notifications,
     ] = await Promise.all([
       profilesPromise,
@@ -672,6 +684,8 @@ export function useTracker() {
       revisionItemsPromise,
       revisionAttachmentsPromise,
       revisionActivityPromise,
+      employeeCompensationPromise,
+      employeeLedgerPromise,
       fetchNotifications(profile.id),
     ]);
 
@@ -698,6 +712,8 @@ export function useTracker() {
       revisionItems: (revisionItemsRes.data as Partial<RevisionItem>[]).map(normalizeRevisionItem),
       revisionAttachments: (revisionAttachmentsRes.data as Partial<RevisionAttachment>[]).map(normalizeRevisionAttachment),
       revisionActivity: (revisionActivityRes.data as Partial<RevisionActivity>[]).map(normalizeRevisionActivity),
+      employeeCompensation: employeeCompensationRes.data as EmployeeCompensation[],
+      employeeLedger: employeeLedgerRes.data as EmployeeLedgerEntry[],
     });
 
     setIsLoading(false);
@@ -2040,6 +2056,43 @@ export function useTracker() {
     return data.notifications.filter((notification) => notification.recipient_id === currentProfile.id);
   }, [currentProfile, data.notifications]);
 
+  const saveEmployeeCompensation = useCallback(
+    async (employeeId: string, updates: Pick<EmployeeCompensation, 'monthly_salary' | 'per_project_rate' | 'joining_date' | 'responsibilities'>) => {
+      if (!currentProfile || currentProfile.role !== 'admin') throw new Error('Only admins can manage employee compensation.');
+      const compensation: EmployeeCompensation = {
+        employee_id: employeeId,
+        monthly_salary: Number(updates.monthly_salary || 0),
+        per_project_rate: Number(updates.per_project_rate || 0),
+        joining_date: updates.joining_date || null,
+        responsibilities: updates.responsibilities || '',
+        performance_rating: data.employeeCompensation.find((item) => item.employee_id === employeeId)?.performance_rating ?? null,
+        updated_at: new Date().toISOString(),
+      };
+      if (supabase && mode === 'supabase') {
+        const { error: saveError } = await supabase.from('employee_compensation').upsert(compensation, { onConflict: 'employee_id' });
+        if (saveError) throw saveError;
+      }
+      setData((previous) => ({
+        ...previous,
+        employeeCompensation: [compensation, ...previous.employeeCompensation.filter((item) => item.employee_id !== employeeId)],
+      }));
+    },
+    [currentProfile, data.employeeCompensation, mode],
+  );
+
+  const addEmployeeLedgerEntry = useCallback(
+    async (entry: Omit<EmployeeLedgerEntry, 'id' | 'created_at'>) => {
+      if (!currentProfile || currentProfile.role !== 'admin') throw new Error('Only admins can manage employee payroll.');
+      const ledgerEntry: EmployeeLedgerEntry = { ...entry, id: createUuid(), created_at: new Date().toISOString() };
+      if (supabase && mode === 'supabase') {
+        const { error: entryError } = await supabase.from('employee_ledger').insert(ledgerEntry);
+        if (entryError) throw entryError;
+      }
+      setData((previous) => ({ ...previous, employeeLedger: [ledgerEntry, ...previous.employeeLedger] }));
+    },
+    [currentProfile, mode],
+  );
+
   return {
     mode,
     currentProfile,
@@ -2075,5 +2128,7 @@ export function useTracker() {
     markAllNotificationsRead,
     notificationToast,
     clearNotificationToast,
+    saveEmployeeCompensation,
+    addEmployeeLedgerEntry,
   };
 }

@@ -106,7 +106,7 @@ export default function App() {
     {activeView === 'my_tasks' && <TasksPage tasks={tracker.visibleTasks} projects={tracker.data.projects} profiles={tracker.data.profiles} currentProfile={tracker.currentProfile} searchTerm={searchTerm} onCreateTask={async (draft) => { await tracker.createTask(draft); }} onUpdateTask={async (taskId, updates) => { await tracker.updateTask(taskId, updates); }} />}
     {activeView === 'calendar' && <CalendarPage projects={visibleProjects} onSelectProject={setSelectedProject} />}
     {activeView === 'notifications' && <NotificationsPage notifications={tracker.visibleNotifications} projects={visibleProjects} onMarkRead={tracker.markNotificationRead} onMarkAllRead={tracker.markAllNotificationsRead} onOpenProject={openProjectById} />}
-    {activeView === 'team' && <TeamPage profiles={tracker.data.profiles} projects={visibleProjects} />}
+    {activeView === 'team' && <TeamPage profiles={tracker.data.profiles} projects={visibleProjects} tasks={tracker.data.tasks} compensation={tracker.data.employeeCompensation} ledger={tracker.data.employeeLedger} canManagePayroll={tracker.currentProfile.role === 'admin'} />}
     {activeView === 'clients' && tracker.currentProfile.role === 'admin' && <ClientAccessPage profiles={tracker.data.profiles} projects={tracker.data.projects} clientProjectAccess={tracker.data.clientProjectAccess} onInviteClient={tracker.inviteClient} />}
     {activeView === 'delivered' && <ProjectsPage {...pageProps} title="Delivered Projects" projects={deliveredProjects} />}
     {activeView === 'payments' && tracker.canManageAll && (

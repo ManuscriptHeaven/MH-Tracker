@@ -557,4 +557,6 @@ export const sampleData = {
   revisionItems: sampleRevisionItems,
   revisionAttachments: sampleRevisionAttachments,
   revisionActivity: sampleRevisionActivity,
+  employeeCompensation: [],
+  employeeLedger: [],
 };

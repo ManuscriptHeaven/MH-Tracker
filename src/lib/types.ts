@@ -96,6 +96,31 @@ export interface Profile {
   created_at: string;
 }
 
+export interface EmployeeCompensation {
+  employee_id: string;
+  monthly_salary: number;
+  per_project_rate: number;
+  joining_date: string | null;
+  responsibilities: string;
+  performance_rating: number | null;
+  updated_at: string;
+}
+
+export type EmployeeLedgerType = 'Salary' | 'Project Payment' | 'Advance' | 'Deduction' | 'Payment';
+
+export interface EmployeeLedgerEntry {
+  id: string;
+  employee_id: string;
+  entry_type: EmployeeLedgerType;
+  amount: number;
+  salary_month: string | null;
+  payment_method: string | null;
+  project_id: string | null;
+  notes: string;
+  paid_at: string;
+  created_at: string;
+}
+
 export interface Project {
   id: string;
   project_number: string;
@@ -382,4 +407,6 @@ export interface TrackerData {
   revisionItems: RevisionItem[];
   revisionAttachments: RevisionAttachment[];
   revisionActivity: RevisionActivity[];
+  employeeCompensation: EmployeeCompensation[];
+  employeeLedger: EmployeeLedgerEntry[];
 }
