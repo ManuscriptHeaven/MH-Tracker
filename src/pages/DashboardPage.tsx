@@ -1,7 +1,8 @@
+import { useMemo, useState } from 'react';
 import { AlertTriangle, CalendarClock, CheckCircle2, CircleDollarSign, Clock3, FolderOpen, Plus } from 'lucide-react';
 import { StatusBadge } from '../components/Badges';
 import { ProjectTimelineCompact } from '../components/ProjectTimeline';
-import { Button, Card } from '../components/ui';
+import { Button, Card, SelectField } from '../components/ui';
 import { closedStatuses } from '../lib/constants';
 import { isDueThisWeek, isDueToday, isOverdue, formatDate, deadlineClass, deadlineLabel } from '../lib/date';
 import { currency, firstName, initials, isClientRole } from '../lib/utils';
@@ -43,6 +44,7 @@ export function DashboardPage({
   profiles,
   canViewPayments,
   canManageProjects,
+  currentProfileId,
   onAddProject,
   onSelectProject,
 }: {
@@ -50,30 +52,48 @@ export function DashboardPage({
   profiles: Profile[];
   canViewPayments: boolean;
   canManageProjects: boolean;
+  currentProfileId: string;
   onAddProject: () => void;
   onSelectProject: (project: Project) => void;
 }) {
-  const activeProjects = projects
+  const [quickFilter, setQuickFilter] = useState<'all' | 'mine' | 'unassigned' | 'today' | 'overdue' | 'week' | 'revision' | 'review'>('all');
+  const [assignedTo, setAssignedTo] = useState('all');
+  const [status, setStatus] = useState('all');
+  const [client, setClient] = useState('all');
+  const [priority, setPriority] = useState('all');
+  const allActiveProjects = projects
     .filter((project) => !closedStatuses.includes(project.status))
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  const isRevision = (project: Project) => ['In Revision', 'Revision Requested', 'Concept Revisions', 'Print Revisions'].includes(project.status);
+  const isReview = (project: Project) => ['Client Review', 'Awaiting Concept Approval', 'Awaiting Print Approval', 'eBook Review'].includes(project.status);
+  const scopedProjects = useMemo(() => allActiveProjects.filter((project) =>
+    (assignedTo === 'all' || project.assigned_to === assignedTo) &&
+    (status === 'all' || project.status === status) &&
+    (client === 'all' || project.client_name === client) &&
+    (priority === 'all' || project.priority === priority),
+  ), [allActiveProjects, assignedTo, status, client, priority]);
+  const scopedAllProjects = useMemo(() => projects.filter((project) =>
+    (assignedTo === 'all' || project.assigned_to === assignedTo) &&
+    (status === 'all' || project.status === status) &&
+    (client === 'all' || project.client_name === client) &&
+    (priority === 'all' || project.priority === priority),
+  ), [projects, assignedTo, status, client, priority]);
+  const activeProjects = scopedProjects.filter((project) => {
+    if (quickFilter === 'mine') return project.assigned_to === currentProfileId;
+    if (quickFilter === 'unassigned') return !project.assigned_to;
+    if (quickFilter === 'today') return isDueToday(project);
+    if (quickFilter === 'overdue') return isOverdue(project);
+    if (quickFilter === 'week') return isDueThisWeek(project);
+    if (quickFilter === 'revision') return isRevision(project);
+    if (quickFilter === 'review') return isReview(project);
+    return true;
+  });
   const overdueProjects = activeProjects.filter(isOverdue);
   const dueToday = activeProjects.filter(isDueToday);
   const dueThisWeek = activeProjects.filter(isDueThisWeek);
-  const inRevision = activeProjects.filter(
-    (project) =>
-      project.status === 'In Revision' ||
-      project.status === 'Revision Requested' ||
-      project.status === 'Concept Revisions' ||
-      project.status === 'Print Revisions',
-  );
-  const clientReview = activeProjects.filter(
-    (project) =>
-      project.status === 'Client Review' ||
-      project.status === 'Awaiting Concept Approval' ||
-      project.status === 'Awaiting Print Approval' ||
-      project.status === 'eBook Review',
-  );
-  const deliveredThisMonth = projects.filter((project) => {
+  const inRevision = activeProjects.filter(isRevision);
+  const clientReview = activeProjects.filter(isReview);
+  const deliveredThisMonth = scopedAllProjects.filter((project) => {
     const deliveryDate = project.delivery_date || project.final_delivery_date;
     if (!closedStatuses.includes(project.status) || !deliveryDate) {
       return false;
@@ -83,12 +103,12 @@ export function DashboardPage({
     const now = new Date();
     return delivered.getMonth() === now.getMonth() && delivered.getFullYear() === now.getFullYear();
   });
-  const pendingPayments = projects.reduce((total, project) => total + Number(project.remaining_balance || 0), 0);
+  const pendingPayments = activeProjects.reduce((total, project) => total + Number(project.remaining_balance || 0), 0);
   const urgentProjects = activeProjects
     .filter((project) => project.priority === 'Urgent' || isOverdue(project) || isDueToday(project))
     .slice(0, 5);
 
-  const workload = profiles.filter((profile) => !isClientRole(profile.role)).map((profile) => {
+  const workload = profiles.filter((profile) => !isClientRole(profile.role) && (assignedTo === 'all' || profile.id === assignedTo)).map((profile) => {
     const assigned = activeProjects.filter((project) => project.assigned_to === profile.id);
     return {
       profile,
@@ -99,6 +119,22 @@ export function DashboardPage({
 
   return (
     <div className="space-y-6">
+      <Card>
+        <div className="flex flex-wrap items-center gap-2">
+          {([
+            ['all', 'All'], ['mine', 'My Projects'], ['unassigned', 'Unassigned'], ['today', 'Due Today'], ['overdue', 'Overdue'], ['week', 'This Week'], ['revision', 'In Revision'], ['review', 'Client Review'],
+          ] as const).map(([id, label]) => {
+            const count = id === 'all' ? scopedProjects.length : scopedProjects.filter((project) => id === 'mine' ? project.assigned_to === currentProfileId : id === 'unassigned' ? !project.assigned_to : id === 'today' ? isDueToday(project) : id === 'overdue' ? isOverdue(project) : id === 'week' ? isDueThisWeek(project) : id === 'revision' ? isRevision(project) : isReview(project)).length;
+            return <Button key={id} type="button" variant={quickFilter === id ? 'primary' : 'secondary'} onClick={() => setQuickFilter(id)}>{label} ({count})</Button>;
+          })}
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <SelectField label="Assigned To" value={assignedTo} onChange={(event) => setAssignedTo(event.target.value)}><option value="all">All Team Members</option>{profiles.filter((profile) => !isClientRole(profile.role)).map((profile) => <option key={profile.id} value={profile.id}>{profile.full_name}</option>)}</SelectField>
+          <SelectField label="Status" value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">All Statuses</option>{[...new Set(allActiveProjects.map((project) => project.status))].map((item) => <option key={item} value={item}>{item}</option>)}</SelectField>
+          <SelectField label="Client" value={client} onChange={(event) => setClient(event.target.value)}><option value="all">All Clients</option>{[...new Set(allActiveProjects.map((project) => project.client_name))].map((item) => <option key={item} value={item}>{item}</option>)}</SelectField>
+          <SelectField label="Priority" value={priority} onChange={(event) => setPriority(event.target.value)}><option value="all">All Priorities</option>{[...new Set(allActiveProjects.map((project) => project.priority))].map((item) => <option key={item} value={item}>{item}</option>)}</SelectField>
+        </div>
+      </Card>
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Active Projects" value={activeProjects.length} icon={FolderOpen} tone="bg-blue-50 text-info" />
         <StatCard label="Due Today" value={dueToday.length} icon={Clock3} tone="bg-orange-50 text-warning" />
@@ -128,7 +164,7 @@ export function DashboardPage({
             <div>
               <h2 className="font-display text-2xl font-semibold">Open Projects</h2>
               <p className="text-sm text-muted">
-                Showing all {activeProjects.length} open project{activeProjects.length === 1 ? '' : 's'}, newest first.
+                Showing {activeProjects.length} matching open project{activeProjects.length === 1 ? '' : 's'}, newest first.
               </p>
             </div>
             {canManageProjects ? (
@@ -152,7 +188,7 @@ export function DashboardPage({
                 </tr>
               </thead>
               <tbody>
-                {activeProjects.map((project) => (
+                {activeProjects.length ? activeProjects.map((project) => (
                   <tr
                     key={project.id}
                     className="cursor-pointer transition hover:bg-ivory"
@@ -175,7 +211,7 @@ export function DashboardPage({
                       <p className="text-xs text-muted">{formatDate(project.due_date)}</p>
                     </td>
                   </tr>
-                ))}
+                )) : <tr><td colSpan={6} className="py-8 text-center text-muted">No projects match these filters.</td></tr>}
               </tbody>
             </table>
           </div>
