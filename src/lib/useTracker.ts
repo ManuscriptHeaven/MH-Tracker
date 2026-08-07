@@ -338,6 +338,7 @@ function supabaseProjectPayload(project: ProjectDraft | Partial<Project>) {
     invoiced,
     invoice_id,
     invoiced_at,
+    client_profile_id,
     ...payload
   } = project as Partial<Project>;
 
@@ -355,10 +356,10 @@ function supabaseProjectPayload(project: ProjectDraft | Partial<Project>) {
   void invoiced;
   void invoice_id;
   void invoiced_at;
+  void client_profile_id;
 
   return {
     ...payload,
-    client_profile_id: payload.client_profile_id ?? null,
     assigned_to: payload.assigned_to || null,
     project_manager: payload.project_manager || null,
     start_date: cleanDate(payload.start_date),
@@ -984,14 +985,19 @@ export function useTracker() {
           payment_notes: projectPayment.notes,
         });
 
-        // Auto-link to client_project_access if a client profile is selected
-        if (localProject.client_profile_id) {
-          await supabase
-            .from('client_project_access')
-            .upsert(
-              { client_id: localProject.client_profile_id, project_id: project.id },
-              { onConflict: 'client_id,project_id' },
-            );
+        // Auto-link to client_project_access if a client profile with matching email exists
+        if (localProject.client_email) {
+          const matchingClient = data.profiles.find(
+            (p) => isClientRole(p.role) && p.email && p.email.trim().toLowerCase() === localProject.client_email.trim().toLowerCase(),
+          );
+          if (matchingClient) {
+            await supabase
+              .from('client_project_access')
+              .upsert(
+                { client_id: matchingClient.id, project_id: project.id },
+                { onConflict: 'client_id,project_id' },
+              );
+          }
         }
 
         setData((previous) => ({ ...previous, projects: [project, ...previous.projects] }));
@@ -1973,11 +1979,6 @@ export function useTracker() {
 
       return data.projects.filter((project) => {
         if (clientProjectIds.has(project.id)) {
-          return true;
-        }
-
-        // Direct client_profile_id match — most reliable
-        if (project.client_profile_id && project.client_profile_id === currentProfile.id) {
           return true;
         }
 

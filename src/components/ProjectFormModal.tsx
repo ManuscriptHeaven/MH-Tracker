@@ -48,7 +48,6 @@ function defaultDraft(currentProfile: Profile): ProjectDraft {
   const estimatedDueDate = addCalendarDays(startDate, PRINT_ONLY_TIMELINE_DAYS);
 
   return {
-    client_profile_id: null,
     client_name: '',
     client_email: '',
     project_title: '',
@@ -124,7 +123,6 @@ function draftFromProject(project: Project): ProjectDraft {
     id,
     project_number,
     created_by,
-    client_profile_id: (project as Project).client_profile_id ?? null,
   };
 }
 
@@ -286,27 +284,6 @@ export function ProjectFormModal({
         <section className="grid gap-4 rounded-lg border border-border bg-white p-4">
           <h3 className="font-display text-lg font-semibold">Basic Information</h3>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <SelectField
-              label="Client Profile"
-              value={draft.client_profile_id || ''}
-              onChange={(event) => {
-                const selectedId = event.target.value || null;
-                const selectedProfile = clientProfiles.find((p) => p.id === selectedId);
-                setDraft((prev) => ({
-                  ...prev,
-                  client_profile_id: selectedId,
-                  client_name: selectedProfile ? selectedProfile.full_name : prev.client_name,
-                  client_email: selectedProfile ? selectedProfile.email : prev.client_email,
-                }));
-              }}
-            >
-              <option value="">— No linked profile (manual entry) —</option>
-              {clientProfiles.map((profile) => (
-                <option key={profile.id} value={profile.id}>
-                  {profile.full_name} ({profile.email})
-                </option>
-              ))}
-            </SelectField>
             <Field
               label="Client Name"
               required
