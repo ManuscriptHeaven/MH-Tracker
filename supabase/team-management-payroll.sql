@@ -23,6 +23,10 @@ create table if not exists public.employee_ledger (
   created_at timestamptz not null default now()
 );
 
+alter table public.employee_ledger drop constraint if exists employee_ledger_entry_type_check;
+alter table public.employee_ledger add constraint employee_ledger_entry_type_check
+  check (entry_type in ('Salary', 'Project Payment', 'Bonus', 'Advance', 'Deduction', 'Payment', 'Other'));
+
 create index if not exists employee_ledger_employee_paid_at_idx on public.employee_ledger(employee_id, paid_at desc);
 
 alter table public.employee_compensation enable row level security;

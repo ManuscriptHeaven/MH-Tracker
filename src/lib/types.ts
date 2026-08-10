@@ -106,7 +106,7 @@ export interface EmployeeCompensation {
   updated_at: string;
 }
 
-export type EmployeeLedgerType = 'Salary' | 'Project Payment' | 'Advance' | 'Deduction' | 'Payment';
+export type EmployeeLedgerType = 'Salary' | 'Project Payment' | 'Bonus' | 'Advance' | 'Deduction' | 'Payment' | 'Other';
 
 export interface EmployeeLedgerEntry {
   id: string;
