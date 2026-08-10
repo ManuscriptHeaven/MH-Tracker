@@ -469,6 +469,13 @@ export interface FinanceTransaction {
   next_recurring_date?: string | null;
   notes?: string | null;
   attachment_url?: string | null;
+  expense_type?: string | null;
+  payment_status?: 'Paid' | 'Pending' | 'Partially Paid' | null;
+  paid_date?: string | null;
+  financial_account?: string | null;
+  tax_amount?: number;
+  fee_amount?: number;
+  recurring_end_date?: string | null;
   is_soft_deleted?: boolean;
   created_by: string | null;
   created_at: string;

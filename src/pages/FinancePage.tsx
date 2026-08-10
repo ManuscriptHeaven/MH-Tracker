@@ -1372,6 +1372,14 @@ function TransactionModal({
   const [vendor, setVendor] = useState('');
   const [recurringStatus, setRecurringStatus] = useState<RecurringStatus>('none');
   const [notes, setNotes] = useState('');
+  const [expenseType, setExpenseType] = useState('Business Expense');
+  const [paymentStatus, setPaymentStatus] = useState<'Paid' | 'Pending' | 'Partially Paid'>('Paid');
+  const [paidDate, setPaidDate] = useState(new Date().toISOString().slice(0, 10));
+  const [financialAccount, setFinancialAccount] = useState('');
+  const [taxAmount, setTaxAmount] = useState('0');
+  const [feeAmount, setFeeAmount] = useState('0');
+  const [recurringEndDate, setRecurringEndDate] = useState('');
+  const [receipt, setReceipt] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1396,7 +1404,7 @@ function TransactionModal({
         type,
         category,
         description: description.trim(),
-        amount: Number(amount),
+        amount: Number(amount) + Number(taxAmount || 0) + Number(feeAmount || 0),
         currency: currencyCode,
         exchange_rate: Number(exchangeRate || 1.0),
         transaction_date: date,
@@ -1407,6 +1415,14 @@ function TransactionModal({
         vendor: vendor || null,
         recurring_status: recurringStatus,
         notes: notes || null,
+        expense_type: type === 'expense' ? expenseType : null,
+        payment_status: type === 'expense' ? paymentStatus : null,
+        paid_date: type === 'expense' && paymentStatus !== 'Pending' ? paidDate : null,
+        financial_account: type === 'expense' ? financialAccount || null : null,
+        tax_amount: Number(taxAmount || 0),
+        fee_amount: Number(feeAmount || 0),
+        recurring_end_date: recurringStatus !== 'none' ? recurringEndDate || null : null,
+        attachment_url: receipt ? receipt.name : null,
       });
     } catch (err) {
       setError(errorMessage(err, 'Transaction could not be saved.'));
@@ -1417,7 +1433,7 @@ function TransactionModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-xl rounded-2xl border border-border bg-white p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
+      <div className="w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-2xl border border-border bg-white p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
         <div className="flex items-center justify-between border-b border-border pb-4">
           <div>
             <h3 className="font-display text-xl font-bold text-ink">
@@ -1434,7 +1450,8 @@ function TransactionModal({
           </button>
         </div>
 
-        <form onSubmit={submit} className="mt-4 space-y-4 text-xs">
+        <form onSubmit={submit} className="mt-4 space-y-5 text-xs">
+          {type === 'expense' ? <h4 className="font-display text-base font-bold text-ink">Expense Details</h4> : null}
           <Field
             label="Description"
             required
@@ -1443,8 +1460,8 @@ function TransactionModal({
             onChange={(e) => setDescription(e.target.value)}
           />
 
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Field
+          <div className={`grid gap-4 ${currencyCode === 'PKR' ? 'sm:grid-cols-2' : 'sm:grid-cols-4'}`}>
+            {currencyCode !== 'PKR' ? <Field
               label="Amount"
               type="number"
               step="any"
@@ -1452,7 +1469,8 @@ function TransactionModal({
               required
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-            />
+            /> : null}
+            {currencyCode !== 'PKR' ? <div className="rounded-md border border-border bg-ivory px-3 py-2"><p className="text-muted">PKR Equivalent</p><p className="mt-1 font-bold text-ink">Rs. {((Number(amount || 0) + Number(taxAmount || 0) + Number(feeAmount || 0)) * Number(exchangeRate || 0)).toLocaleString()}</p></div> : null}
 
             <SelectField
               label="Currency"
@@ -1500,7 +1518,7 @@ function TransactionModal({
                 if (proj) setClientName(proj.client_name);
               }}
             >
-              <option value="">General Business Entry</option>
+              <option value="">No Project</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.project_number} - {p.project_title}
@@ -1524,6 +1542,8 @@ function TransactionModal({
               />
             )}
           </div>
+
+          {type === 'expense' ? <><h4 className="font-display text-base font-bold text-ink">Payment</h4><div className="grid gap-4 sm:grid-cols-2"><SelectField label="Expense Type" value={expenseType} onChange={(e) => setExpenseType(e.target.value)}>{['Business Expense','Project Expense','Team Expense','Software/Subscription','Tax','Other'].map((item) => <option key={item}>{item}</option>)}</SelectField><SelectField label="Payment Status" value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value as typeof paymentStatus)}>{['Paid','Pending','Partially Paid'].map((item) => <option key={item}>{item}</option>)}</SelectField><Field label="Paid Date" type="date" value={paidDate} onChange={(e) => setPaidDate(e.target.value)} disabled={paymentStatus === 'Pending'}/><Field label="Financial Account" placeholder="Bank, Cash, Wallet" value={financialAccount} onChange={(e) => setFinancialAccount(e.target.value)}/></div><h4 className="font-display text-base font-bold text-ink">Additional Information</h4><div className="grid gap-4 sm:grid-cols-2"><Field label="Tax" type="number" min="0" step="any" value={taxAmount} onChange={(e) => setTaxAmount(e.target.value)}/><Field label="Fees" type="number" min="0" step="any" value={feeAmount} onChange={(e) => setFeeAmount(e.target.value)}/><Field label="Final Total" readOnly value={(Number(amount || 0) + Number(taxAmount || 0) + Number(feeAmount || 0)).toFixed(2)}/><label className="grid gap-1.5 text-sm font-medium text-ink"><span>Receipt / Attachment</span><input type="file" onChange={(e) => setReceipt(e.target.files?.[0] || null)} className="min-h-11 rounded-md border border-border bg-white px-3 text-sm"/></label></div></> : null}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <SelectField
@@ -1558,6 +1578,8 @@ function TransactionModal({
               />
             )}
           </div>
+
+          {type === 'expense' && recurringStatus !== 'none' ? <div className="grid gap-4 sm:grid-cols-2"><Field label="Next Due Date" type="date" value={date} onChange={(e) => setDate(e.target.value)}/><Field label="End Date" type="date" value={recurringEndDate} onChange={(e) => setRecurringEndDate(e.target.value)}/></div> : null}
 
           <TextareaField
             label="Notes"
