@@ -45,6 +45,12 @@ import type {
   FinanceBudget,
   FinanceTransaction,
   FinanceTransactionDraft,
+  Conversation,
+  ConversationMember,
+  ChatMessage,
+  MessageAttachment,
+  MessageReaction,
+  MessageMention,
 } from './types';
 import { DEFAULT_EXCHANGE_RATES } from './financeUtils';
 
@@ -675,6 +681,13 @@ export function useTracker() {
       ? safeSelect<FinanceBudget>(supabase.from('finance_budgets').select('*'))
       : emptyResult;
 
+    const conversationsPromise = safeSelect<Conversation>(supabase.from('conversations').select('*'));
+    const conversationMembersPromise = safeSelect<ConversationMember>(supabase.from('conversation_members').select('*'));
+    const messagesPromise = safeSelect<ChatMessage>(supabase.from('messages').select('*').order('created_at', { ascending: true }));
+    const messageAttachmentsPromise = safeSelect<MessageAttachment>(supabase.from('message_attachments').select('*'));
+    const messageReactionsPromise = safeSelect<MessageReaction>(supabase.from('message_reactions').select('*'));
+    const messageMentionsPromise = safeSelect<MessageMention>(supabase.from('message_mentions').select('*'));
+
     const [
       profilesRes,
       projectsRes,
@@ -692,6 +705,12 @@ export function useTracker() {
       employeeLedgerRes,
       financeTransactionsRes,
       financeBudgetsRes,
+      conversationsRes,
+      conversationMembersRes,
+      messagesRes,
+      messageAttachmentsRes,
+      messageReactionsRes,
+      messageMentionsRes,
       notifications,
     ] = await Promise.all([
       profilesPromise,
@@ -710,6 +729,12 @@ export function useTracker() {
       employeeLedgerPromise,
       financeTransactionsPromise,
       financeBudgetsPromise,
+      conversationsPromise,
+      conversationMembersPromise,
+      messagesPromise,
+      messageAttachmentsPromise,
+      messageReactionsPromise,
+      messageMentionsPromise,
       fetchNotifications(profile.id),
     ]);
 
@@ -740,6 +765,12 @@ export function useTracker() {
       employeeLedger: employeeLedgerRes.data as EmployeeLedgerEntry[],
       financeTransactions: financeTransactionsRes.data as FinanceTransaction[],
       financeBudgets: financeBudgetsRes.data as FinanceBudget[],
+      conversations: conversationsRes.data as Conversation[],
+      conversationMembers: conversationMembersRes.data as ConversationMember[],
+      messages: messagesRes.data as ChatMessage[],
+      messageAttachments: messageAttachmentsRes.data as MessageAttachment[],
+      messageReactions: messageReactionsRes.data as MessageReaction[],
+      messageMentions: messageMentionsRes.data as MessageMention[],
     });
 
     setIsLoading(false);
@@ -2315,6 +2346,301 @@ export function useTracker() {
     [currentProfile, mode],
   );
 
+  const sendMessage = useCallback(
+    async (
+      conversationId: string,
+      body: string,
+      attachments?: { file_name: string; file_url: string; file_type: string; file_size: number }[],
+      parentMessageId?: string | null,
+    ) => {
+      if (!currentProfile) throw new Error('Not logged in.');
+      const now = new Date().toISOString();
+      const messageId = createId('msg');
+      const newAttachments: MessageAttachment[] = (attachments || []).map((a) => ({
+        id: createId('att'),
+        message_id: messageId,
+        file_name: a.file_name,
+        file_url: a.file_url,
+        file_type: a.file_type,
+        file_size: a.file_size,
+        created_at: now,
+      }));
+
+      const newMessage: ChatMessage = {
+        id: messageId,
+        conversation_id: conversationId,
+        sender_id: currentProfile.id,
+        body: body.trim(),
+        parent_message_id: parentMessageId || null,
+        created_at: now,
+        updated_at: now,
+        attachments: newAttachments,
+        reactions: [],
+        mentions: [],
+      };
+
+      const mentionMatches = body.match(/@([A-Za-z0-9_]+)/g);
+      const mentionedUserIds: string[] = [];
+
+      if (mentionMatches) {
+        mentionMatches.forEach((m) => {
+          const name = m.substring(1).toLowerCase();
+          const found = data.profiles.find(
+            (p) => p.full_name.toLowerCase().includes(name) || firstName(p.full_name).toLowerCase() === name,
+          );
+          if (found && found.id !== currentProfile.id && !mentionedUserIds.includes(found.id)) {
+            mentionedUserIds.push(found.id);
+          }
+        });
+      }
+
+      if (supabase && mode === 'supabase') {
+        const { error: insertError } = await supabase.from('messages').insert({
+          id: messageId,
+          conversation_id: conversationId,
+          sender_id: currentProfile.id,
+          body: body.trim(),
+          parent_message_id: parentMessageId || null,
+          created_at: now,
+          updated_at: now,
+        });
+
+        if (insertError) throw insertError;
+
+        if (attachments && attachments.length > 0) {
+          await supabase.from('message_attachments').insert(
+            attachments.map((a) => ({
+              message_id: messageId,
+              file_name: a.file_name,
+              file_url: a.file_url,
+              file_type: a.file_type,
+              file_size: a.file_size,
+            })),
+          );
+        }
+
+        if (mentionedUserIds.length > 0) {
+          await supabase.from('message_mentions').insert(
+            mentionedUserIds.map((uid) => ({
+              message_id: messageId,
+              user_id: uid,
+            })),
+          );
+
+          await supabase.from('notifications').insert(
+            mentionedUserIds.map((uid) => ({
+              recipient_id: uid,
+              type: 'mention',
+              title: `${firstName(currentProfile.full_name)} mentioned you`,
+              message: body.length > 80 ? body.slice(0, 80) + '...' : body,
+              is_read: false,
+            })),
+          );
+        }
+      }
+
+      setData((prev) => ({
+        ...prev,
+        messages: [...(prev.messages || []), newMessage],
+        messageAttachments: [...(prev.messageAttachments || []), ...newAttachments],
+      }));
+
+      return newMessage;
+    },
+    [currentProfile, data.profiles, mode],
+  );
+
+  const toggleReaction = useCallback(
+    async (messageId: string, emoji: string) => {
+      if (!currentProfile) return;
+      const now = new Date().toISOString();
+
+      setData((prev) => {
+        const existingReactions = prev.messageReactions || [];
+        const existing = existingReactions.find(
+          (r) => r.message_id === messageId && r.user_id === currentProfile.id && r.emoji === emoji,
+        );
+
+        let updated: MessageReaction[];
+        if (existing) {
+          updated = existingReactions.filter((r) => r.id !== existing.id);
+        } else {
+          updated = [
+            ...existingReactions,
+            { id: createId('rxn'), message_id: messageId, user_id: currentProfile.id, emoji, created_at: now },
+          ];
+        }
+
+        return { ...prev, messageReactions: updated };
+      });
+    },
+    [currentProfile],
+  );
+
+  const markConversationRead = useCallback(
+    async (conversationId: string) => {
+      if (!currentProfile) return;
+      const now = new Date().toISOString();
+
+      setData((prev) => {
+        const members = prev.conversationMembers || [];
+        const existing = members.find(
+          (m) => m.conversation_id === conversationId && m.user_id === currentProfile.id,
+        );
+
+        let updated: ConversationMember[];
+        if (existing) {
+          updated = members.map((m) => (m.id === existing.id ? { ...m, last_read_at: now } : m));
+        } else {
+          updated = [
+            ...members,
+            { id: createId('cm'), conversation_id: conversationId, user_id: currentProfile.id, last_read_at: now, created_at: now },
+          ];
+        }
+
+        return { ...prev, conversationMembers: updated };
+      });
+    },
+    [currentProfile],
+  );
+
+  const getOrCreateProjectConversation = useCallback(
+    async (projectId: string, isInternal: boolean) => {
+      const type = isInternal ? 'project_internal' : 'project_client';
+      const existing = (data.conversations || []).find(
+        (c) => c.project_id === projectId && c.type === type,
+      );
+      if (existing) return existing;
+
+      const now = new Date().toISOString();
+      const newConv: Conversation = {
+        id: createId(`conv-proj-${isInternal ? 'int' : 'cli'}`),
+        type,
+        project_id: projectId,
+        created_by: currentProfile?.id || null,
+        created_at: now,
+        updated_at: now,
+      };
+
+      if (supabase && mode === 'supabase') {
+        const { data: created, error } = await supabase
+          .from('conversations')
+          .insert({
+            type,
+            project_id: projectId,
+            created_by: currentProfile?.id || null,
+          })
+          .select()
+          .single();
+
+        if (!error && created) {
+          newConv.id = created.id;
+        }
+      }
+
+      setData((prev) => ({
+        ...prev,
+        conversations: [...(prev.conversations || []), newConv],
+      }));
+
+      return newConv;
+    },
+    [currentProfile, data.conversations, mode],
+  );
+
+  const getOrCreateTaskConversation = useCallback(
+    async (taskId: string) => {
+      const existing = (data.conversations || []).find(
+        (c) => c.task_id === taskId && c.type === 'task',
+      );
+      if (existing) return existing;
+
+      const now = new Date().toISOString();
+      const newConv: Conversation = {
+        id: createId('conv-task'),
+        type: 'task',
+        task_id: taskId,
+        created_by: currentProfile?.id || null,
+        created_at: now,
+        updated_at: now,
+      };
+
+      if (supabase && mode === 'supabase') {
+        const { data: created, error } = await supabase
+          .from('conversations')
+          .insert({
+            type: 'task',
+            task_id: taskId,
+            created_by: currentProfile?.id || null,
+          })
+          .select()
+          .single();
+
+        if (!error && created) {
+          newConv.id = created.id;
+        }
+      }
+
+      setData((prev) => ({
+        ...prev,
+        conversations: [...(prev.conversations || []), newConv],
+      }));
+
+      return newConv;
+    },
+    [currentProfile, data.conversations, mode],
+  );
+
+  const getOrCreateDM = useCallback(
+    async (otherUserId: string) => {
+      if (!currentProfile) throw new Error('Not logged in.');
+      const existing = (data.conversations || []).find((c) => {
+        if (c.type !== 'dm') return false;
+        const members = (data.conversationMembers || []).filter((m) => m.conversation_id === c.id);
+        const userIds = members.map((m) => m.user_id);
+        return userIds.includes(currentProfile.id) && userIds.includes(otherUserId);
+      });
+      if (existing) return existing;
+
+      const now = new Date().toISOString();
+      const newConv: Conversation = {
+        id: createId('conv-dm'),
+        type: 'dm',
+        created_by: currentProfile.id,
+        created_at: now,
+        updated_at: now,
+      };
+
+      const member1: ConversationMember = { id: createId('cm'), conversation_id: newConv.id, user_id: currentProfile.id, last_read_at: now, created_at: now };
+      const member2: ConversationMember = { id: createId('cm'), conversation_id: newConv.id, user_id: otherUserId, last_read_at: now, created_at: now };
+
+      if (supabase && mode === 'supabase') {
+        const { data: created, error } = await supabase
+          .from('conversations')
+          .insert({ type: 'dm', created_by: currentProfile.id })
+          .select()
+          .single();
+
+        if (!error && created) {
+          newConv.id = created.id;
+          await supabase.from('conversation_members').insert([
+            { conversation_id: created.id, user_id: currentProfile.id },
+            { conversation_id: created.id, user_id: otherUserId },
+          ]);
+        }
+      }
+
+      setData((prev) => ({
+        ...prev,
+        conversations: [...(prev.conversations || []), newConv],
+        conversationMembers: [...(prev.conversationMembers || []), member1, member2],
+      }));
+
+      return newConv;
+    },
+    [currentProfile, data.conversationMembers, data.conversations, mode],
+  );
+
   return {
     mode,
     currentProfile,
@@ -2358,5 +2684,11 @@ export function useTracker() {
     softDeleteFinanceTransaction,
     restoreFinanceTransaction,
     saveFinanceBudget,
+    sendMessage,
+    toggleReaction,
+    markConversationRead,
+    getOrCreateProjectConversation,
+    getOrCreateTaskConversation,
+    getOrCreateDM,
   };
 }

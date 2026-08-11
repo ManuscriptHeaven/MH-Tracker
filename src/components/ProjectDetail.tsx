@@ -1,4 +1,4 @@
-import { CheckCircle2, Edit, FileText, Plus, Printer, Trash2 } from 'lucide-react';
+import { CheckCircle2, Edit, FileText, Lock, MessageSquare, Plus, Printer, Send, Trash2, User } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { RevisionRequestsPage } from '../pages/RevisionRequestsPage';
 import { revisionStatuses, timelineStages } from '../lib/constants';
@@ -106,6 +106,8 @@ export function ProjectDetail({
   const [note, setNote] = useState('');
   const [revisionNote, setRevisionNote] = useState('');
   const [revisionStatus, setRevisionStatus] = useState<RevisionStatus>('Pending');
+  const [commSubTab, setCommSubTab] = useState<'internal' | 'client'>('internal');
+  const [quickMsg, setQuickMsg] = useState('');
 
   const projectNotes = useMemo(
     () => notes.filter((item) => item.project_id === project.id),
@@ -324,6 +326,98 @@ export function ProjectDetail({
                     No tasks linked to this project yet. Create tasks from "My Tasks" or "Team Tasks" to link them here.
                   </p>
                 )}
+              </div>
+            </Card>
+
+            <Card>
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <h3 className="font-display text-xl font-semibold flex items-center gap-2">
+                  <MessageSquare className="h-5 w-5 text-gold" />
+                  Project Communication
+                </h3>
+                <div className="flex rounded-lg bg-linen p-1 text-xs font-semibold">
+                  <button
+                    onClick={() => setCommSubTab('internal')}
+                    className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 transition ${
+                      commSubTab === 'internal' ? 'bg-gold text-ink font-bold shadow-xs' : 'text-muted hover:text-ink'
+                    }`}
+                  >
+                    <Lock className="h-3.5 w-3.5" />
+                    Internal Discussion 🔒
+                  </button>
+                  <button
+                    onClick={() => setCommSubTab('client')}
+                    className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 transition ${
+                      commSubTab === 'client' ? 'bg-gold text-ink font-bold shadow-xs' : 'text-muted hover:text-ink'
+                    }`}
+                  >
+                    <User className="h-3.5 w-3.5" />
+                    Client Discussion 👤
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-3 rounded-lg border border-border bg-linen/30 p-3">
+                {commSubTab === 'internal' ? (
+                  <div className="space-y-3">
+                    <p className="text-xs text-muted flex items-center gap-1.5 font-medium">
+                      <Lock className="h-3.5 w-3.5 text-gold shrink-0" />
+                      <span>Internal conversation between team members. <strong>Client cannot see this.</strong></span>
+                    </p>
+                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                      <div className="rounded-lg bg-white p-2.5 text-xs border border-border">
+                        <div className="flex items-center justify-between text-[11px] text-muted mb-1">
+                          <span className="font-bold text-ink">Tahir</span>
+                          <span>Yesterday 4:10 PM</span>
+                        </div>
+                        <p className="text-ink/90">@Zain Please update the chapter headings and check margin on p.42 before sending to client.</p>
+                      </div>
+                      <div className="rounded-lg bg-gold/10 p-2.5 text-xs border border-gold/30">
+                        <div className="flex items-center justify-between text-[11px] text-muted mb-1">
+                          <span className="font-bold text-ink">Zain</span>
+                          <span>Yesterday 5:20 PM</span>
+                        </div>
+                        <p className="text-ink/90">Done! I have checked interior margins and re-exported proof PDF.</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-xs text-muted flex items-center gap-1.5 font-medium">
+                      <User className="h-3.5 w-3.5 text-blue-600 shrink-0" />
+                      <span>Shared discussion with client ({project.client_name}).</span>
+                    </p>
+                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                      <div className="rounded-lg bg-blue-50/60 p-2.5 text-xs border border-blue-200">
+                        <div className="flex items-center justify-between text-[11px] text-muted mb-1">
+                          <span className="font-bold text-blue-900">{project.client_name} (Client)</span>
+                          <span>Aug 11, 2:35 PM</span>
+                        </div>
+                        <p className="text-blue-950">Hi! We reviewed the interior proof and requested one minor revision on page 48.</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-3 flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder={`Write a ${commSubTab === 'internal' ? 'internal team' : 'client'} message...`}
+                    value={quickMsg}
+                    onChange={(e) => setQuickMsg(e.target.value)}
+                    className="flex-1 rounded-md border border-border bg-white px-3 py-1.5 text-xs text-ink outline-none focus:border-gold"
+                  />
+                  <Button
+                    className="min-h-8 text-xs px-3 py-1"
+                    onClick={() => {
+                      if (!quickMsg.trim()) return;
+                      setQuickMsg('');
+                    }}
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                    Send
+                  </Button>
+                </div>
               </div>
             </Card>
 

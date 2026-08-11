@@ -414,6 +414,12 @@ export interface TrackerData {
   projectProfitability?: ProjectProfitabilityItem[];
   clientReceivables?: ClientReceivableItem[];
   teamPayroll?: TeamPayrollItem[];
+  conversations?: Conversation[];
+  conversationMembers?: ConversationMember[];
+  messages?: ChatMessage[];
+  messageAttachments?: MessageAttachment[];
+  messageReactions?: MessageReaction[];
+  messageMentions?: MessageMention[];
 }
 
 export type CurrencyCode = 'PKR' | 'USD' | 'EUR' | 'GBP';
@@ -547,3 +553,70 @@ export type FinancialReportType =
   | 'payroll'
   | 'profitability'
   | 'tax';
+
+export type ConversationType = 'team_channel' | 'dm' | 'project_internal' | 'project_client' | 'task';
+
+export interface Conversation {
+  id: string;
+  type: ConversationType;
+  name?: string | null;
+  project_id?: string | null;
+  task_id?: string | null;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConversationMember {
+  id: string;
+  conversation_id: string;
+  user_id: string;
+  last_read_at: string;
+  created_at: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  body: string;
+  parent_message_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  attachments?: MessageAttachment[];
+  reactions?: MessageReaction[];
+  mentions?: MessageMention[];
+}
+
+export interface MessageAttachment {
+  id: string;
+  message_id: string;
+  file_name: string;
+  file_url: string;
+  file_type: string;
+  file_size: number;
+  created_at: string;
+}
+
+export interface MessageReaction {
+  id: string;
+  message_id: string;
+  user_id: string;
+  emoji: string;
+  created_at: string;
+}
+
+export interface MessageMention {
+  id: string;
+  message_id: string;
+  user_id: string;
+  created_at: string;
+}
+
+export type CommunicationFilterSection =
+  | 'inbox'
+  | 'team_channels'
+  | 'direct_messages'
+  | 'project_internal'
+  | 'project_client';
+

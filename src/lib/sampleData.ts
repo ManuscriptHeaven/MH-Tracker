@@ -1,7 +1,10 @@
 import { addDays, todayInput } from './date';
 import type {
   ActivityLog,
+  ChatMessage,
   ClientProjectAccess,
+  Conversation,
+  ConversationMember,
   NotificationItem,
   Profile,
   Project,
@@ -544,6 +547,128 @@ export const sampleRevisionActivity: RevisionActivity[] = [
   },
 ];
 
+export const sampleConversations: Conversation[] = [
+  {
+    id: 'channel-general',
+    type: 'team_channel',
+    name: 'general',
+    created_by: 'tahir-admin',
+    created_at: addDays(-10),
+    updated_at: now,
+  },
+  {
+    id: 'channel-formatting',
+    type: 'team_channel',
+    name: 'formatting',
+    created_by: 'tahir-admin',
+    created_at: addDays(-10),
+    updated_at: now,
+  },
+  {
+    id: 'channel-covers',
+    type: 'team_channel',
+    name: 'covers',
+    created_by: 'tahir-admin',
+    created_at: addDays(-10),
+    updated_at: now,
+  },
+  {
+    id: 'channel-qc',
+    type: 'team_channel',
+    name: 'qc',
+    created_by: 'tahir-admin',
+    created_at: addDays(-10),
+    updated_at: now,
+  },
+  {
+    id: 'dm-tahir-zain',
+    type: 'dm',
+    created_by: 'tahir-admin',
+    created_at: addDays(-5),
+    updated_at: now,
+  },
+  {
+    id: 'conv-project-001-internal',
+    type: 'project_internal',
+    project_id: 'project-001',
+    created_by: 'tahir-admin',
+    created_at: addDays(-7),
+    updated_at: now,
+  },
+  {
+    id: 'conv-project-001-client',
+    type: 'project_client',
+    project_id: 'project-001',
+    created_by: 'tahir-admin',
+    created_at: addDays(-7),
+    updated_at: now,
+  },
+];
+
+export const sampleConversationMembers: ConversationMember[] = [
+  { id: 'cm-1', conversation_id: 'dm-tahir-zain', user_id: 'tahir-admin', last_read_at: now, created_at: addDays(-5) },
+  { id: 'cm-2', conversation_id: 'dm-tahir-zain', user_id: 'zain-designer', last_read_at: addDays(-1), created_at: addDays(-5) },
+];
+
+export const sampleMessages: ChatMessage[] = [
+  {
+    id: 'msg-gen-1',
+    conversation_id: 'channel-general',
+    sender_id: 'tahir-admin',
+    body: 'Good morning team! Welcome to the new communication center. Let us make sure all client communications stay documented here.',
+    created_at: addDays(-2),
+    updated_at: addDays(-2),
+  },
+  {
+    id: 'msg-gen-2',
+    conversation_id: 'channel-general',
+    sender_id: 'zain-designer',
+    body: 'Awesome! This will make tracking book revisions and margins so much easier.',
+    created_at: addDays(-2),
+    updated_at: addDays(-2),
+  },
+  {
+    id: 'msg-dm-1',
+    conversation_id: 'dm-tahir-zain',
+    sender_id: 'tahir-admin',
+    body: '@Zain Please check the margins on Book 3 before sending it to the client.',
+    created_at: addDays(-1),
+    updated_at: addDays(-1),
+  },
+  {
+    id: 'msg-dm-2',
+    conversation_id: 'dm-tahir-zain',
+    sender_id: 'zain-designer',
+    body: 'Sure, working on it right now. Checking page 42 margins.',
+    created_at: addDays(-1),
+    updated_at: addDays(-1),
+  },
+  {
+    id: 'msg-p1-int-1',
+    conversation_id: 'conv-project-001-internal',
+    sender_id: 'tahir-admin',
+    body: 'Client requested extra layout changes on Chapter 4. Let us finalize design internal check before sending revision.',
+    created_at: addDays(-1),
+    updated_at: addDays(-1),
+  },
+  {
+    id: 'msg-p1-cli-1',
+    conversation_id: 'conv-project-001-client',
+    sender_id: 'tahir-admin',
+    body: 'Hi Amelia! We have uploaded the revised Print PDF Proof for your review.',
+    created_at: addDays(-1),
+    updated_at: addDays(-1),
+  },
+  {
+    id: 'msg-p1-cli-2',
+    conversation_id: 'conv-project-001-client',
+    sender_id: 'amelia-client',
+    body: 'Thank you! The interior looks great. I approved the print version.',
+    created_at: now,
+    updated_at: now,
+  },
+];
+
 export const sampleData = {
   profiles: sampleProfiles,
   projects: sampleProjects,
@@ -557,6 +682,13 @@ export const sampleData = {
   revisionItems: sampleRevisionItems,
   revisionAttachments: sampleRevisionAttachments,
   revisionActivity: sampleRevisionActivity,
+  conversations: sampleConversations,
+  conversationMembers: sampleConversationMembers,
+  messages: sampleMessages,
+  messageAttachments: [],
+  messageReactions: [],
+  messageMentions: [],
   employeeCompensation: [],
   employeeLedger: [],
 };
+

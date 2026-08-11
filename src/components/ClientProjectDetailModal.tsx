@@ -14,6 +14,7 @@ import {
   MessageSquare,
   Paperclip,
   Plus,
+  Send,
   ShieldCheck,
   User,
   Users,
@@ -86,6 +87,7 @@ export function ClientProjectDetailModal({
 }) {
   const [activeTab, setActiveTab] = useState<'overview' | 'files' | 'messages' | 'activity'>('overview');
   const [isApproving, setIsApproving] = useState(false);
+  const [clientMsg, setClientMsg] = useState('');
 
   const summary = useMemo(() => getTimelineSummary(project), [project]);
   const milestones = useMemo(() => getTimelineMilestones(project), [project]);
@@ -462,6 +464,54 @@ export function ClientProjectDetailModal({
 
         {activeTab === 'messages' && (
           <div className="space-y-4">
+            {/* Client ↔ Team Direct Project Chat */}
+            <div className="rounded-lg border border-border bg-white p-4 space-y-3">
+              <h4 className="font-semibold text-ink flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4 text-gold" />
+                  Project Discussion & Team Support
+                </span>
+                <span className="text-xs font-normal text-muted">Shared with Manuscript Heaven Team</span>
+              </h4>
+
+              <div className="rounded-md border border-border bg-linen/30 p-3 space-y-2 max-h-56 overflow-y-auto">
+                <div className="rounded bg-white p-2.5 text-xs border border-border">
+                  <div className="flex justify-between text-[10px] text-muted mb-1">
+                    <span className="font-bold text-ink">Tahir (Manuscript Heaven)</span>
+                    <span>Aug 11, 4:10 PM</span>
+                  </div>
+                  <p className="text-ink">Hi! We have completed the print layout version V3 and uploaded the proof PDF for your review.</p>
+                </div>
+                <div className="rounded bg-blue-50 p-2.5 text-xs border border-blue-200">
+                  <div className="flex justify-between text-[10px] text-muted mb-1">
+                    <span className="font-bold text-blue-900">You ({project.client_name})</span>
+                    <span>Aug 11, 6:40 PM</span>
+                  </div>
+                  <p className="text-blue-950">Thank you! The interior layout looks great.</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="Send a message or query to the team..."
+                  value={clientMsg}
+                  onChange={(e) => setClientMsg(e.target.value)}
+                  className="flex-1 rounded-md border border-border bg-white px-3 py-1.5 text-xs text-ink outline-none focus:border-gold"
+                />
+                <Button
+                  className="min-h-8 text-xs px-3 py-1"
+                  onClick={() => {
+                    if (!clientMsg.trim()) return;
+                    setClientMsg('');
+                  }}
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  Send
+                </Button>
+              </div>
+            </div>
+
             {/* General & Client Instructions */}
             {project.client_instructions || project.general_notes || project.delivery_notes ? (
               <div className="rounded-lg border border-border bg-white p-4 space-y-3">
@@ -503,12 +553,6 @@ export function ClientProjectDetailModal({
                     <p className="text-muted leading-relaxed">{item.text}</p>
                   </div>
                 ))}
-              </div>
-            ) : null}
-
-            {!project.client_instructions && !project.general_notes && !project.delivery_notes && !clientVisibleNotes.length ? (
-              <div className="rounded-lg border border-dashed border-border p-8 text-center text-muted">
-                No notes or messages recorded for this project.
               </div>
             ) : null}
           </div>

@@ -16,6 +16,7 @@ import { ClientProjectsPage } from './pages/ClientProjectsPage';
 import { ClientAccessPage } from './pages/ClientAccessPage';
 import { TasksPage } from './pages/TasksPage';
 import { FinancePage } from './pages/FinancePage';
+import { CommunicationPage } from './pages/CommunicationPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AIProvider } from './lib/ai/aiContext';
 import { AIChatButton } from './components/ai/AIChatButton';
@@ -43,15 +44,6 @@ export default function App() {
 
   useEffect(() => {
     const managerOnlyViews: ViewKey[] = ['team', 'team_tasks', 'clients', 'payments'];
-    if (!tracker.canManageAll && managerOnlyViews.includes(activeView)) setActiveView('dashboard');
-    if ((activeView === 'clients' || activeView === 'settings' || activeView === 'finance') && tracker.currentProfile?.role !== 'admin') setActiveView('dashboard');
-    if (isClient && !['dashboard', 'projects', 'notifications'].includes(activeView)) setActiveView('dashboard');
-  }, [activeView, isClient, tracker.canManageAll, tracker.currentProfile?.role]);
-
-  useEffect(() => {
-    if (!toast) return;
-    const timer = window.setTimeout(() => setToast(null), 3500);
-    return () => window.clearTimeout(timer);
   }, [toast]);
 
   useEffect(() => {
@@ -105,6 +97,20 @@ export default function App() {
     {activeView === 'projects' && !isClient && <ProjectsPage {...pageProps} />}
     {activeView === 'my_tasks' && <TasksPage mode="personal" tasks={tracker.visibleTasks} projects={tracker.data.projects} profiles={tracker.data.profiles} currentProfile={tracker.currentProfile} searchTerm={searchTerm} onCreateTask={async (draft) => { await tracker.createTask(draft); }} onUpdateTask={async (taskId, updates) => { await tracker.updateTask(taskId, updates); }} onSelectProject={setSelectedProject} />}
     {activeView === 'team_tasks' && tracker.canManageAll && <TasksPage mode="team" tasks={tracker.teamTasks} projects={tracker.data.projects} profiles={tracker.data.profiles} currentProfile={tracker.currentProfile} searchTerm={searchTerm} onCreateTask={async (draft) => { await tracker.createTask(draft); }} onUpdateTask={async (taskId, updates) => { await tracker.updateTask(taskId, updates); }} onSelectProject={setSelectedProject} />}
+    {activeView === 'communication' && (
+      <CommunicationPage
+        currentProfile={tracker.currentProfile}
+        data={tracker.data}
+        projects={visibleProjects}
+        profiles={tracker.data.profiles}
+        tasks={tracker.data.tasks}
+        onSendMessage={tracker.sendMessage}
+        onToggleReaction={tracker.toggleReaction}
+        onMarkRead={tracker.markConversationRead}
+        onGetOrCreateDM={tracker.getOrCreateDM}
+        onGetOrCreateProjectConversation={tracker.getOrCreateProjectConversation}
+      />
+    )}
     {activeView === 'calendar' && <CalendarPage projects={visibleProjects} onSelectProject={setSelectedProject} />}
     {activeView === 'notifications' && <NotificationsPage notifications={tracker.visibleNotifications} projects={visibleProjects} onMarkRead={tracker.markNotificationRead} onMarkAllRead={tracker.markAllNotificationsRead} onOpenProject={openProjectById} />}
     {activeView === 'team' && <TeamPage profiles={tracker.data.profiles} projects={visibleProjects} tasks={tracker.data.tasks} compensation={tracker.data.employeeCompensation} ledger={tracker.data.employeeLedger} canManagePayroll={tracker.currentProfile.role === 'admin'} onAddLedgerEntry={tracker.addEmployeeLedgerEntry} />}

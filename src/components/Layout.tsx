@@ -8,6 +8,7 @@ import {
   Home,
   LogOut,
   Menu,
+  MessageSquare,
   PackageCheck,
   Plus,
   Search,
@@ -25,6 +26,7 @@ export type ViewKey =
   | 'projects'
   | 'my_tasks'
   | 'team_tasks'
+  | 'communication'
   | 'calendar'
   | 'notifications'
   | 'team'
@@ -39,6 +41,7 @@ const navItems = [
   { id: 'projects', label: 'Projects', icon: FolderKanban },
   { id: 'my_tasks', label: 'My Tasks', icon: CheckSquare },
   { id: 'team_tasks', label: 'Team Tasks', icon: CheckSquare, managersOnly: true },
+  { id: 'communication', label: 'Communication', icon: MessageSquare },
   { id: 'calendar', label: 'Calendar', icon: CalendarDays },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'team', label: 'Team', icon: Users, managersOnly: true },
@@ -84,7 +87,7 @@ export function Layout({
   const displayName = firstName(currentProfile.full_name);
   const visibleNavItems = navItems.filter((item) => {
     if (isClient) {
-      return item.id === 'dashboard' || item.id === 'projects' || item.id === 'notifications';
+      return item.id === 'dashboard' || item.id === 'projects' || item.id === 'communication' || item.id === 'notifications';
     }
 
     if ('adminOnly' in item && item.adminOnly) {
