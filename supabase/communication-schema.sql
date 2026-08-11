@@ -1,6 +1,5 @@
--- ==========================================
--- MANUSCRIPT HEAVEN TRACKER - COMMUNICATION & CLIENT MESSAGING SCHEMA
--- ==========================================
+-- Ensure client_profile_id column exists on projects table
+ALTER TABLE public.projects ADD COLUMN IF NOT EXISTS client_profile_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
 
 -- 1. CONVERSATIONS TABLE
 CREATE TABLE IF NOT EXISTS public.conversations (
