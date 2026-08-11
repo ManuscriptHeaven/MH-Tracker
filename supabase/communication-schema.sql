@@ -99,7 +99,7 @@ CREATE POLICY conversations_client_select ON public.conversations
             type = 'project_client' AND project_id IN (
                 SELECT project_id FROM public.client_project_access WHERE client_id = auth.uid()
                 UNION
-                SELECT id FROM public.projects WHERE client_profile_id = auth.uid() OR LOWER(client_email) = LOWER(auth.email())
+                SELECT id FROM public.projects WHERE LOWER(client_email) = LOWER(auth.email())
             )
         )
     );
