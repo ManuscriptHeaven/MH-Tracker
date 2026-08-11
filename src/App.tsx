@@ -26,6 +26,8 @@ import { useTracker } from './lib/useTracker';
 import { errorMessage, isClientRole } from './lib/utils';
 import type { Project, ProjectDraft } from './lib/types';
 
+import { RevisionRequestModal } from './components/RevisionRequestModal';
+
 export default function App() {
   const tracker = useTracker();
   const [activeView, setActiveView] = useState<ViewKey>('dashboard');
@@ -33,6 +35,8 @@ export default function App() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [showProjectForm, setShowProjectForm] = useState(false);
+  const [showRevisionModal, setShowRevisionModal] = useState(false);
+  const [revisionModalProjectId, setRevisionModalProjectId] = useState<string | undefined>(undefined);
   const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
   const visibleProjects = tracker.visibleProjects;
   const isClient = tracker.currentProfile ? isClientRole(tracker.currentProfile.role) : false;
@@ -135,7 +139,41 @@ export default function App() {
     {activeView === 'settings' && tracker.currentProfile.role === 'admin' && <SettingsPage mode={tracker.mode} />}
     {showProjectForm && <ProjectFormModal currentProfile={tracker.currentProfile} profiles={tracker.data.profiles} projects={tracker.data.projects} project={editingProject} onClose={() => { setShowProjectForm(false); setEditingProject(null); }} onSubmit={handleSaveProject} />}
     {selectedProjectFresh && !isClient && <ProjectDetail project={selectedProjectFresh} profiles={tracker.data.profiles} notes={tracker.data.projectNotes} revisions={tracker.data.revisionNotes} revisionRequests={tracker.data.revisionRequests} revisionItems={tracker.data.revisionItems} revisionAttachments={tracker.data.revisionAttachments} revisionActivity={tracker.data.revisionActivity} activities={tracker.data.activityLogs} tasks={tracker.data.tasks} currentProfile={tracker.currentProfile} canManageAll={tracker.canManageAll} onClose={() => setSelectedProject(null)} onEdit={() => openEditProject(selectedProjectFresh)} onDelete={() => deleteProject(selectedProjectFresh)} onUpdateProject={updateSelectedProject} onAddNote={async (noteType, note) => { await tracker.addNote(selectedProjectFresh.id, noteType, note); }} onAddRevision={async (note, status) => { await tracker.addRevision(selectedProjectFresh.id, note, status); }} onUpdateRevisionRequest={tracker.updateRevisionRequest} onUpdateRevisionItem={tracker.updateRevisionItem} onUploadRevisedProof={tracker.uploadRevisedProof} />}
-    {selectedProjectFresh && isClient && <ClientProjectDetailModal project={selectedProjectFresh} profiles={tracker.data.profiles} notes={tracker.data.projectNotes} revisions={tracker.data.revisionNotes} revisionRequests={tracker.data.revisionRequests} revisionItems={tracker.data.revisionItems} revisionAttachments={tracker.data.revisionAttachments} activities={tracker.data.activityLogs} onClose={() => setSelectedProject(null)} onApproveMilestone={tracker.approveProjectMilestone} onRequestRevision={(projectId) => { setSelectedProject(null); setActiveView('dashboard'); }} />}
+    {selectedProjectFresh && isClient && (
+      <ClientProjectDetailModal
+        project={selectedProjectFresh}
+        profiles={tracker.data.profiles}
+        notes={tracker.data.projectNotes}
+        revisions={tracker.data.revisionNotes}
+        revisionRequests={tracker.data.revisionRequests}
+        revisionItems={tracker.data.revisionItems}
+        revisionAttachments={tracker.data.revisionAttachments}
+        activities={tracker.data.activityLogs}
+        onClose={() => setSelectedProject(null)}
+        onApproveMilestone={tracker.approveProjectMilestone}
+        onRequestRevision={(projectId) => {
+          setSelectedProject(null);
+          setRevisionModalProjectId(projectId);
+          setShowRevisionModal(true);
+        }}
+      />
+    )}
+    {showRevisionModal && (
+      <RevisionRequestModal
+        projects={visibleProjects}
+        initialProjectId={revisionModalProjectId}
+        onClose={() => {
+          setShowRevisionModal(false);
+          setRevisionModalProjectId(undefined);
+        }}
+        onSubmit={async (draft) => {
+          await tracker.createRevisionRequest(draft);
+          setShowRevisionModal(false);
+          setRevisionModalProjectId(undefined);
+          setToast({ message: 'Revision request submitted! Project status updated to In Revision.', tone: 'success' });
+        }}
+      />
+    )}
     {toast && <div className={`fixed right-4 top-4 z-[70] max-w-sm rounded-md border px-4 py-3 text-sm font-semibold shadow-soft ${toast.tone === 'success' ? 'border-green-200 bg-green-50 text-success' : 'border-red-200 bg-red-50 text-danger'}`}>{toast.message}</div>}
     <AIDailyPopup />
   </Layout>
