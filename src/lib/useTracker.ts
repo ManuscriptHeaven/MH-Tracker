@@ -1370,13 +1370,42 @@ export function useTracker() {
           throw insertError;
         }
 
+        await supabase
+          .from('projects')
+          .update({
+            status: 'In Revision',
+            waiting_on: 'Manuscript Heaven',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', projectId);
+
         setData((previous) => ({
           ...previous,
+          projects: previous.projects.map((p) =>
+            p.id === projectId
+              ? normalizeProject({
+                  ...p,
+                  status: 'In Revision',
+                  waiting_on: 'Manuscript Heaven',
+                  updated_at: new Date().toISOString(),
+                })
+              : p,
+          ),
           revisionNotes: [inserted as RevisionNote, ...previous.revisionNotes],
         }));
       } else {
         setData((previous) => ({
           ...previous,
+          projects: previous.projects.map((p) =>
+            p.id === projectId
+              ? normalizeProject({
+                  ...p,
+                  status: 'In Revision',
+                  waiting_on: 'Manuscript Heaven',
+                  updated_at: new Date().toISOString(),
+                })
+              : p,
+          ),
           revisionNotes: [revision, ...previous.revisionNotes],
         }));
       }
@@ -1533,6 +1562,23 @@ export function useTracker() {
             }),
           );
 
+          // Update the project status to 'In Revision' in Supabase database so all panels reflect changes immediately
+          const { error: projUpdateErr } = await supabaseClient
+            .from('projects')
+            .update({
+              status: 'In Revision',
+              current_stage: revisionStage,
+              waiting_on: 'Manuscript Heaven',
+              timeline_status: 'Active',
+              client_action_required: null,
+              updated_at: now,
+            })
+            .eq('id', request.project_id);
+
+          if (projUpdateErr) {
+            console.warn('Could not update project status in Supabase:', projUpdateErr);
+          }
+
           await loadSupabaseData(currentProfile);
           return request;
         } catch (revisionError) {
@@ -1575,7 +1621,7 @@ export function useTracker() {
           item.id === draft.project_id
             ? normalizeProject({
                 ...item,
-                status: revisionStage,
+                status: 'In Revision',
                 current_stage: revisionStage,
                 waiting_on: 'Manuscript Heaven',
                 timeline_status: 'Active',
