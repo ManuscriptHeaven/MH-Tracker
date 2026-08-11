@@ -681,7 +681,9 @@ export function useTracker() {
       ? safeSelect<FinanceBudget>(supabase.from('finance_budgets').select('*'))
       : emptyResult;
 
-    const conversationsPromise = safeSelect<Conversation>(supabase.from('conversations').select('*'));
+    const conversationsPromise = profileIsClient
+      ? safeSelect<Conversation>(supabase.from('conversations').select('*').eq('type', 'project_client'))
+      : safeSelect<Conversation>(supabase.from('conversations').select('*'));
     const conversationMembersPromise = safeSelect<ConversationMember>(supabase.from('conversation_members').select('*'));
     const messagesPromise = safeSelect<ChatMessage>(supabase.from('messages').select('*').order('created_at', { ascending: true }));
     const messageAttachmentsPromise = safeSelect<MessageAttachment>(supabase.from('message_attachments').select('*'));
@@ -748,6 +750,11 @@ export function useTracker() {
       : (projectsRes.data as Project[]).map(normalizeProject);
     const payments = paymentsRes.data as ProjectPayment[];
 
+    const rawConvs = conversationsRes.data as Conversation[];
+    const conversations = profileIsClient
+      ? rawConvs.filter((c) => c.type === 'project_client')
+      : rawConvs;
+
     setData({
       profiles: profilesRes.data as Profile[],
       projects: mergePayments(projects, payments),
@@ -765,7 +772,7 @@ export function useTracker() {
       employeeLedger: employeeLedgerRes.data as EmployeeLedgerEntry[],
       financeTransactions: financeTransactionsRes.data as FinanceTransaction[],
       financeBudgets: financeBudgetsRes.data as FinanceBudget[],
-      conversations: conversationsRes.data as Conversation[],
+      conversations,
       conversationMembers: conversationMembersRes.data as ConversationMember[],
       messages: messagesRes.data as ChatMessage[],
       messageAttachments: messageAttachmentsRes.data as MessageAttachment[],

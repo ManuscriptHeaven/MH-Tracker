@@ -68,17 +68,35 @@ export function CommunicationPage({
   onGetOrCreateProjectConversation,
 }: CommunicationPageProps) {
   const isClient = isClientRole(currentProfile.role);
-  const conversations = data.conversations || [];
+  const conversations = useMemo(() => {
+    const raw = data.conversations || [];
+    if (isClient) {
+      const clientProjectIds = new Set(projects.map((p) => p.id));
+      return raw.filter(
+        (c) => c.type === 'project_client' && c.project_id && clientProjectIds.has(c.project_id),
+      );
+    }
+    return raw;
+  }, [data.conversations, isClient, projects]);
+
   const messages = data.messages || [];
   const conversationMembers = data.conversationMembers || [];
   const messageReactions = data.messageReactions || [];
 
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(
-    conversations.length > 0 ? conversations[0].id : null,
-  );
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'inbox' | 'team' | 'dm' | 'project_internal' | 'project_client'>(
     isClient ? 'project_client' : 'inbox',
   );
+
+  useEffect(() => {
+    if (!activeConversationId || !conversations.some((c) => c.id === activeConversationId)) {
+      if (conversations.length > 0) {
+        setActiveConversationId(conversations[0].id);
+      } else {
+        setActiveConversationId(null);
+      }
+    }
+  }, [conversations, activeConversationId]);
 
   const [messageInput, setMessageInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -100,17 +118,22 @@ export function CommunicationPage({
     [profiles],
   );
 
-  // Active conversation object
-  const activeConv = useMemo(
-    () => conversations.find((c) => c.id === activeConversationId) || null,
-    [conversations, activeConversationId],
-  );
+  // Active conversation object with strict client role security check
+  const activeConv = useMemo(() => {
+    const found = conversations.find((c) => c.id === activeConversationId);
+    if (!found) return null;
+    if (isClient && (found.type !== 'project_client' || !projects.some((p) => p.id === found.project_id))) {
+      return null; // Strictest security check: Clients can NEVER view non-client conversations!
+    }
+    return found;
+  }, [conversations, activeConversationId, isClient, projects]);
 
   // Messages for active conversation
   const activeMessages = useMemo(() => {
-    if (!activeConversationId) return [];
-    return messages.filter((m) => m.conversation_id === activeConversationId);
-  }, [messages, activeConversationId]);
+    if (!activeConv) return [];
+    if (isClient && activeConv.type !== 'project_client') return [];
+    return messages.filter((m) => m.conversation_id === activeConv.id);
+  }, [messages, activeConv, isClient]);
 
   // Context project for active conversation if project-bound
   const activeProject = useMemo(() => {
