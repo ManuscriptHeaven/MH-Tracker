@@ -142,17 +142,25 @@ export function CommunicationPage({
   const handleSend = async () => {
     if (!activeConversationId || (!messageInput.trim() && pendingAttachments.length === 0)) return;
 
-    await onSendMessage(
-      activeConversationId,
-      messageInput,
-      pendingAttachments,
-      replyingToMessage?.id || null,
-    );
+    const currentInput = messageInput;
+    const currentAtts = pendingAttachments;
+    const currentReplyId = replyingToMessage?.id || null;
 
     setMessageInput('');
     setPendingAttachments([]);
     setReplyingToMessage(null);
     setShowMentionPopover(false);
+
+    try {
+      await onSendMessage(
+        activeConversationId,
+        currentInput,
+        currentAtts,
+        currentReplyId,
+      );
+    } catch (err) {
+      console.error('Failed to send message:', err);
+    }
   };
 
   const handleFileUploadSimulate = (event: React.ChangeEvent<HTMLInputElement>) => {

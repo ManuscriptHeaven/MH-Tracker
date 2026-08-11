@@ -2355,9 +2355,9 @@ export function useTracker() {
     ) => {
       if (!currentProfile) throw new Error('Not logged in.');
       const now = new Date().toISOString();
-      const messageId = createId('msg');
+      const messageId = createUuid();
       const newAttachments: MessageAttachment[] = (attachments || []).map((a) => ({
-        id: createId('att'),
+        id: createUuid(),
         message_id: messageId,
         file_name: a.file_name,
         file_url: a.file_url,
@@ -2395,47 +2395,54 @@ export function useTracker() {
       }
 
       if (supabase && mode === 'supabase') {
-        const { error: insertError } = await supabase.from('messages').insert({
-          id: messageId,
-          conversation_id: conversationId,
-          sender_id: currentProfile.id,
-          body: body.trim(),
-          parent_message_id: parentMessageId || null,
-          created_at: now,
-          updated_at: now,
-        });
+        try {
+          const { error: insertError } = await supabase.from('messages').insert({
+            id: messageId,
+            conversation_id: conversationId,
+            sender_id: currentProfile.id,
+            body: body.trim(),
+            parent_message_id: parentMessageId || null,
+            created_at: now,
+            updated_at: now,
+          });
 
-        if (insertError) throw insertError;
+          if (insertError) {
+            console.warn('Supabase message insert error:', insertError);
+          }
 
-        if (attachments && attachments.length > 0) {
-          await supabase.from('message_attachments').insert(
-            attachments.map((a) => ({
-              message_id: messageId,
-              file_name: a.file_name,
-              file_url: a.file_url,
-              file_type: a.file_type,
-              file_size: a.file_size,
-            })),
-          );
-        }
+          if (attachments && attachments.length > 0) {
+            await supabase.from('message_attachments').insert(
+              newAttachments.map((a) => ({
+                id: a.id,
+                message_id: messageId,
+                file_name: a.file_name,
+                file_url: a.file_url,
+                file_type: a.file_type,
+                file_size: a.file_size,
+              })),
+            );
+          }
 
-        if (mentionedUserIds.length > 0) {
-          await supabase.from('message_mentions').insert(
-            mentionedUserIds.map((uid) => ({
-              message_id: messageId,
-              user_id: uid,
-            })),
-          );
+          if (mentionedUserIds.length > 0) {
+            await supabase.from('message_mentions').insert(
+              mentionedUserIds.map((uid) => ({
+                message_id: messageId,
+                user_id: uid,
+              })),
+            );
 
-          await supabase.from('notifications').insert(
-            mentionedUserIds.map((uid) => ({
-              recipient_id: uid,
-              type: 'mention',
-              title: `${firstName(currentProfile.full_name)} mentioned you`,
-              message: body.length > 80 ? body.slice(0, 80) + '...' : body,
-              is_read: false,
-            })),
-          );
+            await supabase.from('notifications').insert(
+              mentionedUserIds.map((uid) => ({
+                recipient_id: uid,
+                type: 'mention',
+                title: `${firstName(currentProfile.full_name)} mentioned you`,
+                message: body.length > 80 ? body.slice(0, 80) + '...' : body,
+                is_read: false,
+              })),
+            );
+          }
+        } catch (err) {
+          console.warn('Supabase messaging sync warning:', err);
         }
       }
 
@@ -2467,7 +2474,7 @@ export function useTracker() {
         } else {
           updated = [
             ...existingReactions,
-            { id: createId('rxn'), message_id: messageId, user_id: currentProfile.id, emoji, created_at: now },
+            { id: createUuid(), message_id: messageId, user_id: currentProfile.id, emoji, created_at: now },
           ];
         }
 
@@ -2494,7 +2501,7 @@ export function useTracker() {
         } else {
           updated = [
             ...members,
-            { id: createId('cm'), conversation_id: conversationId, user_id: currentProfile.id, last_read_at: now, created_at: now },
+            { id: createUuid(), conversation_id: conversationId, user_id: currentProfile.id, last_read_at: now, created_at: now },
           ];
         }
 
@@ -2513,8 +2520,9 @@ export function useTracker() {
       if (existing) return existing;
 
       const now = new Date().toISOString();
+      const newConvId = createUuid();
       const newConv: Conversation = {
-        id: createId(`conv-proj-${isInternal ? 'int' : 'cli'}`),
+        id: newConvId,
         type,
         project_id: projectId,
         created_by: currentProfile?.id || null,
@@ -2523,18 +2531,23 @@ export function useTracker() {
       };
 
       if (supabase && mode === 'supabase') {
-        const { data: created, error } = await supabase
-          .from('conversations')
-          .insert({
-            type,
-            project_id: projectId,
-            created_by: currentProfile?.id || null,
-          })
-          .select()
-          .single();
+        try {
+          const { data: created, error } = await supabase
+            .from('conversations')
+            .insert({
+              id: newConvId,
+              type,
+              project_id: projectId,
+              created_by: currentProfile?.id || null,
+            })
+            .select()
+            .single();
 
-        if (!error && created) {
-          newConv.id = created.id;
+          if (!error && created) {
+            newConv.id = created.id;
+          }
+        } catch (err) {
+          console.warn('Project conversation insert warning:', err);
         }
       }
 
@@ -2556,8 +2569,9 @@ export function useTracker() {
       if (existing) return existing;
 
       const now = new Date().toISOString();
+      const newConvId = createUuid();
       const newConv: Conversation = {
-        id: createId('conv-task'),
+        id: newConvId,
         type: 'task',
         task_id: taskId,
         created_by: currentProfile?.id || null,
@@ -2566,18 +2580,23 @@ export function useTracker() {
       };
 
       if (supabase && mode === 'supabase') {
-        const { data: created, error } = await supabase
-          .from('conversations')
-          .insert({
-            type: 'task',
-            task_id: taskId,
-            created_by: currentProfile?.id || null,
-          })
-          .select()
-          .single();
+        try {
+          const { data: created, error } = await supabase
+            .from('conversations')
+            .insert({
+              id: newConvId,
+              type: 'task',
+              task_id: taskId,
+              created_by: currentProfile?.id || null,
+            })
+            .select()
+            .single();
 
-        if (!error && created) {
-          newConv.id = created.id;
+          if (!error && created) {
+            newConv.id = created.id;
+          }
+        } catch (err) {
+          console.warn('Task conversation insert warning:', err);
         }
       }
 
@@ -2603,30 +2622,35 @@ export function useTracker() {
       if (existing) return existing;
 
       const now = new Date().toISOString();
+      const newConvId = createUuid();
       const newConv: Conversation = {
-        id: createId('conv-dm'),
+        id: newConvId,
         type: 'dm',
         created_by: currentProfile.id,
         created_at: now,
         updated_at: now,
       };
 
-      const member1: ConversationMember = { id: createId('cm'), conversation_id: newConv.id, user_id: currentProfile.id, last_read_at: now, created_at: now };
-      const member2: ConversationMember = { id: createId('cm'), conversation_id: newConv.id, user_id: otherUserId, last_read_at: now, created_at: now };
+      const member1: ConversationMember = { id: createUuid(), conversation_id: newConvId, user_id: currentProfile.id, last_read_at: now, created_at: now };
+      const member2: ConversationMember = { id: createUuid(), conversation_id: newConvId, user_id: otherUserId, last_read_at: now, created_at: now };
 
       if (supabase && mode === 'supabase') {
-        const { data: created, error } = await supabase
-          .from('conversations')
-          .insert({ type: 'dm', created_by: currentProfile.id })
-          .select()
-          .single();
+        try {
+          const { data: created, error } = await supabase
+            .from('conversations')
+            .insert({ id: newConvId, type: 'dm', created_by: currentProfile.id })
+            .select()
+            .single();
 
-        if (!error && created) {
-          newConv.id = created.id;
-          await supabase.from('conversation_members').insert([
-            { conversation_id: created.id, user_id: currentProfile.id },
-            { conversation_id: created.id, user_id: otherUserId },
-          ]);
+          if (!error && created) {
+            newConv.id = created.id;
+            await supabase.from('conversation_members').insert([
+              { id: member1.id, conversation_id: created.id, user_id: currentProfile.id },
+              { id: member2.id, conversation_id: created.id, user_id: otherUserId },
+            ]);
+          }
+        } catch (err) {
+          console.warn('DM insert warning:', err);
         }
       }
 
