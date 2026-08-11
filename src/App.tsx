@@ -43,49 +43,6 @@ export default function App() {
   const deliveredProjects = visibleProjects.filter((project) => project.status === 'Delivered' || project.status === 'Completed');
 
   useEffect(() => {
-    const managerOnlyViews: ViewKey[] = ['team', 'team_tasks', 'clients', 'payments'];
-  }, [toast]);
-
-  useEffect(() => {
-    if (!tracker.notificationToast) return;
-    setToast({ message: tracker.notificationToast.message, tone: 'success' });
-    tracker.clearNotificationToast();
-  }, [tracker.notificationToast, tracker.clearNotificationToast]);
-
-  async function handleSaveProject(draft: ProjectDraft) {
-    try {
-      if (editingProject) {
-        await tracker.updateProject(editingProject.id, draft);
-        setEditingProject(null);
-        setToast({ message: 'Project updated successfully.', tone: 'success' });
-        return;
-      }
-      await tracker.createProject(draft);
-      setToast({ message: 'Project created successfully.', tone: 'success' });
-    } catch (error) {
-      setToast({ message: errorMessage(error, 'Project could not be saved.'), tone: 'error' });
-      throw error;
-    }
-  }
-
-  function openAddProject() { setEditingProject(null); setShowProjectForm(true); }
-  function openEditProject(project: Project) { setEditingProject(project); setShowProjectForm(true); }
-  function openProjectById(projectId: string) {
-    const project = visibleProjects.find((item) => item.id === projectId);
-    if (!project) { setToast({ message: 'Project is not visible for this user.', tone: 'error' }); return; }
-    setSelectedProject(project);
-  }
-  async function deleteProject(project: Project) {
-    if (!window.confirm(`Delete "${project.project_title}"? This cannot be undone.`)) return;
-    await tracker.deleteProject(project.id); setSelectedProject(null);
-  }
-  async function updateSelectedProject(updates: Partial<Project>) {
-    if (selectedProjectFresh) await tracker.updateProject(selectedProjectFresh.id, updates);
-  }
-
-  }, [toast]);
-
-  useEffect(() => {
     if (!tracker.notificationToast) return;
     setToast({ message: tracker.notificationToast.message, tone: 'success' });
     tracker.clearNotificationToast();
