@@ -83,6 +83,45 @@ export default function App() {
     if (selectedProjectFresh) await tracker.updateProject(selectedProjectFresh.id, updates);
   }
 
+  }, [toast]);
+
+  useEffect(() => {
+    if (!tracker.notificationToast) return;
+    setToast({ message: tracker.notificationToast.message, tone: 'success' });
+    tracker.clearNotificationToast();
+  }, [tracker.notificationToast, tracker.clearNotificationToast]);
+
+  async function handleSaveProject(draft: ProjectDraft) {
+    try {
+      if (editingProject) {
+        await tracker.updateProject(editingProject.id, draft);
+        setEditingProject(null);
+        setToast({ message: 'Project updated successfully.', tone: 'success' });
+        return;
+      }
+      await tracker.createProject(draft);
+      setToast({ message: 'Project created successfully.', tone: 'success' });
+    } catch (error) {
+      setToast({ message: errorMessage(error, 'Project could not be saved.'), tone: 'error' });
+      throw error;
+    }
+  }
+
+  function openAddProject() { setEditingProject(null); setShowProjectForm(true); }
+  function openEditProject(project: Project) { setEditingProject(project); setShowProjectForm(true); }
+  function openProjectById(projectId: string) {
+    const project = visibleProjects.find((item) => item.id === projectId);
+    if (!project) { setToast({ message: 'Project is not visible for this user.', tone: 'error' }); return; }
+    setSelectedProject(project);
+  }
+  async function deleteProject(project: Project) {
+    if (!window.confirm(`Delete "${project.project_title}"? This cannot be undone.`)) return;
+    await tracker.deleteProject(project.id); setSelectedProject(null);
+  }
+  async function updateSelectedProject(updates: Partial<Project>) {
+    if (selectedProjectFresh) await tracker.updateProject(selectedProjectFresh.id, updates);
+  }
+
   if (!tracker.currentProfile) return <LoginPage onLogin={tracker.login} onDemoLogin={tracker.loginDemo} error={tracker.error} isLoading={tracker.isLoading} />;
 
   /* ---------- AI Assistant Integration ---------- */
@@ -90,7 +129,7 @@ export default function App() {
   const pageProps = { projects: visibleProjects, profiles: tracker.data.profiles, searchTerm, canManageAll: tracker.canManageAll, currentProfile: tracker.currentProfile, onSelectProject: setSelectedProject, onEditProject: openEditProject, onDeleteProject: deleteProject, onDuplicateProject: tracker.duplicateProject, onUpdateProject: tracker.updateProject, onAddProject: openAddProject };
 
   return <AIProvider tracker={tracker}>
-  <Layout activeView={activeView} setActiveView={setActiveView} currentProfile={tracker.currentProfile} notifications={tracker.visibleNotifications} searchTerm={searchTerm} setSearchTerm={setSearchTerm} onAddProject={openAddProject} onMarkNotificationRead={tracker.markNotificationRead} onMarkAllNotificationsRead={tracker.markAllNotificationsRead} onViewNotifications={() => setActiveView('notifications')} onOpenNotificationProject={openProjectById} onSignOut={tracker.signOut}>
+  <Layout activeView={activeView} setActiveView={setActiveView} currentProfile={tracker.currentProfile} data={tracker.data} notifications={tracker.visibleNotifications} searchTerm={searchTerm} setSearchTerm={setSearchTerm} onAddProject={openAddProject} onMarkNotificationRead={tracker.markNotificationRead} onMarkAllNotificationsRead={tracker.markAllNotificationsRead} onMarkConversationRead={tracker.markConversationRead} onViewNotifications={() => setActiveView('notifications')} onOpenNotificationProject={openProjectById} onSignOut={tracker.signOut}>
     {activeView === 'dashboard' && isClient && <ClientPortalPage projects={visibleProjects} revisionRequests={tracker.data.revisionRequests} revisionItems={tracker.data.revisionItems} revisionAttachments={tracker.data.revisionAttachments} notifications={tracker.visibleNotifications} onCreateRevisionRequest={async (draft) => { await tracker.createRevisionRequest(draft); }} onRespondToRevision={async (requestId, decision) => { await tracker.respondToRevisionRequest(requestId, decision); }} onApproveMilestone={tracker.approveProjectMilestone} onSelectProject={setSelectedProject} />}
     {activeView === 'dashboard' && !isClient && <DashboardPage projects={visibleProjects} profiles={tracker.data.profiles} canViewPayments={tracker.canManageAll} canManageProjects={tracker.canManageAll} currentProfileId={tracker.currentProfile.id} onAddProject={openAddProject} onSelectProject={setSelectedProject} />}
     {activeView === 'projects' && isClient && <ClientProjectsPage projects={visibleProjects} searchTerm={searchTerm} onSelectProject={setSelectedProject} />}

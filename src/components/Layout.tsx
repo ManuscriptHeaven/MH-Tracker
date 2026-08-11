@@ -17,9 +17,10 @@ import {
 } from 'lucide-react';
 import { roleLabels } from '../lib/constants';
 import { initials, cn, firstName, isClientRole, isManagerRole } from '../lib/utils';
-import type { NotificationItem, Profile } from '../lib/types';
+import type { NotificationItem, Profile, TrackerData } from '../lib/types';
 import { Button, IconButton } from './ui';
 import { NotificationBell } from './NotificationBell';
+import { MessageNotificationBell, getUnreadMessagesInfo } from './MessageNotificationBell';
 
 export type ViewKey =
   | 'dashboard'
@@ -57,12 +58,14 @@ export function Layout({
   activeView,
   setActiveView,
   currentProfile,
+  data,
   notifications,
   searchTerm,
   setSearchTerm,
   onAddProject,
   onMarkNotificationRead,
   onMarkAllNotificationsRead,
+  onMarkConversationRead,
   onViewNotifications,
   onOpenNotificationProject,
   onSignOut,
@@ -71,12 +74,14 @@ export function Layout({
   activeView: ViewKey;
   setActiveView: (view: ViewKey) => void;
   currentProfile: Profile;
+  data: TrackerData;
   notifications: NotificationItem[];
   searchTerm: string;
   setSearchTerm: (value: string) => void;
   onAddProject: () => void;
   onMarkNotificationRead: (notificationId: string) => void;
   onMarkAllNotificationsRead: () => void;
+  onMarkConversationRead: (conversationId: string) => void;
   onViewNotifications: () => void;
   onOpenNotificationProject: (projectId: string) => void;
   onSignOut: () => void;
@@ -85,6 +90,8 @@ export function Layout({
   const canManageAll = isManagerRole(currentProfile.role);
   const isClient = isClientRole(currentProfile.role);
   const displayName = firstName(currentProfile.full_name);
+  const unreadMessagesInfo = getUnreadMessagesInfo(currentProfile, data);
+
   const visibleNavItems = navItems.filter((item) => {
     if (isClient) {
       return item.id === 'dashboard' || item.id === 'projects' || item.id === 'communication' || item.id === 'notifications';
@@ -117,18 +124,26 @@ export function Layout({
             {visibleNavItems.map((item) => {
               const Icon = item.icon;
               const active = activeView === item.id;
+              const isComm = item.id === 'communication';
 
               return (
                 <button
                   key={item.id}
                   onClick={() => setActiveView(item.id)}
                   className={cn(
-                    'flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium transition',
+                    'flex w-full items-center justify-between rounded-md px-3 py-2.5 text-left text-sm font-medium transition',
                     active ? 'bg-gold text-ink' : 'text-white/75 hover:bg-white/10 hover:text-white',
                   )}
                 >
-                  <Icon className="h-4 w-4" />
-                  {item.label}
+                  <span className="flex items-center gap-3">
+                    <Icon className="h-4 w-4" />
+                    {item.label}
+                  </span>
+                  {isComm && unreadMessagesInfo.totalUnreadCount > 0 ? (
+                    <span className="rounded-full bg-gold px-2 py-0.5 text-[10px] font-bold text-ink">
+                      {unreadMessagesInfo.totalUnreadCount}
+                    </span>
+                  ) : null}
                 </button>
               );
             })}
@@ -175,6 +190,17 @@ export function Layout({
               </label>
 
               <div className="flex items-center gap-2">
+                <MessageNotificationBell
+                  currentProfile={currentProfile}
+                  data={data}
+                  onMarkRead={onMarkConversationRead}
+                  onOpenConversation={() => {
+                    setActiveView('communication');
+                  }}
+                  onViewAllMessages={() => {
+                    setActiveView('communication');
+                  }}
+                />
                 <NotificationBell
                   notifications={notifications}
                   onMarkRead={onMarkNotificationRead}
