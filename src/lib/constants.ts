@@ -9,6 +9,8 @@ import type {
   Role,
   TaskStatus,
   TimelineStage,
+  OfficialTimelineStage,
+  WorkflowSettings,
 } from './types';
 
 export const roleLabels: Record<Role, string> = {
@@ -219,9 +221,27 @@ export const paymentBadgeClasses: Record<PaymentStatus, string> = {
   Refunded: 'bg-red-50 text-danger border-red-100',
 };
 
-export const timelineStages: TimelineStage[] = [
-  'Files Required',
+export const officialTimelineStages: OfficialTimelineStage[] = [
   'Files Received',
+  'Design Concept',
+  'Concept Approval',
+  'Print Version',
+  'Print Approval',
+  'Ebook Version',
+  'Ebook Approval',
+  'Final Delivery',
+];
+
+export const timelineStages: TimelineStage[] = [
+  'Files Received',
+  'Design Concept',
+  'Concept Approval',
+  'Print Version',
+  'Print Approval',
+  'Ebook Version',
+  'Ebook Approval',
+  'Final Delivery',
+  'Files Required',
   'Design Concept in Progress',
   'Awaiting Concept Approval',
   'Concept Revisions',
@@ -236,17 +256,36 @@ export const timelineStages: TimelineStage[] = [
   'Cancelled',
 ];
 
+export const DEFAULT_WORKFLOW_SETTINGS: WorkflowSettings = {
+  files_received_days: 2,
+  design_concept_days: 3,
+  design_concept_revision_days: 2,
+  print_version_days: 5,
+  print_version_revision_days: 2,
+  ebook_version_days: 5,
+  ebook_version_revision_days: 2,
+  final_delivery_days: 2,
+  exclude_weekends: true,
+};
+
 export const timelineProgressByStage: Record<TimelineStage, number> = {
-  'Files Required': 0,
   'Files Received': 10,
-  'Design Concept in Progress': 20,
-  'Awaiting Concept Approval': 30,
-  'Concept Revisions': 35,
+  'Design Concept': 25,
+  'Concept Approval': 35,
+  'Print Version': 50,
+  'Print Approval': 65,
+  'Ebook Version': 75,
+  'Ebook Approval': 85,
+  'Final Delivery': 95,
+  'Files Required': 0,
+  'Design Concept in Progress': 25,
+  'Awaiting Concept Approval': 35,
+  'Concept Revisions': 30,
   'Print Version in Progress': 50,
-  'Awaiting Print Approval': 70,
-  'Print Revisions': 75,
-  'eBook in Progress': 85,
-  'eBook Review': 90,
+  'Awaiting Print Approval': 65,
+  'Print Revisions': 60,
+  'eBook in Progress': 75,
+  'eBook Review': 85,
   'Final Quality Check': 95,
   Completed: 100,
   'On Hold': 0,

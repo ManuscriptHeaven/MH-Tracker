@@ -33,9 +33,19 @@ export type ProjectStatus =
   | 'Archived'
   | 'Cancelled';
 
-export type TimelineStage =
-  | 'Files Required'
+export type OfficialTimelineStage =
   | 'Files Received'
+  | 'Design Concept'
+  | 'Concept Approval'
+  | 'Print Version'
+  | 'Print Approval'
+  | 'Ebook Version'
+  | 'Ebook Approval'
+  | 'Final Delivery';
+
+export type TimelineStage =
+  | OfficialTimelineStage
+  | 'Files Required'
   | 'Design Concept in Progress'
   | 'Awaiting Concept Approval'
   | 'Concept Revisions'
@@ -49,9 +59,56 @@ export type TimelineStage =
   | 'On Hold'
   | 'Cancelled';
 
-export type TimelineStatus = 'Active' | 'Paused' | 'Completed' | 'On Hold' | 'Cancelled';
+export type ClockState = 'ACTIVE' | 'PAUSED_CLIENT_REVIEW' | 'REVISION_ACTIVE' | 'COMPLETED' | 'PENDING';
+
+export type TimelineStatus = 'Active' | 'Paused' | 'Revision Required' | 'Completed' | 'On Hold' | 'Cancelled';
 
 export type TimelineWaitingOn = 'Manuscript Heaven' | 'Client' | 'None';
+
+export interface WorkflowSettings {
+  files_received_days: number;
+  design_concept_days: number;
+  design_concept_revision_days: number;
+  print_version_days: number;
+  print_version_revision_days: number;
+  ebook_version_days: number;
+  ebook_version_revision_days: number;
+  final_delivery_days: number;
+  exclude_weekends?: boolean;
+}
+
+export interface StageData {
+  stage: TimelineStage;
+  status: ClockState;
+  started_at: string | null;
+  paused_at: string | null;
+  resumed_at: string | null;
+  completed_at: string | null;
+  due_at: string | null;
+  active_seconds: number;
+  client_wait_seconds: number;
+  pause_reason: string | null;
+  revision_count: number;
+}
+
+export interface StageHistoryEntry {
+  id: string;
+  project_id: string;
+  stage: TimelineStage;
+  previous_stage?: TimelineStage | null;
+  status: ClockState;
+  started_at: string | null;
+  paused_at?: string | null;
+  resumed_at?: string | null;
+  completed_at?: string | null;
+  due_at?: string | null;
+  active_seconds: number;
+  client_wait_seconds: number;
+  actor_id?: string | null;
+  action: string;
+  notes?: string | null;
+  created_at: string;
+}
 
 export type PrintTimelineDays = 3 | 4 | 5;
 
@@ -179,6 +236,17 @@ export interface Project {
   ebook_approval_date?: string | null;
   final_delivery_date?: string | null;
   current_stage?: TimelineStage;
+  stage_status?: ClockState;
+  stage_started_at?: string | null;
+  stage_due_at?: string | null;
+  stage_completed_at?: string | null;
+  final_due_at?: string | null;
+  production_time_used?: number;
+  client_wait_time?: number;
+  revision_count?: number;
+  stage_states?: Record<string, StageData>;
+  stage_history?: StageHistoryEntry[];
+  workflow_settings?: WorkflowSettings;
   progress_percentage?: number;
   waiting_on?: TimelineWaitingOn;
   timeline_status?: TimelineStatus;
@@ -409,6 +477,8 @@ export interface TrackerData {
   revisionActivity: RevisionActivity[];
   employeeCompensation: EmployeeCompensation[];
   employeeLedger: EmployeeLedgerEntry[];
+  workflowSettings?: WorkflowSettings;
+  stageHistory?: StageHistoryEntry[];
   financeTransactions?: FinanceTransaction[];
   financeBudgets?: FinanceBudget[];
   projectProfitability?: ProjectProfitabilityItem[];

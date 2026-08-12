@@ -12,6 +12,53 @@ export function addDays(days: number) {
   return toDateInput(date);
 }
 
+export function isWeekend(date: Date) {
+  const day = date.getDay();
+  return day === 0 || day === 6; // Sunday = 0, Saturday = 6
+}
+
+export function addWorkingDays(startDateStr: string, days: number, excludeWeekends: boolean = true) {
+  if (!startDateStr || days <= 0) {
+    return startDateStr ? startDateStr.slice(0, 10) : todayInput();
+  }
+
+  const date = new Date(`${startDateStr.slice(0, 10)}T12:00:00`);
+  if (isNaN(date.getTime())) {
+    return todayInput();
+  }
+
+  let added = 0;
+  while (added < days) {
+    date.setDate(date.getDate() + 1);
+    if (!excludeWeekends || !isWeekend(date)) {
+      added++;
+    }
+  }
+
+  return toDateInput(date);
+}
+
+export function workingDaysBetween(startStr?: string | null, endStr?: string | null, excludeWeekends: boolean = true) {
+  if (!startStr || !endStr) return 0;
+  const start = new Date(`${startStr.slice(0, 10)}T12:00:00`);
+  const end = new Date(`${endStr.slice(0, 10)}T12:00:00`);
+
+  if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) {
+    return 0;
+  }
+
+  let count = 0;
+  const curr = new Date(start);
+  while (curr < end) {
+    curr.setDate(curr.getDate() + 1);
+    if (!excludeWeekends || !isWeekend(curr)) {
+      count++;
+    }
+  }
+
+  return count;
+}
+
 export function todayInput() {
   return addDays(0);
 }

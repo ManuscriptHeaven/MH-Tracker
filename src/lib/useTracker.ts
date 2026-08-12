@@ -9,9 +9,14 @@ import {
   subscribeToNotifications,
 } from './notifications';
 import {
-  approvalUpdateForMilestone,
+  calculateStageDueDate,
+  createStageHistoryEntry,
   deriveProjectTimeline,
-  revisionStageForProject,
+  getStageDurationDays,
+  getWorkflowSettings,
+  isClientApprovalStage,
+  nextStageAfterApproval,
+  normalizeStage,
   validateTimelineDates,
   type ApprovalMilestone,
 } from './timeline';
@@ -51,6 +56,7 @@ import type {
   MessageAttachment,
   MessageReaction,
   MessageMention,
+  TimelineStage,
 } from './types';
 import { DEFAULT_EXCHANGE_RATES } from './financeUtils';
 
@@ -1499,14 +1505,51 @@ export function useTracker() {
         throw new Error('Please add revision instructions before submitting.');
       }
 
-      const revisionStage = revisionStageForProject(project);
+      const settings = getWorkflowSettings(project);
+      const today = new Date().toISOString().slice(0, 10);
+      const now = new Date().toISOString();
+      const currentStage = project.current_stage || 'Concept Approval';
+      const revisionDays = getStageDurationDays(currentStage, settings, true) || 2;
+      const stageDueDate = calculateStageDueDate(today, revisionDays, settings);
+      const revCount = (project.revision_count || 0) + 1;
+
+      const projectUpdates: Partial<Project> = {
+        status: 'In Revision' as ProjectStatus,
+        current_stage: currentStage,
+        stage_status: 'REVISION_ACTIVE',
+        waiting_on: 'Manuscript Heaven',
+        timeline_status: 'Revision Required',
+        stage_started_at: now,
+        stage_due_at: stageDueDate,
+        revision_count: revCount,
+        client_action_required: '',
+        updated_at: now,
+      };
+
+      const recipientId = project.assigned_to || project.project_manager || currentProfile.id;
+      const notification: NotificationItem = {
+        id: createId('notification'),
+        recipient_id: recipientId,
+        project_id: project.id,
+        type: 'revision_requested',
+        title: `Revision Requested: ${project.project_title}`,
+        message: `Revision requested for ${currentStage}. ${revisionDays} production days remaining.`,
+        is_read: false,
+        created_at: now,
+      };
+
+      const historyEntry = createStageHistoryEntry(
+        project,
+        `Client requested revision #${revCount} for ${currentStage}`,
+        currentProfile.id,
+        instructions,
+      );
 
       if (supabase && mode === 'supabase') {
         try {
           const supabaseClient = supabase;
           const requestId = createUuid();
           const requestTitle = draft.title?.trim() || `Revision request for ${project.project_title}`;
-          const now = new Date().toISOString();
           const request = normalizeRevisionRequest({
             id: requestId,
             project_id: draft.project_id,
@@ -1562,22 +1605,24 @@ export function useTracker() {
             }),
           );
 
-          // Update the project status to 'In Revision' in Supabase database so all panels reflect changes immediately
           const { error: projUpdateErr } = await supabaseClient
             .from('projects')
-            .update({
-              status: 'In Revision',
-              current_stage: revisionStage,
-              waiting_on: 'Manuscript Heaven',
-              timeline_status: 'Active',
-              client_action_required: null,
-              updated_at: now,
-            })
+            .update(projectUpdates)
             .eq('id', request.project_id);
 
           if (projUpdateErr) {
             console.warn('Could not update project status in Supabase:', projUpdateErr);
           }
+
+          await supabaseClient.from('notifications').insert({
+            id: notification.id,
+            recipient_id: notification.recipient_id,
+            project_id: notification.project_id,
+            type: notification.type,
+            title: notification.title,
+            message: notification.message,
+            is_read: false,
+          });
 
           await loadSupabaseData(currentProfile);
           return request;
@@ -1587,7 +1632,6 @@ export function useTracker() {
         }
       }
 
-      const now = new Date().toISOString();
       const request = normalizeRevisionRequest({
         id: createId('client-revision'),
         project_id: draft.project_id,
@@ -1621,17 +1665,14 @@ export function useTracker() {
           item.id === draft.project_id
             ? normalizeProject({
                 ...item,
-                status: 'In Revision',
-                current_stage: revisionStage,
-                waiting_on: 'Manuscript Heaven',
-                timeline_status: 'Active',
-                client_action_required: '',
-                updated_at: now,
+                ...projectUpdates,
               })
             : item,
         ),
         revisionRequests: [request, ...previous.revisionRequests],
         revisionAttachments: [...attachments, ...previous.revisionAttachments],
+        notifications: [notification, ...previous.notifications],
+        stageHistory: [historyEntry, ...(previous.stageHistory || [])],
         revisionActivity: [
           normalizeRevisionActivity({
             id: createId('revision-activity'),
@@ -1747,6 +1788,36 @@ export function useTracker() {
         throw new Error('Revision request not found.');
       }
 
+      const project = data.projects.find((p) => p.id === request.project_id);
+      const now = new Date().toISOString();
+
+      const projectUpdates: Partial<Project> = {
+        stage_status: 'PAUSED_CLIENT_REVIEW',
+        waiting_on: 'Client',
+        timeline_status: 'Paused',
+        client_action_required: 'Review the updated proof and approve or request further changes.',
+        updated_at: now,
+      };
+
+      const notification: NotificationItem = {
+        id: createId('notification'),
+        recipient_id: request.client_id,
+        project_id: request.project_id,
+        type: 'revision_submitted',
+        title: `Revision Completed: ${project?.project_title || 'Project'}`,
+        message: 'Your requested revision has been completed and is ready for review.',
+        is_read: false,
+        created_at: now,
+      };
+
+      const historyEntry = project
+        ? createStageHistoryEntry(
+            project,
+            `Revision completed for ${project.current_stage || 'Approval stage'} and submitted for client review`,
+            currentProfile.id,
+          )
+        : null;
+
       if (supabase && mode === 'supabase') {
         const fileUrl = await uploadRevisionFile({
           clientId: request.client_id,
@@ -1768,27 +1839,42 @@ export function useTracker() {
           throw error;
         }
 
+        await supabase.from('projects').update(projectUpdates).eq('id', request.project_id);
+        await supabase.from('notifications').insert({
+          id: notification.id,
+          recipient_id: notification.recipient_id,
+          project_id: notification.project_id,
+          type: notification.type,
+          title: notification.title,
+          message: notification.message,
+          is_read: false,
+        });
+
         await loadSupabaseData(currentProfile);
         return;
       }
 
+      const newAttachment = normalizeRevisionAttachment({
+        id: createId('revision-attachment'),
+        revision_request_id: request.id,
+        file_name: file.name,
+        file_url: file.name,
+        file_type: 'revised_proof',
+        uploaded_by: currentProfile.id,
+        created_at: now,
+      });
+
       setData((previous) => ({
         ...previous,
-        revisionAttachments: [
-          normalizeRevisionAttachment({
-            id: createId('revision-attachment'),
-            revision_request_id: request.id,
-            file_name: file.name,
-            file_url: file.name,
-            file_type: 'revised_proof',
-            uploaded_by: currentProfile.id,
-            created_at: new Date().toISOString(),
-          }),
-          ...previous.revisionAttachments,
-        ],
+        projects: previous.projects.map((item) =>
+          item.id === request.project_id ? normalizeProject({ ...item, ...projectUpdates }) : item,
+        ),
+        revisionAttachments: [newAttachment, ...previous.revisionAttachments],
+        notifications: [notification, ...previous.notifications],
+        stageHistory: historyEntry ? [historyEntry, ...(previous.stageHistory || [])] : previous.stageHistory,
       }));
     },
-    [currentProfile, data.revisionRequests, loadSupabaseData, mode],
+    [currentProfile, data.projects, data.revisionRequests, loadSupabaseData, mode],
   );
 
   const respondToRevisionRequest = useCallback(
@@ -1822,25 +1908,104 @@ export function useTracker() {
         throw new Error('No signed-in profile found.');
       }
 
-      const updates = approvalUpdateForMilestone(milestone);
+      const project = data.projects.find((item) => item.id === projectId);
+      if (!project) {
+        throw new Error('Project not found.');
+      }
 
-      if (supabase && mode === 'supabase' && isClientRole(currentProfile.role)) {
-        const { error } = await supabase.rpc('client_approve_project_milestone', {
-          project_id: projectId,
-          milestone,
+      const today = new Date().toISOString().slice(0, 10);
+      const now = new Date().toISOString();
+      const settings = getWorkflowSettings(project);
+
+      let nextStage: TimelineStage = 'Print Version';
+      let approvalField: keyof Project = 'design_concept_approval_date';
+      let daysAllocated = settings.print_version_days ?? 5;
+      let label = 'Design Concept';
+
+      if (milestone === 'concept') {
+        nextStage = 'Print Version';
+        approvalField = 'design_concept_approval_date';
+        daysAllocated = settings.print_version_days ?? 5;
+        label = 'Design Concept';
+      } else if (milestone === 'print') {
+        nextStage = 'Ebook Version';
+        approvalField = 'print_version_approval_date';
+        daysAllocated = settings.ebook_version_days ?? 5;
+        label = 'Print Version';
+      } else if (milestone === 'ebook') {
+        nextStage = 'Final Delivery';
+        approvalField = 'ebook_approval_date';
+        daysAllocated = settings.final_delivery_days ?? 2;
+        label = 'eBook Version';
+      }
+
+      const stageDueDate = calculateStageDueDate(today, daysAllocated, settings);
+      const historyEntry = createStageHistoryEntry(
+        project,
+        `Client approved ${label}. Activated ${nextStage}.`,
+        currentProfile.id,
+        `Allocated ${daysAllocated} production days.`,
+      );
+
+      const projectUpdates: Partial<Project> = {
+        [approvalField]: today,
+        current_stage: nextStage,
+        stage_status: 'ACTIVE',
+        waiting_on: 'Manuscript Heaven',
+        timeline_status: 'Active',
+        stage_started_at: now,
+        stage_due_at: stageDueDate,
+        stage_completed_at: null,
+        client_action_required: '',
+        updated_at: now,
+      };
+
+      if (nextStage === 'Final Delivery') {
+        projectUpdates.status = 'Final QA' as ProjectStatus;
+      } else if (nextStage === 'Print Version') {
+        projectUpdates.status = 'Print Version in Progress' as ProjectStatus;
+      } else if (nextStage === 'Ebook Version') {
+        projectUpdates.status = 'eBook in Progress' as ProjectStatus;
+      }
+
+      const recipientId = project.assigned_to || project.project_manager || currentProfile.id;
+      const notification: NotificationItem = {
+        id: createId('notification'),
+        recipient_id: recipientId,
+        project_id: projectId,
+        type: 'milestone_approval',
+        title: `Milestone Approved: ${project.project_title}`,
+        message: `${label} approved. ${nextStage} is now active (${daysAllocated} production days allocated).`,
+        is_read: false,
+        created_at: now,
+      };
+
+      if (supabase && mode === 'supabase') {
+        const { error: updateErr } = await supabase.from('projects').update(projectUpdates).eq('id', projectId);
+        if (updateErr) console.warn('Supabase project milestone approval error:', updateErr);
+
+        await supabase.from('notifications').insert({
+          id: notification.id,
+          recipient_id: notification.recipient_id,
+          project_id: notification.project_id,
+          type: notification.type,
+          title: notification.title,
+          message: notification.message,
+          is_read: false,
         });
-
-        if (error) {
-          throw error;
-        }
 
         await loadSupabaseData(currentProfile);
         return;
       }
 
-      await updateProject(projectId, updates);
+      setData((previous) => ({
+        ...previous,
+        projects: previous.projects.map((p) => (p.id === projectId ? normalizeProject({ ...p, ...projectUpdates }) : p)),
+        notifications: [notification, ...previous.notifications],
+        stageHistory: [historyEntry, ...(previous.stageHistory || [])],
+      }));
     },
-    [currentProfile, loadSupabaseData, mode, updateProject],
+    [currentProfile, data.projects, loadSupabaseData, mode],
   );
 
   const createTask = useCallback(

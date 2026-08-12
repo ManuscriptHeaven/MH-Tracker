@@ -29,6 +29,10 @@ function MilestoneIcon({ state }: { state: string }) {
     return <Pause className="h-3.5 w-3.5" />;
   }
 
+  if (state === 'revision') {
+    return <AlertTriangle className="h-3.5 w-3.5 text-orange-600" />;
+  }
+
   if (state === 'overdue') {
     return <AlertTriangle className="h-3.5 w-3.5" />;
   }
@@ -60,7 +64,7 @@ export function ProjectTimelineCompact({ project }: { project: Project }) {
       </div>
       <p className="text-xs text-muted">
         {summary.nextMilestone}
-        {summary.dueDate ? ` | ${formatDate(summary.dueDate)}` : ''}
+        {summary.dueDate ? ` | Due ${formatDate(summary.dueDate)}` : summary.waitingOn === 'Client' ? ' | Paused' : ''}
         {summary.finalDueDate && summary.finalDueDate !== summary.dueDate ? ` | Final ${formatDate(summary.finalDueDate)}` : ''}
       </p>
     </div>
@@ -71,11 +75,20 @@ export function ProjectTimelinePanel({ project, clientView = false }: { project:
   const summary = getTimelineSummary(project);
   const milestones = getTimelineMilestones(project);
 
+  const daysRemainingText =
+    summary.waitingOn === 'Client' || summary.timelineStatus === 'Paused'
+      ? 'Paused'
+      : summary.daysRemaining === null
+        ? 'Not active'
+        : summary.daysRemaining < 0
+          ? `${Math.abs(summary.daysRemaining)} day${Math.abs(summary.daysRemaining) === 1 ? '' : 's'} overdue`
+          : `${summary.daysRemaining} production day${summary.daysRemaining === 1 ? '' : 's'}`;
+
   return (
     <div className="rounded-lg border border-border bg-white p-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gold">Production Timeline</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gold">Official Production Timeline</p>
           <h3 className="mt-1 font-display text-xl font-semibold text-ink">{summary.stage}</h3>
           <p className="mt-1 text-sm text-muted">{summary.nextMilestone}</p>
         </div>
@@ -90,12 +103,12 @@ export function ProjectTimelinePanel({ project, clientView = false }: { project:
       <div className="mt-4 grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-5">
         <Info label="Timeline Status" value={summary.timelineStatus} />
         <Info label="Waiting On" value={summary.waitingOn} />
-        <Info label="Current Due Date" value={summary.dueDate ? formatDate(summary.dueDate) : 'Paused'} />
+        <Info label="Current Due Date" value={summary.waitingOn === 'Client' ? 'Paused' : summary.dueDate ? formatDate(summary.dueDate) : 'Paused'} />
         <Info label="Final Due Date" value={summary.finalDueDate ? formatDate(summary.finalDueDate) : 'Not set'} />
         <Info
           label="Days Remaining"
-          value={summary.daysRemaining === null ? 'Not active' : summary.daysRemaining < 0 ? `${Math.abs(summary.daysRemaining)} overdue` : `${summary.daysRemaining}`}
-          valueClass={summary.isOverdue ? 'text-danger' : undefined}
+          value={daysRemainingText}
+          valueClass={summary.isOverdue ? 'text-danger' : summary.waitingOn === 'Client' ? 'text-amber-800' : undefined}
         />
       </div>
 
@@ -107,25 +120,43 @@ export function ProjectTimelinePanel({ project, clientView = false }: { project:
       ) : null}
 
       <div className="mt-5 overflow-x-auto">
-        <div className="grid min-w-[760px] gap-2" style={{ gridTemplateColumns: `repeat(${milestones.length}, minmax(0, 1fr))` }}>
+        <div className="grid min-w-[900px] gap-2" style={{ gridTemplateColumns: `repeat(${milestones.length}, minmax(0, 1fr))` }}>
           {milestones.map((milestone, index) => (
             <div key={milestone.key} className="relative">
               {index > 0 ? <div className="absolute -left-2 top-4 h-px w-2 bg-border" /> : null}
               <div
                 className={cn(
-                  'grid gap-2 rounded-md border px-2 py-3 text-center text-xs',
+                  'grid gap-1.5 rounded-md border px-2 py-3 text-center text-xs min-h-[110px] flex flex-col justify-between',
                   milestone.state === 'completed' && 'border-green-200 bg-green-50 text-success',
                   milestone.state === 'current' && 'border-blue-200 bg-blue-50 text-blue-800',
                   milestone.state === 'paused' && 'border-amber-200 bg-amber-50 text-amber-800',
+                  milestone.state === 'revision' && 'border-orange-200 bg-orange-50 text-orange-900',
                   milestone.state === 'overdue' && 'border-red-200 bg-red-50 text-danger',
                   milestone.state === 'future' && 'border-border bg-ivory text-muted',
                 )}
               >
-                <span className="mx-auto grid h-8 w-8 place-items-center rounded-full border bg-white">
-                  <MilestoneIcon state={milestone.state} />
-                </span>
-                <span className="font-semibold">{milestone.label}</span>
-                <span>{milestone.date ? formatDate(milestone.date) : 'Pending'}</span>
+                <div>
+                  <span className="mx-auto mb-1 grid h-7 w-7 place-items-center rounded-full border bg-white">
+                    <MilestoneIcon state={milestone.state} />
+                  </span>
+                  <span className="font-semibold block leading-tight">{milestone.label}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-medium block opacity-80">
+                    {milestone.state === 'completed'
+                      ? 'Completed'
+                      : milestone.state === 'paused'
+                        ? 'Waiting for Client'
+                        : milestone.state === 'revision'
+                          ? 'Revision Required'
+                          : milestone.state === 'current'
+                            ? 'In Progress'
+                            : milestone.isApproval
+                              ? 'Approval Stage'
+                              : `${milestone.durationDays} days`}
+                  </span>
+                  <span className="text-[11px] block mt-0.5">{milestone.date ? formatDate(milestone.date) : 'Pending'}</span>
+                </div>
               </div>
             </div>
           ))}
