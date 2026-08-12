@@ -48,3 +48,91 @@ create policy "Authenticated users can insert stage history"
 -- Indexes for performance
 create index if not exists project_stage_history_project_id_idx on public.project_stage_history(project_id);
 create index if not exists projects_stage_status_idx on public.projects(stage_status);
+
+-- 3. Stored Procedure: Client Approves Project Milestone
+create or replace function public.client_approve_project_milestone(project_id uuid, milestone text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  project_row public.projects;
+  next_stage text;
+  days_alloc integer := 5;
+begin
+  select * into project_row
+  from public.projects p
+  where p.id = client_approve_project_milestone.project_id;
+
+  if not found or not public.client_has_project_access(project_id, auth.uid()) then
+    raise exception 'Project is not available for this client.';
+  end if;
+
+  if milestone = 'concept' then
+    next_stage := 'Print Version';
+    days_alloc := coalesce((project_row.workflow_settings->>'print_version_days')::integer, 5);
+    update public.projects
+    set design_concept_approval_date = current_date,
+        current_stage = next_stage,
+        stage_status = 'ACTIVE',
+        waiting_on = 'Manuscript Heaven',
+        timeline_status = 'Active',
+        stage_started_at = now(),
+        stage_due_at = current_date + days_alloc,
+        client_action_required = null,
+        updated_at = now()
+    where id = project_id;
+  elsif milestone = 'print' then
+    next_stage := 'Ebook Version';
+    days_alloc := coalesce((project_row.workflow_settings->>'ebook_version_days')::integer, 5);
+    update public.projects
+    set print_version_approval_date = current_date,
+        current_stage = next_stage,
+        stage_status = 'ACTIVE',
+        waiting_on = 'Manuscript Heaven',
+        timeline_status = 'Active',
+        stage_started_at = now(),
+        stage_due_at = current_date + days_alloc,
+        client_action_required = null,
+        updated_at = now()
+    where id = project_id;
+  elsif milestone = 'ebook' then
+    next_stage := 'Final Delivery';
+    days_alloc := coalesce((project_row.workflow_settings->>'final_delivery_days')::integer, 2);
+    update public.projects
+    set ebook_approval_date = current_date,
+        current_stage = next_stage,
+        stage_status = 'ACTIVE',
+        waiting_on = 'Manuscript Heaven',
+        timeline_status = 'Active',
+        stage_started_at = now(),
+        stage_due_at = current_date + days_alloc,
+        client_action_required = null,
+        updated_at = now()
+    where id = project_id;
+  end if;
+
+  -- Log Stage History
+  insert into public.project_stage_history(project_id, stage, status, started_at, actor_id, action, notes)
+  values (project_id, next_stage, 'ACTIVE', now(), auth.uid(), 'Client approved ' || milestone || ' milestone', 'Activated ' || next_stage || ' (' || days_alloc || ' production days)');
+
+  -- Send System Notification
+  insert into public.notifications(recipient_id, project_id, type, title, message)
+  select
+    p.id,
+    project_id,
+    'milestone_approval',
+    'Milestone Approved: ' || project_row.project_title,
+    'Client approved the ' || milestone || ' milestone. ' || next_stage || ' is now active.'
+  from public.profiles p
+  where p.status = 'active'
+    and (
+      p.role::text in ('admin', 'manager', 'project_manager')
+      or p.id = project_row.assigned_to
+      or p.id = project_row.project_manager
+    );
+end;
+$$;
+
+grant execute on function public.client_approve_project_milestone(uuid, text) to authenticated;
