@@ -340,7 +340,8 @@ export function deriveProjectTimeline<T extends TimelineProject>(
         const revDays = getStageDurationDays(normStage, settings, true);
         next.stage_due_at = calculateStageDueDate(revStart, revDays, settings);
       }
-      if (syncStatus) next.status = 'In Revision';
+      // Always sync status so all panels see 'In Revision' immediately
+      next.status = 'In Revision';
     } else {
       next.stage_status = 'PAUSED_CLIENT_REVIEW';
       next.timeline_status = 'Paused';
@@ -351,7 +352,15 @@ export function deriveProjectTimeline<T extends TimelineProject>(
           : normStage === 'Print Approval'
             ? 'Review and approve the complete print version'
             : 'Review and approve the eBook version';
-      if (syncStatus) next.status = 'Awaiting Print Approval';
+      // Always sync status so all panels show the correct approval status
+      if (syncStatus) {
+        next.status =
+          normStage === 'Concept Approval'
+            ? 'Awaiting Concept Approval'
+            : normStage === 'Print Approval'
+              ? 'Awaiting Print Approval'
+              : 'eBook Review';
+      }
     }
   } else {
     // Production Stage

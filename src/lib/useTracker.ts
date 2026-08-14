@@ -1526,17 +1526,26 @@ export function useTracker() {
         updated_at: now,
       };
 
-      const recipientId = project.assigned_to || project.project_manager || currentProfile.id;
-      const notification: NotificationItem = {
+      // Build notifications for every relevant team member
+      const notificationTitle = `Revision Requested: ${project.project_title}`;
+      const notificationMessage = `Client requested ${currentStage} revision #${revCount}. ${revisionDays} production day${revisionDays === 1 ? '' : 's'} allocated.`;
+
+      const notificationRecipients = [
+        project.assigned_to,
+        project.project_manager,
+        ...data.profiles.filter(p => p.role === 'admin').map(p => p.id)
+      ].filter((id): id is string => Boolean(id) && id !== currentProfile.id);
+
+      const buildNotification = (recipientId: string): NotificationItem => ({
         id: createId('notification'),
         recipient_id: recipientId,
         project_id: project.id,
         type: 'revision_requested',
-        title: `Revision Requested: ${project.project_title}`,
-        message: `Revision requested for ${currentStage}. ${revisionDays} production days remaining.`,
+        title: notificationTitle,
+        message: notificationMessage,
         is_read: false,
         created_at: now,
-      };
+      });
 
       const historyEntry = createStageHistoryEntry(
         project,
@@ -1614,15 +1623,25 @@ export function useTracker() {
             console.warn('Could not update project status in Supabase:', projUpdateErr);
           }
 
-          await supabaseClient.from('notifications').insert({
-            id: notification.id,
-            recipient_id: notification.recipient_id,
-            project_id: notification.project_id,
-            type: notification.type,
-            title: notification.title,
-            message: notification.message,
-            is_read: false,
-          });
+          // Insert one notification row per unique recipient
+          const uniqueRecipients = [...new Set([
+            project.assigned_to,
+            project.project_manager,
+          ].filter((id): id is string => Boolean(id) && id !== currentProfile.id))];
+
+          if (uniqueRecipients.length > 0) {
+            await supabaseClient.from('notifications').insert(
+              uniqueRecipients.map((recipientId) => ({
+                id: createId('notification'),
+                recipient_id: recipientId,
+                project_id: request.project_id,
+                type: 'revision_requested',
+                title: notificationTitle,
+                message: notificationMessage,
+                is_read: false,
+              }))
+            );
+          }
 
           await loadSupabaseData(currentProfile);
           return request;
@@ -1671,7 +1690,11 @@ export function useTracker() {
         ),
         revisionRequests: [request, ...previous.revisionRequests],
         revisionAttachments: [...attachments, ...previous.revisionAttachments],
-        notifications: [notification, ...previous.notifications],
+        // Add a notification for each unique team member (deduplicated)
+        notifications: [
+          ...[...new Set(notificationRecipients)].map((recipientId) => buildNotification(recipientId)),
+          ...previous.notifications,
+        ],
         stageHistory: [historyEntry, ...(previous.stageHistory || [])],
         revisionActivity: [
           normalizeRevisionActivity({
@@ -1689,7 +1712,7 @@ export function useTracker() {
 
       return request;
     },
-    [currentProfile, data.projects, loadSupabaseData, mode],
+    [currentProfile, data.profiles, data.projects, loadSupabaseData, mode],
   );
 
   const updateRevisionRequest = useCallback(

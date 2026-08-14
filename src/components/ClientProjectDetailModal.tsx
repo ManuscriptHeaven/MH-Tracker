@@ -42,9 +42,10 @@ import type {
 import { cn, firstName } from '../lib/utils';
 
 function approvalMilestoneForStage(stage: string): ApprovalMilestone | null {
-  if (stage === 'Awaiting Concept Approval') return 'concept';
-  if (stage === 'Awaiting Print Approval') return 'print';
-  if (stage === 'eBook Review') return 'ebook';
+  // Accept both normalized stage names and legacy status strings
+  if (stage === 'Concept Approval' || stage === 'Awaiting Concept Approval' || stage === 'Concept Revisions') return 'concept';
+  if (stage === 'Print Approval' || stage === 'Awaiting Print Approval' || stage === 'Print Revisions') return 'print';
+  if (stage === 'Ebook Approval' || stage === 'eBook Review') return 'ebook';
   return null;
 }
 
@@ -85,7 +86,7 @@ export function ClientProjectDetailModal({
   onApproveMilestone: (projectId: string, milestone: ApprovalMilestone) => Promise<void>;
   onRequestRevision: (projectId: string) => void;
 }) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'files' | 'messages' | 'activity'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'files' | 'messages' | 'revisions' | 'activity'>('overview');
   const [isApproving, setIsApproving] = useState(false);
   const [clientMsg, setClientMsg] = useState('');
 
@@ -188,6 +189,15 @@ export function ClientProjectDetailModal({
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }, [activities, project.id]);
 
+  // Revision requests for this project (newest first)
+  const projectRevisionRequests = useMemo(
+    () =>
+      revisionRequests
+        .filter((r) => r.project_id === project.id)
+        .sort((a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime()),
+    [revisionRequests, project.id],
+  );
+
   async function handleApprove() {
     if (!milestoneToApprove) return;
     const label = milestoneToApprove === 'concept' ? 'design concept' : milestoneToApprove === 'print' ? 'print version' : 'eBook version';
@@ -222,20 +232,24 @@ export function ClientProjectDetailModal({
           </div>
 
           <div className="flex flex-wrap gap-2 shrink-0">
-            {milestoneToApprove ? (
+            {/* Only show Approve when waiting on client, not during an active revision */}
+            {milestoneToApprove && summary.waitingOn === 'Client' ? (
               <Button type="button" onClick={handleApprove} disabled={isApproving} className="bg-success hover:bg-green-700 text-white">
                 <CheckCircle2 className="h-4 w-4" />
                 {isApproving ? 'Approving...' : approvalLabel(milestoneToApprove)}
               </Button>
             ) : null}
-            <Button
-              type="button"
-              variant={milestoneToApprove ? 'secondary' : 'primary'}
-              onClick={() => onRequestRevision(project.id)}
-            >
-              <Plus className="h-4 w-4" />
-              {revisionLabel(milestoneToApprove)}
-            </Button>
+            {/* Always show Request Revision when on an approval stage */}
+            {milestoneToApprove ? (
+              <Button
+                type="button"
+                variant={milestoneToApprove && summary.waitingOn === 'Client' ? 'secondary' : 'primary'}
+                onClick={() => onRequestRevision(project.id)}
+              >
+                <Plus className="h-4 w-4" />
+                {revisionLabel(milestoneToApprove)}
+              </Button>
+            ) : null}
           </div>
         </div>
 
@@ -315,6 +329,22 @@ export function ClientProjectDetailModal({
         >
           <MessageSquare className="h-4 w-4" />
           Notes & Messages
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('revisions')}
+          className={cn(
+            'relative flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold transition',
+            activeTab === 'revisions' ? 'border-gold text-gold' : 'border-transparent text-muted hover:text-ink',
+          )}
+        >
+          <MessageSquare className="h-4 w-4" />
+          Revisions
+          {projectRevisionRequests.length > 0 ? (
+            <span className="flex h-4 w-4 items-center justify-center rounded-full bg-gold text-[10px] font-bold text-white">
+              {projectRevisionRequests.length}
+            </span>
+          ) : null}
         </button>
         <button
           type="button"
@@ -555,6 +585,147 @@ export function ClientProjectDetailModal({
                 ))}
               </div>
             ) : null}
+          </div>
+        )}
+
+        {activeTab === 'revisions' && (
+          <div className="space-y-4">
+            {projectRevisionRequests.length ? (
+              projectRevisionRequests.map((req) => {
+                const items = revisionItems.filter((item) => item.revision_request_id === req.id);
+                const attachments = revisionAttachments.filter((att) => att.revision_request_id === req.id);
+                const clientFiles = attachments.filter((att) => att.file_type !== 'revised_proof');
+                const proofFiles = attachments.filter((att) => att.file_type === 'revised_proof');
+                const teamResponses = [
+                  req.team_response,
+                  ...items.map((item) => item.team_response),
+                ].filter((r): r is string => Boolean(r));
+
+                const statusColor =
+                  req.status === 'Approved' || req.status === 'Completed'
+                    ? 'bg-green-100 text-green-800'
+                    : req.status === 'Submitted'
+                      ? 'bg-amber-100 text-amber-800'
+                      : req.status === 'In Progress'
+                        ? 'bg-blue-100 text-blue-800'
+                        : 'bg-gray-100 text-gray-700';
+
+                return (
+                  <div key={req.id} className="rounded-lg border border-border bg-white">
+                    {/* Request header */}
+                    <div className="flex items-start justify-between gap-3 border-b border-border p-4">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-gold mb-1">
+                          Submitted {formatDate(req.submitted_at.slice(0, 10))}
+                        </p>
+                        <h4 className="font-display font-semibold text-ink">{req.title || 'Revision Request'}</h4>
+                        <p className="text-xs text-muted mt-0.5">
+                          Stage: {project.current_stage || 'N/A'}
+                        </p>
+                      </div>
+                      <span className={cn('rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider shrink-0', statusColor)}>
+                        {req.status}
+                      </span>
+                    </div>
+
+                    <div className="p-4 space-y-3">
+                      {/* Instructions */}
+                      <div className="rounded-md border border-border bg-ivory p-3">
+                        <p className="mb-1 text-xs font-semibold text-muted uppercase tracking-wider">Your Instructions</p>
+                        <p className="whitespace-pre-wrap text-sm leading-6 text-ink">
+                          {req.instructions || req.description || '—'}
+                        </p>
+                      </div>
+
+                      {/* Individual revision items */}
+                      {items.length > 0 ? (
+                        <div className="space-y-2">
+                          <p className="text-xs font-semibold text-muted uppercase tracking-wider">Revision Items</p>
+                          {items.map((item) => (
+                            <div key={item.id} className="flex items-start gap-2 rounded-md border border-border bg-ivory/50 p-2.5 text-sm">
+                              <span className={cn(
+                                'mt-0.5 h-2 w-2 shrink-0 rounded-full',
+                                item.status === 'Completed' ? 'bg-green-500' : 'bg-amber-400',
+                              )} />
+                              <div className="flex-1">
+                                <p className="text-ink">{item.instruction}</p>
+                                {item.team_response ? (
+                                  <p className="mt-1 text-xs text-muted italic">Team: {item.team_response}</p>
+                                ) : null}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {/* Attachments grid */}
+                      {clientFiles.length > 0 || proofFiles.length > 0 ? (
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {clientFiles.length > 0 ? (
+                            <div className="rounded-md border border-border bg-white p-3">
+                              <p className="mb-2 text-xs font-semibold text-muted uppercase tracking-wider">Your Attachments</p>
+                              <div className="space-y-1">
+                                {clientFiles.map((att) => (
+                                  <a
+                                    key={att.id}
+                                    href={att.file_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="flex items-center gap-2 text-sm text-gold hover:underline"
+                                  >
+                                    <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                                    <span className="truncate">{att.file_name}</span>
+                                  </a>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+                          {proofFiles.length > 0 ? (
+                            <div className="rounded-md border border-border bg-white p-3">
+                              <p className="mb-2 text-xs font-semibold text-muted uppercase tracking-wider">Revised Proofs</p>
+                              <div className="space-y-1">
+                                {proofFiles.map((att) => (
+                                  <a
+                                    key={att.id}
+                                    href={att.file_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="flex items-center gap-2 text-sm text-gold hover:underline"
+                                  >
+                                    <Download className="h-3.5 w-3.5 shrink-0" />
+                                    <span className="truncate">{att.file_name}</span>
+                                  </a>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      {/* Team response */}
+                      {teamResponses.length > 0 ? (
+                        <div className="rounded-md border border-border bg-white p-3">
+                          <p className="mb-2 text-xs font-semibold text-muted uppercase tracking-wider">Team Response</p>
+                          <div className="space-y-2">
+                            {teamResponses.map((resp, i) => (
+                              <p key={i} className="rounded bg-ivory p-2.5 text-sm leading-6 text-muted">{resp}</p>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted italic">The team has not responded yet.</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="rounded-lg border border-dashed border-border p-8 text-center text-muted">
+                <MessageSquare className="mx-auto h-8 w-8 text-border mb-2" />
+                <p className="font-semibold">No revision requests yet</p>
+                <p className="text-sm mt-1">Use the Request Revision button above when you need changes to a proof.</p>
+              </div>
+            )}
           </div>
         )}
 

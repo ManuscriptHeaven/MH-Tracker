@@ -61,15 +61,16 @@ function fileLabel(attachment: RevisionAttachment) {
 }
 
 function approvalMilestoneForStage(stage: string): ApprovalMilestone | null {
-  if (stage === 'Awaiting Concept Approval') {
+  // Match both normalized stage names and legacy status strings
+  if (stage === 'Concept Approval' || stage === 'Awaiting Concept Approval' || stage === 'Concept Revisions') {
     return 'concept';
   }
 
-  if (stage === 'Awaiting Print Approval') {
+  if (stage === 'Print Approval' || stage === 'Awaiting Print Approval' || stage === 'Print Revisions') {
     return 'print';
   }
 
-  if (stage === 'eBook Review') {
+  if (stage === 'Ebook Approval' || stage === 'eBook Review') {
     return 'ebook';
   }
 
@@ -237,23 +238,29 @@ function ProjectQuickActions({
   const summary = getTimelineSummary(project);
   const milestone = approvalMilestoneForStage(summary.stage);
 
+  // Only show approval actions when client is waiting (PAUSED_CLIENT_REVIEW), not during revision
+  const isApprovalPending = milestone !== null && summary.waitingOn === 'Client';
+
   return (
     <div className={cn('flex flex-wrap gap-2', compact && 'grid')}>
-      {milestone ? (
-        <Button type="button" className={compact ? 'w-full justify-center' : undefined} onClick={() => onApproveMilestone(project, milestone)}>
+      {isApprovalPending ? (
+        <Button type="button" className={compact ? 'w-full justify-center' : undefined} onClick={() => onApproveMilestone(project, milestone!)}>
           <CheckCircle2 className="h-4 w-4" />
-          {approvalLabel(milestone)}
+          {approvalLabel(milestone!)}
         </Button>
       ) : null}
-      <Button
-        type="button"
-        variant={milestone ? 'secondary' : 'primary'}
-        className={compact ? 'w-full justify-center' : undefined}
-        onClick={() => onRequestRevision(project.id)}
-      >
-        <Plus className="h-4 w-4" />
-        {revisionLabel(milestone)}
-      </Button>
+      {/* Always show Request Revision during an approval stage */}
+      {milestone !== null ? (
+        <Button
+          type="button"
+          variant={isApprovalPending ? 'secondary' : 'primary'}
+          className={compact ? 'w-full justify-center' : undefined}
+          onClick={() => onRequestRevision(project.id)}
+        >
+          <Plus className="h-4 w-4" />
+          {revisionLabel(milestone)}
+        </Button>
+      ) : null}
     </div>
   );
 }
