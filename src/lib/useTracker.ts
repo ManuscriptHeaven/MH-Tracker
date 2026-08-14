@@ -179,33 +179,33 @@ function normalizeClientProject(project: Partial<Project>): Project {
     client_email: project.client_email || '',
     project_title: project.project_title || 'Untitled Project',
     service_type: project.service_type || '',
-    genre: '',
+    genre: project.genre || '',
     trim_size: '',
     page_count: 0,
     word_count: 0,
     image_count: 0,
     platform: '',
-    assigned_to: null,
-    project_manager: null,
+    assigned_to: project.assigned_to || null,
+    project_manager: project.project_manager || null,
     priority: 'Normal',
     start_date: '',
     due_date: cleanDate(project.due_date) || '',
     internal_deadline: '',
     delivery_date: null,
     status: project.status || 'New',
-    general_notes: '',
+    general_notes: project.general_notes || '',
     internal_notes: '',
-    client_instructions: '',
+    client_instructions: project.client_instructions || '',
     qa_notes: '',
-    delivery_notes: '',
-    source_file_link: '',
-    drive_folder_link: '',
-    client_brief_link: '',
+    delivery_notes: project.delivery_notes || '',
+    source_file_link: project.source_file_link || '',
+    drive_folder_link: project.drive_folder_link || '',
+    client_brief_link: project.client_brief_link || '',
     proof_pdf_link: project.proof_pdf_link || '',
     final_print_pdf_link: project.final_print_pdf_link || '',
     final_ebook_link: project.final_ebook_link || '',
     cover_file_link: project.cover_file_link || '',
-    other_links: '',
+    other_links: project.other_links || '',
     total_price: 0,
     advance_paid: 0,
     remaining_balance: 0,
@@ -229,6 +229,10 @@ function normalizeClientProject(project: Partial<Project>): Project {
     ebook_approval_date: cleanDate(project.ebook_approval_date),
     final_delivery_date: cleanDate(project.final_delivery_date),
     current_stage: project.current_stage,
+    stage_status: project.stage_status || 'ACTIVE',
+    stage_due_at: project.stage_due_at || null,
+    stage_started_at: project.stage_started_at || null,
+    revision_count: Number(project.revision_count || 0),
     progress_percentage: Number(project.progress_percentage || 0),
     waiting_on: project.waiting_on,
     timeline_status: project.timeline_status,
@@ -236,6 +240,7 @@ function normalizeClientProject(project: Partial<Project>): Project {
     delay_reason: cleanText(project.delay_reason),
     client_action_required: cleanText(project.client_action_required),
     print_timeline_days: project.print_timeline_days || 5,
+    workflow_settings: project.workflow_settings || undefined,
     created_by: null,
     created_at: project.created_at || new Date().toISOString(),
     updated_at: project.updated_at || new Date().toISOString(),
@@ -1554,16 +1559,82 @@ export function useTracker() {
         instructions,
       );
 
+      // -------------------------------------------------------
+      // SUPABASE PATH: Call the atomic security-definer RPC.
+      // This bypasses client-role RLS restrictions on the projects
+      // table and performs all steps in a single transaction:
+      //   1. Insert revision_request
+      //   2. Update project workflow state (stage_status, waiting_on, etc.)
+      //   3. Create stage history entry
+      //   4. Create notifications for all team members
+      // -------------------------------------------------------
       if (supabase && mode === 'supabase') {
+        const supabaseClient = supabase;
+        // ---- Optimistic local state update ----
+        // Update the UI immediately so the client sees 'In Revision' right away
+        // without waiting for loadSupabaseData to complete.
+        setData((previous) => ({
+          ...previous,
+          projects: previous.projects.map((item) =>
+            item.id === draft.project_id
+              ? normalizeProject({ ...item, ...projectUpdates })
+              : item,
+          ),
+        }));
+
         try {
-          const supabaseClient = supabase;
-          const requestId = createUuid();
-          const requestTitle = draft.title?.trim() || `Revision request for ${project.project_title}`;
-          const request = normalizeRevisionRequest({
+          const { data: rpcData, error: rpcError } = await supabaseClient.rpc('submit_client_revision', {
+            p_project_id:   draft.project_id,
+            p_client_id:    currentProfile.id,
+            p_title:        draft.title?.trim() || '',
+            p_description:  instructions,
+            p_instructions: instructions,
+            p_priority:     draft.priority || 'Normal',
+          });
+
+          if (rpcError) {
+            // Roll back optimistic update on failure
+            setData((previous) => ({
+              ...previous,
+              projects: previous.projects.map((item) =>
+                item.id === draft.project_id
+                  ? normalizeProject({ ...item, stage_status: project.stage_status, waiting_on: project.waiting_on, status: project.status })
+                  : item,
+              ),
+            }));
+            throw rpcError;
+          }
+
+          const requestId = rpcData as string;
+
+          // Upload attachments after the revision is created
+          await Promise.all(
+            (draft.attachments || []).map(async (file) => {
+              const fileUrl = await uploadRevisionFile({
+                clientId: currentProfile.id,
+                projectId: draft.project_id,
+                requestId,
+                file,
+              });
+              await supabaseClient.from('revision_attachments').insert({
+                revision_request_id: requestId,
+                revision_item_id: null,
+                file_name: file.name,
+                file_url: fileUrl,
+                file_type: 'client_attachment',
+                uploaded_by: currentProfile.id,
+              });
+            }),
+          );
+
+          // Reload all data to sync the new state from the database
+          await loadSupabaseData(currentProfile);
+
+          const builtRequest = normalizeRevisionRequest({
             id: requestId,
             project_id: draft.project_id,
             client_id: currentProfile.id,
-            title: requestTitle,
+            title: draft.title?.trim() || `Revision request for ${project.project_title}`,
             description: instructions,
             instructions,
             team_response: null,
@@ -1574,79 +1645,9 @@ export function useTracker() {
             updated_at: now,
           });
 
-          const { error: requestError } = await supabaseClient.from('revision_requests').insert({
-            id: request.id,
-            project_id: request.project_id,
-            client_id: request.client_id,
-            title: request.title,
-            description: request.description,
-            instructions: request.instructions,
-            team_response: request.team_response,
-            priority: request.priority,
-            status: 'Submitted',
-          });
-
-          if (requestError) {
-            throw requestError;
-          }
-
-          await Promise.all(
-            (draft.attachments || []).map(async (file) => {
-              const fileUrl = await uploadRevisionFile({
-                clientId: currentProfile.id,
-                projectId: request.project_id,
-                requestId: request.id,
-                file,
-              });
-
-              const { error: attachmentError } = await supabaseClient.from('revision_attachments').insert({
-                revision_request_id: request.id,
-                revision_item_id: null,
-                file_name: file.name,
-                file_url: fileUrl,
-                file_type: 'client_attachment',
-                uploaded_by: currentProfile.id,
-              });
-
-              if (attachmentError) {
-                throw attachmentError;
-              }
-            }),
-          );
-
-          const { error: projUpdateErr } = await supabaseClient
-            .from('projects')
-            .update(projectUpdates)
-            .eq('id', request.project_id);
-
-          if (projUpdateErr) {
-            console.warn('Could not update project status in Supabase:', projUpdateErr);
-          }
-
-          // Insert one notification row per unique recipient
-          const uniqueRecipients = [...new Set([
-            project.assigned_to,
-            project.project_manager,
-          ].filter((id): id is string => Boolean(id) && id !== currentProfile.id))];
-
-          if (uniqueRecipients.length > 0) {
-            await supabaseClient.from('notifications').insert(
-              uniqueRecipients.map((recipientId) => ({
-                id: createId('notification'),
-                recipient_id: recipientId,
-                project_id: request.project_id,
-                type: 'revision_requested',
-                title: notificationTitle,
-                message: notificationMessage,
-                is_read: false,
-              }))
-            );
-          }
-
-          await loadSupabaseData(currentProfile);
-          return request;
+          return builtRequest;
         } catch (revisionError) {
-          console.error('Supabase revision request error:', revisionError);
+          console.error('Revision submission failed:', revisionError);
           throw new Error(errorMessage(revisionError, 'Revision request could not be submitted. Please try again.'));
         }
       }
@@ -1814,7 +1815,16 @@ export function useTracker() {
       const project = data.projects.find((p) => p.id === request.project_id);
       const now = new Date().toISOString();
 
+      const stage = project?.current_stage || 'Print Approval';
+      const approvalStatus: ProjectStatus =
+        stage === 'Concept Approval' || stage === 'Awaiting Concept Approval'
+          ? 'Awaiting Concept Approval'
+          : stage === 'Print Approval' || stage === 'Awaiting Print Approval'
+            ? 'Awaiting Print Approval'
+            : 'eBook Review';
+
       const projectUpdates: Partial<Project> = {
+        status: approvalStatus,
         stage_status: 'PAUSED_CLIENT_REVIEW',
         waiting_on: 'Client',
         timeline_status: 'Paused',
@@ -1862,6 +1872,11 @@ export function useTracker() {
           throw error;
         }
 
+        await supabase
+          .from('revision_requests')
+          .update({ status: 'Ready for Client Review', updated_at: now })
+          .eq('id', request.id);
+
         await supabase.from('projects').update(projectUpdates).eq('id', request.project_id);
         await supabase.from('notifications').insert({
           id: notification.id,
@@ -1891,6 +1906,9 @@ export function useTracker() {
         ...previous,
         projects: previous.projects.map((item) =>
           item.id === request.project_id ? normalizeProject({ ...item, ...projectUpdates }) : item,
+        ),
+        revisionRequests: previous.revisionRequests.map((item) =>
+          item.id === request.id ? { ...item, status: 'Ready for Client Review', updated_at: now } : item,
         ),
         revisionAttachments: [newAttachment, ...previous.revisionAttachments],
         notifications: [notification, ...previous.notifications],

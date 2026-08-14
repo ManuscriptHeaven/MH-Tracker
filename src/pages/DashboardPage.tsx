@@ -64,8 +64,8 @@ export function DashboardPage({
   const allActiveProjects = projects
     .filter((project) => !closedStatuses.includes(project.status))
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  const isRevision = (project: Project) => ['In Revision', 'Revision Requested', 'Concept Revisions', 'Print Revisions'].includes(project.status);
-  const isReview = (project: Project) => ['Client Review', 'Awaiting Concept Approval', 'Awaiting Print Approval', 'eBook Review'].includes(project.status);
+  const isRevision = (project: Project) => ['In Revision', 'Revision Requested', 'Concept Revisions', 'Print Revisions'].includes(project.status) || project.stage_status === 'REVISION_ACTIVE';
+  const isReview = (project: Project) => (['Client Review', 'Awaiting Concept Approval', 'Awaiting Print Approval', 'eBook Review'].includes(project.status) || project.stage_status === 'PAUSED_CLIENT_REVIEW') && project.stage_status !== 'REVISION_ACTIVE';
   const scopedProjects = useMemo(() => allActiveProjects.filter((project) =>
     (assignedTo === 'all' || project.assigned_to === assignedTo) &&
     (status === 'all' || project.status === status) &&

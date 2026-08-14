@@ -352,14 +352,14 @@ export function deriveProjectTimeline<T extends TimelineProject>(
           : normStage === 'Print Approval'
             ? 'Review and approve the complete print version'
             : 'Review and approve the eBook version';
-      // Always sync status so all panels show the correct approval status
-      if (syncStatus) {
-        next.status =
-          normStage === 'Concept Approval'
-            ? 'Awaiting Concept Approval'
-            : normStage === 'Print Approval'
-              ? 'Awaiting Print Approval'
-              : 'eBook Review';
+      const expectedStatus =
+        normStage === 'Concept Approval'
+          ? 'Awaiting Concept Approval'
+          : normStage === 'Print Approval'
+            ? 'Awaiting Print Approval'
+            : 'eBook Review';
+      if (syncStatus || next.status === 'In Revision' || next.status === 'Revision Requested') {
+        next.status = expectedStatus;
       }
     }
   } else {
