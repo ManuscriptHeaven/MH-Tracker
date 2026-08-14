@@ -1,9 +1,40 @@
-import { CheckCircle2, Edit, FileText, Lock, MessageSquare, Plus, Printer, Send, Trash2, User } from 'lucide-react';
+import {
+  AlertCircle,
+  AlertTriangle,
+  CalendarDays,
+  CheckCircle2,
+  Clock3,
+  CreditCard,
+  Download,
+  Edit,
+  ExternalLink,
+  FileCheck,
+  FileCode,
+  FileText,
+  Filter,
+  FolderOpen,
+  History,
+  Layers,
+  ListChecks,
+  Lock,
+  MessageSquare,
+  Paperclip,
+  Plus,
+  Printer,
+  RotateCcw,
+  Send,
+  ShieldAlert,
+  ShieldCheck,
+  Trash2,
+  TrendingUp,
+  User,
+  Users,
+} from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { RevisionRequestsPage } from '../pages/RevisionRequestsPage';
 import { revisionStatuses, timelineStages } from '../lib/constants';
 import { deadlineClass, deadlineLabel, formatDate, todayInput } from '../lib/date';
-import { timelineUpdateForStage } from '../lib/timeline';
+import { getTimelineSummary, timelineUpdateForStage } from '../lib/timeline';
 import { currency, firstName, initials } from '../lib/utils';
 import type {
   ActivityLog,
@@ -21,8 +52,18 @@ import type {
   Task,
 } from '../lib/types';
 import { PaymentBadge, PriorityBadge, RoleBadge, StatusBadge } from './Badges';
-import { ProjectTimelinePanel } from './ProjectTimeline';
+import { ProjectTimelinePanel, TimelineBadge } from './ProjectTimeline';
 import { Button, Card, Field, Modal, SelectField, TextareaField } from './ui';
+
+export type ProjectDetailTab =
+  | 'overview'
+  | 'timeline'
+  | 'files'
+  | 'revisions'
+  | 'tasks'
+  | 'communication'
+  | 'payment'
+  | 'activity';
 
 const noteTypes: Array<{ value: NoteType; label: string }> = [
   { value: 'general', label: 'General' },
@@ -38,22 +79,9 @@ function profileName(profiles: Profile[], id?: string | null) {
   return profile ? firstName(profile.full_name) : 'Unassigned';
 }
 
-function LinkRow({ label, value }: { label: string; value: string }) {
-  if (!value) {
-    return null;
-  }
-
-  return (
-    <a
-      href={value}
-      target="_blank"
-      rel="noreferrer"
-      className="flex items-center justify-between gap-3 rounded-md border border-border bg-white px-3 py-2 text-sm transition hover:border-gold"
-    >
-      <span className="font-medium">{label}</span>
-      <span className="truncate text-muted">{value}</span>
-    </a>
-  );
+function fullProfileName(profiles: Profile[], id?: string | null) {
+  const profile = profiles.find((item) => item.id === id);
+  return profile ? profile.full_name : 'Unassigned';
 }
 
 export function ProjectDetail({
@@ -101,6 +129,7 @@ export function ProjectDetail({
   onUpdateRevisionItem: (itemId: string, updates: Partial<RevisionItem>) => Promise<void>;
   onUploadRevisedProof: (requestId: string, file: File) => Promise<void>;
 }) {
+  const [activeTab, setActiveTab] = useState<ProjectDetailTab>('overview');
   const [stage, setStage] = useState<TimelineStage>(project.current_stage || 'Files Required');
   const [noteType, setNoteType] = useState<NoteType>('work');
   const [note, setNote] = useState('');
@@ -108,6 +137,33 @@ export function ProjectDetail({
   const [revisionStatus, setRevisionStatus] = useState<RevisionStatus>('Pending');
   const [commSubTab, setCommSubTab] = useState<'internal' | 'client'>('internal');
   const [quickMsg, setQuickMsg] = useState('');
+  const [activityFilter, setActivityFilter] = useState<'all' | 'client' | 'team' | 'files' | 'status' | 'revisions' | 'system'>('all');
+  const [taskFilter, setTaskFilter] = useState<'all' | 'open' | 'in_progress' | 'done'>('all');
+
+  // File links editing modal state
+  const [isEditingFiles, setIsEditingFiles] = useState(false);
+  const [editFileValues, setEditFileValues] = useState({
+    source_file_link: project.source_file_link || '',
+    drive_folder_link: project.drive_folder_link || '',
+    client_brief_link: project.client_brief_link || '',
+    proof_pdf_link: project.proof_pdf_link || '',
+    final_print_pdf_link: project.final_print_pdf_link || '',
+    final_ebook_link: project.final_ebook_link || '',
+    cover_file_link: project.cover_file_link || '',
+    other_links: project.other_links || '',
+  });
+
+  // Payment editing state
+  const [isEditingPayment, setIsEditingPayment] = useState(false);
+  const [paymentValues, setPaymentValues] = useState({
+    total_price: String(project.total_price || 0),
+    advance_paid: String(project.advance_paid || 0),
+    payment_status: project.payment_status || 'Not Started',
+    payment_date: project.payment_date || '',
+    payment_notes: project.payment_notes || '',
+  });
+
+  const summary = useMemo(() => getTimelineSummary(project), [project]);
 
   const projectNotes = useMemo(
     () => notes.filter((item) => item.project_id === project.id),
@@ -128,7 +184,11 @@ export function ProjectDetail({
     () => activities.filter((item) => item.project_id === project.id),
     [activities, project.id],
   );
-  const projectTasks = useMemo(() => tasks.filter((task) => task.project_id === project.id), [project.id, tasks]);
+
+  const projectTasks = useMemo(
+    () => tasks.filter((task) => task.project_id === project.id),
+    [project.id, tasks],
+  );
 
   useEffect(() => {
     setStage(project.current_stage || 'Files Required');
@@ -144,477 +204,1053 @@ export function ProjectDetail({
   }
 
   async function submitNote() {
-    if (!note.trim()) {
-      return;
-    }
-
+    if (!note.trim()) return;
     await onAddNote(noteType, note.trim());
     setNote('');
   }
 
   async function submitRevision() {
-    if (!revisionNote.trim()) {
-      return;
-    }
-
+    if (!revisionNote.trim()) return;
     await onAddRevision(revisionNote.trim(), revisionStatus);
     setRevisionNote('');
     setRevisionStatus('Pending');
   }
 
+  async function handleSaveFiles(e: React.FormEvent) {
+    e.preventDefault();
+    await onUpdateProject(editFileValues);
+    setIsEditingFiles(false);
+  }
+
+  async function handleSavePayment(e: React.FormEvent) {
+    e.preventDefault();
+    const totalPrice = Number(paymentValues.total_price) || 0;
+    const advancePaid = Number(paymentValues.advance_paid) || 0;
+    await onUpdateProject({
+      total_price: totalPrice,
+      advance_paid: advancePaid,
+      remaining_balance: Math.max(totalPrice - advancePaid, 0),
+      payment_status: paymentValues.payment_status as Project['payment_status'],
+      payment_date: paymentValues.payment_date || null,
+      payment_notes: paymentValues.payment_notes,
+    });
+    setIsEditingPayment(false);
+  }
+
+  // Filtered activity log
+  const filteredActivities = useMemo(() => {
+    return projectActivities.filter((act) => {
+      if (activityFilter === 'all') return true;
+      const text = `${act.action} ${act.new_value || ''} ${act.old_value || ''}`.toLowerCase();
+      if (activityFilter === 'revisions') return text.includes('revision');
+      if (activityFilter === 'status') return text.includes('status') || text.includes('stage');
+      if (activityFilter === 'files') return text.includes('file') || text.includes('upload') || text.includes('proof');
+      if (activityFilter === 'client') return text.includes('client') || text.includes('approved') || text.includes('requested');
+      if (activityFilter === 'team') return !text.includes('client') && !text.includes('system');
+      if (activityFilter === 'system') return text.includes('system') || text.includes('timeline') || text.includes('clock');
+      return true;
+    });
+  }, [projectActivities, activityFilter]);
+
+  // Filtered tasks
+  const filteredTasks = useMemo(() => {
+    return projectTasks.filter((task) => {
+      if (taskFilter === 'all') return true;
+      if (taskFilter === 'open') return task.status === 'To Do';
+      if (taskFilter === 'in_progress') return task.status === 'In Progress';
+      if (taskFilter === 'done') return task.status === 'Done';
+      return true;
+    });
+  }, [projectTasks, taskFilter]);
+
+  // Grouped project files
+  const fileCategories = useMemo(() => {
+    const categories: Array<{
+      category: string;
+      icon: typeof FileText;
+      files: Array<{ name: string; url: string; key: keyof typeof editFileValues }>;
+    }> = [];
+
+    // Client Source Files
+    const clientFiles: Array<{ name: string; url: string; key: keyof typeof editFileValues }> = [];
+    if (project.source_file_link) clientFiles.push({ name: 'Source Manuscript Files', url: project.source_file_link, key: 'source_file_link' });
+    if (project.drive_folder_link) clientFiles.push({ name: 'Google Drive Storage Folder', url: project.drive_folder_link, key: 'drive_folder_link' });
+    if (project.client_brief_link) clientFiles.push({ name: 'Client Brief & Requirements', url: project.client_brief_link, key: 'client_brief_link' });
+    if (clientFiles.length) {
+      categories.push({ category: 'Client & Source Files', icon: FolderOpen, files: clientFiles });
+    }
+
+    // Production Proofs & Covers
+    const prodFiles: Array<{ name: string; url: string; key: keyof typeof editFileValues }> = [];
+    if (project.proof_pdf_link) prodFiles.push({ name: 'Interior Proof PDF', url: project.proof_pdf_link, key: 'proof_pdf_link' });
+    if (project.cover_file_link) prodFiles.push({ name: 'Cover Design File', url: project.cover_file_link, key: 'cover_file_link' });
+    if (project.other_links) prodFiles.push({ name: 'Additional Production Links', url: project.other_links, key: 'other_links' });
+    if (prodFiles.length) {
+      categories.push({ category: 'Production & Proofs', icon: FileCheck, files: prodFiles });
+    }
+
+    // Final Deliverables
+    const deliverableFiles: Array<{ name: string; url: string; key: keyof typeof editFileValues }> = [];
+    if (project.final_print_pdf_link) deliverableFiles.push({ name: 'Final Print-Ready PDF', url: project.final_print_pdf_link, key: 'final_print_pdf_link' });
+    if (project.final_ebook_link) deliverableFiles.push({ name: 'Final eBook (EPUB/MOBI)', url: project.final_ebook_link, key: 'final_ebook_link' });
+    if (deliverableFiles.length) {
+      categories.push({ category: 'Final Deliverables', icon: FileCode, files: deliverableFiles });
+    }
+
+    return categories;
+  }, [project]);
+
   return (
     <Modal title="Project Details" onClose={onClose} width="max-w-6xl">
-      <div className="space-y-5">
-        <Card>
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+      <div className="space-y-4">
+        {/* ========================================================================= */}
+        {/* FIXED PROJECT HEADER (Always visible across all tabs) */}
+        {/* ========================================================================= */}
+        <div className="rounded-xl border border-border bg-white p-5 shadow-xs">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-gold">
+              {/* Badges row */}
+              <div className="flex flex-wrap items-center gap-2 mb-2">
+                <span className="rounded-md bg-ivory px-2.5 py-1 text-xs font-bold uppercase tracking-[0.14em] text-gold border border-gold/30">
                   {project.project_number}
                 </span>
                 <StatusBadge status={project.status} />
                 <PriorityBadge priority={project.priority} />
+                <TimelineBadge project={project} />
+                {project.revision_count ? (
+                  <span className="rounded-full bg-orange-100 px-2.5 py-0.5 text-xs font-bold text-orange-800 flex items-center gap-1">
+                    <RotateCcw className="h-3 w-3" />
+                    Rev #{project.revision_count}
+                  </span>
+                ) : null}
               </div>
-              <h2 className="mt-3 font-display text-3xl font-semibold text-ink">{project.project_title}</h2>
-              <p className="mt-1 text-sm text-muted">
-                {project.client_name} | {project.client_email || 'No client email'}
-              </p>
-              <p className={`mt-3 text-sm font-semibold ${deadlineClass(project)}`}>
-                {deadlineLabel(project)} | Due {formatDate(project.due_date)}
+
+              {/* Title & Service */}
+              <h2 className="font-display text-2xl lg:text-3xl font-bold text-ink leading-tight">
+                {project.project_title}
+              </h2>
+              <p className="mt-1 text-sm font-medium text-muted">
+                {project.client_name} {project.client_email ? `• ${project.client_email}` : ''} • {project.service_type}
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" onClick={() => window.print()}>
+            {/* Quick action buttons */}
+            <div className="flex flex-wrap gap-2 shrink-0">
+              <Button variant="secondary" onClick={() => window.print()} className="text-xs">
                 <Printer className="h-4 w-4" />
                 Print
               </Button>
               {canManageAll ? (
-                <Button variant="secondary" onClick={onEdit}>
+                <Button variant="secondary" onClick={onEdit} className="text-xs">
                   <Edit className="h-4 w-4" />
-                  Edit
+                  Edit Project
                 </Button>
               ) : null}
-              <Button onClick={markDelivered}>
+              <Button onClick={markDelivered} className="text-xs">
                 <CheckCircle2 className="h-4 w-4" />
                 Mark Delivered
               </Button>
               {currentProfile.role === 'admin' ? (
-                <Button variant="danger" onClick={onDelete}>
+                <Button variant="danger" onClick={onDelete} className="text-xs">
                   <Trash2 className="h-4 w-4" />
                   Delete
                 </Button>
               ) : null}
             </div>
           </div>
-        </Card>
 
-        <ProjectTimelinePanel project={project} />
+          {/* Quick Metrics Strip */}
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 rounded-lg border border-border bg-ivory/60 p-3 text-xs">
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-muted block">Current Stage</span>
+              <span className="font-semibold text-ink truncate block mt-0.5">{summary.stage}</span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-muted block">Waiting On</span>
+              <span className={`font-semibold truncate block mt-0.5 ${summary.waitingOn === 'Client' ? 'text-amber-800 font-bold' : 'text-ink'}`}>
+                {summary.waitingOn}
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-muted block">Due Date</span>
+              <span className="font-semibold text-ink truncate block mt-0.5 flex items-center gap-1">
+                <CalendarDays className="h-3 w-3 text-gold" />
+                {summary.dueDate ? formatDate(summary.dueDate) : formatDate(project.due_date)}
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-muted block">Assigned Staff</span>
+              <span className="font-semibold text-ink truncate block mt-0.5">
+                {profileName(profiles, project.assigned_to)}
+              </span>
+            </div>
+          </div>
 
-        <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-          <div className="space-y-5">
-            <Card>
-              <h3 className="font-display text-xl font-semibold">Project Information</h3>
-              <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
-                <Info label="Service" value={project.service_type} />
-                <Info label="Platform" value={project.platform} />
-                <Info label="Genre" value={project.genre || 'Not set'} />
-                <Info label="Trim Size" value={project.trim_size || 'Not set'} />
-                <Info label="Page Count" value={String(project.page_count || 0)} />
-                <Info label="Word Count" value={String(project.word_count || 0)} />
-                <Info label="Images" value={String(project.image_count || 0)} />
-                <Info label="Internal Deadline" value={formatDate(project.internal_deadline)} />
-                <Info label="Assigned To" value={profileName(profiles, project.assigned_to)} />
-                <Info label="Project Manager" value={profileName(profiles, project.project_manager)} />
-              </div>
-            </Card>
+          {/* Active Revision Alert if in revision */}
+          {summary.stageStatus === 'REVISION_ACTIVE' ? (
+            <div className="mt-3 flex items-center gap-2 rounded-md border border-orange-300 bg-orange-50 px-3 py-2 text-xs font-semibold text-orange-900">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-orange-600" />
+              <span>
+                <strong>Revision Active ({summary.stage}):</strong> Client requested changes. 2 production days allocated.
+              </span>
+            </div>
+          ) : null}
+        </div>
 
-            <Card>
-              <div className="flex flex-col gap-3 md:flex-row md:items-end">
-                <SelectField
-                  label="Change Timeline Stage"
-                  value={stage}
-                  onChange={(event) => setStage(event.target.value as TimelineStage)}
-                  className="md:w-72"
-                >
-                  {timelineStages.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </SelectField>
-                <Button onClick={saveStage}>Save Stage</Button>
-              </div>
-            </Card>
+        {/* ========================================================================= */}
+        {/* INTERNAL TABS NAVIGATION */}
+        {/* ========================================================================= */}
+        <div className="flex border-b border-border bg-white px-2 overflow-x-auto rounded-t-lg scrollbar-none">
+          {([
+            { id: 'overview', label: 'Overview', icon: Layers },
+            { id: 'timeline', label: 'Timeline', icon: TrendingUp },
+            {
+              id: 'files',
+              label: 'Files & Deliverables',
+              icon: FolderOpen,
+              count: fileCategories.reduce((acc, c) => acc + c.files.length, 0),
+            },
+            {
+              id: 'revisions',
+              label: 'Revisions',
+              icon: RotateCcw,
+              count: projectRevisionRequests.length + projectRevisions.length,
+            },
+            {
+              id: 'tasks',
+              label: 'Tasks',
+              icon: ListChecks,
+              count: projectTasks.length,
+            },
+            {
+              id: 'communication',
+              label: 'Communication',
+              icon: MessageSquare,
+            },
+            {
+              id: 'payment',
+              label: 'Payment',
+              icon: CreditCard,
+              hide: !canManageAll && currentProfile.role !== 'admin' && currentProfile.role !== 'manager',
+            },
+            {
+              id: 'activity',
+              label: 'Activity',
+              icon: History,
+              count: projectActivities.length,
+            },
+          ] as const).map((tab) => {
+            if ('hide' in tab && tab.hide) return null;
+            const IconComponent = tab.icon;
+            const isActive = activeTab === tab.id;
 
-            <Card>
-              <h3 className="font-display text-xl font-semibold">Files and Links</h3>
-              <div className="mt-4 grid gap-2">
-                <LinkRow label="Source File" value={project.source_file_link} />
-                <LinkRow label="Drive Folder" value={project.drive_folder_link} />
-                <LinkRow label="Client Brief" value={project.client_brief_link} />
-                <LinkRow label="Proof PDF" value={project.proof_pdf_link} />
-                <LinkRow label="Final Print PDF" value={project.final_print_pdf_link} />
-                <LinkRow label="Final eBook" value={project.final_ebook_link} />
-                <LinkRow label="Cover File" value={project.cover_file_link} />
-                <LinkRow label="Other Links" value={project.other_links} />
-                {!project.source_file_link &&
-                !project.drive_folder_link &&
-                !project.proof_pdf_link &&
-                !project.final_print_pdf_link &&
-                !project.final_ebook_link ? (
-                  <p className="rounded-md border border-dashed border-border p-4 text-sm text-muted">
-                    No file links added yet.
-                  </p>
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id as ProjectDetailTab)}
+                className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-xs md:text-sm font-semibold transition ${
+                  isActive
+                    ? 'border-gold text-gold font-bold bg-ivory/50 rounded-t'
+                    : 'border-transparent text-muted hover:text-ink hover:bg-linen/40'
+                }`}
+              >
+                <IconComponent className="h-4 w-4" />
+                {tab.label}
+                {'count' in tab && typeof tab.count === 'number' && tab.count > 0 ? (
+                  <span
+                    className={`flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold ${
+                      isActive ? 'bg-gold text-ink' : 'bg-border text-charcoal'
+                    }`}
+                  >
+                    {tab.count}
+                  </span>
                 ) : null}
-              </div>
-            </Card>
+              </button>
+            );
+          })}
+        </div>
 
-            <Card>
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-display text-xl font-semibold text-ink">Project Tasks</h3>
-                  {projectTasks.length ? (
-                    <p className="mt-1 text-xs text-muted">
-                      {projectTasks.filter((t) => t.status === 'Done').length} of {projectTasks.length} tasks completed ({Math.round((projectTasks.filter((t) => t.status === 'Done').length / projectTasks.length) * 100)}%)
-                    </p>
-                  ) : (
-                    <p className="mt-1 text-xs text-muted">No tasks currently assigned to this project.</p>
-                  )}
+        {/* ========================================================================= */}
+        {/* TAB CONTENTS (Only the active tab renders below) */}
+        {/* ========================================================================= */}
+        <div className="min-h-[420px]">
+          {/* 1. OVERVIEW TAB */}
+          {activeTab === 'overview' && (
+            <div className="space-y-4">
+              <div className="grid gap-4 xl:grid-cols-3">
+                {/* Project Specs */}
+                <Card className="xl:col-span-2">
+                  <h3 className="font-display text-lg font-semibold text-ink flex items-center gap-2 mb-3">
+                    <FileText className="h-4 w-4 text-gold" />
+                    Project Specifications
+                  </h3>
+                  <div className="grid gap-2.5 text-xs sm:grid-cols-2 lg:grid-cols-3">
+                    <Info label="Service Type" value={project.service_type} />
+                    <Info label="Platform" value={project.platform || 'Standard'} />
+                    <Info label="Genre" value={project.genre || 'Not set'} />
+                    <Info label="Trim Size" value={project.trim_size || 'Not set'} />
+                    <Info label="Page Count" value={String(project.page_count || 0)} />
+                    <Info label="Word Count" value={project.word_count ? project.word_count.toLocaleString() : '0'} />
+                    <Info label="Image Count" value={String(project.image_count || 0)} />
+                    <Info label="Target Due Date" value={formatDate(project.due_date)} />
+                    <Info label="Internal Deadline" value={formatDate(project.internal_deadline)} />
+                    <Info label="Created Date" value={formatDate(project.created_at)} />
+                    <Info label="Last Updated" value={formatDate(project.updated_at)} />
+                    <Info label="Delivery Date" value={formatDate(project.delivery_date || project.final_delivery_date)} />
+                  </div>
+                </Card>
+
+                {/* Assigned Team & Stage Controls */}
+                <div className="space-y-4">
+                  <Card>
+                    <h3 className="font-display text-lg font-semibold text-ink flex items-center gap-2 mb-3">
+                      <Users className="h-4 w-4 text-gold" />
+                      Assigned Team
+                    </h3>
+                    <div className="space-y-2.5 text-xs">
+                      {/* Employee */}
+                      <div className="flex items-center gap-3 rounded-lg border border-border bg-ivory/50 p-2.5">
+                        <div className="grid h-9 w-9 place-items-center rounded-full bg-gold/20 font-bold text-ink text-xs">
+                          {initials(profileName(profiles, project.assigned_to))}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <span className="text-[10px] uppercase font-bold text-muted block">Assigned Employee</span>
+                          <p className="font-semibold text-ink truncate">{fullProfileName(profiles, project.assigned_to)}</p>
+                        </div>
+                      </div>
+
+                      {/* Project Manager */}
+                      <div className="flex items-center gap-3 rounded-lg border border-border bg-ivory/50 p-2.5">
+                        <div className="grid h-9 w-9 place-items-center rounded-full bg-blue-100 font-bold text-blue-900 text-xs">
+                          {initials(profileName(profiles, project.project_manager))}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <span className="text-[10px] uppercase font-bold text-muted block">Project Manager</span>
+                          <p className="font-semibold text-ink truncate">{fullProfileName(profiles, project.project_manager)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+
+                  {/* Stage Transition Quick Select */}
+                  <Card>
+                    <h3 className="font-display text-sm font-semibold text-ink mb-2">Change Stage</h3>
+                    <div className="flex items-center gap-2">
+                      <SelectField
+                        value={stage}
+                        onChange={(e) => setStage(e.target.value as TimelineStage)}
+                        className="flex-1 text-xs"
+                      >
+                        {timelineStages.map((item) => (
+                          <option key={item} value={item}>
+                            {item}
+                          </option>
+                        ))}
+                      </SelectField>
+                      <Button onClick={saveStage} className="min-h-9 text-xs px-3">
+                        Save
+                      </Button>
+                    </div>
+                  </Card>
                 </div>
               </div>
 
-              {projectTasks.length ? (
-                <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-ivory">
-                  <div
-                    className="h-full bg-gold transition-all duration-300"
-                    style={{
-                      width: `${(projectTasks.filter((t) => t.status === 'Done').length / projectTasks.length) * 100}%`,
-                    }}
-                  />
-                </div>
+              {/* Compact Payment Summary if accessible */}
+              {canManageAll ? (
+                <Card>
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-border pb-3">
+                    <h3 className="font-display text-lg font-semibold text-ink flex items-center gap-2">
+                      <CreditCard className="h-4 w-4 text-gold" />
+                      Financial Summary
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('payment')}
+                      className="text-xs font-semibold text-gold hover:underline"
+                    >
+                      View Full Payment Tab →
+                    </button>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4 text-xs">
+                    <div className="rounded-lg bg-ivory p-2.5">
+                      <span className="text-muted block">Total Price</span>
+                      <p className="text-sm font-bold text-ink mt-0.5">{currency(project.total_price)}</p>
+                    </div>
+                    <div className="rounded-lg bg-ivory p-2.5">
+                      <span className="text-muted block">Advance Paid</span>
+                      <p className="text-sm font-bold text-success mt-0.5">{currency(project.advance_paid)}</p>
+                    </div>
+                    <div className="rounded-lg bg-ivory p-2.5">
+                      <span className="text-muted block">Remaining</span>
+                      <p className="text-sm font-bold text-amber-900 mt-0.5">{currency(project.remaining_balance)}</p>
+                    </div>
+                    <div className="rounded-lg bg-ivory p-2.5">
+                      <span className="text-muted block">Payment Status</span>
+                      <div className="mt-1">
+                        <PaymentBadge status={project.payment_status} />
+                      </div>
+                    </div>
+                  </div>
+                </Card>
               ) : null}
 
-              <div className="mt-4 space-y-2">
-                {projectTasks.length ? (
-                  projectTasks.map((task) => (
-                    <div
-                      key={task.id}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-border/80 bg-white p-3 text-sm shadow-xs transition hover:border-gold/50"
+              {/* Notes & Instructions Summary */}
+              <Card>
+                <div className="flex items-center justify-between border-b border-border pb-3">
+                  <h3 className="font-display text-lg font-semibold text-ink flex items-center gap-2">
+                    <MessageSquare className="h-4 w-4 text-gold" />
+                    Instructions & Project Notes
+                  </h3>
+                </div>
+
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <NoteBlock title="Client Instructions" value={project.client_instructions} />
+                  <NoteBlock title="General Notes" value={project.general_notes} />
+                  <NoteBlock title="Internal Team Notes" value={project.internal_notes} />
+                  <NoteBlock title="QA Notes" value={project.qa_notes} />
+                </div>
+
+                {/* Quick Add Note Form */}
+                <div className="mt-4 rounded-lg border border-border bg-ivory p-3">
+                  <span className="text-xs font-bold uppercase tracking-wider text-muted block mb-2">Add New Note</span>
+                  <div className="grid gap-2 sm:grid-cols-[180px_1fr_auto] sm:items-end">
+                    <SelectField
+                      label="Note Type"
+                      value={noteType}
+                      onChange={(e) => setNoteType(e.target.value as NoteType)}
+                      className="text-xs"
                     >
-                      <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-ink truncate">{task.title}</p>
-                        <p className="text-xs text-muted mt-0.5">
-                          Assigned: <span className="font-medium text-charcoal">{profileName(profiles, task.assigned_to)}</span> · Due: {formatDate(task.due_date)}
-                        </p>
-                      </div>
-                      <span
-                        className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                          task.status === 'Done'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : task.status === 'In Progress'
-                              ? 'bg-blue-100 text-blue-800'
-                              : 'bg-amber-100 text-amber-800'
-                        }`}
-                      >
-                        {task.status}
-                      </span>
-                    </div>
-                  ))
-                ) : (
-                  <p className="rounded-md border border-dashed border-border p-3 text-sm text-muted">
-                    No tasks linked to this project yet. Create tasks from "My Tasks" or "Team Tasks" to link them here.
-                  </p>
-                )}
-              </div>
-            </Card>
-
-            <Card>
-              <div className="flex items-center justify-between border-b border-border pb-3">
-                <h3 className="font-display text-xl font-semibold flex items-center gap-2">
-                  <MessageSquare className="h-5 w-5 text-gold" />
-                  Project Communication
-                </h3>
-                <div className="flex rounded-lg bg-linen p-1 text-xs font-semibold">
-                  <button
-                    onClick={() => setCommSubTab('internal')}
-                    className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 transition ${
-                      commSubTab === 'internal' ? 'bg-gold text-ink font-bold shadow-xs' : 'text-muted hover:text-ink'
-                    }`}
-                  >
-                    <Lock className="h-3.5 w-3.5" />
-                    Internal Discussion 🔒
-                  </button>
-                  <button
-                    onClick={() => setCommSubTab('client')}
-                    className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 transition ${
-                      commSubTab === 'client' ? 'bg-gold text-ink font-bold shadow-xs' : 'text-muted hover:text-ink'
-                    }`}
-                  >
-                    <User className="h-3.5 w-3.5" />
-                    Client Discussion 👤
-                  </button>
-                </div>
-              </div>
-
-              <div className="mt-3 rounded-lg border border-border bg-linen/30 p-3">
-                {commSubTab === 'internal' ? (
-                  <div className="space-y-3">
-                    <p className="text-xs text-muted flex items-center gap-1.5 font-medium">
-                      <Lock className="h-3.5 w-3.5 text-gold shrink-0" />
-                      <span>Internal conversation between team members. <strong>Client cannot see this.</strong></span>
-                    </p>
-                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                      <div className="rounded-lg bg-white p-2.5 text-xs border border-border">
-                        <div className="flex items-center justify-between text-[11px] text-muted mb-1">
-                          <span className="font-bold text-ink">Tahir</span>
-                          <span>Yesterday 4:10 PM</span>
-                        </div>
-                        <p className="text-ink/90">@Zain Please update the chapter headings and check margin on p.42 before sending to client.</p>
-                      </div>
-                      <div className="rounded-lg bg-gold/10 p-2.5 text-xs border border-gold/30">
-                        <div className="flex items-center justify-between text-[11px] text-muted mb-1">
-                          <span className="font-bold text-ink">Zain</span>
-                          <span>Yesterday 5:20 PM</span>
-                        </div>
-                        <p className="text-ink/90">Done! I have checked interior margins and re-exported proof PDF.</p>
-                      </div>
-                    </div>
+                      {noteTypes.map((item) => (
+                        <option key={item.value} value={item.value}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </SelectField>
+                    <Field
+                      label="Note Content"
+                      value={note}
+                      onChange={(e) => setNote(e.target.value)}
+                      placeholder="Write note..."
+                      className="text-xs"
+                    />
+                    <Button type="button" onClick={submitNote} className="min-h-9 text-xs px-3">
+                      <Plus className="h-4 w-4" />
+                      Add Note
+                    </Button>
                   </div>
-                ) : (
-                  <div className="space-y-3">
-                    <p className="text-xs text-muted flex items-center gap-1.5 font-medium">
-                      <User className="h-3.5 w-3.5 text-blue-600 shrink-0" />
-                      <span>Shared discussion with client ({project.client_name}).</span>
-                    </p>
-                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                      <div className="rounded-lg bg-blue-50/60 p-2.5 text-xs border border-blue-200">
-                        <div className="flex items-center justify-between text-[11px] text-muted mb-1">
-                          <span className="font-bold text-blue-900">{project.client_name} (Client)</span>
-                          <span>Aug 11, 2:35 PM</span>
-                        </div>
-                        <p className="text-blue-950">Hi! We reviewed the interior proof and requested one minor revision on page 48.</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="mt-3 flex items-center gap-2">
-                  <input
-                    type="text"
-                    placeholder={`Write a ${commSubTab === 'internal' ? 'internal team' : 'client'} message...`}
-                    value={quickMsg}
-                    onChange={(e) => setQuickMsg(e.target.value)}
-                    className="flex-1 rounded-md border border-border bg-white px-3 py-1.5 text-xs text-ink outline-none focus:border-gold"
-                  />
-                  <Button
-                    className="min-h-8 text-xs px-3 py-1"
-                    onClick={() => {
-                      if (!quickMsg.trim()) return;
-                      setQuickMsg('');
-                    }}
-                  >
-                    <Send className="h-3.5 w-3.5" />
-                    Send
-                  </Button>
                 </div>
-              </div>
-            </Card>
 
-            <Card>
-              <h3 className="font-display text-xl font-semibold">Notes</h3>
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                <NoteBlock title="General Notes" value={project.general_notes} />
-                <NoteBlock title="Internal Notes" value={project.internal_notes} />
-                <NoteBlock title="Client Instructions" value={project.client_instructions} />
-                <NoteBlock title="QA Notes" value={project.qa_notes} />
-                <NoteBlock title="Delivery Notes" value={project.delivery_notes} />
-              </div>
+                {/* Notes History */}
+                {projectNotes.length ? (
+                  <div className="mt-3 space-y-2 max-h-44 overflow-y-auto">
+                    {projectNotes.map((item) => (
+                      <div key={item.id} className="rounded-md border border-border bg-white p-2.5 text-xs">
+                        <div className="flex items-center justify-between text-muted mb-1">
+                          <span className="font-bold text-ink capitalize">{item.note_type.replace('_', ' ')}</span>
+                          <span>{profileName(profiles, item.added_by)} • {formatDate(item.created_at)}</span>
+                        </div>
+                        <p className="text-charcoal leading-relaxed">{item.note}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </Card>
+            </div>
+          )}
 
-              <div className="mt-5 grid gap-3 rounded-lg border border-border bg-ivory p-4">
-                <h4 className="font-semibold">Add Note</h4>
-                <div className="grid gap-3 md:grid-cols-[220px_1fr_auto] md:items-end">
+          {/* 2. TIMELINE TAB */}
+          {activeTab === 'timeline' && (
+            <div className="space-y-4">
+              <ProjectTimelinePanel project={project} />
+
+              <Card>
+                <h3 className="font-display text-lg font-semibold text-ink mb-3">Timeline Controls</h3>
+                <div className="flex flex-col sm:flex-row sm:items-end gap-3">
                   <SelectField
-                    label="Note Type"
-                    value={noteType}
-                    onChange={(event) => setNoteType(event.target.value as NoteType)}
+                    label="Manually Override Timeline Stage"
+                    value={stage}
+                    onChange={(e) => setStage(e.target.value as TimelineStage)}
+                    className="sm:w-80 text-sm"
                   >
-                    {noteTypes.map((item) => (
-                      <option key={item.value} value={item.value}>
-                        {item.label}
+                    {timelineStages.map((item) => (
+                      <option key={item} value={item}>
+                        {item}
                       </option>
                     ))}
                   </SelectField>
-                  <Field label="Note" value={note} onChange={(event) => setNote(event.target.value)} />
-                  <Button type="button" onClick={submitNote}>
-                    <Plus className="h-4 w-4" />
-                    Add
+                  <Button onClick={saveStage}>Save Stage</Button>
+                  <Button variant="secondary" onClick={markDelivered}>
+                    <CheckCircle2 className="h-4 w-4" />
+                    Complete Project
                   </Button>
                 </div>
+              </Card>
+            </div>
+          )}
+
+          {/* 3. FILES & DELIVERABLES TAB */}
+          {activeTab === 'files' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-display text-xl font-semibold text-ink">Project Files & Deliverables</h3>
+                  <p className="text-xs text-muted mt-0.5">All shared client files, interior proofs, cover drafts, and final deliverables.</p>
+                </div>
+                {canManageAll ? (
+                  <Button variant="secondary" onClick={() => setIsEditingFiles(true)} className="text-xs">
+                    <Edit className="h-3.5 w-3.5" />
+                    Edit File Links
+                  </Button>
+                ) : null}
               </div>
 
-              <div className="mt-4 space-y-3">
-                {projectNotes.map((item) => (
-                  <div key={item.id} className="rounded-md border border-border bg-white p-3 text-sm">
-                    <div className="mb-1 flex flex-wrap items-center gap-2">
-                      <span className="font-semibold capitalize">{item.note_type.replace('_', ' ')}</span>
-                      <span className="text-muted">by {profileName(profiles, item.added_by)}</span>
-                      <span className="text-muted">{new Date(item.created_at).toLocaleString()}</span>
+              {fileCategories.length ? (
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {fileCategories.map((group) => {
+                    const IconComp = group.icon;
+
+                    return (
+                      <Card key={group.category} className="flex flex-col justify-between">
+                        <div>
+                          <h4 className="font-display font-semibold text-ink flex items-center gap-2 border-b border-border pb-2.5 mb-3 text-sm">
+                            <IconComp className="h-4 w-4 text-gold" />
+                            {group.category}
+                          </h4>
+                          <div className="space-y-2">
+                            {group.files.map((file) => (
+                              <div
+                                key={file.name}
+                                className="flex items-center justify-between gap-3 rounded-lg border border-border bg-ivory/60 p-2.5 text-xs hover:border-gold hover:bg-white transition"
+                              >
+                                <div className="min-w-0">
+                                  <p className="font-semibold text-ink truncate">{file.name}</p>
+                                  <p className="text-[10px] text-muted truncate mt-0.5">{file.url}</p>
+                                </div>
+                                <a
+                                  href={file.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="shrink-0 rounded-md bg-gold/15 p-1.5 text-ink hover:bg-gold hover:text-white transition"
+                                  title="Open file link"
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5" />
+                                </a>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </Card>
+                    );
+                  })}
+                </div>
+              ) : (
+                <Card>
+                  <div className="p-8 text-center text-muted">
+                    <FolderOpen className="mx-auto h-8 w-8 text-border mb-2" />
+                    <p className="font-semibold">No files attached yet</p>
+                    <p className="text-xs mt-1">Add Google Drive, proof PDFs, or deliverable links to this project.</p>
+                    {canManageAll ? (
+                      <Button variant="secondary" onClick={() => setIsEditingFiles(true)} className="mt-3 text-xs">
+                        <Plus className="h-3.5 w-3.5" />
+                        Add File Links
+                      </Button>
+                    ) : null}
+                  </div>
+                </Card>
+              )}
+
+              {/* Edit File Links Modal */}
+              {isEditingFiles && (
+                <div className="rounded-xl border border-border bg-linen/50 p-4 space-y-3">
+                  <h4 className="font-display font-semibold text-sm">Update Project File URLs</h4>
+                  <form onSubmit={handleSaveFiles} className="grid gap-3 sm:grid-cols-2 text-xs">
+                    <Field
+                      label="Source File URL"
+                      value={editFileValues.source_file_link}
+                      onChange={(e) => setEditFileValues({ ...editFileValues, source_file_link: e.target.value })}
+                    />
+                    <Field
+                      label="Drive Folder Link"
+                      value={editFileValues.drive_folder_link}
+                      onChange={(e) => setEditFileValues({ ...editFileValues, drive_folder_link: e.target.value })}
+                    />
+                    <Field
+                      label="Client Brief Link"
+                      value={editFileValues.client_brief_link}
+                      onChange={(e) => setEditFileValues({ ...editFileValues, client_brief_link: e.target.value })}
+                    />
+                    <Field
+                      label="Interior Proof PDF URL"
+                      value={editFileValues.proof_pdf_link}
+                      onChange={(e) => setEditFileValues({ ...editFileValues, proof_pdf_link: e.target.value })}
+                    />
+                    <Field
+                      label="Final Print-Ready PDF URL"
+                      value={editFileValues.final_print_pdf_link}
+                      onChange={(e) => setEditFileValues({ ...editFileValues, final_print_pdf_link: e.target.value })}
+                    />
+                    <Field
+                      label="Final eBook (EPUB) URL"
+                      value={editFileValues.final_ebook_link}
+                      onChange={(e) => setEditFileValues({ ...editFileValues, final_ebook_link: e.target.value })}
+                    />
+                    <Field
+                      label="Cover Design URL"
+                      value={editFileValues.cover_file_link}
+                      onChange={(e) => setEditFileValues({ ...editFileValues, cover_file_link: e.target.value })}
+                    />
+                    <Field
+                      label="Other Project Links"
+                      value={editFileValues.other_links}
+                      onChange={(e) => setEditFileValues({ ...editFileValues, other_links: e.target.value })}
+                    />
+                    <div className="sm:col-span-2 flex justify-end gap-2 pt-2">
+                      <Button type="button" variant="secondary" onClick={() => setIsEditingFiles(false)} className="text-xs">
+                        Cancel
+                      </Button>
+                      <Button type="submit" className="text-xs">
+                        Save Links
+                      </Button>
                     </div>
-                    <p className="leading-6 text-charcoal">{item.note}</p>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          </div>
+                  </form>
+                </div>
+              )}
+            </div>
+          )}
 
-          <div className="space-y-5">
-            {canManageAll ? (
+          {/* 4. REVISIONS TAB */}
+          {activeTab === 'revisions' && (
+            <div className="space-y-5">
+              {/* Client Revision Requests for this project */}
+              <div>
+                <div className="mb-3">
+                  <h3 className="font-display text-xl font-semibold text-ink">Client Revision Requests</h3>
+                  <p className="text-xs text-muted">
+                    Complete records of client-submitted revisions for this project with item checklists, files, and team replies.
+                  </p>
+                </div>
+
+                <RevisionRequestsPage
+                  revisionRequests={projectRevisionRequests}
+                  revisionItems={revisionItems}
+                  revisionAttachments={revisionAttachments}
+                  revisionActivity={revisionActivity}
+                  projects={[project]}
+                  profiles={profiles}
+                  currentProfile={currentProfile}
+                  canManageAll={canManageAll}
+                  onUpdateRequest={onUpdateRevisionRequest}
+                  onUpdateItem={onUpdateRevisionItem}
+                  onUploadRevisedProof={onUploadRevisedProof}
+                />
+              </div>
+
+              {/* Internal Revision Notes */}
               <Card>
-                <h3 className="font-display text-xl font-semibold">Payment</h3>
-                <div className="mt-4 grid gap-3 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted">Status</span>
-                    <PaymentBadge status={project.payment_status} />
+                <h3 className="font-display text-lg font-semibold text-ink mb-3">Internal Revision Notes (Team Only)</h3>
+                <div className="grid gap-3">
+                  <TextareaField
+                    label="New Internal Revision Note"
+                    value={revisionNote}
+                    onChange={(event) => setRevisionNote(event.target.value)}
+                    placeholder="Enter internal production notes about this revision round..."
+                  />
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                    <SelectField
+                      label="Revision Status"
+                      value={revisionStatus}
+                      onChange={(event) => setRevisionStatus(event.target.value as RevisionStatus)}
+                      className="sm:w-56 text-xs"
+                    >
+                      {revisionStatuses.map((item) => (
+                        <option key={item}>{item}</option>
+                      ))}
+                    </SelectField>
+                    <Button type="button" onClick={submitRevision} className="text-xs">
+                      <Plus className="h-4 w-4" />
+                      Add Internal Revision Note
+                    </Button>
                   </div>
-                  <Info label="Total Price" value={currency(project.total_price)} />
-                  <Info label="Advance Paid" value={currency(project.advance_paid)} />
-                  <Info label="Remaining Balance" value={currency(project.remaining_balance)} />
-                  <Info label="Payment Date" value={formatDate(project.payment_date)} />
-                  <div className="rounded-md bg-ivory px-3 py-2">
-                    <p className="text-muted">Payment Notes</p>
-                    <p className="mt-1 font-semibold">{project.payment_notes || 'No notes'}</p>
+                </div>
+
+                {projectRevisions.length ? (
+                  <div className="mt-4 space-y-2.5">
+                    {projectRevisions.map((rev) => (
+                      <div key={rev.id} className="rounded-lg border border-border bg-white p-3 text-xs">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="font-bold text-ink">Revision Round #{rev.revision_number}</span>
+                          <span className="rounded-full bg-ivory px-2 py-0.5 text-[11px] font-semibold text-muted border border-border">
+                            {rev.status}
+                          </span>
+                        </div>
+                        <p className="text-charcoal leading-relaxed">{rev.note}</p>
+                        <p className="mt-2 text-[10px] text-muted">
+                          Added by {profileName(profiles, rev.added_by)} • {formatDate(rev.created_at)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </Card>
+            </div>
+          )}
+
+          {/* 5. TASKS TAB */}
+          {activeTab === 'tasks' && (
+            <div className="space-y-4">
+              <Card>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-3">
+                  <div>
+                    <h3 className="font-display text-xl font-semibold text-ink">Project Tasks</h3>
+                    <p className="text-xs text-muted mt-0.5">
+                      {projectTasks.filter((t) => t.status === 'Done').length} of {projectTasks.length} tasks completed
+                    </p>
+                  </div>
+                  {/* Task Filter */}
+                  <div className="flex items-center gap-1 rounded-lg bg-linen p-1 text-xs">
+                    {(['all', 'open', 'in_progress', 'done'] as const).map((filter) => (
+                      <button
+                        key={filter}
+                        type="button"
+                        onClick={() => setTaskFilter(filter)}
+                        className={`rounded px-2.5 py-1 capitalize transition ${
+                          taskFilter === filter ? 'bg-gold text-ink font-bold shadow-xs' : 'text-muted hover:text-ink'
+                        }`}
+                      >
+                        {filter.replace('_', ' ')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {projectTasks.length ? (
+                  <div className="mt-3 space-y-2">
+                    {/* Progress Bar */}
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-ivory mb-4">
+                      <div
+                        className="h-full bg-gold transition-all duration-300"
+                        style={{
+                          width: `${(projectTasks.filter((t) => t.status === 'Done').length / projectTasks.length) * 100}%`,
+                        }}
+                      />
+                    </div>
+
+                    {filteredTasks.length ? (
+                      filteredTasks.map((task) => (
+                        <div
+                          key={task.id}
+                          className="flex items-center justify-between gap-3 rounded-lg border border-border bg-white p-3 text-xs shadow-xs hover:border-gold transition"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="font-semibold text-ink">{task.title}</p>
+                            {task.description ? <p className="text-muted mt-0.5 line-clamp-1">{task.description}</p> : null}
+                            <p className="text-[10px] text-muted mt-1">
+                              Assigned to <span className="font-medium text-charcoal">{profileName(profiles, task.assigned_to)}</span> • Due {formatDate(task.due_date)}
+                            </p>
+                          </div>
+                          <span
+                            className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                              task.status === 'Done'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : task.status === 'In Progress'
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {task.status}
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-center py-6 text-xs text-muted">No tasks matching the selected filter.</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-8 text-center text-muted">
+                    <ListChecks className="mx-auto h-8 w-8 text-border mb-2" />
+                    <p className="font-semibold">No tasks assigned to this project yet</p>
+                    <p className="text-xs mt-1">Assign tasks to team members from the Tasks page.</p>
+                  </div>
+                )}
+              </Card>
+            </div>
+          )}
+
+          {/* 6. COMMUNICATION TAB */}
+          {activeTab === 'communication' && (
+            <div className="space-y-4">
+              <Card>
+                <div className="flex items-center justify-between border-b border-border pb-3">
+                  <h3 className="font-display text-xl font-semibold flex items-center gap-2">
+                    <MessageSquare className="h-5 w-5 text-gold" />
+                    Project Discussion
+                  </h3>
+                  <div className="flex rounded-lg bg-linen p-1 text-xs font-semibold">
+                    <button
+                      onClick={() => setCommSubTab('internal')}
+                      className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 transition ${
+                        commSubTab === 'internal' ? 'bg-gold text-ink font-bold shadow-xs' : 'text-muted hover:text-ink'
+                      }`}
+                    >
+                      <Lock className="h-3.5 w-3.5" />
+                      Internal Discussion 🔒
+                    </button>
+                    <button
+                      onClick={() => setCommSubTab('client')}
+                      className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 transition ${
+                        commSubTab === 'client' ? 'bg-gold text-ink font-bold shadow-xs' : 'text-muted hover:text-ink'
+                      }`}
+                    >
+                      <User className="h-3.5 w-3.5" />
+                      Client Discussion 👤
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-3 rounded-lg border border-border bg-linen/30 p-3">
+                  {commSubTab === 'internal' ? (
+                    <div className="space-y-3">
+                      <p className="text-xs text-muted flex items-center gap-1.5 font-medium">
+                        <Lock className="h-3.5 w-3.5 text-gold shrink-0" />
+                        <span>Internal discussion between staff. <strong>Clients cannot see this.</strong></span>
+                      </p>
+                      <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                        <div className="rounded-lg bg-white p-3 text-xs border border-border">
+                          <div className="flex items-center justify-between text-[11px] text-muted mb-1">
+                            <span className="font-bold text-ink">Tahir (Manager)</span>
+                            <span>Yesterday 4:10 PM</span>
+                          </div>
+                          <p className="text-charcoal leading-relaxed">
+                            Please update chapter formatting on pages 40-45 and check margin spacing before client review.
+                          </p>
+                        </div>
+                        <div className="rounded-lg bg-gold/10 p-3 text-xs border border-gold/30">
+                          <div className="flex items-center justify-between text-[11px] text-muted mb-1">
+                            <span className="font-bold text-ink">Zain (Formatter)</span>
+                            <span>Yesterday 5:20 PM</span>
+                          </div>
+                          <p className="text-charcoal leading-relaxed">
+                            Done! Margins aligned and proof PDF generated.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-xs text-muted flex items-center gap-1.5 font-medium">
+                        <User className="h-3.5 w-3.5 text-blue-600 shrink-0" />
+                        <span>Shared discussion with client ({project.client_name}).</span>
+                      </p>
+                      <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                        <div className="rounded-lg bg-blue-50/60 p-3 text-xs border border-blue-200">
+                          <div className="flex items-center justify-between text-[11px] text-muted mb-1">
+                            <span className="font-bold text-blue-900">{project.client_name} (Client)</span>
+                            <span>Aug 11, 2:35 PM</span>
+                          </div>
+                          <p className="text-blue-950 leading-relaxed">
+                            Thank you! The interior layout looks great.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-3 flex items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder={`Write a ${commSubTab === 'internal' ? 'internal team' : 'client'} message...`}
+                      value={quickMsg}
+                      onChange={(e) => setQuickMsg(e.target.value)}
+                      className="flex-1 rounded-md border border-border bg-white px-3 py-1.5 text-xs text-ink outline-none focus:border-gold"
+                    />
+                    <Button
+                      className="min-h-8 text-xs px-3 py-1"
+                      onClick={() => {
+                        if (!quickMsg.trim()) return;
+                        setQuickMsg('');
+                      }}
+                    >
+                      <Send className="h-3.5 w-3.5" />
+                      Send
+                    </Button>
                   </div>
                 </div>
               </Card>
-            ) : null}
+            </div>
+          )}
 
-            <Card>
-              <h3 className="font-display text-xl font-semibold">Assigned Team</h3>
-              <div className="mt-4 space-y-3">
-                {Array.from(new Set([project.assigned_to, project.project_manager].filter(Boolean))).map((id) => {
-                  const profile = profiles.find((item) => item.id === id);
-                  if (!profile) {
-                    return null;
-                  }
-
-                  return (
-                    <div key={profile.id} className="flex items-center gap-3 rounded-md border border-border p-3">
-                      <div className="grid h-10 w-10 place-items-center rounded-full bg-gold/20 text-sm font-bold">
-                        {initials(firstName(profile.full_name))}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-semibold">{firstName(profile.full_name)}</p>
-                        <p className="truncate text-xs text-muted">{profile.email}</p>
-                      </div>
-                      <RoleBadge role={profile.role} />
-                    </div>
-                  );
-                })}
-              </div>
-            </Card>
-
-            <Card>
-              <h3 className="font-display text-xl font-semibold">Internal Revision Notes</h3>
-              <div className="mt-4 grid gap-3">
-                <TextareaField
-                  label="New Internal Revision Note"
-                  value={revisionNote}
-                  onChange={(event) => setRevisionNote(event.target.value)}
-                />
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                  <SelectField
-                    label="Revision Status"
-                    value={revisionStatus}
-                    onChange={(event) => setRevisionStatus(event.target.value as RevisionStatus)}
-                    className="sm:w-56"
-                  >
-                    {revisionStatuses.map((item) => (
-                      <option key={item}>{item}</option>
-                    ))}
-                  </SelectField>
-                  <Button type="button" onClick={submitRevision}>
-                    <Plus className="h-4 w-4" />
-                    Add Revision
-                  </Button>
+          {/* 7. PAYMENT TAB */}
+          {activeTab === 'payment' && (
+            <div className="space-y-4">
+              <Card>
+                <div className="flex items-center justify-between border-b border-border pb-3">
+                  <div>
+                    <h3 className="font-display text-xl font-semibold text-ink">Project Payment & Financials</h3>
+                    <p className="text-xs text-muted">Complete billing status, advance payments, and notes for this project.</p>
+                  </div>
+                  {canManageAll ? (
+                    <Button variant="secondary" onClick={() => setIsEditingPayment(!isEditingPayment)} className="text-xs">
+                      <Edit className="h-3.5 w-3.5" />
+                      {isEditingPayment ? 'Cancel' : 'Edit Payment'}
+                    </Button>
+                  ) : null}
                 </div>
-              </div>
 
-              <div className="mt-4 space-y-3">
-                {projectRevisions.length ? (
-                  projectRevisions.map((revision) => (
-                    <div key={revision.id} className="rounded-md border border-border bg-white p-3 text-sm">
-                      <div className="mb-1 flex flex-wrap items-center gap-2">
-                        <span className="font-semibold">Revision {revision.revision_number}</span>
-                        <span className="rounded-full bg-ivory px-2 py-1 text-xs font-semibold text-muted">
-                          {revision.status}
-                        </span>
-                      </div>
-                      <p className="leading-6 text-charcoal">{revision.note}</p>
-                      <p className="mt-2 text-xs text-muted">
-                        {profileName(profiles, revision.added_by)} |{' '}
-                        {new Date(revision.created_at).toLocaleString()}
-                      </p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-xs">
+                  <div className="rounded-lg border border-border bg-ivory p-3">
+                    <span className="text-muted block font-medium">Total Contract Price</span>
+                    <p className="text-xl font-bold text-ink mt-1">{currency(project.total_price)}</p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-green-50/50 p-3">
+                    <span className="text-green-800 block font-medium">Advance Paid</span>
+                    <p className="text-xl font-bold text-success mt-1">{currency(project.advance_paid)}</p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-amber-50/50 p-3">
+                    <span className="text-amber-800 block font-medium">Remaining Balance</span>
+                    <p className="text-xl font-bold text-amber-900 mt-1">{currency(project.remaining_balance)}</p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-ivory p-3">
+                    <span className="text-muted block font-medium">Payment Status</span>
+                    <div className="mt-1.5">
+                      <PaymentBadge status={project.payment_status} />
                     </div>
-                  ))
-                ) : (
-                  <p className="rounded-md border border-dashed border-border p-4 text-sm text-muted">
-                    No revision notes yet.
-                  </p>
-                )}
-              </div>
-            </Card>
+                  </div>
+                </div>
 
-            <Card>
-              <h3 className="font-display text-xl font-semibold">Activity Timeline</h3>
-              <div className="mt-4 space-y-3">
-                {projectActivities.length ? (
-                  projectActivities.map((activity) => (
-                    <div key={activity.id} className="flex gap-3 text-sm">
-                      <div className="mt-1 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-gold/20">
-                        <FileText className="h-3.5 w-3.5 text-gold" />
-                      </div>
-                      <div>
-                        <p className="font-semibold">{activity.action}</p>
-                        <p className="text-muted">
-                          {activity.old_value ? `${activity.old_value} -> ` : ''}
-                          {activity.new_value || 'Updated'} by {profileName(profiles, activity.user_id)}
-                        </p>
-                        <p className="text-xs text-muted">{new Date(activity.created_at).toLocaleString()}</p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 text-xs">
+                  <div className="rounded-lg border border-border bg-white p-3">
+                    <span className="text-muted font-medium block">Payment Date</span>
+                    <p className="text-sm font-semibold text-ink mt-0.5">{formatDate(project.payment_date)}</p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-white p-3">
+                    <span className="text-muted font-medium block">Payment Notes</span>
+                    <p className="text-sm font-semibold text-ink mt-0.5">{project.payment_notes || 'No payment notes recorded.'}</p>
+                  </div>
+                </div>
+
+                {/* Edit Payment Form */}
+                {isEditingPayment && (
+                  <form onSubmit={handleSavePayment} className="mt-4 rounded-xl border border-border bg-linen/50 p-4 space-y-3">
+                    <h4 className="font-semibold text-xs text-ink">Update Payment Record</h4>
+                    <div className="grid gap-3 sm:grid-cols-2 text-xs">
+                      <Field
+                        label="Total Contract Price ($)"
+                        type="number"
+                        value={paymentValues.total_price}
+                        onChange={(e) => setPaymentValues({ ...paymentValues, total_price: e.target.value })}
+                      />
+                      <Field
+                        label="Advance Paid ($)"
+                        type="number"
+                        value={paymentValues.advance_paid}
+                        onChange={(e) => setPaymentValues({ ...paymentValues, advance_paid: e.target.value })}
+                      />
+                      <SelectField
+                        label="Payment Status"
+                        value={paymentValues.payment_status}
+                        onChange={(e) => setPaymentValues({ ...paymentValues, payment_status: e.target.value as Project['payment_status'] })}
+                      >
+                        <option value="Not Started">Not Started</option>
+                        <option value="Advance Paid">Advance Paid</option>
+                        <option value="Partially Paid">Partially Paid</option>
+                        <option value="Fully Paid">Fully Paid</option>
+                        <option value="Pending">Pending</option>
+                        <option value="Refunded">Refunded</option>
+                      </SelectField>
+                      <Field
+                        label="Payment Date"
+                        type="date"
+                        value={paymentValues.payment_date}
+                        onChange={(e) => setPaymentValues({ ...paymentValues, payment_date: e.target.value })}
+                      />
+                      <div className="sm:col-span-2">
+                        <Field
+                          label="Payment Notes"
+                          value={paymentValues.payment_notes}
+                          onChange={(e) => setPaymentValues({ ...paymentValues, payment_notes: e.target.value })}
+                        />
                       </div>
                     </div>
-                  ))
-                ) : (
-                  <p className="rounded-md border border-dashed border-border p-4 text-sm text-muted">
-                    No activity yet.
-                  </p>
+                    <div className="flex justify-end gap-2 pt-2">
+                      <Button type="button" variant="secondary" onClick={() => setIsEditingPayment(false)} className="text-xs">
+                        Cancel
+                      </Button>
+                      <Button type="submit" className="text-xs">
+                        Save Payment
+                      </Button>
+                    </div>
+                  </form>
                 )}
-              </div>
-            </Card>
-          </div>
+              </Card>
+            </div>
+          )}
+
+          {/* 8. ACTIVITY TAB */}
+          {activeTab === 'activity' && (
+            <div className="space-y-4">
+              <Card>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-3">
+                  <div>
+                    <h3 className="font-display text-xl font-semibold text-ink">Project Activity History</h3>
+                    <p className="text-xs text-muted">Complete audit log of all events, client interactions, stage transitions, and file uploads.</p>
+                  </div>
+                  {/* Activity Filters */}
+                  <div className="flex flex-wrap items-center gap-1 rounded-lg bg-linen p-1 text-xs">
+                    {(['all', 'client', 'team', 'files', 'status', 'revisions'] as const).map((filter) => (
+                      <button
+                        key={filter}
+                        type="button"
+                        onClick={() => setActivityFilter(filter)}
+                        className={`rounded px-2.5 py-1 capitalize transition ${
+                          activityFilter === filter ? 'bg-gold text-ink font-bold shadow-xs' : 'text-muted hover:text-ink'
+                        }`}
+                      >
+                        {filter}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-4 space-y-2.5">
+                  {filteredActivities.length ? (
+                    filteredActivities.map((act) => (
+                      <div
+                        key={act.id}
+                        className="flex items-start gap-3 rounded-lg border border-border bg-white p-3 text-xs shadow-xs"
+                      >
+                        <div className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-gold/20 text-gold">
+                          <History className="h-3.5 w-3.5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="font-semibold text-ink">{act.action}</p>
+                            <span className="text-[10px] text-muted shrink-0">{formatDate(act.created_at)}</span>
+                          </div>
+                          {act.new_value ? (
+                            <p className="text-muted mt-0.5">
+                              {act.old_value ? `${act.old_value} → ` : ''}
+                              <span className="text-charcoal font-medium">{act.new_value}</span>
+                            </p>
+                          ) : null}
+                          <p className="text-[10px] text-gold font-medium mt-1">
+                            By: {profileName(profiles, act.user_id)}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="p-8 text-center text-muted">
+                      <History className="mx-auto h-8 w-8 text-border mb-2" />
+                      <p className="font-semibold">No activity matching the filter</p>
+                      <p className="text-xs mt-1">Project activity will appear as changes occur.</p>
+                    </div>
+                  )}
+                </div>
+              </Card>
+            </div>
+          )}
         </div>
-
-        <section className="space-y-4">
-          <div>
-            <h3 className="font-display text-2xl font-semibold">Client Revision Requests</h3>
-            <p className="mt-1 text-sm text-muted">
-              Revision requests submitted by the client for this project stay here with the project.
-            </p>
-          </div>
-          <RevisionRequestsPage
-            revisionRequests={projectRevisionRequests}
-            revisionItems={revisionItems}
-            revisionAttachments={revisionAttachments}
-            revisionActivity={revisionActivity}
-            projects={[project]}
-            profiles={profiles}
-            currentProfile={currentProfile}
-            canManageAll={canManageAll}
-            onUpdateRequest={onUpdateRevisionRequest}
-            onUpdateItem={onUpdateRevisionItem}
-            onUploadRevisedProof={onUploadRevisedProof}
-          />
-        </section>
       </div>
     </Modal>
   );
@@ -622,18 +1258,18 @@ export function ProjectDetail({
 
 function Info({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-md bg-ivory px-3 py-2">
+    <div className="flex items-center justify-between gap-2 rounded-lg bg-ivory px-3 py-2">
       <span className="text-muted">{label}</span>
-      <span className="text-right font-semibold">{value}</span>
+      <span className="text-right font-semibold text-ink truncate max-w-[55%]">{value}</span>
     </div>
   );
 }
 
 function NoteBlock({ title, value }: { title: string; value: string }) {
   return (
-    <div className="rounded-md border border-border bg-white p-3">
-      <p className="text-sm font-semibold">{title}</p>
-      <p className="mt-2 min-h-12 text-sm leading-6 text-muted">{value || 'No notes added.'}</p>
+    <div className="rounded-lg border border-border bg-white p-3 text-xs">
+      <p className="font-bold text-ink">{title}</p>
+      <p className="mt-1.5 min-h-10 leading-relaxed text-charcoal">{value || 'No notes added.'}</p>
     </div>
   );
 }
