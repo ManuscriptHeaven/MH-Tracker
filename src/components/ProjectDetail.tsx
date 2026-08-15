@@ -38,6 +38,8 @@ import { getTimelineSummary, timelineUpdateForStage } from '../lib/timeline';
 import { currency, firstName, initials } from '../lib/utils';
 import type {
   ActivityLog,
+  ChatMessage,
+  Conversation,
   NoteType,
   Profile,
   Project,
@@ -53,6 +55,7 @@ import type {
 } from '../lib/types';
 import { PaymentBadge, PriorityBadge, RoleBadge, StatusBadge } from './Badges';
 import { ProjectTimelinePanel, TimelineBadge } from './ProjectTimeline';
+import { ProjectDiscussionChat } from './ProjectDiscussionChat';
 import { Button, Card, Field, Modal, SelectField, TextareaField } from './ui';
 
 export type ProjectDetailTab =
@@ -106,6 +109,10 @@ export function ProjectDetail({
   onUpdateRevisionRequest,
   onUpdateRevisionItem,
   onUploadRevisedProof,
+  conversations = [],
+  messages = [],
+  onSendMessage,
+  onGetOrCreateProjectConversation,
 }: {
   project: Project;
   profiles: Profile[];
@@ -128,6 +135,15 @@ export function ProjectDetail({
   onUpdateRevisionRequest: (requestId: string, updates: Partial<RevisionRequest>) => Promise<void>;
   onUpdateRevisionItem: (itemId: string, updates: Partial<RevisionItem>) => Promise<void>;
   onUploadRevisedProof: (requestId: string, file: File) => Promise<void>;
+  conversations?: Conversation[];
+  messages?: ChatMessage[];
+  onSendMessage?: (
+    conversationId: string,
+    body: string,
+    attachments?: { file_name: string; file_url: string; file_type: string; file_size: number }[],
+    parentMessageId?: string | null,
+  ) => Promise<ChatMessage>;
+  onGetOrCreateProjectConversation?: (projectId: string, isInternal: boolean) => Promise<Conversation>;
 }) {
   const [activeTab, setActiveTab] = useState<ProjectDetailTab>('overview');
   const [stage, setStage] = useState<TimelineStage>(project.current_stage || 'Files Required');
@@ -1009,72 +1025,22 @@ export function ProjectDetail({
                 </div>
 
                 <div className="mt-3 rounded-lg border border-border bg-linen/30 p-3">
-                  {commSubTab === 'internal' ? (
-                    <div className="space-y-3">
-                      <p className="text-xs text-muted flex items-center gap-1.5 font-medium">
-                        <Lock className="h-3.5 w-3.5 text-gold shrink-0" />
-                        <span>Internal discussion between staff. <strong>Clients cannot see this.</strong></span>
-                      </p>
-                      <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                        <div className="rounded-lg bg-white p-3 text-xs border border-border">
-                          <div className="flex items-center justify-between text-[11px] text-muted mb-1">
-                            <span className="font-bold text-ink">Tahir (Manager)</span>
-                            <span>Yesterday 4:10 PM</span>
-                          </div>
-                          <p className="text-charcoal leading-relaxed">
-                            Please update chapter formatting on pages 40-45 and check margin spacing before client review.
-                          </p>
-                        </div>
-                        <div className="rounded-lg bg-gold/10 p-3 text-xs border border-gold/30">
-                          <div className="flex items-center justify-between text-[11px] text-muted mb-1">
-                            <span className="font-bold text-ink">Zain (Formatter)</span>
-                            <span>Yesterday 5:20 PM</span>
-                          </div>
-                          <p className="text-charcoal leading-relaxed">
-                            Done! Margins aligned and proof PDF generated.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <p className="text-xs text-muted flex items-center gap-1.5 font-medium">
-                        <User className="h-3.5 w-3.5 text-blue-600 shrink-0" />
-                        <span>Shared discussion with client ({project.client_name}).</span>
-                      </p>
-                      <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                        <div className="rounded-lg bg-blue-50/60 p-3 text-xs border border-blue-200">
-                          <div className="flex items-center justify-between text-[11px] text-muted mb-1">
-                            <span className="font-bold text-blue-900">{project.client_name} (Client)</span>
-                            <span>Aug 11, 2:35 PM</span>
-                          </div>
-                          <p className="text-blue-950 leading-relaxed">
-                            Thank you! The interior layout looks great.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="mt-3 flex items-center gap-2">
-                    <input
-                      type="text"
-                      placeholder={`Write a ${commSubTab === 'internal' ? 'internal team' : 'client'} message...`}
-                      value={quickMsg}
-                      onChange={(e) => setQuickMsg(e.target.value)}
-                      className="flex-1 rounded-md border border-border bg-white px-3 py-1.5 text-xs text-ink outline-none focus:border-gold"
+                  {onSendMessage && onGetOrCreateProjectConversation ? (
+                    <ProjectDiscussionChat
+                      projectId={project.id}
+                      projectName={project.project_title}
+                      clientName={project.client_name}
+                      isInternal={commSubTab === 'internal'}
+                      currentProfile={currentProfile}
+                      profiles={profiles}
+                      conversations={conversations}
+                      messages={messages}
+                      onSendMessage={onSendMessage}
+                      onGetOrCreateProjectConversation={onGetOrCreateProjectConversation}
                     />
-                    <Button
-                      className="min-h-8 text-xs px-3 py-1"
-                      onClick={() => {
-                        if (!quickMsg.trim()) return;
-                        setQuickMsg('');
-                      }}
-                    >
-                      <Send className="h-3.5 w-3.5" />
-                      Send
-                    </Button>
-                  </div>
+                  ) : (
+                    <p className="text-xs text-muted">Messaging service is currently connecting...</p>
+                  )}
                 </div>
               </Card>
             </div>

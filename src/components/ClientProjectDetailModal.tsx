@@ -31,6 +31,8 @@ import {
 } from '../lib/timeline';
 import type {
   ActivityLog,
+  ChatMessage,
+  Conversation,
   Profile,
   Project,
   ProjectNote,
@@ -40,12 +42,22 @@ import type {
   RevisionRequest,
 } from '../lib/types';
 import { cn, firstName } from '../lib/utils';
+import { ProjectDiscussionChat } from './ProjectDiscussionChat';
 
 function approvalMilestoneForStage(stage: string): ApprovalMilestone | null {
   // Accept both normalized stage names and legacy status strings
-  if (stage === 'Concept Approval' || stage === 'Awaiting Concept Approval' || stage === 'Concept Revisions') return 'concept';
-  if (stage === 'Print Approval' || stage === 'Awaiting Print Approval' || stage === 'Print Revisions') return 'print';
-  if (stage === 'Ebook Approval' || stage === 'eBook Review') return 'ebook';
+  if (stage === 'Concept Approval' || stage === 'Awaiting Concept Approval' || stage === 'Concept Revisions') {
+    return 'concept';
+  }
+
+  if (stage === 'Print Approval' || stage === 'Awaiting Print Approval' || stage === 'Print Revisions') {
+    return 'print';
+  }
+
+  if (stage === 'Ebook Approval' || stage === 'eBook Review') {
+    return 'ebook';
+  }
+
   return null;
 }
 
@@ -70,6 +82,11 @@ export function ClientProjectDetailModal({
   revisionItems,
   revisionAttachments,
   activities,
+  currentProfile,
+  conversations = [],
+  messages = [],
+  onSendMessage,
+  onGetOrCreateProjectConversation,
   onClose,
   onApproveMilestone,
   onRequestRevision,
@@ -82,13 +99,22 @@ export function ClientProjectDetailModal({
   revisionItems: RevisionItem[];
   revisionAttachments: RevisionAttachment[];
   activities: ActivityLog[];
+  currentProfile?: Profile;
+  conversations?: Conversation[];
+  messages?: ChatMessage[];
+  onSendMessage?: (
+    conversationId: string,
+    body: string,
+    attachments?: { file_name: string; file_url: string; file_type: string; file_size: number }[],
+    parentMessageId?: string | null,
+  ) => Promise<ChatMessage>;
+  onGetOrCreateProjectConversation?: (projectId: string, isInternal: boolean) => Promise<Conversation>;
   onClose: () => void;
   onApproveMilestone: (projectId: string, milestone: ApprovalMilestone) => Promise<void>;
   onRequestRevision: (projectId: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState<'overview' | 'files' | 'messages' | 'revisions' | 'activity'>('overview');
   const [isApproving, setIsApproving] = useState(false);
-  const [clientMsg, setClientMsg] = useState('');
 
   const summary = useMemo(() => getTimelineSummary(project), [project]);
   const milestones = useMemo(() => getTimelineMilestones(project), [project]);
@@ -504,42 +530,22 @@ export function ClientProjectDetailModal({
                 <span className="text-xs font-normal text-muted">Shared with Manuscript Heaven Team</span>
               </h4>
 
-              <div className="rounded-md border border-border bg-linen/30 p-3 space-y-2 max-h-56 overflow-y-auto">
-                <div className="rounded bg-white p-2.5 text-xs border border-border">
-                  <div className="flex justify-between text-[10px] text-muted mb-1">
-                    <span className="font-bold text-ink">Tahir (Manuscript Heaven)</span>
-                    <span>Aug 11, 4:10 PM</span>
-                  </div>
-                  <p className="text-ink">Hi! We have completed the print layout version V3 and uploaded the proof PDF for your review.</p>
-                </div>
-                <div className="rounded bg-blue-50 p-2.5 text-xs border border-blue-200">
-                  <div className="flex justify-between text-[10px] text-muted mb-1">
-                    <span className="font-bold text-blue-900">You ({project.client_name})</span>
-                    <span>Aug 11, 6:40 PM</span>
-                  </div>
-                  <p className="text-blue-950">Thank you! The interior layout looks great.</p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  placeholder="Send a message or query to the team..."
-                  value={clientMsg}
-                  onChange={(e) => setClientMsg(e.target.value)}
-                  className="flex-1 rounded-md border border-border bg-white px-3 py-1.5 text-xs text-ink outline-none focus:border-gold"
+              {onSendMessage && onGetOrCreateProjectConversation && currentProfile ? (
+                <ProjectDiscussionChat
+                  projectId={project.id}
+                  projectName={project.project_title}
+                  clientName={project.client_name}
+                  isInternal={false}
+                  currentProfile={currentProfile}
+                  profiles={profiles}
+                  conversations={conversations}
+                  messages={messages}
+                  onSendMessage={onSendMessage}
+                  onGetOrCreateProjectConversation={onGetOrCreateProjectConversation}
                 />
-                <Button
-                  className="min-h-8 text-xs px-3 py-1"
-                  onClick={() => {
-                    if (!clientMsg.trim()) return;
-                    setClientMsg('');
-                  }}
-                >
-                  <Send className="h-3.5 w-3.5" />
-                  Send
-                </Button>
-              </div>
+              ) : (
+                <p className="text-xs text-muted">Messaging service is currently connecting...</p>
+              )}
             </div>
 
             {/* General & Client Instructions */}

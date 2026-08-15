@@ -2022,18 +2022,26 @@ export function useTracker() {
       };
 
       if (supabase && mode === 'supabase') {
-        const { error: updateErr } = await supabase.from('projects').update(projectUpdates).eq('id', projectId);
-        if (updateErr) console.warn('Supabase project milestone approval error:', updateErr);
-
-        await supabase.from('notifications').insert({
-          id: notification.id,
-          recipient_id: notification.recipient_id,
-          project_id: notification.project_id,
-          type: notification.type,
-          title: notification.title,
-          message: notification.message,
-          is_read: false,
+        const { error: rpcErr } = await supabase.rpc('client_approve_project_milestone', {
+          project_id: projectId,
+          milestone,
         });
+
+        if (rpcErr) {
+          console.warn('client_approve_project_milestone RPC fallback:', rpcErr);
+          const { error: updateErr } = await supabase.from('projects').update(projectUpdates).eq('id', projectId);
+          if (updateErr) console.warn('Supabase project milestone approval error:', updateErr);
+
+          await supabase.from('notifications').insert({
+            id: notification.id,
+            recipient_id: notification.recipient_id,
+            project_id: notification.project_id,
+            type: notification.type,
+            title: notification.title,
+            message: notification.message,
+            is_read: false,
+          });
+        }
 
         await loadSupabaseData(currentProfile);
         return;

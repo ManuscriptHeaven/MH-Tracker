@@ -27,6 +27,7 @@ import { errorMessage, isClientRole } from './lib/utils';
 import type { Project, ProjectDraft } from './lib/types';
 
 import { RevisionRequestModal } from './components/RevisionRequestModal';
+import { Toast, type ToastData } from './components/Toast';
 
 export default function App() {
   const tracker = useTracker();
@@ -37,7 +38,7 @@ export default function App() {
   const [showProjectForm, setShowProjectForm] = useState(false);
   const [showRevisionModal, setShowRevisionModal] = useState(false);
   const [revisionModalProjectId, setRevisionModalProjectId] = useState<string | undefined>(undefined);
-  const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<ToastData | null>(null);
   const visibleProjects = tracker.visibleProjects;
   const isClient = tracker.currentProfile ? isClientRole(tracker.currentProfile.role) : false;
 
@@ -48,7 +49,12 @@ export default function App() {
 
   useEffect(() => {
     if (!tracker.notificationToast) return;
-    setToast({ message: tracker.notificationToast.message, tone: 'success' });
+    setToast({
+      title: tracker.notificationToast.title || 'Notification',
+      message: tracker.notificationToast.message,
+      tone: 'info',
+      projectId: tracker.notificationToast.project_id,
+    });
     tracker.clearNotificationToast();
   }, [tracker.notificationToast, tracker.clearNotificationToast]);
 
@@ -91,7 +97,28 @@ export default function App() {
 
   return <AIProvider tracker={tracker}>
   <Layout activeView={activeView} setActiveView={setActiveView} currentProfile={tracker.currentProfile} data={tracker.data} notifications={tracker.visibleNotifications} searchTerm={searchTerm} setSearchTerm={setSearchTerm} onAddProject={openAddProject} onMarkNotificationRead={tracker.markNotificationRead} onMarkAllNotificationsRead={tracker.markAllNotificationsRead} onMarkConversationRead={tracker.markConversationRead} onViewNotifications={() => setActiveView('notifications')} onOpenNotificationProject={openProjectById} onSignOut={tracker.signOut}>
-    {activeView === 'dashboard' && isClient && <ClientPortalPage projects={visibleProjects} revisionRequests={tracker.data.revisionRequests} revisionItems={tracker.data.revisionItems} revisionAttachments={tracker.data.revisionAttachments} notifications={tracker.visibleNotifications} onCreateRevisionRequest={async (draft) => { await tracker.createRevisionRequest(draft); }} onRespondToRevision={async (requestId, decision) => { await tracker.respondToRevisionRequest(requestId, decision); }} onApproveMilestone={tracker.approveProjectMilestone} onSelectProject={setSelectedProject} />}
+    {activeView === 'dashboard' && isClient && (
+      <ClientPortalPage
+        projects={visibleProjects}
+        revisionRequests={tracker.data.revisionRequests}
+        revisionItems={tracker.data.revisionItems}
+        revisionAttachments={tracker.data.revisionAttachments}
+        notifications={tracker.visibleNotifications}
+        onCreateRevisionRequest={async (draft) => { await tracker.createRevisionRequest(draft); }}
+        onRespondToRevision={async (requestId, decision) => { await tracker.respondToRevisionRequest(requestId, decision); }}
+        onApproveMilestone={async (projectId, milestone) => {
+          try {
+            await tracker.approveProjectMilestone(projectId, milestone);
+            const label = milestone === 'concept' ? 'Design concept' : milestone === 'print' ? 'Print version' : 'eBook version';
+            setToast({ message: `${label} approved successfully!`, tone: 'success' });
+          } catch (error) {
+            setToast({ message: errorMessage(error, 'Failed to approve milestone.'), tone: 'error' });
+            throw error;
+          }
+        }}
+        onSelectProject={setSelectedProject}
+      />
+    )}
     {activeView === 'dashboard' && !isClient && <DashboardPage projects={visibleProjects} profiles={tracker.data.profiles} canViewPayments={tracker.canManageAll} canManageProjects={tracker.canManageAll} currentProfileId={tracker.currentProfile.id} onAddProject={openAddProject} onSelectProject={setSelectedProject} />}
     {activeView === 'projects' && isClient && <ClientProjectsPage projects={visibleProjects} searchTerm={searchTerm} onSelectProject={setSelectedProject} />}
     {activeView === 'projects' && !isClient && <ProjectsPage {...pageProps} />}
@@ -138,7 +165,35 @@ export default function App() {
     )}
     {activeView === 'settings' && tracker.currentProfile.role === 'admin' && <SettingsPage mode={tracker.mode} />}
     {showProjectForm && <ProjectFormModal currentProfile={tracker.currentProfile} profiles={tracker.data.profiles} projects={tracker.data.projects} project={editingProject} onClose={() => { setShowProjectForm(false); setEditingProject(null); }} onSubmit={handleSaveProject} />}
-    {selectedProjectFresh && !isClient && <ProjectDetail project={selectedProjectFresh} profiles={tracker.data.profiles} notes={tracker.data.projectNotes} revisions={tracker.data.revisionNotes} revisionRequests={tracker.data.revisionRequests} revisionItems={tracker.data.revisionItems} revisionAttachments={tracker.data.revisionAttachments} revisionActivity={tracker.data.revisionActivity} activities={tracker.data.activityLogs} tasks={tracker.data.tasks} currentProfile={tracker.currentProfile} canManageAll={tracker.canManageAll} onClose={() => setSelectedProject(null)} onEdit={() => openEditProject(selectedProjectFresh)} onDelete={() => deleteProject(selectedProjectFresh)} onUpdateProject={updateSelectedProject} onAddNote={async (noteType, note) => { await tracker.addNote(selectedProjectFresh.id, noteType, note); }} onAddRevision={async (note, status) => { await tracker.addRevision(selectedProjectFresh.id, note, status); }} onUpdateRevisionRequest={tracker.updateRevisionRequest} onUpdateRevisionItem={tracker.updateRevisionItem} onUploadRevisedProof={tracker.uploadRevisedProof} />}
+    {selectedProjectFresh && !isClient && (
+      <ProjectDetail
+        project={selectedProjectFresh}
+        profiles={tracker.data.profiles}
+        notes={tracker.data.projectNotes}
+        revisions={tracker.data.revisionNotes}
+        revisionRequests={tracker.data.revisionRequests}
+        revisionItems={tracker.data.revisionItems}
+        revisionAttachments={tracker.data.revisionAttachments}
+        revisionActivity={tracker.data.revisionActivity}
+        activities={tracker.data.activityLogs}
+        tasks={tracker.data.tasks}
+        currentProfile={tracker.currentProfile}
+        canManageAll={tracker.canManageAll}
+        onClose={() => setSelectedProject(null)}
+        onEdit={() => openEditProject(selectedProjectFresh)}
+        onDelete={() => deleteProject(selectedProjectFresh)}
+        onUpdateProject={updateSelectedProject}
+        onAddNote={async (noteType, note) => { await tracker.addNote(selectedProjectFresh.id, noteType, note); }}
+        onAddRevision={async (note, status) => { await tracker.addRevision(selectedProjectFresh.id, note, status); }}
+        onUpdateRevisionRequest={tracker.updateRevisionRequest}
+        onUpdateRevisionItem={tracker.updateRevisionItem}
+        onUploadRevisedProof={tracker.uploadRevisedProof}
+        conversations={tracker.data.conversations}
+        messages={tracker.data.messages}
+        onSendMessage={tracker.sendMessage}
+        onGetOrCreateProjectConversation={tracker.getOrCreateProjectConversation}
+      />
+    )}
     {selectedProjectFresh && isClient && (
       <ClientProjectDetailModal
         project={selectedProjectFresh}
@@ -149,8 +204,22 @@ export default function App() {
         revisionItems={tracker.data.revisionItems}
         revisionAttachments={tracker.data.revisionAttachments}
         activities={tracker.data.activityLogs}
+        currentProfile={tracker.currentProfile}
+        conversations={tracker.data.conversations}
+        messages={tracker.data.messages}
+        onSendMessage={tracker.sendMessage}
+        onGetOrCreateProjectConversation={tracker.getOrCreateProjectConversation}
         onClose={() => setSelectedProject(null)}
-        onApproveMilestone={tracker.approveProjectMilestone}
+        onApproveMilestone={async (projectId, milestone) => {
+          try {
+            await tracker.approveProjectMilestone(projectId, milestone);
+            const label = milestone === 'concept' ? 'Design concept' : milestone === 'print' ? 'Print version' : 'eBook version';
+            setToast({ message: `${label} approved successfully!`, tone: 'success' });
+          } catch (error) {
+            setToast({ message: errorMessage(error, 'Failed to approve milestone.'), tone: 'error' });
+            throw error;
+          }
+        }}
         onRequestRevision={(projectId) => {
           setSelectedProject(null);
           setRevisionModalProjectId(projectId);
@@ -174,7 +243,7 @@ export default function App() {
         }}
       />
     )}
-    {toast && <div className={`fixed right-4 top-4 z-[70] max-w-sm rounded-md border px-4 py-3 text-sm font-semibold shadow-soft ${toast.tone === 'success' ? 'border-green-200 bg-green-50 text-success' : 'border-red-200 bg-red-50 text-danger'}`}>{toast.message}</div>}
+    <Toast toast={toast} onClose={() => setToast(null)} onOpenProject={openProjectById} />
     <AIDailyPopup />
   </Layout>
   <AIChatButton />
