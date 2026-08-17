@@ -21,48 +21,42 @@ export const DEFAULT_EXCHANGE_RATES: Record<CurrencyCode, number> = {
   GBP: 354.0,
 };
 
-export const INCOME_CATEGORIES: IncomeCategory[] = [
+export const INCOME_CATEGORIES: string[] = [
   'Book Formatting',
   'eBook Formatting',
   'Cover Design',
   'Publishing Support',
+  'Project Payment',
   'Other Services',
   'Other Income',
 ];
 
-export const EXPENSE_CATEGORIES: ExpenseCategory[] = [
-  'Office',
+export const EXPENSE_CATEGORIES: string[] = [
   'Software',
-  'Adobe',
-  'AI/API',
-  'Hosting',
-  'Domain',
-  'Marketing',
-  'Advertising',
-  'Freelancers',
-  'Team',
-  'Equipment',
+  'Office',
   'Internet',
+  'Marketing',
+  'Equipment',
+  'Freelancer',
+  'Salary',
+  'Travel',
   'Utilities',
-  'Bank Fees',
-  'Payment Processing Fees',
-  'Taxes',
-  'Miscellaneous',
+  'Other',
 ];
 
 export const PAYMENT_METHODS = [
   'Bank Transfer',
-  'Stripe',
-  'PayPal',
-  'Payoneer',
-  'Upwork',
-  'Wise',
   'Cash',
-  'Wire',
+  'Easypaisa',
+  'JazzCash',
+  'PayPal',
+  'Card',
+  'Stripe',
+  'Upwork',
   'Other',
 ];
 
-export type DateFilterType = 'this_month' | 'this_quarter' | 'this_year' | 'last_month' | 'all' | 'custom';
+export type DateFilterType = 'this_month' | 'last_month' | 'this_year' | 'custom' | 'all';
 
 export function formatPKR(amount: number): string {
   return currency(amount || 0);
@@ -110,12 +104,6 @@ export function isDateInRange(
     return target.getFullYear() === lastMonthDate.getFullYear() && target.getMonth() === lastMonthDate.getMonth();
   }
 
-  if (filter === 'this_quarter') {
-    const currentQuarter = Math.floor(now.getMonth() / 3);
-    const targetQuarter = Math.floor(target.getMonth() / 3);
-    return target.getFullYear() === now.getFullYear() && targetQuarter === currentQuarter;
-  }
-
   if (filter === 'this_year') {
     return target.getFullYear() === now.getFullYear();
   }
@@ -129,41 +117,186 @@ export function isDateInRange(
   return true;
 }
 
-export function calculateClientReceivables(projects: Project[]): ClientReceivableItem[] {
-  const map = new Map<string, ClientReceivableItem>();
+export interface ClientBalanceProjectItem {
+  id: string;
+  project_number: string;
+  project_title: string;
+  total_price: number;
+  advance_paid: number;
+  outstanding: number;
+  payment_status: string;
+  due_date: string | null;
+  payment_date: string | null;
+}
+
+export interface ClientBalanceSummary {
+  client_name: string;
+  client_email: string;
+  project_count: number;
+  total_invoiced: number;
+  total_paid: number;
+  outstanding: number;
+  last_payment_date: string | null;
+  projects: ClientBalanceProjectItem[];
+}
+
+export function calculateClientBalances(
+  projects: Project[],
+  transactions: FinanceTransaction[] = [],
+): ClientBalanceSummary[] {
+  const map = new Map<string, ClientBalanceSummary>();
 
   projects.forEach((proj) => {
-    const clientName = proj.client_name || 'Unknown Client';
+    const clientName = (proj.client_name || '').trim() || 'Unknown Client';
     const email = proj.client_email || '';
     const total = Number(proj.total_price || 0);
     const paid = Number(proj.advance_paid || 0);
     const due = Math.max(total - paid, 0);
 
-    const isOverdue =
-      due > 0 && proj.due_date && new Date(`${proj.due_date}T23:59:59`) < new Date();
-
     const existing = map.get(clientName) || {
       client_name: clientName,
       client_email: email,
-      total_invoiced_pkr: 0,
-      total_paid_pkr: 0,
-      outstanding_pkr: 0,
-      overdue_pkr: 0,
       project_count: 0,
-      invoices_count: proj.invoiced ? 1 : 0,
+      total_invoiced: 0,
+      total_paid: 0,
+      outstanding: 0,
+      last_payment_date: null,
+      projects: [],
     };
 
-    existing.total_invoiced_pkr += total;
-    existing.total_paid_pkr += paid;
-    existing.outstanding_pkr += due;
-    if (isOverdue) existing.overdue_pkr += due;
+    existing.total_invoiced += total;
+    existing.total_paid += paid;
+    existing.outstanding += due;
     existing.project_count += 1;
-    if (proj.invoiced && !map.has(clientName)) existing.invoices_count += 1;
+
+    if (proj.payment_date) {
+      if (!existing.last_payment_date || proj.payment_date > existing.last_payment_date) {
+        existing.last_payment_date = proj.payment_date;
+      }
+    }
+
+    existing.projects.push({
+      id: proj.id,
+      project_number: proj.project_number,
+      project_title: proj.project_title,
+      total_price: total,
+      advance_paid: paid,
+      outstanding: due,
+      payment_status: proj.payment_status || (due === 0 && total > 0 ? 'Fully Paid' : paid > 0 ? 'Partially Paid' : 'Not Started'),
+      due_date: proj.due_date || null,
+      payment_date: proj.payment_date || null,
+    });
 
     map.set(clientName, existing);
   });
 
-  return Array.from(map.values()).sort((a, b) => b.outstanding_pkr - a.outstanding_pkr);
+  // Check transactions for any latest payment dates
+  transactions
+    .filter((t) => t.type === 'income' && !t.is_soft_deleted && t.client_name)
+    .forEach((t) => {
+      const clientName = (t.client_name || '').trim();
+      const existing = map.get(clientName);
+      if (existing && t.transaction_date) {
+        if (!existing.last_payment_date || t.transaction_date > existing.last_payment_date) {
+          existing.last_payment_date = t.transaction_date;
+        }
+      }
+    });
+
+  return Array.from(map.values()).sort((a, b) => b.outstanding - a.outstanding || b.total_invoiced - a.total_invoiced);
+}
+
+export function calculateClientReceivables(projects: Project[]): ClientReceivableItem[] {
+  const balances = calculateClientBalances(projects);
+  return balances.map((b) => ({
+    client_name: b.client_name,
+    client_email: b.client_email,
+    total_invoiced_pkr: b.total_invoiced,
+    total_paid_pkr: b.total_paid,
+    outstanding_pkr: b.outstanding,
+    overdue_pkr: b.projects.filter((p) => p.outstanding > 0 && p.due_date && new Date(`${p.due_date}T23:59:59`) < new Date()).reduce((s, p) => s + p.outstanding, 0),
+    project_count: b.project_count,
+    invoices_count: b.project_count,
+  }));
+}
+
+export interface TeamPaymentSummary {
+  employee_id: string;
+  employee_name: string;
+  role: string;
+  monthly_salary: number;
+  per_project_rate: number;
+  project_earnings: number;
+  advances: number;
+  deductions: number;
+  paid: number;
+  other_payables: number;
+  net_payable: number;
+  outstanding: number;
+  payment_date: string | null;
+  status: 'Paid' | 'Partial' | 'Pending';
+  entries: EmployeeLedgerEntry[];
+}
+
+export function calculateTeamPayments(
+  profiles: Profile[],
+  compensationList: EmployeeCompensation[],
+  ledger: EmployeeLedgerEntry[],
+  selectedMonth?: string,
+): TeamPaymentSummary[] {
+  const team = profiles.filter((p) => p.role !== 'client');
+
+  return team.map((employee) => {
+    const comp = compensationList.find((c) => c.employee_id === employee.id);
+    const monthlySalary = Number(comp?.monthly_salary || 0);
+    const perProjectRate = Number(comp?.per_project_rate || 0);
+
+    const allEmployeeEntries = ledger.filter((l) => l.employee_id === employee.id);
+    const monthEntries = selectedMonth
+      ? allEmployeeEntries.filter((l) => (l.salary_month || l.paid_at || '').startsWith(selectedMonth))
+      : allEmployeeEntries;
+
+    const sumType = (type: EmployeeLedgerEntry['entry_type']) =>
+      monthEntries.filter((e) => e.entry_type === type).reduce((s, e) => s + Number(e.amount || 0), 0);
+
+    const salaryBonus = sumType('Salary');
+    const projectEarnings = sumType('Project Payment') + sumType('Bonus');
+    const advances = sumType('Advance');
+    const deductions = sumType('Deduction');
+    const paid = sumType('Payment');
+    const other = sumType('Other');
+
+    const totalEarnings = monthlySalary + salaryBonus + projectEarnings + other;
+    const netPayable = Math.max(0, totalEarnings - deductions);
+    const outstanding = Math.max(0, netPayable - (paid + advances));
+
+    let status: 'Paid' | 'Partial' | 'Pending' = 'Pending';
+    if (netPayable > 0 && outstanding === 0) status = 'Paid';
+    else if ((paid > 0 || advances > 0) && outstanding > 0) status = 'Partial';
+    else if (netPayable === 0 && outstanding === 0) status = 'Paid';
+
+    const latestPayment = monthEntries
+      .filter((e) => e.entry_type === 'Payment' || e.entry_type === 'Advance')
+      .sort((a, b) => new Date(b.paid_at).getTime() - new Date(a.paid_at).getTime())[0];
+
+    return {
+      employee_id: employee.id,
+      employee_name: employee.full_name,
+      role: employee.role,
+      monthly_salary: monthlySalary,
+      per_project_rate: perProjectRate,
+      project_earnings: projectEarnings,
+      advances,
+      deductions,
+      paid,
+      other_payables: salaryBonus + other,
+      net_payable: netPayable,
+      outstanding,
+      payment_date: latestPayment ? latestPayment.paid_at : null,
+      status,
+      entries: monthEntries.sort((a, b) => new Date(b.paid_at).getTime() - new Date(a.paid_at).getTime()),
+    };
+  });
 }
 
 export function calculateTeamPayroll(
@@ -171,48 +304,59 @@ export function calculateTeamPayroll(
   compensationList: EmployeeCompensation[],
   ledger: EmployeeLedgerEntry[],
 ): TeamPayrollItem[] {
-  const team = profiles.filter((p) => p.role !== 'client');
+  const list = calculateTeamPayments(profiles, compensationList, ledger);
+  return list.map((item) => ({
+    employee_id: item.employee_id,
+    employee_name: item.employee_name,
+    monthly_salary_pkr: item.monthly_salary,
+    per_project_rate_pkr: item.per_project_rate,
+    advance_pkr: item.advances,
+    bonus_pkr: item.project_earnings,
+    deduction_pkr: item.deductions,
+    paid_pkr: item.paid,
+    net_payable_pkr: item.net_payable,
+    remaining_due_pkr: item.outstanding,
+    payment_date: item.payment_date,
+    status: item.status,
+  }));
+}
 
-  return team.map((employee) => {
-    const comp = compensationList.find((c) => c.employee_id === employee.id);
-    const entries = ledger.filter((l) => l.employee_id === employee.id);
+export interface MonthlyFinancialReportItem {
+  month_index: number;
+  month_name: string;
+  month_key: string;
+  income: number;
+  expenses: number;
+  profit: number;
+}
 
-    const monthlySalary = Number(comp?.monthly_salary || 0);
-    const perProjectRate = Number(comp?.per_project_rate || 0);
+export function calculateMonthlyReports(
+  transactions: FinanceTransaction[],
+  year: number,
+): MonthlyFinancialReportItem[] {
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-    const sumType = (type: EmployeeLedgerEntry['entry_type']) =>
-      entries.filter((e) => e.entry_type === type).reduce((s, e) => s + Number(e.amount || 0), 0);
+  return monthNames.map((name, idx) => {
+    const monthKey = `${year}-${String(idx + 1).padStart(2, '0')}`;
+    const monthTx = transactions.filter(
+      (t) => !t.is_soft_deleted && t.transaction_date && t.transaction_date.startsWith(monthKey),
+    );
 
-    const salaryAdded = sumType('Salary');
-    const projectPayments = sumType('Project Payment');
-    const advance = sumType('Advance');
-    const deduction = sumType('Deduction');
-    const paid = sumType('Payment');
+    const income = monthTx
+      .filter((t) => t.type === 'income')
+      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
-    const netPayable = monthlySalary + salaryAdded + projectPayments + advance - deduction;
-    const remainingDue = Math.max(0, netPayable - paid);
-
-    let status: 'Paid' | 'Partial' | 'Pending' = 'Pending';
-    if (netPayable > 0 && remainingDue === 0) status = 'Paid';
-    else if (paid > 0 && remainingDue > 0) status = 'Partial';
-
-    const latestPayment = entries
-      .filter((e) => e.entry_type === 'Payment')
-      .sort((a, b) => new Date(b.paid_at).getTime() - new Date(a.paid_at).getTime())[0];
+    const expenses = monthTx
+      .filter((t) => t.type === 'expense')
+      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
     return {
-      employee_id: employee.id,
-      employee_name: employee.full_name,
-      monthly_salary_pkr: monthlySalary,
-      per_project_rate_pkr: perProjectRate,
-      advance_pkr: advance,
-      bonus_pkr: projectPayments,
-      deduction_pkr: deduction,
-      paid_pkr: paid,
-      net_payable_pkr: netPayable,
-      remaining_due_pkr: remainingDue,
-      payment_date: latestPayment ? latestPayment.paid_at : null,
-      status,
+      month_index: idx,
+      month_name: name,
+      month_key: monthKey,
+      income,
+      expenses,
+      profit: income - expenses,
     };
   });
 }

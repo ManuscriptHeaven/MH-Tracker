@@ -536,7 +536,9 @@ export interface FinanceTransaction {
   amount_pkr: number;
   transaction_date: string;
   client_name?: string | null;
+  client_id?: string | null;
   project_id?: string | null;
+  employee_id?: string | null;
   invoice_id?: string | null;
   payment_method: string;
   reference_no?: string | null;

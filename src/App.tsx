@@ -159,7 +159,11 @@ export default function App() {
         financeBudgets={tracker.data.financeBudgets}
         onCreateTransaction={tracker.createFinanceTransaction}
         onUpdateTransaction={tracker.updateFinanceTransaction}
+        onDeleteTransaction={tracker.deleteFinanceTransaction}
         onSoftDeleteTransaction={tracker.softDeleteFinanceTransaction}
+        onUpdateProject={tracker.updateProject}
+        onAddLedgerEntry={tracker.addEmployeeLedgerEntry}
+        onDeleteLedgerEntry={tracker.deleteEmployeeLedgerEntry}
         onSaveBudget={tracker.saveFinanceBudget}
       />
     )}

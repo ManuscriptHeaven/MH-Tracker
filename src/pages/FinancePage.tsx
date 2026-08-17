@@ -1,81 +1,46 @@
 import {
   ArrowDownRight,
   ArrowUpRight,
-  BarChart3,
   Calendar,
-  CheckCircle2,
   ChevronRight,
-  Clock,
-  CreditCard,
   DollarSign,
   Download,
-  FileSpreadsheet,
-  FileText,
-  Filter,
-  HelpCircle,
-  Landmark,
-  Layers,
-  PieChart,
   Plus,
   Printer,
-  RefreshCw,
   Search,
-  SlidersHorizontal,
-  Tag,
-  Trash2,
-  TrendingDown,
   TrendingUp,
-  Users,
-  WalletCards,
-  AlertTriangle,
-  X,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { Button, Card, EmptyState, Field, Modal, SelectField, TextareaField } from '../components/ui';
+import { Button, Card, Field, Modal, SelectField, TextareaField } from '../components/ui';
 import {
-  DEFAULT_EXCHANGE_RATES,
   EXPENSE_CATEGORIES,
-  INCOME_CATEGORIES,
   PAYMENT_METHODS,
-  calculateCategoryBudgets,
-  calculateClientReceivables,
-  calculateProjectProfitability,
-  calculateRecurringExpenses,
-  calculateTeamPayroll,
+  calculateClientBalances,
+  calculateMonthlyReports,
+  calculateTeamPayments,
   exportReportPDF,
   exportToCSV,
-  formatCurrencyAmount,
-  formatPKR,
-  getConvertedPKR,
   isDateInRange,
+  type ClientBalanceSummary,
   type DateFilterType,
 } from '../lib/financeUtils';
 import type {
-  CurrencyCode,
-  ExpenseCategory,
+  EmployeeCompensation,
+  EmployeeLedgerEntry,
   FinanceBudget,
   FinanceTransaction,
   FinanceTransactionDraft,
-  FinanceTransactionType,
-  FinancialReportType,
-  IncomeCategory,
   Profile,
   Project,
-  RecurringStatus,
-  EmployeeCompensation,
-  EmployeeLedgerEntry,
 } from '../lib/types';
-import { errorMessage, firstName, isManagerRole } from '../lib/utils';
+import { currency, errorMessage, isManagerRole } from '../lib/utils';
 
-type FinanceTab =
+export type FinanceTab =
   | 'overview'
   | 'income'
   | 'expenses'
-  | 'ledger'
-  | 'receivables'
-  | 'payroll'
-  | 'profitability'
-  | 'budgets'
+  | 'client_balances'
+  | 'team_payments'
   | 'reports';
 
 export function FinancePage({
@@ -85,11 +50,13 @@ export function FinancePage({
   employeeCompensation = [],
   employeeLedger = [],
   financeTransactions = [],
-  financeBudgets = [],
   onCreateTransaction,
   onUpdateTransaction,
+  onDeleteTransaction,
   onSoftDeleteTransaction,
-  onSaveBudget,
+  onUpdateProject,
+  onAddLedgerEntry,
+  onDeleteLedgerEntry,
 }: {
   currentProfile: Profile;
   projects: Project[];
@@ -100,7 +67,11 @@ export function FinancePage({
   financeBudgets?: FinanceBudget[];
   onCreateTransaction?: (draft: FinanceTransactionDraft) => Promise<FinanceTransaction | void>;
   onUpdateTransaction?: (id: string, updates: Partial<FinanceTransaction>) => Promise<void>;
+  onDeleteTransaction?: (id: string) => Promise<void>;
   onSoftDeleteTransaction?: (id: string) => Promise<void>;
+  onUpdateProject?: (projectId: string, updates: Partial<Project>) => Promise<unknown>;
+  onAddLedgerEntry?: (entry: Omit<EmployeeLedgerEntry, 'id' | 'created_at'>) => Promise<void>;
+  onDeleteLedgerEntry?: (entryId: string) => Promise<void>;
   onSaveBudget?: (category: string, monthlyBudgetPkr: number) => Promise<void>;
 }) {
   const [activeTab, setActiveTab] = useState<FinanceTab>('overview');
@@ -108,25 +79,48 @@ export function FinancePage({
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
 
-  const [showTransactionModal, setShowTransactionModal] = useState(false);
-  const [modalType, setModalType] = useState<FinanceTransactionType>('income');
+  // Selected Month for Team Payments & Reports
+  const currentMonthString = new Date().toISOString().slice(0, 7); // e.g. "2026-08"
+  const currentYearNumber = new Date().getFullYear();
+  const [selectedTeamMonth, setSelectedTeamMonth] = useState<string>(currentMonthString);
+  const [selectedReportYear, setSelectedReportYear] = useState<number>(currentYearNumber);
+
+  // Modals state
+  const [showAddIncomeModal, setShowAddIncomeModal] = useState(false);
+  const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<FinanceTransaction | null>(null);
+  const [deletingTransactionId, setDeletingTransactionId] = useState<string | null>(null);
 
-  // Filters for Transactions Ledger
-  const [ledgerSearch, setLedgerSearch] = useState('');
-  const [ledgerTypeFilter, setLedgerTypeFilter] = useState<'all' | 'income' | 'expense'>('all');
-  const [ledgerCategoryFilter, setLedgerCategoryFilter] = useState('all');
-  const [ledgerClientFilter, setLedgerClientFilter] = useState('all');
-  const [ledgerProjectFilter, setLedgerProjectFilter] = useState('all');
-  const [ledgerCurrencyFilter, setLedgerCurrencyFilter] = useState('all');
-  const [ledgerPaymentMethodFilter, setLedgerPaymentMethodFilter] = useState('all');
+  // Client Details Modal
+  const [selectedClientName, setSelectedClientName] = useState<string | null>(null);
+  // Employee Details Modal
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
 
-  // Selected Financial Report
-  const [selectedReport, setSelectedReport] = useState<FinancialReportType>('pnl');
+  // Quick Project Payment Modal (from client modal or overview)
+  const [projectToPay, setProjectToPay] = useState<Project | null>(null);
 
-  const canManage = isManagerRole(currentProfile.role);
+  // Team Ledger Entry Submodal
+  const [showLedgerEntryModal, setShowLedgerEntryModal] = useState(false);
+  const [ledgerModalEmployeeId, setLedgerModalEmployeeId] = useState<string | null>(null);
+  const [ledgerModalDefaultType, setLedgerModalDefaultType] = useState<EmployeeLedgerEntry['entry_type']>('Payment');
 
-  // Active transactions (excluding soft-deleted)
+  // Income Tab Filters
+  const [incomeSearch, setIncomeSearch] = useState('');
+  const [incomeClientFilter, setIncomeClientFilter] = useState('all');
+  const [incomeProjectFilter, setIncomeProjectFilter] = useState('all');
+  const [incomeStatusFilter, setIncomeStatusFilter] = useState('all');
+
+  // Expense Tab Filters
+  const [expenseSearch, setExpenseSearch] = useState('');
+  const [expenseCategoryFilter, setExpenseCategoryFilter] = useState('all');
+  const [expenseMethodFilter, setExpenseMethodFilter] = useState('all');
+
+  // Client Balances Tab Filters
+  const [clientSearch, setClientSearch] = useState('');
+
+  const canManage = isManagerRole(currentProfile?.role);
+
+  // Active non-deleted transactions
   const activeTransactions = useMemo(() => {
     return financeTransactions.filter((t) => !t.is_soft_deleted);
   }, [financeTransactions]);
@@ -138,1473 +132,2234 @@ export function FinancePage({
     );
   }, [activeTransactions, dateFilter, customStart, customEnd]);
 
-  // Filtered Projects based on date
-  const filteredProjects = useMemo(() => {
-    return projects.filter((p) => isDateInRange(p.start_date || p.due_date, dateFilter, customStart, customEnd));
-  }, [projects, dateFilter, customStart, customEnd]);
+  // Client Balances across projects
+  const clientBalances = useMemo(() => {
+    return calculateClientBalances(projects, activeTransactions);
+  }, [projects, activeTransactions]);
 
-  // Key Financial Overview Metrics
-  const financialTotals = useMemo(() => {
-    const totalIncome = dateFilteredTransactions
+  // Team Payments for selected month
+  const teamPayments = useMemo(() => {
+    return calculateTeamPayments(profiles, employeeCompensation, employeeLedger, selectedTeamMonth);
+  }, [profiles, employeeCompensation, employeeLedger, selectedTeamMonth]);
+
+  // 4 Top KPI Cards metrics based on active period
+  const kpiData = useMemo(() => {
+    const income = dateFilteredTransactions
       .filter((t) => t.type === 'income')
-      .reduce((sum, t) => sum + Number(t.amount_pkr || 0), 0);
+      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
-    const totalExpenses = dateFilteredTransactions
+    const expenses = dateFilteredTransactions
       .filter((t) => t.type === 'expense')
-      .reduce((sum, t) => sum + Number(t.amount_pkr || 0), 0);
+      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
-    const netProfit = totalIncome - totalExpenses;
-    const profitMargin = totalIncome > 0 ? Math.round((netProfit / totalIncome) * 100) : 0;
+    const netProfit = income - expenses;
 
-    // Accounts Receivable from Projects
-    const receivablesList = calculateClientReceivables(projects);
-    const totalReceivables = receivablesList.reduce((sum, r) => sum + r.outstanding_pkr, 0);
+    // Total outstanding receivables from clients
+    const totalReceivable = clientBalances.reduce((sum, c) => sum + c.outstanding, 0);
 
-    // Accounts Payable from recurring & unbilled operational expenses
-    const recurringList = calculateRecurringExpenses(activeTransactions);
-    const totalPayables = recurringList.reduce((sum, r) => sum + r.monthly_cost_pkr, 0);
-
-    // Team Payroll
-    const payrollList = calculateTeamPayroll(profiles, employeeCompensation, employeeLedger);
-    const totalPayrollDues = payrollList.reduce((sum, p) => sum + p.remaining_due_pkr, 0);
-    const totalPayrollMonthly = payrollList.reduce((sum, p) => sum + p.net_payable_pkr, 0);
-
-    // Total Cash in hand (all-time Income minus Expenses)
-    const allTimeIncome = activeTransactions
-      .filter((t) => t.type === 'income')
-      .reduce((sum, t) => sum + Number(t.amount_pkr || 0), 0);
-    const allTimeExpense = activeTransactions
-      .filter((t) => t.type === 'expense')
-      .reduce((sum, t) => sum + Number(t.amount_pkr || 0), 0);
-    const availableCash = allTimeIncome - allTimeExpense;
+    // Total team dues for selected month
+    const totalTeamDues = teamPayments.reduce((sum, p) => sum + p.outstanding, 0);
 
     return {
-      availableCash,
-      totalIncome,
-      totalExpenses,
+      income,
+      expenses,
       netProfit,
-      profitMargin,
-      totalReceivables,
-      totalPayables,
-      totalPayrollMonthly,
-      totalPayrollDues,
+      receivable: totalReceivable,
+      teamDues: totalTeamDues,
     };
-  }, [dateFilteredTransactions, projects, activeTransactions, profiles, employeeCompensation, employeeLedger]);
+  }, [dateFilteredTransactions, clientBalances, teamPayments]);
 
-  // Client Receivables Summary
-  const receivables = useMemo(() => calculateClientReceivables(projects), [projects]);
+  // Recent 10 transactions for Overview
+  const recentTransactions = useMemo(() => {
+    return [...activeTransactions]
+      .sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime())
+      .slice(0, 10);
+  }, [activeTransactions]);
 
-  // Team Payroll Summary
-  const payroll = useMemo(
-    () => calculateTeamPayroll(profiles, employeeCompensation, employeeLedger),
-    [profiles, employeeCompensation, employeeLedger],
-  );
-
-  // Project Profitability Summary
-  const projectProfitability = useMemo(
-    () => calculateProjectProfitability(projects, activeTransactions, employeeLedger),
-    [projects, activeTransactions, employeeLedger],
-  );
-
-  // Category Budgets Summary
-  const budgetsSummary = useMemo(
-    () => calculateCategoryBudgets(activeTransactions, financeBudgets),
-    [activeTransactions, financeBudgets],
-  );
-
-  // Recurring Expenses Summary
-  const recurringExpenses = useMemo(
-    () => calculateRecurringExpenses(activeTransactions),
-    [activeTransactions],
-  );
-
-  // Ledger Filtered Transactions
-  const ledgerFilteredTransactions = useMemo(() => {
-    return activeTransactions.filter((t) => {
-      if (ledgerTypeFilter !== 'all' && t.type !== ledgerTypeFilter) return false;
-      if (ledgerCategoryFilter !== 'all' && t.category !== ledgerCategoryFilter) return false;
-      if (ledgerClientFilter !== 'all' && t.client_name !== ledgerClientFilter) return false;
-      if (ledgerProjectFilter !== 'all' && t.project_id !== ledgerProjectFilter) return false;
-      if (ledgerCurrencyFilter !== 'all' && t.currency !== ledgerCurrencyFilter) return false;
-      if (ledgerPaymentMethodFilter !== 'all' && t.payment_method !== ledgerPaymentMethodFilter)
-        return false;
-
-      if (!isDateInRange(t.transaction_date, dateFilter, customStart, customEnd)) return false;
-
-      if (ledgerSearch.trim()) {
-        const query = ledgerSearch.trim().toLowerCase();
-        const haystack = [
-          t.description,
-          t.category,
-          t.client_name,
-          t.vendor,
-          t.reference_no,
-          t.payment_method,
-          t.notes,
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
-
-        return haystack.includes(query);
-      }
-
-      return true;
-    });
+  // Income transactions list
+  const incomeList = useMemo(() => {
+    return activeTransactions
+      .filter((t) => t.type === 'income')
+      .filter((t) => isDateInRange(t.transaction_date, dateFilter, customStart, customEnd))
+      .filter((t) => {
+        if (incomeClientFilter !== 'all' && t.client_name !== incomeClientFilter) return false;
+        if (incomeProjectFilter !== 'all' && t.project_id !== incomeProjectFilter) return false;
+        if (incomeStatusFilter !== 'all' && t.payment_status !== incomeStatusFilter) return false;
+        if (incomeSearch.trim()) {
+          const q = incomeSearch.toLowerCase();
+          const target = [t.description, t.client_name, t.payment_method, t.notes]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
+          return target.includes(q);
+        }
+        return true;
+      })
+      .sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime());
   }, [
     activeTransactions,
-    ledgerTypeFilter,
-    ledgerCategoryFilter,
-    ledgerClientFilter,
-    ledgerProjectFilter,
-    ledgerCurrencyFilter,
-    ledgerPaymentMethodFilter,
     dateFilter,
     customStart,
     customEnd,
-    ledgerSearch,
+    incomeClientFilter,
+    incomeProjectFilter,
+    incomeStatusFilter,
+    incomeSearch,
   ]);
 
-  // Export handlers
-  function handleExportCSV() {
-    if (activeTab === 'receivables') {
-      const headers = ['Client Name', 'Client Email', 'Projects', 'Total Invoiced (PKR)', 'Total Paid (PKR)', 'Outstanding (PKR)', 'Overdue (PKR)'];
-      const rows = receivables.map((r) => [r.client_name, r.client_email, r.project_count, r.total_invoiced_pkr, r.total_paid_pkr, r.outstanding_pkr, r.overdue_pkr]);
-      exportToCSV('Client_Receivables_Report', headers, rows);
-      return;
-    }
+  // Expense transactions list
+  const expenseList = useMemo(() => {
+    return activeTransactions
+      .filter((t) => t.type === 'expense')
+      .filter((t) => isDateInRange(t.transaction_date, dateFilter, customStart, customEnd))
+      .filter((t) => {
+        if (expenseCategoryFilter !== 'all' && t.category !== expenseCategoryFilter) return false;
+        if (expenseMethodFilter !== 'all' && t.payment_method !== expenseMethodFilter) return false;
+        if (expenseSearch.trim()) {
+          const q = expenseSearch.toLowerCase();
+          const target = [t.description, t.category, t.vendor, t.payment_method, t.notes]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
+          return target.includes(q);
+        }
+        return true;
+      })
+      .sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime());
+  }, [
+    activeTransactions,
+    dateFilter,
+    customStart,
+    customEnd,
+    expenseCategoryFilter,
+    expenseMethodFilter,
+    expenseSearch,
+  ]);
 
-    if (activeTab === 'payroll') {
-      const headers = ['Employee', 'Monthly Salary', 'Project Earnings', 'Advances', 'Paid', 'Net Payable', 'Remaining Due', 'Status'];
-      const rows = payroll.map((p) => [p.employee_name, p.monthly_salary_pkr, p.bonus_pkr, p.advance_pkr, p.paid_pkr, p.net_payable_pkr, p.remaining_due_pkr, p.status]);
-      exportToCSV('Team_Payroll_Report', headers, rows);
-      return;
-    }
+  // Monthly reports for selected year
+  const monthlyReports = useMemo(() => {
+    return calculateMonthlyReports(activeTransactions, selectedReportYear);
+  }, [activeTransactions, selectedReportYear]);
 
-    if (activeTab === 'profitability') {
-      const headers = ['Project #', 'Project Title', 'Client', 'Revenue (PKR)', 'Team Cost (PKR)', 'Expenses (PKR)', 'Fees (PKR)', 'Net Profit (PKR)', 'Margin %'];
-      const rows = projectProfitability.map((p) => [p.project_number, p.project_title, p.client_name, p.revenue_pkr, p.team_cost_pkr, p.direct_expenses_pkr, p.payment_fees_pkr, p.net_profit_pkr, `${p.profit_margin_percent}%`]);
-      exportToCSV('Project_Profitability_Report', headers, rows);
-      return;
-    }
+  // Filtered Client Balances table
+  const filteredClientBalances = useMemo(() => {
+    return clientBalances.filter((c) => {
+      if (!clientSearch.trim()) return true;
+      const q = clientSearch.toLowerCase();
+      return c.client_name.toLowerCase().includes(q) || c.client_email.toLowerCase().includes(q);
+    });
+  }, [clientBalances, clientSearch]);
 
-    // Default Transactions CSV
-    const headers = ['Date', 'Type', 'Category', 'Description', 'Client/Vendor', 'Amount Native', 'Currency', 'Exchange Rate', 'Amount PKR', 'Payment Method', 'Ref #'];
-    const rows = ledgerFilteredTransactions.map((t) => [t.transaction_date, t.type.toUpperCase(), t.category, t.description, t.client_name || t.vendor || '', t.amount, t.currency, t.exchange_rate, t.amount_pkr, t.payment_method, t.reference_no || '']);
-    exportToCSV(`Financial_Transactions_${dateFilter}`, headers, rows);
+  // Active client object for client detail modal
+  const activeClientDetail = useMemo(() => {
+    if (!selectedClientName) return null;
+    return clientBalances.find((c) => c.client_name === selectedClientName) || null;
+  }, [selectedClientName, clientBalances]);
+
+  // Active employee object for employee detail modal
+  const activeEmployeeDetail = useMemo(() => {
+    if (!selectedEmployeeId) return null;
+    return teamPayments.find((e) => e.employee_id === selectedEmployeeId) || null;
+  }, [selectedEmployeeId, teamPayments]);
+
+  // Handlers for transactions
+  async function handleDeleteTransaction(id: string) {
+    if (!onDeleteTransaction && !onSoftDeleteTransaction) return;
+    try {
+      if (onDeleteTransaction) {
+        await onDeleteTransaction(id);
+      } else if (onSoftDeleteTransaction) {
+        await onSoftDeleteTransaction(id);
+      }
+      setDeletingTransactionId(null);
+    } catch (err) {
+      alert(errorMessage(err, 'Failed to delete transaction.'));
+    }
   }
 
-  function handleExportPDFReport() {
-    if (selectedReport === 'pnl') {
-      const headers = ['Financial Metric', 'Amount (PKR)'];
-      const rows = [
-        ['Total Gross Revenue', formatPKR(financialTotals.totalIncome)],
-        ['Total Expenses', formatPKR(financialTotals.totalExpenses)],
-        ['Team Payroll', formatPKR(financialTotals.totalPayrollMonthly)],
-        ['Net Operating Profit', formatPKR(financialTotals.netProfit)],
-        ['Overall Profit Margin', `${financialTotals.profitMargin}%`],
-      ];
-      exportReportPDF('Profit & Loss (P&L) Statement', `Financial Period: ${dateFilter.replace('_', ' ').toUpperCase()}`, headers, rows, [
-        { label: 'Total Revenue', value: formatPKR(financialTotals.totalIncome) },
-        { label: 'Total Expenses', value: formatPKR(financialTotals.totalExpenses) },
-        { label: 'Net Profit', value: formatPKR(financialTotals.netProfit) },
-      ]);
-    } else if (selectedReport === 'receivables') {
-      const headers = ['Client Name', 'Projects', 'Total Invoiced', 'Paid Amount', 'Outstanding Due', 'Overdue'];
-      const rows = receivables.map((r) => [r.client_name, r.project_count, formatPKR(r.total_invoiced_pkr), formatPKR(r.total_paid_pkr), formatPKR(r.outstanding_pkr), formatPKR(r.overdue_pkr)]);
-      exportReportPDF('Client Receivables Statement', 'Accounts Receivable Analysis', headers, rows, [
-        { label: 'Total Outstanding', value: formatPKR(financialTotals.totalReceivables) },
-      ]);
-    } else if (selectedReport === 'payroll') {
-      const headers = ['Employee Name', 'Monthly Salary', 'Bonus/Project', 'Total Paid', 'Remaining Dues', 'Status'];
-      const rows = payroll.map((p) => [p.employee_name, formatPKR(p.monthly_salary_pkr), formatPKR(p.bonus_pkr), formatPKR(p.paid_pkr), formatPKR(p.remaining_due_pkr), p.status]);
-      exportReportPDF('Team Payroll Summary', 'Employee Compensation & Dues', headers, rows, [
-        { label: 'Outstanding Dues', value: formatPKR(financialTotals.totalPayrollDues) },
-      ]);
-    } else {
-      const headers = ['Date', 'Type', 'Category', 'Description', 'Amount Native', 'Currency', 'Amount (PKR)'];
-      const rows = dateFilteredTransactions.map((t) => [t.transaction_date, t.type.toUpperCase(), t.category, t.description, formatCurrencyAmount(t.amount, t.currency), t.currency, formatPKR(t.amount_pkr)]);
-      exportReportPDF('Financial Transactions Report', `Transactions for ${dateFilter.replace('_', ' ')}`, headers, rows, [
-        { label: 'Income', value: formatPKR(financialTotals.totalIncome) },
-        { label: 'Expenses', value: formatPKR(financialTotals.totalExpenses) },
-      ]);
-    }
+  // Export CSV Handler for Reports
+  function handleExportReportsCSV() {
+    const headers = ['Month', 'Income', 'Expenses', 'Net Profit'];
+    const rows = monthlyReports.map((r) => [
+      `${r.month_name} ${selectedReportYear}`,
+      r.income,
+      r.expenses,
+      r.profit,
+    ]);
+    exportToCSV(`Manuscript_Heaven_Finance_${selectedReportYear}`, headers, rows);
+  }
+
+  // Print Report Handler
+  function handlePrintReport() {
+    const headers = ['Month', 'Income', 'Expenses', 'Net Profit'];
+    const rows = monthlyReports.map((r) => [
+      `${r.month_name} ${selectedReportYear}`,
+      currency(r.income),
+      currency(r.expenses),
+      currency(r.profit),
+    ]);
+    const totalIncome = monthlyReports.reduce((s, r) => s + r.income, 0);
+    const totalExp = monthlyReports.reduce((s, r) => s + r.expenses, 0);
+    const net = totalIncome - totalExp;
+
+    exportReportPDF(
+      `Financial Report (${selectedReportYear})`,
+      'Annual Income, Expense and Net Profit Performance',
+      headers,
+      rows,
+      [
+        { label: 'Total Income', value: currency(totalIncome) },
+        { label: 'Total Expenses', value: currency(totalExp) },
+        { label: 'Net Profit', value: currency(net) },
+        { label: 'Client Receivables', value: currency(kpiData.receivable) },
+      ],
+    );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Top Header Banner */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between rounded-2xl border border-border bg-gradient-to-r from-ink via-ink/95 to-ink/90 p-6 text-white shadow-md">
+    <div className="space-y-6 pb-12">
+      {/* ========================================================================= */}
+      {/* TOP HEADER */}
+      {/* ========================================================================= */}
+      <header className="flex flex-col justify-between gap-4 border-b border-border/80 pb-5 sm:flex-row sm:items-center">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="rounded-md bg-gold px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-ink">
-              Enterprise ERP
-            </span>
-            <p className="text-xs font-medium text-white/70">Admin Financial Management</p>
-          </div>
-          <h2 className="mt-1 font-display text-3xl font-bold tracking-tight">Finance System</h2>
-          <p className="mt-1 text-sm text-white/70">
-            Real-time business accounts, client receivables, team payroll, project margins & expense budgets.
+          <h1 className="font-display text-3xl font-bold tracking-tight text-ink">Finance</h1>
+          <p className="mt-1 text-sm text-muted">
+            Business income, expenses, client balances and team payments.
           </p>
         </div>
 
-        {/* Action Controls & Date Filter */}
-        <div className="flex flex-wrap items-center gap-2.5">
-          <div className="flex items-center gap-1.5 rounded-lg bg-white/10 p-1.5 text-xs text-white backdrop-blur">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Period selector */}
+          <div className="flex items-center gap-2 rounded-md border border-border bg-white px-3 py-1.5 shadow-xs">
             <Calendar className="h-4 w-4 text-gold" />
             <select
+              aria-label="Filter by period"
+              className="bg-transparent text-sm font-medium text-ink focus:outline-hidden cursor-pointer"
               value={dateFilter}
               onChange={(e) => setDateFilter(e.target.value as DateFilterType)}
-              className="bg-transparent text-xs font-semibold text-white focus:outline-none cursor-pointer"
             >
-              <option value="this_month" className="text-ink">This Month</option>
-              <option value="last_month" className="text-ink">Last Month</option>
-              <option value="this_quarter" className="text-ink">This Quarter</option>
-              <option value="this_year" className="text-ink">This Year</option>
-              <option value="all" className="text-ink">All Time</option>
-              <option value="custom" className="text-ink">Custom Date Range</option>
+              <option value="this_month">This Month</option>
+              <option value="last_month">Last Month</option>
+              <option value="this_year">This Year</option>
+              <option value="custom">Custom Range</option>
+              <option value="all">All Time</option>
             </select>
           </div>
 
-          {dateFilter === 'custom' ? (
-            <div className="flex items-center gap-1.5 text-xs">
+          {dateFilter === 'custom' && (
+            <div className="flex items-center gap-1.5 text-sm">
               <input
                 type="date"
+                className="rounded-md border border-border bg-white px-2 py-1 text-xs"
                 value={customStart}
                 onChange={(e) => setCustomStart(e.target.value)}
-                className="h-8 rounded-md border border-white/20 bg-white/10 px-2 text-white placeholder-white/50"
               />
-              <span className="text-white/60">to</span>
+              <span className="text-muted">to</span>
               <input
                 type="date"
+                className="rounded-md border border-border bg-white px-2 py-1 text-xs"
                 value={customEnd}
                 onChange={(e) => setCustomEnd(e.target.value)}
-                className="h-8 rounded-md border border-white/20 bg-white/10 px-2 text-white placeholder-white/50"
               />
             </div>
-          ) : null}
+          )}
 
-          {canManage ? (
+          {canManage && (
             <>
               <Button
-                type="button"
+                variant="primary"
                 onClick={() => {
                   setEditingTransaction(null);
-                  setModalType('income');
-                  setShowTransactionModal(true);
+                  setShowAddIncomeModal(true);
                 }}
-                className="h-9 px-3 text-xs shadow-sm bg-emerald-600 hover:bg-emerald-700 text-white border-none"
               >
-                <Plus className="h-3.5 w-3.5" />
-                Add Income
+                <Plus className="h-4 w-4" />
+                Income
               </Button>
 
               <Button
-                type="button"
+                variant="secondary"
                 onClick={() => {
                   setEditingTransaction(null);
-                  setModalType('expense');
-                  setShowTransactionModal(true);
+                  setShowAddExpenseModal(true);
                 }}
-                className="h-9 px-3 text-xs shadow-sm bg-rose-600 hover:bg-rose-700 text-white border-none"
               >
-                <Plus className="h-3.5 w-3.5" />
-                Add Expense
+                <Plus className="h-4 w-4" />
+                Expense
               </Button>
             </>
-          ) : null}
+          )}
         </div>
-      </div>
+      </header>
 
-      {/* KPI Overview Cards */}
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-        <KpiCard
-          label="Available Cash"
-          value={formatPKR(financialTotals.availableCash)}
-          icon={<WalletCards className="h-4 w-4 text-emerald-600" />}
-          tone="text-ink"
-        />
-        <KpiCard
-          label="Total Income"
-          value={formatPKR(financialTotals.totalIncome)}
-          icon={<ArrowDownRight className="h-4 w-4 text-emerald-600" />}
-          tone="text-emerald-700"
-        />
-        <KpiCard
-          label="Total Expenses"
-          value={formatPKR(financialTotals.totalExpenses)}
-          icon={<ArrowUpRight className="h-4 w-4 text-rose-600" />}
-          tone="text-rose-700"
-        />
-        <KpiCard
-          label="Net Profit"
-          value={formatPKR(financialTotals.netProfit)}
-          icon={<TrendingUp className="h-4 w-4 text-gold" />}
-          tone={financialTotals.netProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'}
-        />
-        <KpiCard
-          label="Profit Margin"
-          value={`${financialTotals.profitMargin}%`}
-          icon={<BarChart3 className="h-4 w-4 text-blue-600" />}
-          tone="text-blue-700"
-        />
-        <KpiCard
-          label="Receivables"
-          value={formatPKR(financialTotals.totalReceivables)}
-          icon={<DollarSign className="h-4 w-4 text-amber-600" />}
-          tone="text-amber-700"
-        />
-        <KpiCard
-          label="Payables"
-          value={formatPKR(financialTotals.totalPayables)}
-          icon={<CreditCard className="h-4 w-4 text-purple-600" />}
-          tone="text-purple-700"
-        />
-        <KpiCard
-          label="Team Payroll"
-          value={formatPKR(financialTotals.totalPayrollMonthly)}
-          icon={<Users className="h-4 w-4 text-indigo-600" />}
-          tone="text-indigo-700"
-        />
+      {/* ========================================================================= */}
+      {/* 6 MAIN TABS NAVIGATION */}
+      {/* ========================================================================= */}
+      <nav className="flex flex-wrap gap-2 border-b border-border/70 pb-3" aria-label="Finance navigation tabs">
+        {[
+          { id: 'overview', label: 'Overview' },
+          { id: 'income', label: 'Income' },
+          { id: 'expenses', label: 'Expenses' },
+          { id: 'client_balances', label: 'Client Balances' },
+          { id: 'team_payments', label: 'Team Payments' },
+          { id: 'reports', label: 'Reports' },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveTab(tab.id as FinanceTab)}
+            className={`rounded-md px-4 py-2 text-sm font-medium transition cursor-pointer ${
+              activeTab === tab.id
+                ? 'bg-gold text-ink font-semibold shadow-xs'
+                : 'bg-white border border-border text-muted hover:border-gold hover:text-ink'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
+      {/* ========================================================================= */}
+      {/* TOP 4 KPI CARDS */}
+      {/* ========================================================================= */}
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {/* 1. Income */}
+        <Card className="flex flex-col justify-between border-l-4 border-l-emerald-600 bg-white">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted">Income</span>
+            <div className="rounded-md bg-emerald-50 p-2 text-emerald-700">
+              <ArrowUpRight className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <p className="font-display text-2xl font-bold text-ink">{currency(kpiData.income)}</p>
+            <p className="mt-1 text-xs text-muted">
+              {dateFilter === 'this_month' ? 'Received this month' : 'In selected period'}
+            </p>
+          </div>
+        </Card>
+
+        {/* 2. Expenses */}
+        <Card className="flex flex-col justify-between border-l-4 border-l-slate-400 bg-white">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted">Expenses</span>
+            <div className="rounded-md bg-slate-100 p-2 text-slate-700">
+              <ArrowDownRight className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <p className="font-display text-2xl font-bold text-ink">{currency(kpiData.expenses)}</p>
+            <p className="mt-1 text-xs text-muted">
+              {dateFilter === 'this_month' ? 'Spent this month' : 'In selected period'}
+            </p>
+          </div>
+        </Card>
+
+        {/* 3. Net Profit */}
+        <Card
+          className={`flex flex-col justify-between border-l-4 ${
+            kpiData.netProfit >= 0 ? 'border-l-emerald-600' : 'border-l-rose-600'
+          } bg-white`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted">Net Profit</span>
+            <div
+              className={`rounded-md p-2 ${
+                kpiData.netProfit >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+              }`}
+            >
+              <TrendingUp className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <p
+              className={`font-display text-2xl font-bold ${
+                kpiData.netProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'
+              }`}
+            >
+              {currency(kpiData.netProfit)}
+            </p>
+            <p className="mt-1 text-xs text-muted">Income minus Expenses</p>
+          </div>
+        </Card>
+
+        {/* 4. Receivable */}
+        <Card
+          className={`flex flex-col justify-between border-l-4 ${
+            kpiData.receivable > 0 ? 'border-l-rose-500' : 'border-l-emerald-500'
+          } bg-white`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted">Receivable</span>
+            <div
+              className={`rounded-md p-2 ${
+                kpiData.receivable > 0 ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'
+              }`}
+            >
+              <DollarSign className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <p
+              className={`font-display text-2xl font-bold ${
+                kpiData.receivable > 0 ? 'text-rose-700' : 'text-emerald-700'
+              }`}
+            >
+              {currency(kpiData.receivable)}
+            </p>
+            <p className="mt-1 text-xs text-muted">Unpaid client balances</p>
+          </div>
+        </Card>
       </section>
 
-      {/* Main Tab Workspace Navigation */}
-      <div className="flex flex-wrap items-center justify-between border-b border-border/80 pb-3 gap-2">
-        <div className="flex flex-wrap gap-1.5">
-          {([
-            ['overview', '1. Overview', Landmark],
-            ['income', '2. Income', ArrowDownRight],
-            ['expenses', '3. Expenses', ArrowUpRight],
-            ['ledger', '4. Transactions', Layers],
-            ['receivables', '5. Receivables', DollarSign],
-            ['payroll', '6. Team Payroll', Users],
-            ['profitability', '7. Project Profitability', TrendingUp],
-            ['budgets', '8. Budgets & Recurring', PieChart],
-            ['reports', '9. Financial Reports', FileText],
-          ] as const).map(([id, label, Icon]) => {
-            const active = activeTab === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setActiveTab(id)}
-                className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition ${
-                  active
-                    ? 'bg-ink text-white shadow-sm'
-                    : 'bg-white text-muted border border-border hover:bg-ivory hover:text-ink'
-                }`}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                <span>{label}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="secondary" onClick={handleExportCSV} className="h-8 px-2.5 text-xs gap-1.5">
-            <Download className="h-3.5 w-3.5" />
-            CSV Export
-          </Button>
-
-          <Button type="button" variant="secondary" onClick={handleExportPDFReport} className="h-8 px-2.5 text-xs gap-1.5">
-            <Printer className="h-3.5 w-3.5" />
-            Print Report
-          </Button>
-        </div>
-      </div>
-
-      {/* Tab 1: Overview Workspace */}
-      {activeTab === 'overview' ? (
+      {/* ========================================================================= */}
+      {/* TAB 1: OVERVIEW */}
+      {/* ========================================================================= */}
+      {activeTab === 'overview' && (
         <div className="space-y-6">
-          {/* Charts Row */}
-          <div className="grid gap-5 lg:grid-cols-2">
-            {/* Cash Flow Visual Chart */}
-            <Card>
-              <div className="flex items-center justify-between border-b border-border pb-3">
-                <div>
-                  <h3 className="font-display text-lg font-bold text-ink">Cash Flow Analysis</h3>
-                  <p className="text-xs text-muted">Money In (Income) vs. Money Out (Expenses)</p>
-                </div>
-                <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700 border border-emerald-200">
-                  {formatPKR(financialTotals.netProfit)} Net
-                </span>
+          {/* SECTION 1: RECENT TRANSACTIONS */}
+          <Card>
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <div>
+                <h2 className="font-display text-xl font-semibold text-ink">Recent Transactions</h2>
+                <p className="text-xs text-muted">Latest financial movements across income and expenses.</p>
               </div>
-
-              <div className="mt-4 flex h-48 items-end gap-3 pt-6 px-2 border-b border-border pb-2">
-                <div className="flex h-full w-full flex-col justify-end gap-2">
-                  <div className="flex items-center justify-between text-xs font-semibold text-charcoal">
-                    <span>Total Income</span>
-                    <span className="text-emerald-700">{formatPKR(financialTotals.totalIncome)}</span>
-                  </div>
-                  <div className="h-6 w-full rounded-md bg-emerald-100 overflow-hidden">
-                    <div
-                      className="h-full bg-emerald-600 transition-all duration-500"
-                      style={{ width: `${financialTotals.totalIncome ? 100 : 0}%` }}
-                    />
-                  </div>
-
-                  <div className="mt-3 flex items-center justify-between text-xs font-semibold text-charcoal">
-                    <span>Total Expenses</span>
-                    <span className="text-rose-700">{formatPKR(financialTotals.totalExpenses)}</span>
-                  </div>
-                  <div className="h-6 w-full rounded-md bg-rose-100 overflow-hidden">
-                    <div
-                      className="h-full bg-rose-600 transition-all duration-500"
-                      style={{
-                        width: `${
-                          financialTotals.totalIncome
-                            ? Math.min(
-                                100,
-                                Math.round((financialTotals.totalExpenses / financialTotals.totalIncome) * 100),
-                              )
-                            : financialTotals.totalExpenses
-                              ? 100
-                              : 0
-                        }%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-3 flex justify-between text-xs font-medium text-muted">
-                <span>Margin: {financialTotals.profitMargin}%</span>
-                <span>Available Cash: {formatPKR(financialTotals.availableCash)}</span>
-              </div>
-            </Card>
-
-            {/* Expense Breakdown Progress */}
-            <Card>
-              <div className="flex items-center justify-between border-b border-border pb-3">
-                <div>
-                  <h3 className="font-display text-lg font-bold text-ink">Expense Categories</h3>
-                  <p className="text-xs text-muted">Breakdown of operational & project costs</p>
-                </div>
-                <PieChart className="h-4 w-4 text-gold" />
-              </div>
-
-              <div className="mt-4 space-y-3 max-h-48 overflow-y-auto pr-1">
-                {budgetsSummary
-                  .filter((b) => b.actual_pkr > 0)
-                  .map((b) => {
-                    const percent = financialTotals.totalExpenses
-                      ? Math.round((b.actual_pkr / financialTotals.totalExpenses) * 100)
-                      : 0;
-
-                    return (
-                      <div key={b.category} className="space-y-1">
-                        <div className="flex items-center justify-between text-xs font-medium">
-                          <span className="text-ink font-semibold">{b.category}</span>
-                          <span className="text-muted">
-                            {formatPKR(b.actual_pkr)} ({percent}%)
-                          </span>
-                        </div>
-                        <div className="h-2 w-full overflow-hidden rounded-full bg-ivory">
-                          <div
-                            className="h-full bg-gold transition-all duration-300"
-                            style={{ width: `${percent}%` }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                {!budgetsSummary.some((b) => b.actual_pkr > 0) ? (
-                  <p className="text-xs text-muted py-8 text-center">No expense transactions recorded in this period.</p>
-                ) : null}
-              </div>
-            </Card>
-          </div>
-
-          {/* Outstanding Summaries Row */}
-          <div className="grid gap-5 lg:grid-cols-2">
-            {/* Receivables Table Preview */}
-            <Card className="p-0 overflow-hidden">
-              <div className="flex items-center justify-between border-b border-border px-5 py-4 bg-ivory/50">
-                <div>
-                  <h3 className="font-display text-base font-bold text-ink">Client Receivables</h3>
-                  <p className="text-xs text-muted">Outstanding project balances</p>
-                </div>
-                <Button type="button" variant="ghost" onClick={() => setActiveTab('receivables')} className="text-xs gap-1">
-                  View All <ChevronRight className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-ivory text-muted uppercase tracking-wider font-semibold border-b border-border/60">
-                    <tr>
-                      <th className="px-4 py-2.5">Client</th>
-                      <th className="px-4 py-2.5">Projects</th>
-                      <th className="px-4 py-2.5">Invoiced</th>
-                      <th className="px-4 py-2.5">Outstanding</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/60">
-                    {receivables.slice(0, 5).map((r) => (
-                      <tr key={r.client_name} className="hover:bg-ivory/40">
-                        <td className="px-4 py-3 font-semibold text-ink">{r.client_name}</td>
-                        <td className="px-4 py-3 text-muted">{r.project_count}</td>
-                        <td className="px-4 py-3 font-medium">{formatPKR(r.total_invoiced_pkr)}</td>
-                        <td className="px-4 py-3 font-bold text-amber-700">{formatPKR(r.outstanding_pkr)}</td>
-                      </tr>
-                    ))}
-                    {!receivables.length ? (
-                      <tr>
-                        <td colSpan={4} className="p-4 text-center text-muted">No client receivables found.</td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-
-            {/* Team Payroll Preview */}
-            <Card className="p-0 overflow-hidden">
-              <div className="flex items-center justify-between border-b border-border px-5 py-4 bg-ivory/50">
-                <div>
-                  <h3 className="font-display text-base font-bold text-ink">Team Payroll Summary</h3>
-                  <p className="text-xs text-muted">Employee compensation & remaining dues</p>
-                </div>
-                <Button type="button" variant="ghost" onClick={() => setActiveTab('payroll')} className="text-xs gap-1">
-                  View All <ChevronRight className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-ivory text-muted uppercase tracking-wider font-semibold border-b border-border/60">
-                    <tr>
-                      <th className="px-4 py-2.5">Employee</th>
-                      <th className="px-4 py-2.5">Monthly Salary</th>
-                      <th className="px-4 py-2.5">Paid</th>
-                      <th className="px-4 py-2.5">Dues</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/60">
-                    {payroll.slice(0, 5).map((p) => (
-                      <tr key={p.employee_id} className="hover:bg-ivory/40">
-                        <td className="px-4 py-3 font-semibold text-ink">{p.employee_name}</td>
-                        <td className="px-4 py-3 text-muted">{formatPKR(p.monthly_salary_pkr)}</td>
-                        <td className="px-4 py-3 font-medium text-emerald-700">{formatPKR(p.paid_pkr)}</td>
-                        <td className="px-4 py-3 font-bold text-rose-700">{formatPKR(p.remaining_due_pkr)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-          </div>
-        </div>
-      ) : null}
-
-      {/* Tab 2: Income Workspace */}
-      {activeTab === 'income' ? (
-        <Card className="p-0 overflow-hidden">
-          <div className="flex items-center justify-between border-b border-border px-5 py-4 bg-ivory/50">
-            <div>
-              <h3 className="font-display text-lg font-bold text-ink">Income Records</h3>
-              <p className="text-xs text-muted">All incoming revenue streams, client payments & invoices</p>
-            </div>
-            {canManage ? (
-              <Button
+              <button
                 type="button"
-                onClick={() => {
-                  setEditingTransaction(null);
-                  setModalType('income');
-                  setShowTransactionModal(true);
-                }}
-                className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                onClick={() => setActiveTab('income')}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-gold hover:underline cursor-pointer"
               >
-                <Plus className="h-3.5 w-3.5" />
-                Add Income
-              </Button>
-            ) : null}
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-ivory text-muted uppercase tracking-wider font-semibold border-b border-border/60">
-                <tr>
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Description</th>
-                  <th className="px-4 py-3">Category</th>
-                  <th className="px-4 py-3">Client / Project</th>
-                  <th className="px-4 py-3">Native Amount</th>
-                  <th className="px-4 py-3">Amount (PKR)</th>
-                  <th className="px-4 py-3">Payment Method</th>
-                  {canManage ? <th className="px-4 py-3 text-right">Actions</th> : null}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/60">
-                {dateFilteredTransactions
-                  .filter((t) => t.type === 'income')
-                  .map((t) => (
-                    <tr key={t.id} className="hover:bg-ivory/40">
-                      <td className="px-4 py-3 font-medium text-muted">{t.transaction_date}</td>
-                      <td className="px-4 py-3 font-semibold text-ink">{t.description}</td>
-                      <td className="px-4 py-3">
-                        <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800 border border-emerald-200">
-                          {t.category}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-muted">
-                        {t.client_name ? <p className="font-medium text-ink">{t.client_name}</p> : null}
-                        {t.project_id ? (
-                          <p className="text-[11px] text-muted">
-                            {projects.find((p) => p.id === t.project_id)?.project_number}
-                          </p>
-                        ) : null}
-                      </td>
-                      <td className="px-4 py-3 font-semibold text-emerald-700">
-                        {formatCurrencyAmount(t.amount, t.currency)}
-                      </td>
-                      <td className="px-4 py-3 font-bold text-ink">{formatPKR(t.amount_pkr)}</td>
-                      <td className="px-4 py-3 text-muted">{t.payment_method}</td>
-                      {canManage ? (
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (window.confirm('Delete this income record?')) {
-                                void onSoftDeleteTransaction?.(t.id);
-                              }
-                            }}
-                            className="rounded p-1 text-muted hover:bg-rose-50 hover:text-rose-600"
-                            title="Soft delete"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </td>
-                      ) : null}
-                    </tr>
-                  ))}
-                {!dateFilteredTransactions.some((t) => t.type === 'income') ? (
-                  <tr>
-                    <td colSpan={8} className="p-8 text-center text-muted">
-                      No income records logged for this period.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      ) : null}
-
-      {/* Tab 3: Expenses Workspace */}
-      {activeTab === 'expenses' ? (
-        <Card className="p-0 overflow-hidden">
-          <div className="flex items-center justify-between border-b border-border px-5 py-4 bg-ivory/50">
-            <div>
-              <h3 className="font-display text-lg font-bold text-ink">Expense Records</h3>
-              <p className="text-xs text-muted">Operational expenses, software, vendors & team payouts</p>
+                View All Transactions <ChevronRight className="h-3.5 w-3.5" />
+              </button>
             </div>
-            {canManage ? (
-              <Button
-                type="button"
-                onClick={() => {
-                  setEditingTransaction(null);
-                  setModalType('expense');
-                  setShowTransactionModal(true);
-                }}
-                className="h-8 text-xs bg-rose-600 hover:bg-rose-700 text-white"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Add Expense
-              </Button>
-            ) : null}
-          </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-ivory text-muted uppercase tracking-wider font-semibold border-b border-border/60">
-                <tr>
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Description</th>
-                  <th className="px-4 py-3">Category</th>
-                  <th className="px-4 py-3">Vendor / Project</th>
-                  <th className="px-4 py-3">Native Amount</th>
-                  <th className="px-4 py-3">Amount (PKR)</th>
-                  <th className="px-4 py-3">Recurring</th>
-                  {canManage ? <th className="px-4 py-3 text-right">Actions</th> : null}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/60">
-                {dateFilteredTransactions
-                  .filter((t) => t.type === 'expense')
-                  .map((t) => (
-                    <tr key={t.id} className="hover:bg-ivory/40">
-                      <td className="px-4 py-3 font-medium text-muted">{t.transaction_date}</td>
-                      <td className="px-4 py-3 font-semibold text-ink">{t.description}</td>
-                      <td className="px-4 py-3">
-                        <span className="rounded-full bg-rose-50 px-2.5 py-0.5 text-[11px] font-bold text-rose-800 border border-rose-200">
-                          {t.category}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-muted">
-                        {t.vendor ? <p className="font-medium text-ink">{t.vendor}</p> : null}
-                        {t.project_id ? (
-                          <p className="text-[11px] text-muted">
-                            {projects.find((p) => p.id === t.project_id)?.project_number}
-                          </p>
-                        ) : null}
-                      </td>
-                      <td className="px-4 py-3 font-semibold text-rose-700">
-                        {formatCurrencyAmount(t.amount, t.currency)}
-                      </td>
-                      <td className="px-4 py-3 font-bold text-ink">{formatPKR(t.amount_pkr)}</td>
-                      <td className="px-4 py-3 text-muted capitalize">
-                        {t.recurring_status && t.recurring_status !== 'none' ? (
-                          <span className="rounded bg-gold/15 px-2 py-0.5 text-[10px] font-bold text-ink">
-                            {t.recurring_status}
-                          </span>
-                        ) : (
-                          'One-time'
-                        )}
-                      </td>
-                      {canManage ? (
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (window.confirm('Delete this expense record?')) {
-                                void onSoftDeleteTransaction?.(t.id);
-                              }
-                            }}
-                            className="rounded p-1 text-muted hover:bg-rose-50 hover:text-rose-600"
-                            title="Soft delete"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </td>
-                      ) : null}
-                    </tr>
-                  ))}
-                {!dateFilteredTransactions.some((t) => t.type === 'expense') ? (
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="border-b border-border/80 text-xs font-semibold uppercase tracking-wider text-muted">
                   <tr>
-                    <td colSpan={8} className="p-8 text-center text-muted">
-                      No expense records logged for this period.
-                    </td>
+                    <th className="py-2.5">Date</th>
+                    <th>Description</th>
+                    <th>Client / Vendor</th>
+                    <th>Type</th>
+                    <th className="text-right">Amount</th>
+                    <th className="text-center">Status</th>
                   </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      ) : null}
-
-      {/* Tab 4: Transactions Ledger */}
-      {activeTab === 'ledger' ? (
-        <div className="space-y-4">
-          {/* Multi-Filter Control Box */}
-          <Card className="p-4 bg-white space-y-3">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <label className="relative min-w-0 flex-1">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-                <input
-                  type="text"
-                  value={ledgerSearch}
-                  onChange={(e) => setLedgerSearch(e.target.value)}
-                  placeholder="Search description, vendor, client, reference..."
-                  className="h-10 w-full rounded-md border border-border bg-white pl-9 pr-3 text-xs focus:border-gold"
-                />
-              </label>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <SelectField
-                  value={ledgerTypeFilter}
-                  onChange={(e) => setLedgerTypeFilter(e.target.value as any)}
-                  className="h-10 text-xs w-32"
-                >
-                  <option value="all">All Types</option>
-                  <option value="income">Income Only</option>
-                  <option value="expense">Expenses Only</option>
-                </SelectField>
-
-                <SelectField
-                  value={ledgerCurrencyFilter}
-                  onChange={(e) => setLedgerCurrencyFilter(e.target.value)}
-                  className="h-10 text-xs w-32"
-                >
-                  <option value="all">All Currencies</option>
-                  <option value="PKR">PKR</option>
-                  <option value="USD">USD</option>
-                  <option value="EUR">EUR</option>
-                  <option value="GBP">GBP</option>
-                </SelectField>
-
-                <SelectField
-                  value={ledgerPaymentMethodFilter}
-                  onChange={(e) => setLedgerPaymentMethodFilter(e.target.value)}
-                  className="h-10 text-xs w-36"
-                >
-                  <option value="all">All Methods</option>
-                  {PAYMENT_METHODS.map((pm) => (
-                    <option key={pm} value={pm}>
-                      {pm}
-                    </option>
-                  ))}
-                </SelectField>
-              </div>
+                </thead>
+                <tbody className="divide-y divide-border/50">
+                  {recentTransactions.length > 0 ? (
+                    recentTransactions.map((tx) => {
+                      const isIncome = tx.type === 'income';
+                      const isPartial = tx.payment_status === 'Partially Paid';
+                      return (
+                        <tr key={tx.id} className="hover:bg-ivory/60 transition">
+                          <td className="py-3 text-muted text-xs whitespace-nowrap">{tx.transaction_date}</td>
+                          <td className="font-medium text-ink">{tx.description}</td>
+                          <td className="text-muted text-xs">{tx.client_name || tx.vendor || '—'}</td>
+                          <td>
+                            <span
+                              className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                isIncome ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-800'
+                              }`}
+                            >
+                              {isIncome ? 'Income' : 'Expense'}
+                            </span>
+                          </td>
+                          <td
+                            className={`text-right font-semibold whitespace-nowrap ${
+                              isIncome ? 'text-emerald-700' : 'text-slate-800'
+                            }`}
+                          >
+                            {isIncome ? `+${currency(tx.amount)}` : `-${currency(tx.amount)}`}
+                          </td>
+                          <td className="text-center">
+                            <span
+                              className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                                tx.payment_status === 'Paid'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : isPartial
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-rose-100 text-rose-800'
+                              }`}
+                            >
+                              {tx.payment_status || 'Paid'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="py-6 text-center text-sm text-muted">
+                        No transactions recorded yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </Card>
 
-          {/* Full Transaction Table */}
-          <Card className="p-0 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-ivory text-muted uppercase tracking-wider font-semibold border-b border-border/60">
-                  <tr>
-                    <th className="px-4 py-3">Date</th>
-                    <th className="px-4 py-3">Description</th>
-                    <th className="px-4 py-3">Type</th>
-                    <th className="px-4 py-3">Category</th>
-                    <th className="px-4 py-3">Client / Vendor</th>
-                    <th className="px-4 py-3">Native Amount</th>
-                    <th className="px-4 py-3">Amount (PKR)</th>
-                    <th className="px-4 py-3">Method</th>
-                    {canManage ? <th className="px-4 py-3 text-right">Actions</th> : null}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/60">
-                  {ledgerFilteredTransactions.map((t) => (
-                    <tr key={t.id} className="hover:bg-ivory/40">
-                      <td className="px-4 py-3 font-medium text-muted">{t.transaction_date}</td>
-                      <td className="px-4 py-3 font-semibold text-ink">
-                        {t.description}
-                        {t.reference_no ? (
-                          <span className="block text-[10px] text-muted font-normal">Ref: {t.reference_no}</span>
-                        ) : null}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                            t.type === 'income'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-rose-100 text-rose-800'
+          {/* TWO COLUMN GRID: CLIENT BALANCES & TEAM PAYMENTS */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* SECTION 2: CLIENT BALANCES (COMPACT) */}
+            <Card>
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <div>
+                  <h2 className="font-display text-lg font-semibold text-ink">Client Balances</h2>
+                  <p className="text-xs text-muted">Who owes Manuscript Heaven money.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('client_balances')}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-gold hover:underline cursor-pointer"
+                >
+                  View All Clients <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="border-b border-border/80 text-xs font-semibold uppercase tracking-wider text-muted">
+                    <tr>
+                      <th className="py-2">Client</th>
+                      <th className="text-center">Projects</th>
+                      <th className="text-right">Invoiced</th>
+                      <th className="text-right">Paid</th>
+                      <th className="text-right">Outstanding</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {clientBalances.slice(0, 6).map((client) => (
+                      <tr
+                        key={client.client_name}
+                        onClick={() => setSelectedClientName(client.client_name)}
+                        className="cursor-pointer hover:bg-ivory/60 transition"
+                      >
+                        <td className="py-2.5 font-medium text-ink">{client.client_name}</td>
+                        <td className="text-center text-xs text-muted">{client.project_count}</td>
+                        <td className="text-right text-xs text-muted">{currency(client.total_invoiced)}</td>
+                        <td className="text-right text-xs text-muted">{currency(client.total_paid)}</td>
+                        <td
+                          className={`text-right font-bold ${
+                            client.outstanding > 0 ? 'text-rose-700' : 'text-emerald-700'
                           }`}
                         >
-                          {t.type.toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 font-medium">{t.category}</td>
-                      <td className="px-4 py-3 text-muted">{t.client_name || t.vendor || '—'}</td>
-                      <td
-                        className={`px-4 py-3 font-semibold ${
-                          t.type === 'income' ? 'text-emerald-700' : 'text-rose-700'
-                        }`}
-                      >
-                        {formatCurrencyAmount(t.amount, t.currency)}
-                      </td>
-                      <td className="px-4 py-3 font-bold text-ink">{formatPKR(t.amount_pkr)}</td>
-                      <td className="px-4 py-3 text-muted">{t.payment_method}</td>
-                      {canManage ? (
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (window.confirm('Soft-delete this transaction?')) {
-                                void onSoftDeleteTransaction?.(t.id);
-                              }
-                            }}
-                            className="rounded p-1 text-muted hover:bg-rose-50 hover:text-rose-600"
-                            title="Delete entry"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          {currency(client.outstanding)}
                         </td>
-                      ) : null}
-                    </tr>
-                  ))}
-                  {!ledgerFilteredTransactions.length ? (
-                    <tr>
-                      <td colSpan={9} className="p-8 text-center text-muted">
-                        No transactions found matching criteria.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        </div>
-      ) : null}
+                      </tr>
+                    ))}
+                    {clientBalances.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="py-4 text-center text-xs text-muted">
+                          No client data found.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
 
-      {/* Tab 5: Client Receivables */}
-      {activeTab === 'receivables' ? (
-        <Card className="p-0 overflow-hidden space-y-4">
-          <div className="p-5 border-b border-border bg-ivory/50">
-            <h3 className="font-display text-lg font-bold text-ink">Client Accounts Receivable</h3>
-            <p className="text-xs text-muted">Total invoiced revenue, payments received & pending client balances</p>
-          </div>
-
-          <div className="overflow-x-auto px-5 pb-5">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-ivory text-muted uppercase tracking-wider font-semibold border-b border-border/60">
-                <tr>
-                  <th className="px-4 py-3">Client Name</th>
-                  <th className="px-4 py-3">Email</th>
-                  <th className="px-4 py-3">Projects</th>
-                  <th className="px-4 py-3">Total Invoiced</th>
-                  <th className="px-4 py-3">Total Paid</th>
-                  <th className="px-4 py-3">Outstanding</th>
-                  <th className="px-4 py-3">Overdue Amount</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/60">
-                {receivables.map((r) => (
-                  <tr key={r.client_name} className="hover:bg-ivory/40">
-                    <td className="px-4 py-3 font-semibold text-ink">{r.client_name}</td>
-                    <td className="px-4 py-3 text-muted">{r.client_email || '—'}</td>
-                    <td className="px-4 py-3 font-medium">{r.project_count}</td>
-                    <td className="px-4 py-3 font-medium">{formatPKR(r.total_invoiced_pkr)}</td>
-                    <td className="px-4 py-3 font-semibold text-emerald-700">{formatPKR(r.total_paid_pkr)}</td>
-                    <td className="px-4 py-3 font-bold text-amber-700">{formatPKR(r.outstanding_pkr)}</td>
-                    <td className="px-4 py-3 font-bold text-rose-700">{formatPKR(r.overdue_pkr)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      ) : null}
-
-      {/* Tab 6: Team Payroll */}
-      {activeTab === 'payroll' ? (
-        <Card className="p-0 overflow-hidden">
-          <div className="p-5 border-b border-border bg-ivory/50">
-            <h3 className="font-display text-lg font-bold text-ink">Team Payroll & Dues</h3>
-            <p className="text-xs text-muted">Employee compensation, advances, deductions & outstanding payroll</p>
-          </div>
-
-          <div className="overflow-x-auto p-5">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-ivory text-muted uppercase tracking-wider font-semibold border-b border-border/60">
-                <tr>
-                  <th className="px-4 py-3">Employee</th>
-                  <th className="px-4 py-3">Monthly Salary</th>
-                  <th className="px-4 py-3">Project Earnings</th>
-                  <th className="px-4 py-3">Advance</th>
-                  <th className="px-4 py-3">Net Payable</th>
-                  <th className="px-4 py-3">Total Paid</th>
-                  <th className="px-4 py-3">Remaining Dues</th>
-                  <th className="px-4 py-3">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/60">
-                {payroll.map((p) => (
-                  <tr key={p.employee_id} className="hover:bg-ivory/40">
-                    <td className="px-4 py-3 font-semibold text-ink">{p.employee_name}</td>
-                    <td className="px-4 py-3 text-muted">{formatPKR(p.monthly_salary_pkr)}</td>
-                    <td className="px-4 py-3 text-muted">{formatPKR(p.bonus_pkr)}</td>
-                    <td className="px-4 py-3 text-muted">{formatPKR(p.advance_pkr)}</td>
-                    <td className="px-4 py-3 font-semibold text-ink">{formatPKR(p.net_payable_pkr)}</td>
-                    <td className="px-4 py-3 font-semibold text-emerald-700">{formatPKR(p.paid_pkr)}</td>
-                    <td className="px-4 py-3 font-bold text-rose-700">{formatPKR(p.remaining_due_pkr)}</td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-                          p.status === 'Paid'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : p.status === 'Partial'
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-rose-100 text-rose-800'
-                        }`}
-                      >
-                        {p.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      ) : null}
-
-      {/* Tab 7: Project Profitability */}
-      {activeTab === 'profitability' ? (
-        <Card className="p-0 overflow-hidden">
-          <div className="p-5 border-b border-border bg-ivory/50">
-            <h3 className="font-display text-lg font-bold text-ink">Project Profitability Matrix</h3>
-            <p className="text-xs text-muted">Per-project revenue, team costs, direct expenses & profit margins</p>
-          </div>
-
-          <div className="overflow-x-auto p-5">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-ivory text-muted uppercase tracking-wider font-semibold border-b border-border/60">
-                <tr>
-                  <th className="px-4 py-3">Project #</th>
-                  <th className="px-4 py-3">Title</th>
-                  <th className="px-4 py-3">Client</th>
-                  <th className="px-4 py-3">Revenue</th>
-                  <th className="px-4 py-3">Team Cost</th>
-                  <th className="px-4 py-3">Expenses</th>
-                  <th className="px-4 py-3">Fees (2.5%)</th>
-                  <th className="px-4 py-3">Net Profit</th>
-                  <th className="px-4 py-3">Margin %</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/60">
-                {projectProfitability.map((p) => (
-                  <tr key={p.project_id} className="hover:bg-ivory/40">
-                    <td className="px-4 py-3 font-semibold text-ink">{p.project_number}</td>
-                    <td className="px-4 py-3 font-medium text-ink">{p.project_title}</td>
-                    <td className="px-4 py-3 text-muted">{p.client_name}</td>
-                    <td className="px-4 py-3 font-semibold text-emerald-700">{formatPKR(p.revenue_pkr)}</td>
-                    <td className="px-4 py-3 text-muted">{formatPKR(p.team_cost_pkr)}</td>
-                    <td className="px-4 py-3 text-muted">{formatPKR(p.direct_expenses_pkr)}</td>
-                    <td className="px-4 py-3 text-muted">{formatPKR(p.payment_fees_pkr)}</td>
-                    <td
-                      className={`px-4 py-3 font-bold ${
-                        p.net_profit_pkr >= 0 ? 'text-emerald-700' : 'text-rose-700'
-                      }`}
-                    >
-                      {formatPKR(p.net_profit_pkr)}
-                    </td>
-                    <td className="px-4 py-3 font-bold text-ink">{p.profit_margin_percent}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      ) : null}
-
-      {/* Tab 8: Budgets & Recurring */}
-      {activeTab === 'budgets' ? (
-        <div className="space-y-6">
-          {/* Category Budgets Grid */}
-          <Card>
-            <h3 className="font-display text-lg font-bold text-ink">Monthly Category Budgets</h3>
-            <p className="text-xs text-muted">Spend limits vs actual spend for current month</p>
-
-            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {budgetsSummary.map((b) => (
-                <div key={b.category} className="rounded-xl border border-border bg-white p-4 shadow-sm space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-ink text-xs">{b.category}</span>
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                        b.status === 'exceeded'
-                          ? 'bg-rose-100 text-rose-800'
-                          : b.status === 'warning'
-                            ? 'bg-amber-100 text-amber-800'
-                            : 'bg-emerald-100 text-emerald-800'
-                      }`}
-                    >
-                      {b.status.toUpperCase()}
-                    </span>
-                  </div>
-
-                  <div className="flex items-baseline justify-between text-xs">
-                    <span className="font-bold text-ink">{formatPKR(b.actual_pkr)}</span>
-                    <span className="text-muted">Budget: {formatPKR(b.budget_pkr)}</span>
-                  </div>
-
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-ivory">
-                    <div
-                      className={`h-full transition-all duration-300 ${
-                        b.status === 'exceeded' ? 'bg-rose-600' : b.status === 'warning' ? 'bg-amber-500' : 'bg-emerald-600'
-                      }`}
-                      style={{ width: `${Math.min(100, b.usage_percent)}%` }}
-                    />
-                  </div>
+            {/* SECTION 3: TEAM PAYMENTS (COMPACT) */}
+            <Card>
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <div>
+                  <h2 className="font-display text-lg font-semibold text-ink">Team Payments</h2>
+                  <p className="text-xs text-muted">Salaries and employee dues snapshot.</p>
                 </div>
-              ))}
-            </div>
-          </Card>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('team_payments')}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-gold hover:underline cursor-pointer"
+                >
+                  View Team Payments <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
 
-          {/* Recurring Expenses Table */}
-          <Card className="p-0 overflow-hidden">
-            <div className="p-5 border-b border-border bg-ivory/50">
-              <h3 className="font-display text-lg font-bold text-ink">Recurring Subscriptions</h3>
-              <p className="text-xs text-muted">Software, hosting, domains & recurring services</p>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="border-b border-border/80 text-xs font-semibold uppercase tracking-wider text-muted">
+                    <tr>
+                      <th className="py-2">Employee</th>
+                      <th className="text-right">Monthly Salary</th>
+                      <th className="text-right">Paid</th>
+                      <th className="text-right">Outstanding</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {teamPayments.map((emp) => (
+                      <tr
+                        key={emp.employee_id}
+                        onClick={() => setSelectedEmployeeId(emp.employee_id)}
+                        className="cursor-pointer hover:bg-ivory/60 transition"
+                      >
+                        <td className="py-2.5 font-medium text-ink">{emp.employee_name}</td>
+                        <td className="text-right text-xs text-muted">{currency(emp.monthly_salary)}</td>
+                        <td className="text-right text-xs text-muted">{currency(emp.paid)}</td>
+                        <td
+                          className={`text-right font-bold ${
+                            emp.outstanding > 0 ? 'text-rose-700' : 'text-emerald-700'
+                          }`}
+                        >
+                          {currency(emp.outstanding)}
+                        </td>
+                      </tr>
+                    ))}
+                    {teamPayments.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="py-4 text-center text-xs text-muted">
+                          No team members found.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 2: INCOME */}
+      {/* ========================================================================= */}
+      {activeTab === 'income' && (
+        <div className="space-y-4">
+          <Card>
+            <div className="flex flex-col justify-between gap-4 border-b border-border pb-4 sm:flex-row sm:items-center">
+              <div>
+                <h2 className="font-display text-xl font-semibold text-ink">Income Transactions</h2>
+                <p className="text-xs text-muted">Project payments and client income records.</p>
+              </div>
+
+              {canManage && (
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    setEditingTransaction(null);
+                    setShowAddIncomeModal(true);
+                  }}
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Income
+                </Button>
+              )}
             </div>
 
-            <div className="overflow-x-auto p-5">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-ivory text-muted uppercase tracking-wider font-semibold border-b border-border/60">
+            {/* Filter controls */}
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-muted" />
+                <input
+                  type="text"
+                  placeholder="Search description, client..."
+                  value={incomeSearch}
+                  onChange={(e) => setIncomeSearch(e.target.value)}
+                  className="min-h-10 w-full rounded-md border border-border bg-white pl-9 pr-3 text-sm focus:border-gold focus:outline-hidden"
+                />
+              </div>
+
+              <select
+                aria-label="Filter by client"
+                value={incomeClientFilter}
+                onChange={(e) => setIncomeClientFilter(e.target.value)}
+                className="min-h-10 rounded-md border border-border bg-white px-3 text-sm focus:border-gold focus:outline-hidden"
+              >
+                <option value="all">All Clients</option>
+                {clientBalances.map((c) => (
+                  <option key={c.client_name} value={c.client_name}>
+                    {c.client_name}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                aria-label="Filter by project"
+                value={incomeProjectFilter}
+                onChange={(e) => setIncomeProjectFilter(e.target.value)}
+                className="min-h-10 rounded-md border border-border bg-white px-3 text-sm focus:border-gold focus:outline-hidden"
+              >
+                <option value="all">All Projects</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.project_number} - {p.project_title}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                aria-label="Filter by payment status"
+                value={incomeStatusFilter}
+                onChange={(e) => setIncomeStatusFilter(e.target.value)}
+                className="min-h-10 rounded-md border border-border bg-white px-3 text-sm focus:border-gold focus:outline-hidden"
+              >
+                <option value="all">All Statuses</option>
+                <option value="Paid">Paid</option>
+                <option value="Partially Paid">Partially Paid</option>
+                <option value="Pending">Pending</option>
+              </select>
+            </div>
+
+            {/* Income Table */}
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="border-b border-border text-xs font-semibold uppercase tracking-wider text-muted">
                   <tr>
-                    <th className="px-4 py-3">Description</th>
-                    <th className="px-4 py-3">Category</th>
-                    <th className="px-4 py-3">Vendor</th>
-                    <th className="px-4 py-3">Monthly Cost</th>
-                    <th className="px-4 py-3">Annual Cost</th>
-                    <th className="px-4 py-3">Frequency</th>
-                    <th className="px-4 py-3">Next Due Date</th>
+                    <th className="py-2.5">Date</th>
+                    <th>Client</th>
+                    <th>Project</th>
+                    <th>Description</th>
+                    <th className="text-right">Amount</th>
+                    <th>Method</th>
+                    <th className="text-center">Status</th>
+                    {canManage && <th className="text-right">Actions</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
-                  {recurringExpenses.map((r) => (
-                    <tr key={r.id} className="hover:bg-ivory/40">
-                      <td className="px-4 py-3 font-semibold text-ink">{r.description}</td>
-                      <td className="px-4 py-3 text-muted">{r.category}</td>
-                      <td className="px-4 py-3 text-muted">{r.vendor}</td>
-                      <td className="px-4 py-3 font-semibold text-ink">{formatPKR(r.monthly_cost_pkr)}</td>
-                      <td className="px-4 py-3 font-medium text-muted">{formatPKR(r.annual_cost_pkr)}</td>
-                      <td className="px-4 py-3 capitalize">{r.recurring_status}</td>
-                      <td className="px-4 py-3 text-muted">{r.next_date || '—'}</td>
-                    </tr>
-                  ))}
-                  {!recurringExpenses.length ? (
+                  {incomeList.length > 0 ? (
+                    incomeList.map((item) => {
+                      const linkedProject = projects.find((p) => p.id === item.project_id);
+                      const isPartial = item.payment_status === 'Partially Paid';
+                      return (
+                        <tr key={item.id} className="hover:bg-ivory/60 transition">
+                          <td className="py-3 text-xs text-muted whitespace-nowrap">{item.transaction_date}</td>
+                          <td className="font-semibold text-ink">{item.client_name || '—'}</td>
+                          <td className="text-xs text-muted">
+                            {linkedProject ? (
+                              <span className="font-medium text-ink">{linkedProject.project_title}</span>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="text-ink">{item.description}</td>
+                          <td className="text-right font-bold text-emerald-700 whitespace-nowrap">
+                            +{currency(item.amount)}
+                          </td>
+                          <td className="text-xs text-muted">{item.payment_method || 'Bank Transfer'}</td>
+                          <td className="text-center">
+                            <span
+                              className={`inline-block rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                                item.payment_status === 'Paid'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : isPartial
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-rose-100 text-rose-800'
+                              }`}
+                            >
+                              {item.payment_status || 'Paid'}
+                            </span>
+                          </td>
+                          {canManage && (
+                            <td className="text-right whitespace-nowrap">
+                              <div className="inline-flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingTransaction(item);
+                                    setShowAddIncomeModal(true);
+                                  }}
+                                  className="text-xs font-semibold text-muted hover:text-ink cursor-pointer"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDeletingTransactionId(item.id)}
+                                  className="text-xs font-semibold text-rose-600 hover:text-rose-800 cursor-pointer"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })
+                  ) : (
                     <tr>
-                      <td colSpan={7} className="p-4 text-center text-muted">No active recurring subscriptions logged.</td>
+                      <td colSpan={8} className="py-8 text-center text-sm text-muted">
+                        No income records found for this filter.
+                      </td>
                     </tr>
-                  ) : null}
+                  )}
                 </tbody>
               </table>
             </div>
           </Card>
         </div>
-      ) : null}
+      )}
 
-      {/* Tab 9: Financial Reports */}
-      {activeTab === 'reports' ? (
-        <Card className="space-y-6">
-          <div>
-            <h3 className="font-display text-xl font-bold text-ink">Financial Reports Builder</h3>
-            <p className="text-xs text-muted">Generate, print and export official company financial reports</p>
-          </div>
+      {/* ========================================================================= */}
+      {/* TAB 3: EXPENSES */}
+      {/* ========================================================================= */}
+      {activeTab === 'expenses' && (
+        <div className="space-y-4">
+          <Card>
+            <div className="flex flex-col justify-between gap-4 border-b border-border pb-4 sm:flex-row sm:items-center">
+              <div>
+                <h2 className="font-display text-xl font-semibold text-ink">Business Expenses</h2>
+                <p className="text-xs text-muted">Track software, utilities, office supplies, and team overheads.</p>
+              </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {([
-              ['pnl', 'Profit & Loss (P&L)', 'Statement of revenues and expenses'],
-              ['receivables', 'Client Receivables', 'Accounts receivable statement'],
-              ['payroll', 'Team Payroll', 'Employee compensation & dues'],
-              ['profitability', 'Project Profitability', 'Margins by project'],
-            ] as const).map(([id, label, desc]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setSelectedReport(id)}
-                className={`rounded-xl border p-4 text-left transition ${
-                  selectedReport === id
-                    ? 'border-gold bg-gold/10 shadow-sm'
-                    : 'border-border bg-white hover:border-gold/50'
-                }`}
+              <div className="flex items-center gap-3">
+                <span className="rounded-md bg-ivory px-3 py-1.5 text-xs font-semibold text-ink border border-border">
+                  Period Total: <strong className="text-slate-900">{currency(kpiData.expenses)}</strong>
+                </span>
+
+                {canManage && (
+                  <Button
+                    variant="primary"
+                    onClick={() => {
+                      setEditingTransaction(null);
+                      setShowAddExpenseModal(true);
+                    }}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add Expense
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Filter controls */}
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-muted" />
+                <input
+                  type="text"
+                  placeholder="Search description, vendor..."
+                  value={expenseSearch}
+                  onChange={(e) => setExpenseSearch(e.target.value)}
+                  className="min-h-10 w-full rounded-md border border-border bg-white pl-9 pr-3 text-sm focus:border-gold focus:outline-hidden"
+                />
+              </div>
+
+              <select
+                aria-label="Filter by expense category"
+                value={expenseCategoryFilter}
+                onChange={(e) => setExpenseCategoryFilter(e.target.value)}
+                className="min-h-10 rounded-md border border-border bg-white px-3 text-sm focus:border-gold focus:outline-hidden"
               >
-                <p className="font-display text-sm font-bold text-ink">{label}</p>
-                <p className="mt-1 text-xs text-muted">{desc}</p>
-              </button>
-            ))}
-          </div>
+                <option value="all">All Categories</option>
+                {EXPENSE_CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
 
-          <div className="flex justify-end gap-3 border-t border-border pt-4">
-            <Button type="button" variant="secondary" onClick={handleExportCSV} className="gap-1.5 text-xs">
-              <FileSpreadsheet className="h-4 w-4" />
-              Export Excel / CSV
-            </Button>
+              <select
+                aria-label="Filter by expense payment method"
+                value={expenseMethodFilter}
+                onChange={(e) => setExpenseMethodFilter(e.target.value)}
+                className="min-h-10 rounded-md border border-border bg-white px-3 text-sm focus:border-gold focus:outline-hidden"
+              >
+                <option value="all">All Payment Methods</option>
+                {PAYMENT_METHODS.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-            <Button type="button" onClick={handleExportPDFReport} className="gap-1.5 text-xs">
-              <Printer className="h-4 w-4" />
-              Print / Save PDF Report
-            </Button>
-          </div>
-        </Card>
-      ) : null}
+            {/* Expenses Table */}
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="border-b border-border text-xs font-semibold uppercase tracking-wider text-muted">
+                  <tr>
+                    <th className="py-2.5">Date</th>
+                    <th>Description</th>
+                    <th>Category</th>
+                    <th>Vendor</th>
+                    <th className="text-right">Amount</th>
+                    <th>Method</th>
+                    {canManage && <th className="text-right">Actions</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {expenseList.length > 0 ? (
+                    expenseList.map((item) => (
+                      <tr key={item.id} className="hover:bg-ivory/60 transition">
+                        <td className="py-3 text-xs text-muted whitespace-nowrap">{item.transaction_date}</td>
+                        <td className="font-semibold text-ink">{item.description}</td>
+                        <td>
+                          <span className="inline-block rounded-md bg-ivory px-2 py-0.5 text-xs text-muted border border-border">
+                            {item.category || 'Other'}
+                          </span>
+                        </td>
+                        <td className="text-xs text-muted">{item.vendor || '—'}</td>
+                        <td className="text-right font-bold text-slate-800 whitespace-nowrap">
+                          -{currency(item.amount)}
+                        </td>
+                        <td className="text-xs text-muted">{item.payment_method || 'Card'}</td>
+                        {canManage && (
+                          <td className="text-right whitespace-nowrap">
+                            <div className="inline-flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingTransaction(item);
+                                  setShowAddExpenseModal(true);
+                                }}
+                                className="text-xs font-semibold text-muted hover:text-ink cursor-pointer"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeletingTransactionId(item.id)}
+                                className="text-xs font-semibold text-rose-600 hover:text-rose-800 cursor-pointer"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center text-sm text-muted">
+                        No expense records found.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
+      )}
 
-      {/* Add / Edit Transaction Modal */}
-      {showTransactionModal ? (
-        <TransactionModal
-          type={modalType}
+      {/* ========================================================================= */}
+      {/* TAB 4: CLIENT BALANCES */}
+      {/* ========================================================================= */}
+      {activeTab === 'client_balances' && (
+        <div className="space-y-4">
+          <Card>
+            <div className="flex flex-col justify-between gap-4 border-b border-border pb-4 sm:flex-row sm:items-center">
+              <div>
+                <h2 className="font-display text-xl font-semibold text-ink">Client Balances</h2>
+                <p className="text-xs text-muted">
+                  Who owes Manuscript Heaven money — automatically calculated from project payments.
+                </p>
+              </div>
+
+              <div className="relative w-full sm:w-72">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-muted" />
+                <input
+                  type="text"
+                  placeholder="Search client..."
+                  value={clientSearch}
+                  onChange={(e) => setClientSearch(e.target.value)}
+                  className="min-h-10 w-full rounded-md border border-border bg-white pl-9 pr-3 text-sm focus:border-gold focus:outline-hidden"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="border-b border-border text-xs font-semibold uppercase tracking-wider text-muted">
+                  <tr>
+                    <th className="py-2.5">Client</th>
+                    <th className="text-center">Projects</th>
+                    <th className="text-right">Total Invoiced</th>
+                    <th className="text-right">Total Paid</th>
+                    <th className="text-right">Outstanding</th>
+                    <th>Last Payment</th>
+                    <th className="text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {filteredClientBalances.map((client) => (
+                    <tr
+                      key={client.client_name}
+                      onClick={() => setSelectedClientName(client.client_name)}
+                      className="cursor-pointer hover:bg-ivory/60 transition"
+                    >
+                      <td className="py-3 font-semibold text-ink">{client.client_name}</td>
+                      <td className="text-center text-xs text-muted">{client.project_count}</td>
+                      <td className="text-right font-medium text-ink">{currency(client.total_invoiced)}</td>
+                      <td className="text-right text-muted">{currency(client.total_paid)}</td>
+                      <td
+                        className={`text-right font-bold ${
+                          client.outstanding > 0 ? 'text-rose-700' : 'text-emerald-700'
+                        }`}
+                      >
+                        {currency(client.outstanding)}
+                      </td>
+                      <td className="text-xs text-muted">{client.last_payment_date || '—'}</td>
+                      <td className="text-right">
+                        <Button
+                          variant="secondary"
+                          className="text-xs py-1 px-3 min-h-8"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedClientName(client.client_name);
+                          }}
+                        >
+                          View Details
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                  {filteredClientBalances.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center text-sm text-muted">
+                        No clients found.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 5: TEAM PAYMENTS */}
+      {/* ========================================================================= */}
+      {activeTab === 'team_payments' && (
+        <div className="space-y-4">
+          <Card>
+            <div className="flex flex-col justify-between gap-4 border-b border-border pb-4 sm:flex-row sm:items-center">
+              <div>
+                <h2 className="font-display text-xl font-semibold text-ink">Team Payments</h2>
+                <p className="text-xs text-muted">
+                  Salaries, project earnings, advances and employee dues connected to Team Management.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <label className="text-xs font-semibold text-muted">Period:</label>
+                <input
+                  type="month"
+                  value={selectedTeamMonth}
+                  onChange={(e) => setSelectedTeamMonth(e.target.value)}
+                  className="rounded-md border border-border bg-white px-3 py-1.5 text-sm font-medium text-ink focus:border-gold"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="border-b border-border text-xs font-semibold uppercase tracking-wider text-muted">
+                  <tr>
+                    <th className="py-2.5">Employee</th>
+                    <th className="text-right">Monthly Salary</th>
+                    <th className="text-right">Project Earnings</th>
+                    <th className="text-right">Advances</th>
+                    <th className="text-right">Paid</th>
+                    <th className="text-right">Outstanding</th>
+                    <th className="text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {teamPayments.map((emp) => (
+                    <tr
+                      key={emp.employee_id}
+                      onClick={() => setSelectedEmployeeId(emp.employee_id)}
+                      className="cursor-pointer hover:bg-ivory/60 transition"
+                    >
+                      <td className="py-3 font-semibold text-ink">{emp.employee_name}</td>
+                      <td className="text-right text-ink font-medium">{currency(emp.monthly_salary)}</td>
+                      <td className="text-right text-muted">{currency(emp.project_earnings)}</td>
+                      <td className="text-right text-muted">{currency(emp.advances)}</td>
+                      <td className="text-right text-muted">{currency(emp.paid)}</td>
+                      <td
+                        className={`text-right font-bold ${
+                          emp.outstanding > 0 ? 'text-rose-700' : 'text-emerald-700'
+                        }`}
+                      >
+                        {currency(emp.outstanding)}
+                      </td>
+                      <td className="text-right">
+                        <Button
+                          variant="secondary"
+                          className="text-xs py-1 px-3 min-h-8"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedEmployeeId(emp.employee_id);
+                          }}
+                        >
+                          View Details
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                  {teamPayments.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center text-sm text-muted">
+                        No team payroll records found for this month.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 6: REPORTS */}
+      {/* ========================================================================= */}
+      {activeTab === 'reports' && (
+        <div className="space-y-6">
+          <Card>
+            <div className="flex flex-col justify-between gap-4 border-b border-border pb-4 sm:flex-row sm:items-center">
+              <div>
+                <h2 className="font-display text-xl font-semibold text-ink">Financial Reports</h2>
+                <p className="text-xs text-muted">Annual summary and monthly performance breakdown.</p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2 rounded-md border border-border bg-white px-3 py-1.5 text-sm font-medium">
+                  <span className="text-xs text-muted">Year:</span>
+                  <select
+                    aria-label="Filter by report year"
+                    value={selectedReportYear}
+                    onChange={(e) => setSelectedReportYear(Number(e.target.value))}
+                    className="bg-transparent text-ink font-semibold focus:outline-hidden cursor-pointer"
+                  >
+                    {[currentYearNumber, currentYearNumber - 1, currentYearNumber - 2].map((yr) => (
+                      <option key={yr} value={yr}>
+                        {yr}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <Button variant="secondary" onClick={handleExportReportsCSV}>
+                  <Download className="h-4 w-4" />
+                  Export CSV
+                </Button>
+
+                <Button variant="secondary" onClick={handlePrintReport}>
+                  <Printer className="h-4 w-4" />
+                  Print Report
+                </Button>
+              </div>
+            </div>
+
+            {/* Financial Summary Box */}
+            <div className="mt-6 grid gap-4 rounded-lg border border-border bg-ivory/80 p-5 sm:grid-cols-2 lg:grid-cols-5">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted">Year Income</p>
+                <p className="mt-1 font-display text-2xl font-bold text-ink">
+                  {currency(monthlyReports.reduce((s, r) => s + r.income, 0))}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted">Year Expenses</p>
+                <p className="mt-1 font-display text-2xl font-bold text-slate-800">
+                  {currency(monthlyReports.reduce((s, r) => s + r.expenses, 0))}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted">Net Profit</p>
+                <p className="mt-1 font-display text-2xl font-bold text-emerald-700">
+                  {currency(
+                    monthlyReports.reduce((s, r) => s + r.income, 0) -
+                      monthlyReports.reduce((s, r) => s + r.expenses, 0),
+                  )}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted">Outstanding Clients</p>
+                <p className="mt-1 font-display text-2xl font-bold text-rose-700">
+                  {currency(kpiData.receivable)}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted">Team Dues</p>
+                <p className="mt-1 font-display text-2xl font-bold text-rose-700">
+                  {currency(kpiData.teamDues)}
+                </p>
+              </div>
+            </div>
+
+            {/* Monthly Summary Table */}
+            <div className="mt-8">
+              <h3 className="font-display text-lg font-semibold text-ink">Monthly Summary ({selectedReportYear})</h3>
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="border-b border-border text-xs font-semibold uppercase tracking-wider text-muted">
+                    <tr>
+                      <th className="py-2.5">Month</th>
+                      <th className="text-right">Income</th>
+                      <th className="text-right">Expenses</th>
+                      <th className="text-right">Profit</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/60">
+                    {monthlyReports.map((row) => (
+                      <tr key={row.month_key} className="hover:bg-ivory/60 transition">
+                        <td className="py-2.5 font-medium text-ink">
+                          {row.month_name} {selectedReportYear}
+                        </td>
+                        <td className="text-right text-emerald-700 font-semibold">{currency(row.income)}</td>
+                        <td className="text-right text-slate-800">{currency(row.expenses)}</td>
+                        <td
+                          className={`text-right font-bold ${
+                            row.profit >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                          }`}
+                        >
+                          {currency(row.profit)}
+                        </td>
+                      </tr>
+                    ))}
+                    {/* Totals Row */}
+                    <tr className="border-t-2 border-border font-bold bg-ivory/40">
+                      <td className="py-3 font-display text-ink">Total {selectedReportYear}</td>
+                      <td className="text-right text-emerald-700">
+                        {currency(monthlyReports.reduce((s, r) => s + r.income, 0))}
+                      </td>
+                      <td className="text-right text-slate-800">
+                        {currency(monthlyReports.reduce((s, r) => s + r.expenses, 0))}
+                      </td>
+                      <td className="text-right text-emerald-700">
+                        {currency(
+                          monthlyReports.reduce((s, r) => s + r.income, 0) -
+                            monthlyReports.reduce((s, r) => s + r.expenses, 0),
+                        )}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* ADD / EDIT INCOME MODAL */}
+      {/* ========================================================================= */}
+      {showAddIncomeModal && (
+        <IncomeFormModal
+          transaction={editingTransaction}
           projects={projects}
-          profiles={profiles}
-          onClose={() => setShowTransactionModal(false)}
-          onSave={async (draft) => {
-            await onCreateTransaction?.(draft);
-            setShowTransactionModal(false);
+          clientBalances={clientBalances}
+          onClose={() => {
+            setShowAddIncomeModal(false);
+            setEditingTransaction(null);
+          }}
+          onSave={async (draft, linkToProjectId) => {
+            if (editingTransaction && onUpdateTransaction) {
+              await onUpdateTransaction(editingTransaction.id, draft);
+            } else if (onCreateTransaction) {
+              await onCreateTransaction(draft);
+            }
+
+            // Sync with project if selected
+            if (linkToProjectId && onUpdateProject) {
+              const proj = projects.find((p) => p.id === linkToProjectId);
+              if (proj) {
+                const newPaid = Number(proj.advance_paid || 0) + Number(draft.amount || 0);
+                const total = Number(proj.total_price || 0);
+                await onUpdateProject(proj.id, {
+                  advance_paid: newPaid,
+                  payment_status: newPaid >= total ? 'Fully Paid' : newPaid > 0 ? 'Partially Paid' : 'Not Started',
+                  payment_date: draft.transaction_date,
+                });
+              }
+            }
+
+            setShowAddIncomeModal(false);
+            setEditingTransaction(null);
           }}
         />
-      ) : null}
+      )}
+
+      {/* ========================================================================= */}
+      {/* ADD / EDIT EXPENSE MODAL */}
+      {/* ========================================================================= */}
+      {showAddExpenseModal && (
+        <ExpenseFormModal
+          transaction={editingTransaction}
+          projects={projects}
+          onClose={() => {
+            setShowAddExpenseModal(false);
+            setEditingTransaction(null);
+          }}
+          onSave={async (draft) => {
+            if (editingTransaction && onUpdateTransaction) {
+              await onUpdateTransaction(editingTransaction.id, draft);
+            } else if (onCreateTransaction) {
+              await onCreateTransaction(draft);
+            }
+            setShowAddExpenseModal(false);
+            setEditingTransaction(null);
+          }}
+        />
+      )}
+
+      {/* ========================================================================= */}
+      {/* DELETE TRANSACTION CONFIRMATION MODAL */}
+      {/* ========================================================================= */}
+      {deletingTransactionId && (
+        <Modal
+          title="Delete Transaction"
+          onClose={() => setDeletingTransactionId(null)}
+          width="max-w-md"
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-ink">
+              Are you sure you want to delete this transaction? This cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="secondary"
+                type="button"
+                onClick={() => setDeletingTransactionId(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                type="button"
+                onClick={() => handleDeleteTransaction(deletingTransactionId)}
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ========================================================================= */}
+      {/* CLIENT FINANCIAL DETAIL MODAL */}
+      {/* ========================================================================= */}
+      {activeClientDetail && (
+        <Modal
+          title={`${activeClientDetail.client_name} — Financial Detail`}
+          onClose={() => setSelectedClientName(null)}
+          width="max-w-3xl"
+        >
+          <div className="space-y-6">
+            {/* Top 3 KPI stats */}
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-lg border border-border bg-ivory p-3.5 text-center">
+                <p className="text-xs uppercase tracking-wider text-muted font-semibold">Total Invoiced</p>
+                <p className="mt-1 font-display text-xl font-bold text-ink">
+                  {currency(activeClientDetail.total_invoiced)}
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border bg-ivory p-3.5 text-center">
+                <p className="text-xs uppercase tracking-wider text-muted font-semibold">Total Paid</p>
+                <p className="mt-1 font-display text-xl font-bold text-emerald-700">
+                  {currency(activeClientDetail.total_paid)}
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border bg-ivory p-3.5 text-center">
+                <p className="text-xs uppercase tracking-wider text-muted font-semibold">Outstanding</p>
+                <p
+                  className={`mt-1 font-display text-xl font-bold ${
+                    activeClientDetail.outstanding > 0 ? 'text-rose-700' : 'text-emerald-700'
+                  }`}
+                >
+                  {currency(activeClientDetail.outstanding)}
+                </p>
+              </div>
+            </div>
+
+            {/* Project Payments Table */}
+            <div>
+              <h3 className="font-display text-base font-semibold text-ink border-b border-border pb-2">
+                Project Payments
+              </h3>
+
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="border-b border-border text-xs font-semibold uppercase tracking-wider text-muted">
+                    <tr>
+                      <th className="py-2">Project</th>
+                      <th className="text-right">Price</th>
+                      <th className="text-right">Paid</th>
+                      <th className="text-right">Outstanding</th>
+                      <th className="text-center">Status</th>
+                      {canManage && <th className="text-right">Action</th>}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/60">
+                    {activeClientDetail.projects.map((proj) => (
+                      <tr key={proj.id} className="hover:bg-ivory/50">
+                        <td className="py-2.5">
+                          <p className="font-medium text-ink">{proj.project_title}</p>
+                          <p className="text-xs text-muted">{proj.project_number}</p>
+                        </td>
+                        <td className="text-right font-medium text-ink">{currency(proj.total_price)}</td>
+                        <td className="text-right text-muted">{currency(proj.advance_paid)}</td>
+                        <td
+                          className={`text-right font-bold ${
+                            proj.outstanding > 0 ? 'text-rose-700' : 'text-emerald-700'
+                          }`}
+                        >
+                          {currency(proj.outstanding)}
+                        </td>
+                        <td className="text-center">
+                          <span
+                            className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                              proj.outstanding === 0
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : proj.advance_paid > 0
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-rose-100 text-rose-800'
+                            }`}
+                          >
+                            {proj.outstanding === 0 ? 'Paid' : `${currency(proj.outstanding)} Due`}
+                          </span>
+                        </td>
+                        {canManage && (
+                          <td className="text-right">
+                            {proj.outstanding > 0 && (
+                              <Button
+                                variant="secondary"
+                                className="text-xs py-1 px-2.5 min-h-7"
+                                onClick={() => {
+                                  const realProject = projects.find((p) => p.id === proj.id);
+                                  if (realProject) setProjectToPay(realProject);
+                                }}
+                              >
+                                Record Payment
+                              </Button>
+                            )}
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <Button variant="secondary" onClick={() => setSelectedClientName(null)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ========================================================================= */}
+      {/* EMPLOYEE FINANCIAL DETAIL MODAL */}
+      {/* ========================================================================= */}
+      {activeEmployeeDetail && (
+        <Modal
+          title={`${activeEmployeeDetail.employee_name} — Financial Detail`}
+          onClose={() => setSelectedEmployeeId(null)}
+          width="max-w-3xl"
+        >
+          <div className="space-y-6">
+            {/* KPI grid */}
+            <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6 text-center">
+              <div className="rounded-lg border border-border bg-ivory p-2.5">
+                <p className="text-[10px] uppercase font-semibold text-muted">Monthly Salary</p>
+                <p className="mt-1 font-display text-lg font-bold text-ink">
+                  {currency(activeEmployeeDetail.monthly_salary)}
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border bg-ivory p-2.5">
+                <p className="text-[10px] uppercase font-semibold text-muted">Earnings</p>
+                <p className="mt-1 font-display text-lg font-bold text-ink">
+                  {currency(activeEmployeeDetail.project_earnings)}
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border bg-ivory p-2.5">
+                <p className="text-[10px] uppercase font-semibold text-muted">Advances</p>
+                <p className="mt-1 font-display text-lg font-bold text-muted">
+                  {currency(activeEmployeeDetail.advances)}
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border bg-ivory p-2.5">
+                <p className="text-[10px] uppercase font-semibold text-muted">Deductions</p>
+                <p className="mt-1 font-display text-lg font-bold text-rose-700">
+                  {currency(activeEmployeeDetail.deductions)}
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border bg-ivory p-2.5">
+                <p className="text-[10px] uppercase font-semibold text-muted">Paid</p>
+                <p className="mt-1 font-display text-lg font-bold text-emerald-700">
+                  {currency(activeEmployeeDetail.paid)}
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border bg-ivory p-2.5">
+                <p className="text-[10px] uppercase font-semibold text-muted">Outstanding</p>
+                <p
+                  className={`mt-1 font-display text-lg font-bold ${
+                    activeEmployeeDetail.outstanding > 0 ? 'text-rose-700' : 'text-emerald-700'
+                  }`}
+                >
+                  {currency(activeEmployeeDetail.outstanding)}
+                </p>
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            {canManage && (
+              <div className="flex flex-wrap items-center gap-2 border-y border-border py-3">
+                <Button
+                  variant="primary"
+                  className="text-xs py-1 px-3 min-h-8"
+                  onClick={() => {
+                    setLedgerModalEmployeeId(activeEmployeeDetail.employee_id);
+                    setLedgerModalDefaultType('Payment');
+                    setShowLedgerEntryModal(true);
+                  }}
+                >
+                  Record Payment
+                </Button>
+
+                <Button
+                  variant="secondary"
+                  className="text-xs py-1 px-3 min-h-8"
+                  onClick={() => {
+                    setLedgerModalEmployeeId(activeEmployeeDetail.employee_id);
+                    setLedgerModalDefaultType('Advance');
+                    setShowLedgerEntryModal(true);
+                  }}
+                >
+                  Add Advance
+                </Button>
+
+                <Button
+                  variant="secondary"
+                  className="text-xs py-1 px-3 min-h-8"
+                  onClick={() => {
+                    setLedgerModalEmployeeId(activeEmployeeDetail.employee_id);
+                    setLedgerModalDefaultType('Deduction');
+                    setShowLedgerEntryModal(true);
+                  }}
+                >
+                  Add Deduction
+                </Button>
+              </div>
+            )}
+
+            {/* Payment History */}
+            <div>
+              <h3 className="font-display text-base font-semibold text-ink border-b border-border pb-2">
+                Payment History ({selectedTeamMonth})
+              </h3>
+
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="border-b border-border text-xs font-semibold uppercase tracking-wider text-muted">
+                    <tr>
+                      <th className="py-2">Date</th>
+                      <th>Type</th>
+                      <th>Notes</th>
+                      <th className="text-right">Amount</th>
+                      {canManage && onDeleteLedgerEntry && <th className="text-right">Action</th>}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/60">
+                    {activeEmployeeDetail.entries.map((entry) => (
+                      <tr key={entry.id} className="hover:bg-ivory/50">
+                        <td className="py-2.5 text-xs text-muted">{entry.paid_at}</td>
+                        <td>
+                          <span className="inline-block rounded-md bg-ivory px-2 py-0.5 text-xs font-semibold text-ink border border-border">
+                            {entry.entry_type}
+                          </span>
+                        </td>
+                        <td className="text-xs text-muted">{entry.notes || '—'}</td>
+                        <td className="text-right font-bold text-ink">{currency(entry.amount)}</td>
+                        {canManage && onDeleteLedgerEntry && (
+                          <td className="text-right">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (confirm('Delete this ledger entry?')) {
+                                  await onDeleteLedgerEntry(entry.id);
+                                }
+                              }}
+                              className="text-xs text-rose-600 hover:text-rose-800 cursor-pointer"
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                    {activeEmployeeDetail.entries.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="py-4 text-center text-xs text-muted">
+                          No ledger records for this month.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <Button variant="secondary" onClick={() => setSelectedEmployeeId(null)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ========================================================================= */}
+      {/* QUICK PROJECT PAYMENT MODAL */}
+      {/* ========================================================================= */}
+      {projectToPay && (
+        <QuickProjectPaymentModal
+          project={projectToPay}
+          onClose={() => setProjectToPay(null)}
+          onSave={async (amount, method, date, notes) => {
+            const numAmount = Number(amount);
+            // 1. Create income transaction
+            if (onCreateTransaction) {
+              await onCreateTransaction({
+                type: 'income',
+                category: 'Project Payment',
+                description: `${projectToPay.client_name} – ${projectToPay.project_title}`,
+                amount: numAmount,
+                currency: 'USD',
+                exchange_rate: 1.0,
+                transaction_date: date,
+                client_name: projectToPay.client_name,
+                project_id: projectToPay.id,
+                payment_method: method,
+                payment_status: 'Paid',
+                notes,
+              });
+            }
+
+            // 2. Update project advance paid
+            if (onUpdateProject) {
+              const newPaid = Number(projectToPay.advance_paid || 0) + numAmount;
+              const total = Number(projectToPay.total_price || 0);
+              await onUpdateProject(projectToPay.id, {
+                advance_paid: newPaid,
+                payment_status: newPaid >= total ? 'Fully Paid' : newPaid > 0 ? 'Partially Paid' : 'Not Started',
+                payment_date: date,
+                payment_notes: notes || projectToPay.payment_notes,
+              });
+            }
+
+            setProjectToPay(null);
+          }}
+        />
+      )}
+
+      {/* ========================================================================= */}
+      {/* ADD LEDGER ENTRY MODAL (PAYMENT / ADVANCE / DEDUCTION) */}
+      {/* ========================================================================= */}
+      {showLedgerEntryModal && ledgerModalEmployeeId && onAddLedgerEntry && (
+        <PayrollLedgerEntryModal
+          employeeId={ledgerModalEmployeeId}
+          profiles={profiles}
+          projects={projects}
+          month={selectedTeamMonth}
+          defaultType={ledgerModalDefaultType}
+          onClose={() => {
+            setShowLedgerEntryModal(false);
+            setLedgerModalEmployeeId(null);
+          }}
+          onSave={async (entry) => {
+            await onAddLedgerEntry(entry);
+            setShowLedgerEntryModal(false);
+            setLedgerModalEmployeeId(null);
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function KpiCard({
-  label,
-  value,
-  icon,
-  tone,
-}: {
-  label: string;
-  value: string;
-  icon: React.ReactNode;
-  tone: string;
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-white p-3.5 shadow-xs transition hover:shadow-sm">
-      <div className="flex items-center justify-between">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">{label}</p>
-        <span className="rounded-md bg-ivory p-1.5">{icon}</span>
-      </div>
-      <p className={`mt-1.5 text-lg font-bold tracking-tight ${tone}`}>{value}</p>
-    </div>
-  );
-}
+// =============================================================================
+// SUBCOMPONENTS / MODALS
+// =============================================================================
 
-function TransactionModal({
-  type,
+function IncomeFormModal({
+  transaction,
   projects,
-  profiles,
+  clientBalances,
   onClose,
   onSave,
 }: {
-  type: FinanceTransactionType;
+  transaction: FinanceTransaction | null;
   projects: Project[];
-  profiles: Profile[];
+  clientBalances: ClientBalanceSummary[];
   onClose: () => void;
-  onSave: (draft: FinanceTransactionDraft) => Promise<void>;
+  onSave: (draft: FinanceTransactionDraft, linkToProjectId?: string) => Promise<void>;
 }) {
-  const [description, setDescription] = useState('');
-  const [amount, setAmount] = useState('');
-  const [currencyCode, setCurrencyCode] = useState<CurrencyCode>('PKR');
-  const [exchangeRate, setExchangeRate] = useState<number>(DEFAULT_EXCHANGE_RATES.PKR);
-  const [category, setCategory] = useState<string>(
-    type === 'income' ? INCOME_CATEGORIES[0] : EXPENSE_CATEGORIES[0],
+  const [clientName, setClientName] = useState(transaction?.client_name || '');
+  const [projectId, setProjectId] = useState(transaction?.project_id || '');
+  const [description, setDescription] = useState(transaction?.description || '');
+  const [amount, setAmount] = useState(transaction ? String(transaction.amount) : '');
+  const [date, setDate] = useState(transaction?.transaction_date || new Date().toISOString().slice(0, 10));
+  const [paymentMethod, setPaymentMethod] = useState(transaction?.payment_method || 'Bank Transfer');
+  const [paymentStatus, setPaymentStatus] = useState<'Paid' | 'Partially Paid' | 'Pending'>(
+    (transaction?.payment_status as 'Paid' | 'Partially Paid' | 'Pending') || 'Paid',
   );
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [clientName, setClientName] = useState('');
-  const [projectId, setProjectId] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHODS[0]);
-  const [referenceNo, setReferenceNo] = useState('');
-  const [vendor, setVendor] = useState('');
-  const [recurringStatus, setRecurringStatus] = useState<RecurringStatus>('none');
-  const [notes, setNotes] = useState('');
-  const [expenseType, setExpenseType] = useState('Business Expense');
-  const [paymentStatus, setPaymentStatus] = useState<'Paid' | 'Pending' | 'Partially Paid'>('Paid');
-  const [paidDate, setPaidDate] = useState(new Date().toISOString().slice(0, 10));
-  const [financialAccount, setFinancialAccount] = useState('');
-  const [taxAmount, setTaxAmount] = useState('0');
-  const [feeAmount, setFeeAmount] = useState('0');
-  const [recurringEndDate, setRecurringEndDate] = useState('');
-  const [receipt, setReceipt] = useState<File | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [notes, setNotes] = useState(transaction?.notes || '');
+  const [syncToProject, setSyncToProject] = useState(false);
+  const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const categories = type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+  // Filter projects by selected client name
+  const clientProjects = useMemo(() => {
+    if (!clientName.trim()) return projects;
+    return projects.filter(
+      (p) => (p.client_name || '').toLowerCase() === clientName.trim().toLowerCase(),
+    );
+  }, [projects, clientName]);
 
-  function handleCurrencyChange(code: CurrencyCode) {
-    setCurrencyCode(code);
-    setExchangeRate(DEFAULT_EXCHANGE_RATES[code] || 1.0);
+  function handleSelectProject(projId: string) {
+    setProjectId(projId);
+    const proj = projects.find((p) => p.id === projId);
+    if (proj) {
+      if (!clientName) setClientName(proj.client_name);
+      if (!description) setDescription(`${proj.client_name} – ${proj.project_title}`);
+      if (!amount) {
+        const remaining = Math.max(0, Number(proj.total_price || 0) - Number(proj.advance_paid || 0));
+        if (remaining > 0) setAmount(String(remaining));
+      }
+    }
   }
 
-  async function submit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!description.trim() || Number(amount) <= 0) {
-      setError('Please provide a description and amount.');
+    if (!clientName.trim() && !description.trim()) {
+      setError('Please provide a client name or description.');
+      return;
+    }
+    if (!amount || Number(amount) <= 0) {
+      setError('Please enter a valid amount.');
       return;
     }
 
-    setSaving(true);
-    setError(null);
     try {
-      await onSave({
-        type,
-        category,
-        description: description.trim(),
-        amount: Number(amount) + Number(taxAmount || 0) + Number(feeAmount || 0),
-        currency: currencyCode,
-        exchange_rate: Number(exchangeRate || 1.0),
-        transaction_date: date,
-        client_name: clientName || null,
-        project_id: projectId || null,
-        payment_method: paymentMethod,
-        reference_no: referenceNo || null,
-        vendor: vendor || null,
-        recurring_status: recurringStatus,
-        notes: notes || null,
-        expense_type: type === 'expense' ? expenseType : null,
-        payment_status: type === 'expense' ? paymentStatus : null,
-        paid_date: type === 'expense' && paymentStatus !== 'Pending' ? paidDate : null,
-        financial_account: type === 'expense' ? financialAccount || null : null,
-        tax_amount: Number(taxAmount || 0),
-        fee_amount: Number(feeAmount || 0),
-        recurring_end_date: recurringStatus !== 'none' ? recurringEndDate || null : null,
-        attachment_url: receipt ? receipt.name : null,
-      });
+      setIsSubmitting(true);
+      setError('');
+      await onSave(
+        {
+          type: 'income',
+          category: 'Project Payment',
+          description: description.trim() || `${clientName} Payment`,
+          amount: Number(amount),
+          currency: 'USD',
+          exchange_rate: 1.0,
+          transaction_date: date,
+          client_name: clientName.trim() || null,
+          project_id: projectId || null,
+          payment_method: paymentMethod,
+          payment_status: paymentStatus,
+          notes: notes.trim() || null,
+        },
+        syncToProject ? projectId : undefined,
+      );
     } catch (err) {
-      setError(errorMessage(err, 'Transaction could not be saved.'));
-    } finally {
-      setSaving(false);
+      setError(errorMessage(err, 'Failed to save income.'));
+      setIsSubmitting(false);
     }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-2xl border border-border bg-white p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
-        <div className="flex items-center justify-between border-b border-border pb-4">
+    <Modal title={transaction ? 'Edit Income' : 'Add Income'} onClose={onClose} width="max-w-lg">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {error && <div className="rounded-md bg-rose-50 p-3 text-sm text-rose-700">{error}</div>}
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          {/* Client * */}
           <div>
-            <h3 className="font-display text-xl font-bold text-ink">
-              Add {type === 'income' ? 'Income Record' : 'Expense Record'}
-            </h3>
-            <p className="text-xs text-muted">Record financial entry into business ledger</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-muted hover:bg-ivory hover:text-ink transition"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <form onSubmit={submit} className="mt-4 space-y-5 text-xs">
-          {type === 'expense' ? <h4 className="font-display text-base font-bold text-ink">Expense Details</h4> : null}
-          <Field
-            label="Description"
-            required
-            placeholder={type === 'income' ? 'e.g. Client advance payment' : 'e.g. Adobe Creative Cloud subscription'}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-
-          <div className={`grid gap-4 ${currencyCode === 'PKR' ? 'sm:grid-cols-2' : 'sm:grid-cols-4'}`}>
-            {currencyCode !== 'PKR' ? <Field
-              label="Amount"
-              type="number"
-              step="any"
-              min="0.01"
-              required
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-            /> : null}
-            {currencyCode !== 'PKR' ? <div className="rounded-md border border-border bg-ivory px-3 py-2"><p className="text-muted">PKR Equivalent</p><p className="mt-1 font-bold text-ink">Rs. {((Number(amount || 0) + Number(taxAmount || 0) + Number(feeAmount || 0)) * Number(exchangeRate || 0)).toLocaleString()}</p></div> : null}
-
-            <SelectField
-              label="Currency"
-              value={currencyCode}
-              onChange={(e) => handleCurrencyChange(e.target.value as CurrencyCode)}
-            >
-              <option value="PKR">PKR (Rs.)</option>
-              <option value="USD">USD ($)</option>
-              <option value="EUR">EUR (€)</option>
-              <option value="GBP">GBP (£)</option>
-            </SelectField>
-
-            <Field
-              label="Exchange Rate to PKR"
-              type="number"
-              step="any"
-              value={exchangeRate}
-              onChange={(e) => setExchangeRate(Number(e.target.value))}
-            />
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <SelectField
-              label="Category"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-            >
-              {categories.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </SelectField>
-
-            <Field label="Date" type="date" required value={date} onChange={(e) => setDate(e.target.value)} />
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <SelectField
-              label="Project (Optional)"
-              value={projectId}
-              onChange={(e) => {
-                setProjectId(e.target.value);
-                const proj = projects.find((p) => p.id === e.target.value);
-                if (proj) setClientName(proj.client_name);
-              }}
-            >
-              <option value="">No Project</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.project_number} - {p.project_title}
-                </option>
-              ))}
-            </SelectField>
-
-            {type === 'income' ? (
-              <Field
-                label="Client Name"
-                placeholder="e.g. John Doe"
+            <label className="grid gap-1 text-sm font-medium text-ink">
+              <span>Client *</span>
+              <input
+                type="text"
+                list="client-suggestions"
+                required
+                placeholder="e.g. BCH, Shara, Fiverr"
                 value={clientName}
                 onChange={(e) => setClientName(e.target.value)}
+                className="min-h-10 rounded-md border border-border bg-white px-3 text-sm focus:border-gold"
               />
-            ) : (
-              <Field
-                label="Vendor Name"
-                placeholder="e.g. Adobe / AWS / Office Supplies"
-                value={vendor}
-                onChange={(e) => setVendor(e.target.value)}
-              />
-            )}
+              <datalist id="client-suggestions">
+                {clientBalances.map((c) => (
+                  <option key={c.client_name} value={c.client_name} />
+                ))}
+              </datalist>
+            </label>
           </div>
 
-          {type === 'expense' ? <><h4 className="font-display text-base font-bold text-ink">Payment</h4><div className="grid gap-4 sm:grid-cols-2"><SelectField label="Expense Type" value={expenseType} onChange={(e) => setExpenseType(e.target.value)}>{['Business Expense','Project Expense','Team Expense','Software/Subscription','Tax','Other'].map((item) => <option key={item}>{item}</option>)}</SelectField><SelectField label="Payment Status" value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value as typeof paymentStatus)}>{['Paid','Pending','Partially Paid'].map((item) => <option key={item}>{item}</option>)}</SelectField><Field label="Paid Date" type="date" value={paidDate} onChange={(e) => setPaidDate(e.target.value)} disabled={paymentStatus === 'Pending'}/><Field label="Financial Account" placeholder="Bank, Cash, Wallet" value={financialAccount} onChange={(e) => setFinancialAccount(e.target.value)}/></div><h4 className="font-display text-base font-bold text-ink">Additional Information</h4><div className="grid gap-4 sm:grid-cols-2"><Field label="Tax" type="number" min="0" step="any" value={taxAmount} onChange={(e) => setTaxAmount(e.target.value)}/><Field label="Fees" type="number" min="0" step="any" value={feeAmount} onChange={(e) => setFeeAmount(e.target.value)}/><Field label="Final Total" readOnly value={(Number(amount || 0) + Number(taxAmount || 0) + Number(feeAmount || 0)).toFixed(2)}/><label className="grid gap-1.5 text-sm font-medium text-ink"><span>Receipt / Attachment</span><input type="file" onChange={(e) => setReceipt(e.target.files?.[0] || null)} className="min-h-11 rounded-md border border-border bg-white px-3 text-sm"/></label></div></> : null}
+          {/* Project (Optional) */}
+          <SelectField
+            label="Project (Optional)"
+            value={projectId}
+            onChange={(e) => handleSelectProject(e.target.value)}
+          >
+            <option value="">No specific project</option>
+            {clientProjects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.project_number} - {p.project_title}
+              </option>
+            ))}
+          </SelectField>
+        </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <SelectField
-              label="Payment Method"
-              value={paymentMethod}
-              onChange={(e) => setPaymentMethod(e.target.value)}
-            >
-              {PAYMENT_METHODS.map((pm) => (
-                <option key={pm} value={pm}>
-                  {pm}
-                </option>
-              ))}
-            </SelectField>
+        <Field
+          label="Description *"
+          required
+          placeholder="e.g. QAI Reformatting Milestone Payment"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
 
-            {type === 'expense' ? (
-              <SelectField
-                label="Recurring Status"
-                value={recurringStatus}
-                onChange={(e) => setRecurringStatus(e.target.value as RecurringStatus)}
-              >
-                <option value="none">One-time Expense</option>
-                <option value="monthly">Monthly Subscription</option>
-                <option value="quarterly">Quarterly</option>
-                <option value="yearly">Annual Recurring</option>
-              </SelectField>
-            ) : (
-              <Field
-                label="Reference # / Transaction ID"
-                placeholder="e.g. TXN-9941"
-                value={referenceNo}
-                onChange={(e) => setReferenceNo(e.target.value)}
-              />
-            )}
-          </div>
-
-          {type === 'expense' && recurringStatus !== 'none' ? <div className="grid gap-4 sm:grid-cols-2"><Field label="Next Due Date" type="date" value={date} onChange={(e) => setDate(e.target.value)}/><Field label="End Date" type="date" value={recurringEndDate} onChange={(e) => setRecurringEndDate(e.target.value)}/></div> : null}
-
-          <TextareaField
-            label="Notes"
-            placeholder="Additional notes or payment link details..."
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            className="min-h-16"
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field
+            label="Amount ($) *"
+            type="number"
+            min="0.01"
+            step="any"
+            required
+            placeholder="0.00"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
           />
 
-          {error ? (
-            <p className="rounded-md bg-rose-50 p-3 text-xs font-semibold text-rose-600 border border-rose-200">
-              {error}
-            </p>
-          ) : null}
+          <Field
+            label="Date *"
+            type="date"
+            required
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
+        </div>
 
-          <div className="flex items-center justify-end gap-3 border-t border-border pt-4">
-            <Button type="button" variant="secondary" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={saving}>
-              {saving ? 'Saving...' : 'Save Record'}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <SelectField
+            label="Payment Method"
+            value={paymentMethod}
+            onChange={(e) => setPaymentMethod(e.target.value)}
+          >
+            {PAYMENT_METHODS.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </SelectField>
+
+          <SelectField
+            label="Status"
+            value={paymentStatus}
+            onChange={(e) => setPaymentStatus(e.target.value as 'Paid' | 'Partially Paid' | 'Pending')}
+          >
+            <option value="Paid">Paid</option>
+            <option value="Partially Paid">Partially Paid</option>
+            <option value="Pending">Pending</option>
+          </SelectField>
+        </div>
+
+        {projectId && !transaction && (
+          <label className="flex items-center gap-2 text-xs text-ink cursor-pointer pt-1">
+            <input
+              type="checkbox"
+              checked={syncToProject}
+              onChange={(e) => setSyncToProject(e.target.checked)}
+              className="rounded border-border text-gold focus:ring-gold"
+            />
+            <span>Also update project paid amount (+{amount ? currency(Number(amount)) : '$0'})</span>
+          </label>
+        )}
+
+        <TextareaField
+          label="Notes (Optional)"
+          placeholder="Payment transaction details or reference..."
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="secondary" onClick={onClose} disabled={isSubmitting}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary" disabled={isSubmitting}>
+            {isSubmitting ? 'Saving...' : 'Save Income'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function ExpenseFormModal({
+  transaction,
+  projects,
+  onClose,
+  onSave,
+}: {
+  transaction: FinanceTransaction | null;
+  projects: Project[];
+  onClose: () => void;
+  onSave: (draft: FinanceTransactionDraft) => Promise<void>;
+}) {
+  const [description, setDescription] = useState(transaction?.description || '');
+  const [amount, setAmount] = useState(transaction ? String(transaction.amount) : '');
+  const [category, setCategory] = useState(transaction?.category || 'Software');
+  const [date, setDate] = useState(transaction?.transaction_date || new Date().toISOString().slice(0, 10));
+  const [paymentMethod, setPaymentMethod] = useState(transaction?.payment_method || 'Card');
+  const [vendor, setVendor] = useState(transaction?.vendor || '');
+  const [projectId, setProjectId] = useState(transaction?.project_id || '');
+  const [notes, setNotes] = useState(transaction?.notes || '');
+  const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!description.trim()) {
+      setError('Please provide a description.');
+      return;
+    }
+    if (!amount || Number(amount) <= 0) {
+      setError('Please enter a valid amount.');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      setError('');
+      await onSave({
+        type: 'expense',
+        category,
+        description: description.trim(),
+        amount: Number(amount),
+        currency: 'USD',
+        exchange_rate: 1.0,
+        transaction_date: date,
+        payment_method: paymentMethod,
+        vendor: vendor.trim() || null,
+        project_id: projectId || null,
+        payment_status: 'Paid',
+        notes: notes.trim() || null,
+      });
+    } catch (err) {
+      setError(errorMessage(err, 'Failed to save expense.'));
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal title={transaction ? 'Edit Expense' : 'Add Expense'} onClose={onClose} width="max-w-lg">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {error && <div className="rounded-md bg-rose-50 p-3 text-sm text-rose-700">{error}</div>}
+
+        <Field
+          label="Description *"
+          required
+          placeholder="e.g. Adobe Creative Cloud, Office Internet"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field
+            label="Amount ($) *"
+            type="number"
+            min="0.01"
+            step="any"
+            required
+            placeholder="0.00"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+
+          <SelectField
+            label="Category *"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+          >
+            {EXPENSE_CATEGORIES.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
+          </SelectField>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field
+            label="Date *"
+            type="date"
+            required
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
+
+          <SelectField
+            label="Payment Method"
+            value={paymentMethod}
+            onChange={(e) => setPaymentMethod(e.target.value)}
+          >
+            {PAYMENT_METHODS.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </SelectField>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field
+            label="Vendor (Optional)"
+            placeholder="e.g. Adobe, PTCL, Amazon"
+            value={vendor}
+            onChange={(e) => setVendor(e.target.value)}
+          />
+
+          <SelectField
+            label="Project (Optional)"
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+          >
+            <option value="">No Project</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.project_number} - {p.project_title}
+              </option>
+            ))}
+          </SelectField>
+        </div>
+
+        <TextareaField
+          label="Notes (Optional)"
+          placeholder="Optional invoice number, notes..."
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="secondary" onClick={onClose} disabled={isSubmitting}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary" disabled={isSubmitting}>
+            {isSubmitting ? 'Saving...' : 'Save Expense'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function QuickProjectPaymentModal({
+  project,
+  onClose,
+  onSave,
+}: {
+  project: Project;
+  onClose: () => void;
+  onSave: (amount: string, method: string, date: string, notes: string) => Promise<void>;
+}) {
+  const remaining = Math.max(0, Number(project.total_price || 0) - Number(project.advance_paid || 0));
+  const [amount, setAmount] = useState(String(remaining || project.total_price || ''));
+  const [method, setMethod] = useState('Bank Transfer');
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [notes, setNotes] = useState(`Payment for ${project.project_title}`);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  return (
+    <Modal title={`Record Payment — ${project.project_title}`} onClose={onClose} width="max-w-md">
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (Number(amount) <= 0) return;
+          setIsSubmitting(true);
+          await onSave(amount, method, date, notes);
+        }}
+        className="space-y-4"
+      >
+        <div className="rounded-md bg-ivory p-3 text-xs text-muted border border-border">
+          <p>
+            Client: <strong className="text-ink">{project.client_name}</strong>
+          </p>
+          <p>
+            Total Price: <strong className="text-ink">{currency(project.total_price)}</strong> · Paid:{' '}
+            <strong className="text-emerald-700">{currency(project.advance_paid)}</strong> · Remaining Due:{' '}
+            <strong className="text-rose-700">{currency(remaining)}</strong>
+          </p>
+        </div>
+
+        <Field
+          label="Payment Amount ($) *"
+          type="number"
+          min="0.01"
+          step="any"
+          required
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+        />
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <SelectField label="Method" value={method} onChange={(e) => setMethod(e.target.value)}>
+            {PAYMENT_METHODS.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </SelectField>
+
+          <Field label="Date *" type="date" required value={date} onChange={(e) => setDate(e.target.value)} />
+        </div>
+
+        <Field label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="secondary" onClick={onClose} disabled={isSubmitting}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary" disabled={isSubmitting}>
+            {isSubmitting ? 'Recording...' : 'Record Payment'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function PayrollLedgerEntryModal({
+  employeeId,
+  profiles,
+  projects,
+  month,
+  defaultType,
+  onClose,
+  onSave,
+}: {
+  employeeId: string;
+  profiles: Profile[];
+  projects: Project[];
+  month: string;
+  defaultType: EmployeeLedgerEntry['entry_type'];
+  onClose: () => void;
+  onSave: (entry: Omit<EmployeeLedgerEntry, 'id' | 'created_at'>) => Promise<void>;
+}) {
+  const employee = profiles.find((p) => p.id === employeeId);
+  const [type, setType] = useState<EmployeeLedgerEntry['entry_type']>(defaultType);
+  const [amount, setAmount] = useState('');
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [method, setMethod] = useState('Bank Transfer');
+  const [projectId, setProjectId] = useState('');
+  const [notes, setNotes] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  return (
+    <Modal title={`Record Entry — ${employee?.full_name || 'Employee'}`} onClose={onClose} width="max-w-md">
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!amount || Number(amount) <= 0) {
+            setError('Please enter a valid amount.');
+            return;
+          }
+          try {
+            setIsSubmitting(true);
+            setError('');
+            await onSave({
+              employee_id: employeeId,
+              entry_type: type,
+              amount: Number(amount),
+              salary_month: `${month}-01`,
+              payment_method: method,
+              project_id: projectId || null,
+              notes: notes.trim(),
+              paid_at: date,
+            });
+          } catch (err) {
+            setError(errorMessage(err, 'Failed to save entry.'));
+            setIsSubmitting(false);
+          }
+        }}
+        className="space-y-4"
+      >
+        {error && <div className="rounded-md bg-rose-50 p-3 text-sm text-rose-700">{error}</div>}
+
+        <SelectField
+          label="Entry Type *"
+          value={type}
+          onChange={(e) => setType(e.target.value as EmployeeLedgerEntry['entry_type'])}
+        >
+          <option value="Payment">Payment</option>
+          <option value="Advance">Advance</option>
+          <option value="Deduction">Deduction</option>
+          <option value="Project Payment">Project Payment</option>
+          <option value="Bonus">Bonus</option>
+          <option value="Other">Other</option>
+        </SelectField>
+
+        <Field
+          label="Amount ($) *"
+          type="number"
+          min="0.01"
+          step="any"
+          required
+          placeholder="0.00"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+        />
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Date *" type="date" required value={date} onChange={(e) => setDate(e.target.value)} />
+          <SelectField label="Method" value={method} onChange={(e) => setMethod(e.target.value)}>
+            {PAYMENT_METHODS.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </SelectField>
+        </div>
+
+        {(type === 'Project Payment' || type === 'Bonus') && (
+          <SelectField
+            label="Project (Optional)"
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+          >
+            <option value="">No Project</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.project_number} - {p.project_title}
+              </option>
+            ))}
+          </SelectField>
+        )}
+
+        <TextareaField
+          label="Notes"
+          placeholder="e.g. August salary disbursement, partial advance..."
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="secondary" onClick={onClose} disabled={isSubmitting}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary" disabled={isSubmitting}>
+            {isSubmitting ? 'Saving...' : 'Save Entry'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }

@@ -2418,6 +2418,21 @@ export function useTracker() {
     [currentProfile, mode],
   );
 
+  const deleteEmployeeLedgerEntry = useCallback(
+    async (entryId: string) => {
+      if (!currentProfile || currentProfile.role !== 'admin') throw new Error('Only admins can delete employee payroll entries.');
+      if (supabase && mode === 'supabase') {
+        const { error: deleteError } = await supabase.from('employee_ledger').delete().eq('id', entryId);
+        if (deleteError) throw deleteError;
+      }
+      setData((previous) => ({
+        ...previous,
+        employeeLedger: previous.employeeLedger.filter((entry) => entry.id !== entryId),
+      }));
+    },
+    [currentProfile, mode],
+  );
+
   const createFinanceTransaction = useCallback(
     async (draft: FinanceTransactionDraft) => {
       if (!currentProfile || !canManageEverything(currentProfile)) {
@@ -2576,6 +2591,25 @@ export function useTracker() {
       return updateFinanceTransaction(id, { is_soft_deleted: false });
     },
     [updateFinanceTransaction],
+  );
+
+  const deleteFinanceTransaction = useCallback(
+    async (id: string) => {
+      if (!currentProfile || !canManageEverything(currentProfile)) {
+        throw new Error('Only authorized managers can delete finance transactions.');
+      }
+      if (supabase && mode === 'supabase') {
+        const { error: delError } = await supabase.from('finance_transactions').delete().eq('id', id);
+        if (delError) {
+          await supabase.from('finance_transactions').update({ is_soft_deleted: true, updated_by: currentProfile.id }).eq('id', id);
+        }
+      }
+      setData((previous) => ({
+        ...previous,
+        financeTransactions: (previous.financeTransactions || []).filter((t) => t.id !== id),
+      }));
+    },
+    [currentProfile, mode],
   );
 
   const saveFinanceBudget = useCallback(
@@ -2970,8 +3004,10 @@ export function useTracker() {
     clearNotificationToast,
     saveEmployeeCompensation,
     addEmployeeLedgerEntry,
+    deleteEmployeeLedgerEntry,
     createFinanceTransaction,
     updateFinanceTransaction,
+    deleteFinanceTransaction,
     softDeleteFinanceTransaction,
     restoreFinanceTransaction,
     saveFinanceBudget,
