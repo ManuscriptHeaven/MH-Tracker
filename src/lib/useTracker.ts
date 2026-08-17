@@ -2439,8 +2439,10 @@ export function useTracker() {
         throw new Error('Only admins and authorized managers can create finance transactions.');
       }
 
-      const rate = draft.exchange_rate && draft.exchange_rate > 0 ? draft.exchange_rate : (DEFAULT_EXCHANGE_RATES[draft.currency || 'PKR'] || 1.0);
-      const amountPkr = Math.round((draft.amount || 0) * rate);
+      const currencyCode = draft.currency || 'PKR';
+      const rate = currencyCode === 'PKR' ? 1.0 : (draft.exchange_rate && draft.exchange_rate > 0 ? draft.exchange_rate : (DEFAULT_EXCHANGE_RATES[currencyCode] || 1.0));
+      const originalAmount = Number(draft.original_amount ?? draft.amount ?? 0);
+      const amountPkr = Math.round(originalAmount * rate);
       const now = new Date().toISOString();
 
       const transaction: FinanceTransaction = {
@@ -2448,13 +2450,17 @@ export function useTracker() {
         type: draft.type,
         category: draft.category,
         description: draft.description,
-        amount: Number(draft.amount || 0),
-        currency: draft.currency || 'PKR',
+        amount: originalAmount,
+        original_amount: originalAmount,
+        currency: currencyCode,
         exchange_rate: rate,
         amount_pkr: amountPkr,
+        base_amount_pkr: amountPkr,
         transaction_date: draft.transaction_date || new Date().toISOString().slice(0, 10),
         client_name: draft.client_name || null,
+        client_id: draft.client_id || null,
         project_id: draft.project_id || null,
+        employee_id: draft.employee_id || null,
         invoice_id: draft.invoice_id || null,
         payment_method: draft.payment_method || 'Bank Transfer',
         reference_no: draft.reference_no || null,
@@ -2571,9 +2577,25 @@ export function useTracker() {
 
       setData((previous) => ({
         ...previous,
-        financeTransactions: (previous.financeTransactions || []).map((t) =>
-          t.id === id ? { ...t, ...updates, updated_by: currentProfile.id, updated_at: now } : t,
-        ),
+        financeTransactions: (previous.financeTransactions || []).map((t) => {
+          if (t.id !== id) return t;
+          const merged = { ...t, ...updates };
+          const currencyCode = merged.currency || 'PKR';
+          const rate = currencyCode === 'PKR' ? 1.0 : (merged.exchange_rate && merged.exchange_rate > 0 ? merged.exchange_rate : (DEFAULT_EXCHANGE_RATES[currencyCode] || 1.0));
+          const orig = Number(merged.original_amount ?? merged.amount ?? 0);
+          const pkr = Math.round(orig * rate);
+          return {
+            ...merged,
+            currency: currencyCode,
+            exchange_rate: rate,
+            amount: orig,
+            original_amount: orig,
+            amount_pkr: pkr,
+            base_amount_pkr: pkr,
+            updated_by: currentProfile.id,
+            updated_at: now,
+          };
+        }),
       }));
     },
     [currentProfile, loadSupabaseData, mode],

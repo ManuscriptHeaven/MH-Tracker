@@ -20,11 +20,15 @@ import {
   calculateTeamPayments,
   exportReportPDF,
   exportToCSV,
+  formatOriginalCurrency,
+  formatPKR,
+  getTransactionPkr,
   isDateInRange,
   type ClientBalanceSummary,
   type DateFilterType,
 } from '../lib/financeUtils';
 import type {
+  CurrencyCode,
   EmployeeCompensation,
   EmployeeLedgerEntry,
   FinanceBudget,
@@ -33,7 +37,7 @@ import type {
   Profile,
   Project,
 } from '../lib/types';
-import { currency, errorMessage, isManagerRole } from '../lib/utils';
+import { errorMessage, isManagerRole } from '../lib/utils';
 
 export type FinanceTab =
   | 'overview'
@@ -132,7 +136,7 @@ export function FinancePage({
     );
   }, [activeTransactions, dateFilter, customStart, customEnd]);
 
-  // Client Balances across projects
+  // Client Balances across projects & transactions
   const clientBalances = useMemo(() => {
     return calculateClientBalances(projects, activeTransactions);
   }, [projects, activeTransactions]);
@@ -142,15 +146,15 @@ export function FinancePage({
     return calculateTeamPayments(profiles, employeeCompensation, employeeLedger, selectedTeamMonth);
   }, [profiles, employeeCompensation, employeeLedger, selectedTeamMonth]);
 
-  // 4 Top KPI Cards metrics based on active period
+  // 4 Top KPI Cards metrics based on active period in base reporting currency (PKR)
   const kpiData = useMemo(() => {
     const income = dateFilteredTransactions
       .filter((t) => t.type === 'income')
-      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+      .reduce((sum, t) => sum + getTransactionPkr(t), 0);
 
     const expenses = dateFilteredTransactions
       .filter((t) => t.type === 'expense')
-      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+      .reduce((sum, t) => sum + getTransactionPkr(t), 0);
 
     const netProfit = income - expenses;
 
@@ -236,7 +240,7 @@ export function FinancePage({
     expenseSearch,
   ]);
 
-  // Monthly reports for selected year
+  // Monthly reports for selected year (aggregated in PKR)
   const monthlyReports = useMemo(() => {
     return calculateMonthlyReports(activeTransactions, selectedReportYear);
   }, [activeTransactions, selectedReportYear]);
@@ -279,7 +283,7 @@ export function FinancePage({
 
   // Export CSV Handler for Reports
   function handleExportReportsCSV() {
-    const headers = ['Month', 'Income', 'Expenses', 'Net Profit'];
+    const headers = ['Month', 'Income (PKR)', 'Expenses (PKR)', 'Net Profit (PKR)'];
     const rows = monthlyReports.map((r) => [
       `${r.month_name} ${selectedReportYear}`,
       r.income,
@@ -294,9 +298,9 @@ export function FinancePage({
     const headers = ['Month', 'Income', 'Expenses', 'Net Profit'];
     const rows = monthlyReports.map((r) => [
       `${r.month_name} ${selectedReportYear}`,
-      currency(r.income),
-      currency(r.expenses),
-      currency(r.profit),
+      formatPKR(r.income),
+      formatPKR(r.expenses),
+      formatPKR(r.profit),
     ]);
     const totalIncome = monthlyReports.reduce((s, r) => s + r.income, 0);
     const totalExp = monthlyReports.reduce((s, r) => s + r.expenses, 0);
@@ -304,14 +308,14 @@ export function FinancePage({
 
     exportReportPDF(
       `Financial Report (${selectedReportYear})`,
-      'Annual Income, Expense and Net Profit Performance',
+      'Annual Income, Expense and Net Profit Performance (PKR Base)',
       headers,
       rows,
       [
-        { label: 'Total Income', value: currency(totalIncome) },
-        { label: 'Total Expenses', value: currency(totalExp) },
-        { label: 'Net Profit', value: currency(net) },
-        { label: 'Client Receivables', value: currency(kpiData.receivable) },
+        { label: 'Total Income', value: formatPKR(totalIncome) },
+        { label: 'Total Expenses', value: formatPKR(totalExp) },
+        { label: 'Net Profit', value: formatPKR(net) },
+        { label: 'Client Receivables', value: formatPKR(kpiData.receivable) },
       ],
     );
   }
@@ -325,7 +329,7 @@ export function FinancePage({
         <div>
           <h1 className="font-display text-3xl font-bold tracking-tight text-ink">Finance</h1>
           <p className="mt-1 text-sm text-muted">
-            Business income, expenses, client balances and team payments.
+            Business income, expenses, client balances and team payments (PKR Base Reporting).
           </p>
         </div>
 
@@ -421,7 +425,7 @@ export function FinancePage({
       </nav>
 
       {/* ========================================================================= */}
-      {/* TOP 4 KPI CARDS */}
+      {/* TOP 4 KPI CARDS (REPORTING IN PKR) */}
       {/* ========================================================================= */}
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {/* 1. Income */}
@@ -433,7 +437,7 @@ export function FinancePage({
             </div>
           </div>
           <div className="mt-3">
-            <p className="font-display text-2xl font-bold text-ink">{currency(kpiData.income)}</p>
+            <p className="font-display text-2xl font-bold text-ink">{formatPKR(kpiData.income)}</p>
             <p className="mt-1 text-xs text-muted">
               {dateFilter === 'this_month' ? 'Received this month' : 'In selected period'}
             </p>
@@ -449,7 +453,7 @@ export function FinancePage({
             </div>
           </div>
           <div className="mt-3">
-            <p className="font-display text-2xl font-bold text-ink">{currency(kpiData.expenses)}</p>
+            <p className="font-display text-2xl font-bold text-ink">{formatPKR(kpiData.expenses)}</p>
             <p className="mt-1 text-xs text-muted">
               {dateFilter === 'this_month' ? 'Spent this month' : 'In selected period'}
             </p>
@@ -478,7 +482,7 @@ export function FinancePage({
                 kpiData.netProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'
               }`}
             >
-              {currency(kpiData.netProfit)}
+              {formatPKR(kpiData.netProfit)}
             </p>
             <p className="mt-1 text-xs text-muted">Income minus Expenses</p>
           </div>
@@ -506,7 +510,7 @@ export function FinancePage({
                 kpiData.receivable > 0 ? 'text-rose-700' : 'text-emerald-700'
               }`}
             >
-              {currency(kpiData.receivable)}
+              {formatPKR(kpiData.receivable)}
             </p>
             <p className="mt-1 text-xs text-muted">Unpaid client balances</p>
           </div>
@@ -523,7 +527,7 @@ export function FinancePage({
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div>
                 <h2 className="font-display text-xl font-semibold text-ink">Recent Transactions</h2>
-                <p className="text-xs text-muted">Latest financial movements across income and expenses.</p>
+                <p className="text-xs text-muted">Latest financial movements showing original currency & PKR equivalent.</p>
               </div>
               <button
                 type="button"
@@ -542,7 +546,8 @@ export function FinancePage({
                     <th>Description</th>
                     <th>Client / Vendor</th>
                     <th>Type</th>
-                    <th className="text-right">Amount</th>
+                    <th className="text-right">Original Amount</th>
+                    <th className="text-right">PKR Equivalent</th>
                     <th className="text-center">Status</th>
                   </tr>
                 </thead>
@@ -550,6 +555,7 @@ export function FinancePage({
                   {recentTransactions.length > 0 ? (
                     recentTransactions.map((tx) => {
                       const isIncome = tx.type === 'income';
+                      const pkrAmount = getTransactionPkr(tx);
                       const isPartial = tx.payment_status === 'Partially Paid';
                       return (
                         <tr key={tx.id} className="hover:bg-ivory/60 transition">
@@ -566,11 +572,18 @@ export function FinancePage({
                             </span>
                           </td>
                           <td
-                            className={`text-right font-semibold whitespace-nowrap ${
+                            className={`text-right font-medium whitespace-nowrap ${
                               isIncome ? 'text-emerald-700' : 'text-slate-800'
                             }`}
                           >
-                            {isIncome ? `+${currency(tx.amount)}` : `-${currency(tx.amount)}`}
+                            {isIncome ? '+' : '-'}{formatOriginalCurrency(tx.amount, tx.currency)}
+                          </td>
+                          <td
+                            className={`text-right font-bold whitespace-nowrap ${
+                              isIncome ? 'text-emerald-800' : 'text-slate-900'
+                            }`}
+                          >
+                            {formatPKR(pkrAmount)}
                           </td>
                           <td className="text-center">
                             <span
@@ -590,7 +603,7 @@ export function FinancePage({
                     })
                   ) : (
                     <tr>
-                      <td colSpan={6} className="py-6 text-center text-sm text-muted">
+                      <td colSpan={7} className="py-6 text-center text-sm text-muted">
                         No transactions recorded yet.
                       </td>
                     </tr>
@@ -607,7 +620,7 @@ export function FinancePage({
               <div className="flex items-center justify-between border-b border-border pb-3">
                 <div>
                   <h2 className="font-display text-lg font-semibold text-ink">Client Balances</h2>
-                  <p className="text-xs text-muted">Who owes Manuscript Heaven money.</p>
+                  <p className="text-xs text-muted">Who owes Manuscript Heaven money (PKR).</p>
                 </div>
                 <button
                   type="button"
@@ -638,14 +651,14 @@ export function FinancePage({
                       >
                         <td className="py-2.5 font-medium text-ink">{client.client_name}</td>
                         <td className="text-center text-xs text-muted">{client.project_count}</td>
-                        <td className="text-right text-xs text-muted">{currency(client.total_invoiced)}</td>
-                        <td className="text-right text-xs text-muted">{currency(client.total_paid)}</td>
+                        <td className="text-right text-xs text-muted">{formatPKR(client.total_invoiced)}</td>
+                        <td className="text-right text-xs text-muted">{formatPKR(client.total_paid)}</td>
                         <td
                           className={`text-right font-bold ${
                             client.outstanding > 0 ? 'text-rose-700' : 'text-emerald-700'
                           }`}
                         >
-                          {currency(client.outstanding)}
+                          {formatPKR(client.outstanding)}
                         </td>
                       </tr>
                     ))}
@@ -666,7 +679,7 @@ export function FinancePage({
               <div className="flex items-center justify-between border-b border-border pb-3">
                 <div>
                   <h2 className="font-display text-lg font-semibold text-ink">Team Payments</h2>
-                  <p className="text-xs text-muted">Salaries and employee dues snapshot.</p>
+                  <p className="text-xs text-muted">Salaries and employee dues snapshot (PKR).</p>
                 </div>
                 <button
                   type="button"
@@ -695,14 +708,14 @@ export function FinancePage({
                         className="cursor-pointer hover:bg-ivory/60 transition"
                       >
                         <td className="py-2.5 font-medium text-ink">{emp.employee_name}</td>
-                        <td className="text-right text-xs text-muted">{currency(emp.monthly_salary)}</td>
-                        <td className="text-right text-xs text-muted">{currency(emp.paid)}</td>
+                        <td className="text-right text-xs text-muted">{formatPKR(emp.monthly_salary)}</td>
+                        <td className="text-right text-xs text-muted">{formatPKR(emp.paid)}</td>
                         <td
                           className={`text-right font-bold ${
                             emp.outstanding > 0 ? 'text-rose-700' : 'text-emerald-700'
                           }`}
                         >
-                          {currency(emp.outstanding)}
+                          {formatPKR(emp.outstanding)}
                         </td>
                       </tr>
                     ))}
@@ -730,7 +743,7 @@ export function FinancePage({
             <div className="flex flex-col justify-between gap-4 border-b border-border pb-4 sm:flex-row sm:items-center">
               <div>
                 <h2 className="font-display text-xl font-semibold text-ink">Income Transactions</h2>
-                <p className="text-xs text-muted">Project payments and client income records.</p>
+                <p className="text-xs text-muted">Project payments with original currency (USD / PKR) & PKR equivalent.</p>
               </div>
 
               {canManage && (
@@ -810,7 +823,8 @@ export function FinancePage({
                     <th>Client</th>
                     <th>Project</th>
                     <th>Description</th>
-                    <th className="text-right">Amount</th>
+                    <th className="text-right">Original Amount</th>
+                    <th className="text-right">PKR Equivalent</th>
                     <th>Method</th>
                     <th className="text-center">Status</th>
                     {canManage && <th className="text-right">Actions</th>}
@@ -821,6 +835,7 @@ export function FinancePage({
                     incomeList.map((item) => {
                       const linkedProject = projects.find((p) => p.id === item.project_id);
                       const isPartial = item.payment_status === 'Partially Paid';
+                      const pkrValue = getTransactionPkr(item);
                       return (
                         <tr key={item.id} className="hover:bg-ivory/60 transition">
                           <td className="py-3 text-xs text-muted whitespace-nowrap">{item.transaction_date}</td>
@@ -833,8 +848,11 @@ export function FinancePage({
                             )}
                           </td>
                           <td className="text-ink">{item.description}</td>
-                          <td className="text-right font-bold text-emerald-700 whitespace-nowrap">
-                            +{currency(item.amount)}
+                          <td className="text-right font-medium text-emerald-700 whitespace-nowrap">
+                            +{formatOriginalCurrency(item.amount, item.currency)}
+                          </td>
+                          <td className="text-right font-bold text-emerald-900 whitespace-nowrap">
+                            {formatPKR(pkrValue)}
                           </td>
                           <td className="text-xs text-muted">{item.payment_method || 'Bank Transfer'}</td>
                           <td className="text-center">
@@ -878,7 +896,7 @@ export function FinancePage({
                     })
                   ) : (
                     <tr>
-                      <td colSpan={8} className="py-8 text-center text-sm text-muted">
+                      <td colSpan={9} className="py-8 text-center text-sm text-muted">
                         No income records found for this filter.
                       </td>
                     </tr>
@@ -899,12 +917,12 @@ export function FinancePage({
             <div className="flex flex-col justify-between gap-4 border-b border-border pb-4 sm:flex-row sm:items-center">
               <div>
                 <h2 className="font-display text-xl font-semibold text-ink">Business Expenses</h2>
-                <p className="text-xs text-muted">Track software, utilities, office supplies, and team overheads.</p>
+                <p className="text-xs text-muted">Track software, utilities, and overheads in original currency & PKR.</p>
               </div>
 
               <div className="flex items-center gap-3">
                 <span className="rounded-md bg-ivory px-3 py-1.5 text-xs font-semibold text-ink border border-border">
-                  Period Total: <strong className="text-slate-900">{currency(kpiData.expenses)}</strong>
+                  Period Total: <strong className="text-slate-900">{formatPKR(kpiData.expenses)}</strong>
                 </span>
 
                 {canManage && (
@@ -973,55 +991,62 @@ export function FinancePage({
                     <th>Description</th>
                     <th>Category</th>
                     <th>Vendor</th>
-                    <th className="text-right">Amount</th>
+                    <th className="text-right">Original Amount</th>
+                    <th className="text-right">PKR Equivalent</th>
                     <th>Method</th>
                     {canManage && <th className="text-right">Actions</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
                   {expenseList.length > 0 ? (
-                    expenseList.map((item) => (
-                      <tr key={item.id} className="hover:bg-ivory/60 transition">
-                        <td className="py-3 text-xs text-muted whitespace-nowrap">{item.transaction_date}</td>
-                        <td className="font-semibold text-ink">{item.description}</td>
-                        <td>
-                          <span className="inline-block rounded-md bg-ivory px-2 py-0.5 text-xs text-muted border border-border">
-                            {item.category || 'Other'}
-                          </span>
-                        </td>
-                        <td className="text-xs text-muted">{item.vendor || '—'}</td>
-                        <td className="text-right font-bold text-slate-800 whitespace-nowrap">
-                          -{currency(item.amount)}
-                        </td>
-                        <td className="text-xs text-muted">{item.payment_method || 'Card'}</td>
-                        {canManage && (
-                          <td className="text-right whitespace-nowrap">
-                            <div className="inline-flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingTransaction(item);
-                                  setShowAddExpenseModal(true);
-                                }}
-                                className="text-xs font-semibold text-muted hover:text-ink cursor-pointer"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setDeletingTransactionId(item.id)}
-                                className="text-xs font-semibold text-rose-600 hover:text-rose-800 cursor-pointer"
-                              >
-                                Delete
-                              </button>
-                            </div>
+                    expenseList.map((item) => {
+                      const pkrValue = getTransactionPkr(item);
+                      return (
+                        <tr key={item.id} className="hover:bg-ivory/60 transition">
+                          <td className="py-3 text-xs text-muted whitespace-nowrap">{item.transaction_date}</td>
+                          <td className="font-semibold text-ink">{item.description}</td>
+                          <td>
+                            <span className="inline-block rounded-md bg-ivory px-2 py-0.5 text-xs text-muted border border-border">
+                              {item.category || 'Other'}
+                            </span>
                           </td>
-                        )}
-                      </tr>
-                    ))
+                          <td className="text-xs text-muted">{item.vendor || '—'}</td>
+                          <td className="text-right font-medium text-slate-800 whitespace-nowrap">
+                            -{formatOriginalCurrency(item.amount, item.currency)}
+                          </td>
+                          <td className="text-right font-bold text-slate-900 whitespace-nowrap">
+                            {formatPKR(pkrValue)}
+                          </td>
+                          <td className="text-xs text-muted">{item.payment_method || 'Card'}</td>
+                          {canManage && (
+                            <td className="text-right whitespace-nowrap">
+                              <div className="inline-flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingTransaction(item);
+                                    setShowAddExpenseModal(true);
+                                  }}
+                                  className="text-xs font-semibold text-muted hover:text-ink cursor-pointer"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDeletingTransactionId(item.id)}
+                                  className="text-xs font-semibold text-rose-600 hover:text-rose-800 cursor-pointer"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })
                   ) : (
                     <tr>
-                      <td colSpan={7} className="py-8 text-center text-sm text-muted">
+                      <td colSpan={8} className="py-8 text-center text-sm text-muted">
                         No expense records found.
                       </td>
                     </tr>
@@ -1043,7 +1068,7 @@ export function FinancePage({
               <div>
                 <h2 className="font-display text-xl font-semibold text-ink">Client Balances</h2>
                 <p className="text-xs text-muted">
-                  Who owes Manuscript Heaven money — automatically calculated from project payments.
+                  Who owes Manuscript Heaven money — automatically tracked in PKR reporting currency.
                 </p>
               </div>
 
@@ -1081,14 +1106,14 @@ export function FinancePage({
                     >
                       <td className="py-3 font-semibold text-ink">{client.client_name}</td>
                       <td className="text-center text-xs text-muted">{client.project_count}</td>
-                      <td className="text-right font-medium text-ink">{currency(client.total_invoiced)}</td>
-                      <td className="text-right text-muted">{currency(client.total_paid)}</td>
+                      <td className="text-right font-medium text-ink">{formatPKR(client.total_invoiced)}</td>
+                      <td className="text-right text-muted">{formatPKR(client.total_paid)}</td>
                       <td
                         className={`text-right font-bold ${
                           client.outstanding > 0 ? 'text-rose-700' : 'text-emerald-700'
                         }`}
                       >
-                        {currency(client.outstanding)}
+                        {formatPKR(client.outstanding)}
                       </td>
                       <td className="text-xs text-muted">{client.last_payment_date || '—'}</td>
                       <td className="text-right">
@@ -1129,7 +1154,7 @@ export function FinancePage({
               <div>
                 <h2 className="font-display text-xl font-semibold text-ink">Team Payments</h2>
                 <p className="text-xs text-muted">
-                  Salaries, project earnings, advances and employee dues connected to Team Management.
+                  Salaries, project earnings, advances and employee dues connected to Team Management (PKR).
                 </p>
               </div>
 
@@ -1165,16 +1190,16 @@ export function FinancePage({
                       className="cursor-pointer hover:bg-ivory/60 transition"
                     >
                       <td className="py-3 font-semibold text-ink">{emp.employee_name}</td>
-                      <td className="text-right text-ink font-medium">{currency(emp.monthly_salary)}</td>
-                      <td className="text-right text-muted">{currency(emp.project_earnings)}</td>
-                      <td className="text-right text-muted">{currency(emp.advances)}</td>
-                      <td className="text-right text-muted">{currency(emp.paid)}</td>
+                      <td className="text-right text-ink font-medium">{formatPKR(emp.monthly_salary)}</td>
+                      <td className="text-right text-muted">{formatPKR(emp.project_earnings)}</td>
+                      <td className="text-right text-muted">{formatPKR(emp.advances)}</td>
+                      <td className="text-right text-muted">{formatPKR(emp.paid)}</td>
                       <td
                         className={`text-right font-bold ${
                           emp.outstanding > 0 ? 'text-rose-700' : 'text-emerald-700'
                         }`}
                       >
-                        {currency(emp.outstanding)}
+                        {formatPKR(emp.outstanding)}
                       </td>
                       <td className="text-right">
                         <Button
@@ -1213,7 +1238,7 @@ export function FinancePage({
             <div className="flex flex-col justify-between gap-4 border-b border-border pb-4 sm:flex-row sm:items-center">
               <div>
                 <h2 className="font-display text-xl font-semibold text-ink">Financial Reports</h2>
-                <p className="text-xs text-muted">Annual summary and monthly performance breakdown.</p>
+                <p className="text-xs text-muted">Annual summary and monthly performance breakdown in PKR.</p>
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
@@ -1250,21 +1275,21 @@ export function FinancePage({
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted">Year Income</p>
                 <p className="mt-1 font-display text-2xl font-bold text-ink">
-                  {currency(monthlyReports.reduce((s, r) => s + r.income, 0))}
+                  {formatPKR(monthlyReports.reduce((s, r) => s + r.income, 0))}
                 </p>
               </div>
 
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted">Year Expenses</p>
                 <p className="mt-1 font-display text-2xl font-bold text-slate-800">
-                  {currency(monthlyReports.reduce((s, r) => s + r.expenses, 0))}
+                  {formatPKR(monthlyReports.reduce((s, r) => s + r.expenses, 0))}
                 </p>
               </div>
 
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted">Net Profit</p>
                 <p className="mt-1 font-display text-2xl font-bold text-emerald-700">
-                  {currency(
+                  {formatPKR(
                     monthlyReports.reduce((s, r) => s + r.income, 0) -
                       monthlyReports.reduce((s, r) => s + r.expenses, 0),
                   )}
@@ -1274,14 +1299,14 @@ export function FinancePage({
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted">Outstanding Clients</p>
                 <p className="mt-1 font-display text-2xl font-bold text-rose-700">
-                  {currency(kpiData.receivable)}
+                  {formatPKR(kpiData.receivable)}
                 </p>
               </div>
 
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted">Team Dues</p>
                 <p className="mt-1 font-display text-2xl font-bold text-rose-700">
-                  {currency(kpiData.teamDues)}
+                  {formatPKR(kpiData.teamDues)}
                 </p>
               </div>
             </div>
@@ -1294,9 +1319,9 @@ export function FinancePage({
                   <thead className="border-b border-border text-xs font-semibold uppercase tracking-wider text-muted">
                     <tr>
                       <th className="py-2.5">Month</th>
-                      <th className="text-right">Income</th>
-                      <th className="text-right">Expenses</th>
-                      <th className="text-right">Profit</th>
+                      <th className="text-right">Income (PKR)</th>
+                      <th className="text-right">Expenses (PKR)</th>
+                      <th className="text-right">Profit (PKR)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
@@ -1305,14 +1330,14 @@ export function FinancePage({
                         <td className="py-2.5 font-medium text-ink">
                           {row.month_name} {selectedReportYear}
                         </td>
-                        <td className="text-right text-emerald-700 font-semibold">{currency(row.income)}</td>
-                        <td className="text-right text-slate-800">{currency(row.expenses)}</td>
+                        <td className="text-right text-emerald-700 font-semibold">{formatPKR(row.income)}</td>
+                        <td className="text-right text-slate-800">{formatPKR(row.expenses)}</td>
                         <td
                           className={`text-right font-bold ${
                             row.profit >= 0 ? 'text-emerald-700' : 'text-rose-700'
                           }`}
                         >
-                          {currency(row.profit)}
+                          {formatPKR(row.profit)}
                         </td>
                       </tr>
                     ))}
@@ -1320,13 +1345,13 @@ export function FinancePage({
                     <tr className="border-t-2 border-border font-bold bg-ivory/40">
                       <td className="py-3 font-display text-ink">Total {selectedReportYear}</td>
                       <td className="text-right text-emerald-700">
-                        {currency(monthlyReports.reduce((s, r) => s + r.income, 0))}
+                        {formatPKR(monthlyReports.reduce((s, r) => s + r.income, 0))}
                       </td>
                       <td className="text-right text-slate-800">
-                        {currency(monthlyReports.reduce((s, r) => s + r.expenses, 0))}
+                        {formatPKR(monthlyReports.reduce((s, r) => s + r.expenses, 0))}
                       </td>
                       <td className="text-right text-emerald-700">
-                        {currency(
+                        {formatPKR(
                           monthlyReports.reduce((s, r) => s + r.income, 0) -
                             monthlyReports.reduce((s, r) => s + r.expenses, 0),
                         )}
@@ -1363,7 +1388,8 @@ export function FinancePage({
             if (linkToProjectId && onUpdateProject) {
               const proj = projects.find((p) => p.id === linkToProjectId);
               if (proj) {
-                const newPaid = Number(proj.advance_paid || 0) + Number(draft.amount || 0);
+                const pkrPayment = getTransactionPkr(draft);
+                const newPaid = Number(proj.advance_paid || 0) + pkrPayment;
                 const total = Number(proj.total_price || 0);
                 await onUpdateProject(proj.id, {
                   advance_paid: newPaid,
@@ -1436,7 +1462,7 @@ export function FinancePage({
       )}
 
       {/* ========================================================================= */}
-      {/* CLIENT FINANCIAL DETAIL MODAL */}
+      {/* CLIENT FINANCIAL DETAIL MODAL (WITH COMPLETE PAYMENT TRACEABILITY) */}
       {/* ========================================================================= */}
       {activeClientDetail && (
         <Modal
@@ -1450,14 +1476,14 @@ export function FinancePage({
               <div className="rounded-lg border border-border bg-ivory p-3.5 text-center">
                 <p className="text-xs uppercase tracking-wider text-muted font-semibold">Total Invoiced</p>
                 <p className="mt-1 font-display text-xl font-bold text-ink">
-                  {currency(activeClientDetail.total_invoiced)}
+                  {formatPKR(activeClientDetail.total_invoiced)}
                 </p>
               </div>
 
               <div className="rounded-lg border border-border bg-ivory p-3.5 text-center">
                 <p className="text-xs uppercase tracking-wider text-muted font-semibold">Total Paid</p>
                 <p className="mt-1 font-display text-xl font-bold text-emerald-700">
-                  {currency(activeClientDetail.total_paid)}
+                  {formatPKR(activeClientDetail.total_paid)}
                 </p>
               </div>
 
@@ -1468,7 +1494,7 @@ export function FinancePage({
                     activeClientDetail.outstanding > 0 ? 'text-rose-700' : 'text-emerald-700'
                   }`}
                 >
-                  {currency(activeClientDetail.outstanding)}
+                  {formatPKR(activeClientDetail.outstanding)}
                 </p>
               </div>
             </div>
@@ -1476,7 +1502,7 @@ export function FinancePage({
             {/* Project Payments Table */}
             <div>
               <h3 className="font-display text-base font-semibold text-ink border-b border-border pb-2">
-                Project Payments
+                Projects
               </h3>
 
               <div className="mt-3 overflow-x-auto">
@@ -1498,14 +1524,14 @@ export function FinancePage({
                           <p className="font-medium text-ink">{proj.project_title}</p>
                           <p className="text-xs text-muted">{proj.project_number}</p>
                         </td>
-                        <td className="text-right font-medium text-ink">{currency(proj.total_price)}</td>
-                        <td className="text-right text-muted">{currency(proj.advance_paid)}</td>
+                        <td className="text-right font-medium text-ink">{formatPKR(proj.total_price)}</td>
+                        <td className="text-right text-muted">{formatPKR(proj.advance_paid)}</td>
                         <td
                           className={`text-right font-bold ${
                             proj.outstanding > 0 ? 'text-rose-700' : 'text-emerald-700'
                           }`}
                         >
-                          {currency(proj.outstanding)}
+                          {formatPKR(proj.outstanding)}
                         </td>
                         <td className="text-center">
                           <span
@@ -1517,7 +1543,7 @@ export function FinancePage({
                                 : 'bg-rose-100 text-rose-800'
                             }`}
                           >
-                            {proj.outstanding === 0 ? 'Paid' : `${currency(proj.outstanding)} Due`}
+                            {proj.outstanding === 0 ? 'Paid' : `${formatPKR(proj.outstanding)} Due`}
                           </span>
                         </td>
                         {canManage && (
@@ -1538,6 +1564,74 @@ export function FinancePage({
                         )}
                       </tr>
                     ))}
+                    {activeClientDetail.projects.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-4 text-center text-xs text-muted">
+                          No projects recorded for this client.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Payment History (Traceability) */}
+            <div>
+              <h3 className="font-display text-base font-semibold text-ink border-b border-border pb-2">
+                Recorded Payments & Traceability
+              </h3>
+
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="border-b border-border text-xs font-semibold uppercase tracking-wider text-muted">
+                    <tr>
+                      <th className="py-2">Date</th>
+                      <th>Description</th>
+                      <th className="text-right">Original Amount</th>
+                      <th className="text-center">Exchange Rate</th>
+                      <th className="text-right">PKR Equivalent</th>
+                      <th>Method</th>
+                      <th className="text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/60">
+                    {activeClientDetail.transactions.map((tx) => (
+                      <tr key={tx.id} className="hover:bg-ivory/50">
+                        <td className="py-2.5 text-xs text-muted whitespace-nowrap">{tx.transaction_date}</td>
+                        <td className="text-ink text-xs font-medium">{tx.description}</td>
+                        <td className="text-right font-medium text-emerald-700 text-xs whitespace-nowrap">
+                          {formatOriginalCurrency(tx.amount, tx.currency)}
+                        </td>
+                        <td className="text-center text-xs text-muted whitespace-nowrap">
+                          {tx.currency === 'USD' ? `${tx.exchange_rate} PKR/USD` : '1.0 (PKR)'}
+                        </td>
+                        <td className="text-right font-bold text-emerald-900 text-xs whitespace-nowrap">
+                          {formatPKR(getTransactionPkr(tx))}
+                        </td>
+                        <td className="text-xs text-muted">{tx.payment_method || 'Bank Transfer'}</td>
+                        <td className="text-center">
+                          <span
+                            className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                              tx.payment_status === 'Paid'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : tx.payment_status === 'Partially Paid'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-rose-100 text-rose-800'
+                            }`}
+                          >
+                            {tx.payment_status || 'Paid'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {activeClientDetail.transactions.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="py-4 text-center text-xs text-muted">
+                          No direct income payments recorded for this client yet.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -1567,35 +1661,35 @@ export function FinancePage({
               <div className="rounded-lg border border-border bg-ivory p-2.5">
                 <p className="text-[10px] uppercase font-semibold text-muted">Monthly Salary</p>
                 <p className="mt-1 font-display text-lg font-bold text-ink">
-                  {currency(activeEmployeeDetail.monthly_salary)}
+                  {formatPKR(activeEmployeeDetail.monthly_salary)}
                 </p>
               </div>
 
               <div className="rounded-lg border border-border bg-ivory p-2.5">
                 <p className="text-[10px] uppercase font-semibold text-muted">Earnings</p>
                 <p className="mt-1 font-display text-lg font-bold text-ink">
-                  {currency(activeEmployeeDetail.project_earnings)}
+                  {formatPKR(activeEmployeeDetail.project_earnings)}
                 </p>
               </div>
 
               <div className="rounded-lg border border-border bg-ivory p-2.5">
                 <p className="text-[10px] uppercase font-semibold text-muted">Advances</p>
                 <p className="mt-1 font-display text-lg font-bold text-muted">
-                  {currency(activeEmployeeDetail.advances)}
+                  {formatPKR(activeEmployeeDetail.advances)}
                 </p>
               </div>
 
               <div className="rounded-lg border border-border bg-ivory p-2.5">
                 <p className="text-[10px] uppercase font-semibold text-muted">Deductions</p>
                 <p className="mt-1 font-display text-lg font-bold text-rose-700">
-                  {currency(activeEmployeeDetail.deductions)}
+                  {formatPKR(activeEmployeeDetail.deductions)}
                 </p>
               </div>
 
               <div className="rounded-lg border border-border bg-ivory p-2.5">
                 <p className="text-[10px] uppercase font-semibold text-muted">Paid</p>
                 <p className="mt-1 font-display text-lg font-bold text-emerald-700">
-                  {currency(activeEmployeeDetail.paid)}
+                  {formatPKR(activeEmployeeDetail.paid)}
                 </p>
               </div>
 
@@ -1606,7 +1700,7 @@ export function FinancePage({
                     activeEmployeeDetail.outstanding > 0 ? 'text-rose-700' : 'text-emerald-700'
                   }`}
                 >
-                  {currency(activeEmployeeDetail.outstanding)}
+                  {formatPKR(activeEmployeeDetail.outstanding)}
                 </p>
               </div>
             </div>
@@ -1679,7 +1773,7 @@ export function FinancePage({
                           </span>
                         </td>
                         <td className="text-xs text-muted">{entry.notes || '—'}</td>
-                        <td className="text-right font-bold text-ink">{currency(entry.amount)}</td>
+                        <td className="text-right font-bold text-ink">{formatPKR(entry.amount)}</td>
                         {canManage && onDeleteLedgerEntry && (
                           <td className="text-right">
                             <button
@@ -1725,17 +1819,23 @@ export function FinancePage({
         <QuickProjectPaymentModal
           project={projectToPay}
           onClose={() => setProjectToPay(null)}
-          onSave={async (amount, method, date, notes) => {
+          onSave={async (amount, currencyCode, exchangeRate, date, method, notes) => {
             const numAmount = Number(amount);
-            // 1. Create income transaction
+            const rate = currencyCode === 'PKR' ? 1.0 : Number(exchangeRate) || 280;
+            const pkrAmount = Math.round(numAmount * rate);
+
+            // 1. Create income transaction with exact currency & rate
             if (onCreateTransaction) {
               await onCreateTransaction({
                 type: 'income',
                 category: 'Project Payment',
                 description: `${projectToPay.client_name} – ${projectToPay.project_title}`,
                 amount: numAmount,
-                currency: 'USD',
-                exchange_rate: 1.0,
+                original_amount: numAmount,
+                currency: currencyCode,
+                exchange_rate: rate,
+                amount_pkr: pkrAmount,
+                base_amount_pkr: pkrAmount,
                 transaction_date: date,
                 client_name: projectToPay.client_name,
                 project_id: projectToPay.id,
@@ -1745,9 +1845,9 @@ export function FinancePage({
               });
             }
 
-            // 2. Update project advance paid
+            // 2. Update project advance paid in base PKR
             if (onUpdateProject) {
-              const newPaid = Number(projectToPay.advance_paid || 0) + numAmount;
+              const newPaid = Number(projectToPay.advance_paid || 0) + pkrAmount;
               const total = Number(projectToPay.total_price || 0);
               await onUpdateProject(projectToPay.id, {
                 advance_paid: newPaid,
@@ -1808,6 +1908,8 @@ function IncomeFormModal({
   const [projectId, setProjectId] = useState(transaction?.project_id || '');
   const [description, setDescription] = useState(transaction?.description || '');
   const [amount, setAmount] = useState(transaction ? String(transaction.amount) : '');
+  const [currencyCode, setCurrencyCode] = useState<CurrencyCode>(transaction?.currency || 'PKR');
+  const [exchangeRate, setExchangeRate] = useState(transaction?.exchange_rate ? String(transaction.exchange_rate) : '280');
   const [date, setDate] = useState(transaction?.transaction_date || new Date().toISOString().slice(0, 10));
   const [paymentMethod, setPaymentMethod] = useState(transaction?.payment_method || 'Bank Transfer');
   const [paymentStatus, setPaymentStatus] = useState<'Paid' | 'Partially Paid' | 'Pending'>(
@@ -1817,6 +1919,15 @@ function IncomeFormModal({
   const [syncToProject, setSyncToProject] = useState(false);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Computed PKR Equivalent
+  const pkrEquivalent = useMemo(() => {
+    const numAmount = Number(amount || 0);
+    if (isNaN(numAmount) || numAmount <= 0) return 0;
+    if (currencyCode === 'PKR') return numAmount;
+    const rate = Number(exchangeRate || 0);
+    return Math.round(numAmount * rate);
+  }, [amount, currencyCode, exchangeRate]);
 
   // Filter projects by selected client name
   const clientProjects = useMemo(() => {
@@ -1845,10 +1956,19 @@ function IncomeFormModal({
       setError('Please provide a client name or description.');
       return;
     }
-    if (!amount || Number(amount) <= 0) {
-      setError('Please enter a valid amount.');
+    const numAmount = Number(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      setError('Please enter a valid positive amount.');
       return;
     }
+
+    const rate = currencyCode === 'PKR' ? 1.0 : Number(exchangeRate);
+    if (currencyCode === 'USD' && (isNaN(rate) || rate <= 0)) {
+      setError('Please enter a valid positive exchange rate for USD.');
+      return;
+    }
+
+    const finalPkr = Math.round(numAmount * rate);
 
     try {
       setIsSubmitting(true);
@@ -1858,9 +1978,12 @@ function IncomeFormModal({
           type: 'income',
           category: 'Project Payment',
           description: description.trim() || `${clientName} Payment`,
-          amount: Number(amount),
-          currency: 'USD',
-          exchange_rate: 1.0,
+          amount: numAmount,
+          original_amount: numAmount,
+          currency: currencyCode,
+          exchange_rate: rate,
+          amount_pkr: finalPkr,
+          base_amount_pkr: finalPkr,
           transaction_date: date,
           client_name: clientName.trim() || null,
           project_id: projectId || null,
@@ -1926,9 +2049,10 @@ function IncomeFormModal({
           onChange={(e) => setDescription(e.target.value)}
         />
 
+        {/* Currency & Amount side-by-side */}
         <div className="grid gap-3 sm:grid-cols-2">
           <Field
-            label="Amount ($) *"
+            label="Amount *"
             type="number"
             min="0.01"
             step="any"
@@ -1938,6 +2062,48 @@ function IncomeFormModal({
             onChange={(e) => setAmount(e.target.value)}
           />
 
+          <SelectField
+            label="Currency *"
+            value={currencyCode}
+            onChange={(e) => setCurrencyCode(e.target.value as CurrencyCode)}
+          >
+            <option value="PKR">PKR (Rs.)</option>
+            <option value="USD">USD ($)</option>
+          </SelectField>
+        </div>
+
+        {/* Conditional Exchange Rate & Live PKR Equivalent */}
+        <div className="rounded-lg border border-border bg-ivory/60 p-3">
+          <div className="grid gap-3 sm:grid-cols-2 items-center">
+            {currencyCode === 'USD' ? (
+              <Field
+                label="Exchange Rate (PKR per USD) *"
+                type="number"
+                min="1"
+                step="any"
+                required
+                placeholder="280"
+                value={exchangeRate}
+                onChange={(e) => setExchangeRate(e.target.value)}
+              />
+            ) : (
+              <div className="text-xs text-muted">
+                <span className="font-semibold text-ink">Base Currency:</span> PKR (Exchange Rate = 1.0)
+              </div>
+            )}
+
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted block mb-1">
+                PKR Equivalent (Read-Only)
+              </label>
+              <div className="rounded-md border border-border bg-white px-3 py-2 text-sm font-bold text-ink shadow-2xs">
+                {formatPKR(pkrEquivalent)}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
           <Field
             label="Date *"
             type="date"
@@ -1945,9 +2111,7 @@ function IncomeFormModal({
             value={date}
             onChange={(e) => setDate(e.target.value)}
           />
-        </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
           <SelectField
             label="Payment Method"
             value={paymentMethod}
@@ -1959,17 +2123,17 @@ function IncomeFormModal({
               </option>
             ))}
           </SelectField>
-
-          <SelectField
-            label="Status"
-            value={paymentStatus}
-            onChange={(e) => setPaymentStatus(e.target.value as 'Paid' | 'Partially Paid' | 'Pending')}
-          >
-            <option value="Paid">Paid</option>
-            <option value="Partially Paid">Partially Paid</option>
-            <option value="Pending">Pending</option>
-          </SelectField>
         </div>
+
+        <SelectField
+          label="Status"
+          value={paymentStatus}
+          onChange={(e) => setPaymentStatus(e.target.value as 'Paid' | 'Partially Paid' | 'Pending')}
+        >
+          <option value="Paid">Paid</option>
+          <option value="Partially Paid">Partially Paid</option>
+          <option value="Pending">Pending</option>
+        </SelectField>
 
         {projectId && !transaction && (
           <label className="flex items-center gap-2 text-xs text-ink cursor-pointer pt-1">
@@ -1979,13 +2143,13 @@ function IncomeFormModal({
               onChange={(e) => setSyncToProject(e.target.checked)}
               className="rounded border-border text-gold focus:ring-gold"
             />
-            <span>Also update project paid amount (+{amount ? currency(Number(amount)) : '$0'})</span>
+            <span>Also update project paid balance (+{formatPKR(pkrEquivalent)})</span>
           </label>
         )}
 
         <TextareaField
           label="Notes (Optional)"
-          placeholder="Payment transaction details or reference..."
+          placeholder="Payment transaction details, reference number or notes..."
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
         />
@@ -2016,6 +2180,8 @@ function ExpenseFormModal({
 }) {
   const [description, setDescription] = useState(transaction?.description || '');
   const [amount, setAmount] = useState(transaction ? String(transaction.amount) : '');
+  const [currencyCode, setCurrencyCode] = useState<CurrencyCode>(transaction?.currency || 'PKR');
+  const [exchangeRate, setExchangeRate] = useState(transaction?.exchange_rate ? String(transaction.exchange_rate) : '280');
   const [category, setCategory] = useState(transaction?.category || 'Software');
   const [date, setDate] = useState(transaction?.transaction_date || new Date().toISOString().slice(0, 10));
   const [paymentMethod, setPaymentMethod] = useState(transaction?.payment_method || 'Card');
@@ -2025,16 +2191,34 @@ function ExpenseFormModal({
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Computed PKR Equivalent
+  const pkrEquivalent = useMemo(() => {
+    const numAmount = Number(amount || 0);
+    if (isNaN(numAmount) || numAmount <= 0) return 0;
+    if (currencyCode === 'PKR') return numAmount;
+    const rate = Number(exchangeRate || 0);
+    return Math.round(numAmount * rate);
+  }, [amount, currencyCode, exchangeRate]);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!description.trim()) {
       setError('Please provide a description.');
       return;
     }
-    if (!amount || Number(amount) <= 0) {
-      setError('Please enter a valid amount.');
+    const numAmount = Number(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      setError('Please enter a valid positive amount.');
       return;
     }
+
+    const rate = currencyCode === 'PKR' ? 1.0 : Number(exchangeRate);
+    if (currencyCode === 'USD' && (isNaN(rate) || rate <= 0)) {
+      setError('Please enter a valid positive exchange rate for USD.');
+      return;
+    }
+
+    const finalPkr = Math.round(numAmount * rate);
 
     try {
       setIsSubmitting(true);
@@ -2043,9 +2227,12 @@ function ExpenseFormModal({
         type: 'expense',
         category,
         description: description.trim(),
-        amount: Number(amount),
-        currency: 'USD',
-        exchange_rate: 1.0,
+        amount: numAmount,
+        original_amount: numAmount,
+        currency: currencyCode,
+        exchange_rate: rate,
+        amount_pkr: finalPkr,
+        base_amount_pkr: finalPkr,
         transaction_date: date,
         payment_method: paymentMethod,
         vendor: vendor.trim() || null,
@@ -2072,9 +2259,10 @@ function ExpenseFormModal({
           onChange={(e) => setDescription(e.target.value)}
         />
 
+        {/* Currency & Amount side-by-side */}
         <div className="grid gap-3 sm:grid-cols-2">
           <Field
-            label="Amount ($) *"
+            label="Amount *"
             type="number"
             min="0.01"
             step="any"
@@ -2084,6 +2272,48 @@ function ExpenseFormModal({
             onChange={(e) => setAmount(e.target.value)}
           />
 
+          <SelectField
+            label="Currency *"
+            value={currencyCode}
+            onChange={(e) => setCurrencyCode(e.target.value as CurrencyCode)}
+          >
+            <option value="PKR">PKR (Rs.)</option>
+            <option value="USD">USD ($)</option>
+          </SelectField>
+        </div>
+
+        {/* Conditional Exchange Rate & Live PKR Equivalent */}
+        <div className="rounded-lg border border-border bg-ivory/60 p-3">
+          <div className="grid gap-3 sm:grid-cols-2 items-center">
+            {currencyCode === 'USD' ? (
+              <Field
+                label="Exchange Rate (PKR per USD) *"
+                type="number"
+                min="1"
+                step="any"
+                required
+                placeholder="280"
+                value={exchangeRate}
+                onChange={(e) => setExchangeRate(e.target.value)}
+              />
+            ) : (
+              <div className="text-xs text-muted">
+                <span className="font-semibold text-ink">Base Currency:</span> PKR (Exchange Rate = 1.0)
+              </div>
+            )}
+
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted block mb-1">
+                PKR Equivalent (Read-Only)
+              </label>
+              <div className="rounded-md border border-border bg-white px-3 py-2 text-sm font-bold text-ink shadow-2xs">
+                {formatPKR(pkrEquivalent)}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
           <SelectField
             label="Category *"
             value={category}
@@ -2095,9 +2325,7 @@ function ExpenseFormModal({
               </option>
             ))}
           </SelectField>
-        </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
           <Field
             label="Date *"
             type="date"
@@ -2105,7 +2333,9 @@ function ExpenseFormModal({
             value={date}
             onChange={(e) => setDate(e.target.value)}
           />
+        </div>
 
+        <div className="grid gap-3 sm:grid-cols-2">
           <SelectField
             label="Payment Method"
             value={paymentMethod}
@@ -2117,29 +2347,27 @@ function ExpenseFormModal({
               </option>
             ))}
           </SelectField>
-        </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
           <Field
             label="Vendor (Optional)"
             placeholder="e.g. Adobe, PTCL, Amazon"
             value={vendor}
             onChange={(e) => setVendor(e.target.value)}
           />
-
-          <SelectField
-            label="Project (Optional)"
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-          >
-            <option value="">No Project</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.project_number} - {p.project_title}
-              </option>
-            ))}
-          </SelectField>
         </div>
+
+        <SelectField
+          label="Project (Optional)"
+          value={projectId}
+          onChange={(e) => setProjectId(e.target.value)}
+        >
+          <option value="">No Project</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.project_number} - {p.project_title}
+            </option>
+          ))}
+        </SelectField>
 
         <TextareaField
           label="Notes (Optional)"
@@ -2168,14 +2396,23 @@ function QuickProjectPaymentModal({
 }: {
   project: Project;
   onClose: () => void;
-  onSave: (amount: string, method: string, date: string, notes: string) => Promise<void>;
+  onSave: (amount: string, currencyCode: CurrencyCode, exchangeRate: string, date: string, method: string, notes: string) => Promise<void>;
 }) {
   const remaining = Math.max(0, Number(project.total_price || 0) - Number(project.advance_paid || 0));
   const [amount, setAmount] = useState(String(remaining || project.total_price || ''));
+  const [currencyCode, setCurrencyCode] = useState<CurrencyCode>('PKR');
+  const [exchangeRate, setExchangeRate] = useState('280');
   const [method, setMethod] = useState('Bank Transfer');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState(`Payment for ${project.project_title}`);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const pkrEquivalent = useMemo(() => {
+    const numAmount = Number(amount || 0);
+    if (isNaN(numAmount) || numAmount <= 0) return 0;
+    if (currencyCode === 'PKR') return numAmount;
+    return Math.round(numAmount * (Number(exchangeRate) || 280));
+  }, [amount, currencyCode, exchangeRate]);
 
   return (
     <Modal title={`Record Payment — ${project.project_title}`} onClose={onClose} width="max-w-md">
@@ -2184,7 +2421,7 @@ function QuickProjectPaymentModal({
           e.preventDefault();
           if (Number(amount) <= 0) return;
           setIsSubmitting(true);
-          await onSave(amount, method, date, notes);
+          await onSave(amount, currencyCode, exchangeRate, date, method, notes);
         }}
         className="space-y-4"
       >
@@ -2193,21 +2430,50 @@ function QuickProjectPaymentModal({
             Client: <strong className="text-ink">{project.client_name}</strong>
           </p>
           <p>
-            Total Price: <strong className="text-ink">{currency(project.total_price)}</strong> · Paid:{' '}
-            <strong className="text-emerald-700">{currency(project.advance_paid)}</strong> · Remaining Due:{' '}
-            <strong className="text-rose-700">{currency(remaining)}</strong>
+            Total: <strong className="text-ink">{formatPKR(project.total_price)}</strong> · Paid:{' '}
+            <strong className="text-emerald-700">{formatPKR(project.advance_paid)}</strong> · Due:{' '}
+            <strong className="text-rose-700">{formatPKR(remaining)}</strong>
           </p>
         </div>
 
-        <Field
-          label="Payment Amount ($) *"
-          type="number"
-          min="0.01"
-          step="any"
-          required
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-        />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field
+            label="Payment Amount *"
+            type="number"
+            min="0.01"
+            step="any"
+            required
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+
+          <SelectField
+            label="Currency *"
+            value={currencyCode}
+            onChange={(e) => setCurrencyCode(e.target.value as CurrencyCode)}
+          >
+            <option value="PKR">PKR (Rs.)</option>
+            <option value="USD">USD ($)</option>
+          </SelectField>
+        </div>
+
+        {currencyCode === 'USD' && (
+          <div className="grid gap-3 sm:grid-cols-2 items-center rounded-lg border border-border bg-ivory/60 p-2.5">
+            <Field
+              label="Exchange Rate *"
+              type="number"
+              min="1"
+              step="any"
+              required
+              value={exchangeRate}
+              onChange={(e) => setExchangeRate(e.target.value)}
+            />
+            <div>
+              <span className="text-xs text-muted block">PKR Equivalent:</span>
+              <strong className="text-ink font-display text-sm">{formatPKR(pkrEquivalent)}</strong>
+            </div>
+          </div>
+        )}
 
         <div className="grid gap-3 sm:grid-cols-2">
           <SelectField label="Method" value={method} onChange={(e) => setMethod(e.target.value)}>
@@ -2308,7 +2574,7 @@ function PayrollLedgerEntryModal({
         </SelectField>
 
         <Field
-          label="Amount ($) *"
+          label="Amount (PKR) *"
           type="number"
           min="0.01"
           step="any"

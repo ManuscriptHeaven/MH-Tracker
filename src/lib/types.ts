@@ -531,9 +531,11 @@ export interface FinanceTransaction {
   category: string;
   description: string;
   amount: number;
+  original_amount?: number;
   currency: CurrencyCode;
   exchange_rate: number;
   amount_pkr: number;
+  base_amount_pkr?: number;
   transaction_date: string;
   client_name?: string | null;
   client_id?: string | null;
@@ -563,10 +565,11 @@ export interface FinanceTransaction {
 
 export type FinanceTransactionDraft = Omit<
   FinanceTransaction,
-  'id' | 'created_at' | 'created_by' | 'amount_pkr' | 'updated_at' | 'updated_by'
+  'id' | 'created_at' | 'created_by' | 'amount_pkr' | 'base_amount_pkr' | 'updated_at' | 'updated_by'
 > & {
   id?: string;
   amount_pkr?: number;
+  base_amount_pkr?: number;
 };
 
 export interface FinanceBudget {

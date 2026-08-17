@@ -59,7 +59,44 @@ export const PAYMENT_METHODS = [
 export type DateFilterType = 'this_month' | 'last_month' | 'this_year' | 'custom' | 'all';
 
 export function formatPKR(amount: number): string {
-  return currency(amount || 0);
+  const num = Math.round(Number(amount || 0));
+  return `Rs. ${num.toLocaleString('en-US')}`;
+}
+
+export function formatOriginalCurrency(amount: number, code: CurrencyCode | string = 'PKR'): string {
+  const num = Number(amount || 0);
+  const formatted = num.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+  if (code === 'USD') {
+    return `$${formatted} USD`;
+  }
+  if (code === 'EUR') {
+    return `€${formatted} EUR`;
+  }
+  if (code === 'GBP') {
+    return `£${formatted} GBP`;
+  }
+  return `Rs. ${formatted} PKR`;
+}
+
+export function getTransactionPkr(t: {
+  amount?: number;
+  original_amount?: number;
+  exchange_rate?: number;
+  amount_pkr?: number;
+  base_amount_pkr?: number;
+}): number {
+  if (typeof t.base_amount_pkr === 'number' && !isNaN(t.base_amount_pkr)) {
+    return t.base_amount_pkr;
+  }
+  if (typeof t.amount_pkr === 'number' && !isNaN(t.amount_pkr)) {
+    return t.amount_pkr;
+  }
+  const original = Number(t.original_amount ?? t.amount ?? 0);
+  const rate = Number(t.exchange_rate) || 1.0;
+  return Math.round(original * rate);
 }
 
 export function formatCurrencyAmount(amount: number, code: CurrencyCode = 'PKR'): string {
@@ -138,6 +175,7 @@ export interface ClientBalanceSummary {
   outstanding: number;
   last_payment_date: string | null;
   projects: ClientBalanceProjectItem[];
+  transactions: FinanceTransaction[];
 }
 
 export function calculateClientBalances(
@@ -162,6 +200,7 @@ export function calculateClientBalances(
       outstanding: 0,
       last_payment_date: null,
       projects: [],
+      transactions: [],
     };
 
     existing.total_invoiced += total;
@@ -190,13 +229,30 @@ export function calculateClientBalances(
     map.set(clientName, existing);
   });
 
-  // Check transactions for any latest payment dates
+  // Attach all non-deleted transactions matching the client
   transactions
-    .filter((t) => t.type === 'income' && !t.is_soft_deleted && t.client_name)
+    .filter((t) => !t.is_soft_deleted && t.client_name)
     .forEach((t) => {
       const clientName = (t.client_name || '').trim();
-      const existing = map.get(clientName);
-      if (existing && t.transaction_date) {
+      let existing = map.get(clientName);
+      if (!existing) {
+        existing = {
+          client_name: clientName,
+          client_email: '',
+          project_count: 0,
+          total_invoiced: 0,
+          total_paid: 0,
+          outstanding: 0,
+          last_payment_date: null,
+          projects: [],
+          transactions: [],
+        };
+        map.set(clientName, existing);
+      }
+
+      existing.transactions.push(t);
+
+      if (t.type === 'income' && t.transaction_date) {
         if (!existing.last_payment_date || t.transaction_date > existing.last_payment_date) {
           existing.last_payment_date = t.transaction_date;
         }
@@ -344,11 +400,11 @@ export function calculateMonthlyReports(
 
     const income = monthTx
       .filter((t) => t.type === 'income')
-      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+      .reduce((sum, t) => sum + getTransactionPkr(t), 0);
 
     const expenses = monthTx
       .filter((t) => t.type === 'expense')
-      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+      .reduce((sum, t) => sum + getTransactionPkr(t), 0);
 
     return {
       month_index: idx,
