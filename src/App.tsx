@@ -19,6 +19,7 @@ import { FinancePage } from './pages/FinancePage';
 import { CommunicationPage } from './pages/CommunicationPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AIProvider } from './lib/ai/aiContext';
+import { CurrencyProvider } from './lib/currency';
 import { AIChatButton } from './components/ai/AIChatButton';
 import { AIChatPanel } from './components/ai/AIChatPanel';
 import { AIDailyPopup } from './components/ai/AIDailyPopup';
@@ -95,8 +96,10 @@ export default function App() {
 
   const pageProps = { projects: visibleProjects, profiles: tracker.data.profiles, searchTerm, canManageAll: tracker.canManageAll, currentProfile: tracker.currentProfile, onSelectProject: setSelectedProject, onEditProject: openEditProject, onDeleteProject: deleteProject, onDuplicateProject: tracker.duplicateProject, onUpdateProject: tracker.updateProject, onAddProject: openAddProject };
 
-  return <AIProvider tracker={tracker}>
-  <Layout activeView={activeView} setActiveView={setActiveView} currentProfile={tracker.currentProfile} data={tracker.data} notifications={tracker.visibleNotifications} searchTerm={searchTerm} setSearchTerm={setSearchTerm} onAddProject={openAddProject} onMarkNotificationRead={tracker.markNotificationRead} onMarkAllNotificationsRead={tracker.markAllNotificationsRead} onMarkConversationRead={tracker.markConversationRead} onViewNotifications={() => setActiveView('notifications')} onOpenNotificationProject={openProjectById} onSignOut={tracker.signOut}>
+  return (
+    <CurrencyProvider>
+      <AIProvider tracker={tracker}>
+        <Layout activeView={activeView} setActiveView={setActiveView} currentProfile={tracker.currentProfile} data={tracker.data} notifications={tracker.visibleNotifications} searchTerm={searchTerm} setSearchTerm={setSearchTerm} onAddProject={openAddProject} onMarkNotificationRead={tracker.markNotificationRead} onMarkAllNotificationsRead={tracker.markAllNotificationsRead} onMarkConversationRead={tracker.markConversationRead} onViewNotifications={() => setActiveView('notifications')} onOpenNotificationProject={openProjectById} onSignOut={tracker.signOut}>
     {activeView === 'dashboard' && isClient && (
       <ClientPortalPage
         projects={visibleProjects}
@@ -252,5 +255,7 @@ export default function App() {
   </Layout>
   <AIChatButton />
   <AIChatPanel />
-  </AIProvider>;
+  </AIProvider>
+  </CurrencyProvider>
+  );
 }

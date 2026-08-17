@@ -6,7 +6,8 @@ import { Button, Card, EmptyState, Field, SelectField } from '../components/ui';
 import { paymentStatuses, statusOptions } from '../lib/constants';
 import { daysUntil, formatDate, todayInput } from '../lib/date';
 import { calculateDueAmount, createBulkInvoice, getEligibleProjectsForClient } from '../lib/invoiceUtils';
-import { currency, downloadTextFile, errorMessage } from '../lib/utils';
+import { downloadTextFile, errorMessage } from '../lib/utils';
+import { useCurrency } from '../lib/currency';
 import type { Invoice, PaymentStatus, Profile, Project, ProjectStatus } from '../lib/types';
 
 type PaymentFilter = 'all' | 'paid' | 'partial' | 'unpaid' | 'overdue' | 'due_soon';
@@ -145,6 +146,7 @@ function MiniReport({
   title: string;
   rows: Array<{ label: string; count: number; due: number; paid: number; total: number }>;
 }) {
+  const { formatMoney } = useCurrency();
   return (
     <Card>
       <h3 className="font-display text-xl font-semibold">{title}</h3>
@@ -157,9 +159,9 @@ function MiniReport({
                 <p className="text-muted">{row.count} project{row.count === 1 ? '' : 's'}</p>
               </div>
               <div className="grid grid-cols-3 gap-2 text-xs text-muted">
-                <span>Total {currency(row.total)}</span>
-                <span>Paid {currency(row.paid)}</span>
-                <span className="font-semibold text-warning">Due {currency(row.due)}</span>
+                <span>Total {formatMoney(row.total, 'USD')}</span>
+                <span>Paid {formatMoney(row.paid, 'USD')}</span>
+                <span className="font-semibold text-warning">Due {formatMoney(row.due, 'USD')}</span>
               </div>
             </div>
           ))
@@ -190,6 +192,7 @@ export function PaymentsPage({
   onUpdateProject: (projectId: string, updates: Partial<Project>) => Promise<unknown>;
   onDeletePayment: (projectId: string) => Promise<void>;
 }) {
+  const { formatMoney } = useCurrency();
   const [clientFilter, setClientFilter] = useState('all');
   const [monthFilter, setMonthFilter] = useState('all');
   const [yearFilter, setYearFilter] = useState('all');
@@ -386,27 +389,27 @@ export function PaymentsPage({
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         <Card>
           <p className="text-sm text-muted">Total Revenue</p>
-          <p className="mt-3 text-2xl font-bold">{currency(summary.total)}</p>
+          <p className="mt-3 text-2xl font-bold">{formatMoney(summary.total, 'USD')}</p>
         </Card>
         <Card>
           <p className="text-sm text-muted">Total Paid</p>
-          <p className="mt-3 text-2xl font-bold text-success">{currency(summary.paid)}</p>
+          <p className="mt-3 text-2xl font-bold text-success">{formatMoney(summary.paid, 'USD')}</p>
         </Card>
         <Card>
           <p className="text-sm text-muted">Total Due</p>
-          <p className="mt-3 text-2xl font-bold text-warning">{currency(summary.due)}</p>
+          <p className="mt-3 text-2xl font-bold text-warning">{formatMoney(summary.due, 'USD')}</p>
         </Card>
         <Card>
           <p className="text-sm text-muted">Due This Month</p>
-          <p className="mt-3 text-2xl font-bold">{currency(dueThisMonth)}</p>
+          <p className="mt-3 text-2xl font-bold">{formatMoney(dueThisMonth, 'USD')}</p>
         </Card>
         <Card>
           <p className="text-sm text-muted">Overdue Amount</p>
-          <p className="mt-3 text-2xl font-bold text-danger">{currency(summary.overdue)}</p>
+          <p className="mt-3 text-2xl font-bold text-danger">{formatMoney(summary.overdue, 'USD')}</p>
         </Card>
         <Card>
           <p className="text-sm text-muted">Selected Client Due</p>
-          <p className="mt-3 text-2xl font-bold">{currency(selectedClientDue)}</p>
+          <p className="mt-3 text-2xl font-bold">{formatMoney(selectedClientDue, 'USD')}</p>
         </Card>
       </section>
 
@@ -510,7 +513,7 @@ export function PaymentsPage({
                     Found {eligibleProjectsForBulk.length} eligible project{eligibleProjectsForBulk.length === 1 ? '' : 's'} for {bulkClient}
                   </span>
                   <span className="text-warning">
-                    Total Due: {currency(eligibleProjectsForBulk.reduce((acc, p) => acc + calculateDueAmount(p), 0))}
+                    Total Due: {formatMoney(eligibleProjectsForBulk.reduce((acc, p) => acc + calculateDueAmount(p), 0), 'USD')}
                   </span>
                 </div>
                 <div className="divide-y divide-border text-xs text-muted max-h-44 overflow-y-auto">
@@ -523,9 +526,9 @@ export function PaymentsPage({
                         <span className="ml-2 font-medium text-ink">[{p.status}]</span>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span>Total: {currency(p.total_price)}</span>
-                        <span>Paid: {currency(p.advance_paid)}</span>
-                        <span className="font-semibold text-warning">Due: {currency(calculateDueAmount(p))}</span>
+                        <span>Total: {formatMoney(p.total_price, 'USD')}</span>
+                        <span>Paid: {formatMoney(p.advance_paid, 'USD')}</span>
+                        <span className="font-semibold text-warning">Due: {formatMoney(calculateDueAmount(p), 'USD')}</span>
                       </div>
                     </div>
                   ))}
@@ -687,9 +690,9 @@ export function PaymentsPage({
                           <p className="text-xs text-muted">{project.project_number}</p>
                         </button>
                       </td>
-                      <td className="border-t border-border px-4 py-3">{currency(project.total_price)}</td>
-                      <td className="border-t border-border px-4 py-3">{currency(project.advance_paid)}</td>
-                      <td className="border-t border-border px-4 py-3 font-semibold text-warning">{currency(due)}</td>
+                      <td className="border-t border-border px-4 py-3">{formatMoney(project.total_price, 'USD')}</td>
+                      <td className="border-t border-border px-4 py-3">{formatMoney(project.advance_paid, 'USD')}</td>
+                      <td className="border-t border-border px-4 py-3 font-semibold text-warning">{formatMoney(due, 'USD')}</td>
                       <td className="border-t border-border px-4 py-3">
                         <div className="flex flex-col gap-1">
                           <span className="font-semibold">{state}</span>
@@ -747,11 +750,11 @@ export function PaymentsPage({
                         {project.project_title}
                       </button>
                     </div>
-                    <span className="font-semibold text-warning">{currency(due)}</span>
+                    <span className="font-semibold text-warning">{formatMoney(due, 'USD')}</span>
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                    <span>Total {currency(project.total_price)}</span>
-                    <span>Paid {currency(project.advance_paid)}</span>
+                    <span>Total {formatMoney(project.total_price, 'USD')}</span>
+                    <span>Paid {formatMoney(project.advance_paid, 'USD')}</span>
                     <span>Due {formatDate(project.due_date)}</span>
                     <span>{monthLabel(project)}</span>
                   </div>
@@ -801,7 +804,7 @@ export function PaymentsPage({
       {summary.overdue > 0 ? (
         <div className="flex items-center gap-2 rounded-md border border-red-100 bg-red-50 p-3 text-sm text-danger">
           <AlertTriangle className="h-4 w-4" />
-          Overdue amount in the current filter is {currency(summary.overdue)}.
+          Overdue amount in the current filter is {formatMoney(summary.overdue, 'USD')}.
         </div>
       ) : null}
 

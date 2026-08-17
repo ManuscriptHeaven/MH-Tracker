@@ -5,7 +5,7 @@ import { PaymentBadge } from './Badges';
 import { Button, IconButton } from './ui';
 import { formatDate } from '../lib/date';
 import type { Invoice, InvoiceItem, Project } from '../lib/types';
-import { currency } from '../lib/utils';
+import { useCurrency } from '../lib/currency';
 import { calculateDueAmount } from '../lib/invoiceUtils';
 
 export function InvoiceModal({
@@ -17,6 +17,7 @@ export function InvoiceModal({
   invoice?: Invoice | null;
   onClose: () => void;
 }) {
+  const { formatMoney } = useCurrency();
   const invoiceRef = useRef<HTMLDivElement>(null);
   const [savingJpg, setSavingJpg] = useState(false);
 
@@ -266,9 +267,9 @@ export function InvoiceModal({
                           <div style={{ fontSize: '10px', color: '#7a6a55' }}>#{item.project_number}</div>
                         </td>
                         <td style={{ ...s.td, color: '#7a6a55' }}>{item.service_type || 'Publishing Services'}</td>
-                        <td style={{ ...s.td, textAlign: 'right', fontWeight: 500 }}>{currency(item.total_price)}</td>
-                        <td style={{ ...s.td, textAlign: 'right', fontWeight: 500, color: '#2d6a4f' }}>{currency(item.advance_paid)}</td>
-                        <td style={{ ...s.td, textAlign: 'right', fontWeight: 700, color: '#b5451b' }}>{currency(item.due_amount)}</td>
+                        <td style={{ ...s.td, textAlign: 'right', fontWeight: 500 }}>{formatMoney(item.total_price, 'USD')}</td>
+                        <td style={{ ...s.td, textAlign: 'right', fontWeight: 500, color: '#2d6a4f' }}>{formatMoney(item.advance_paid, 'USD')}</td>
+                        <td style={{ ...s.td, textAlign: 'right', fontWeight: 700, color: '#b5451b' }}>{formatMoney(item.due_amount, 'USD')}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -294,15 +295,15 @@ export function InvoiceModal({
               <div style={{ width: '220px', background: '#fbf8f1', border: '1px solid #e5ddd0', borderRadius: '6px', padding: '14px', fontSize: '12px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', color: '#7a6a55' }}>
                   <span>Subtotal:</span>
-                  <strong style={{ color: '#1a1a1a' }}>{currency(subtotal)}</strong>
+                  <strong style={{ color: '#1a1a1a' }}>{formatMoney(subtotal, 'USD')}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', color: '#7a6a55' }}>
                   <span>Total Paid:</span>
-                  <strong style={{ color: '#2d6a4f' }}>{currency(totalPaid)}</strong>
+                  <strong style={{ color: '#2d6a4f' }}>{formatMoney(totalPaid, 'USD')}</strong>
                 </div>
                 <div style={{ borderTop: '1px solid #e5ddd0', paddingTop: '10px', display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: '14px' }}>
                   <span>Balance Due:</span>
-                  <span style={{ color: '#b5451b' }}>{currency(totalDue)}</span>
+                  <span style={{ color: '#b5451b' }}>{formatMoney(totalDue, 'USD')}</span>
                 </div>
               </div>
             </div>

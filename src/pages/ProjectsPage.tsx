@@ -12,7 +12,8 @@ import {
   statusOptions,
 } from '../lib/constants';
 import { deadlineClass, deadlineLabel, formatDate } from '../lib/date';
-import { currency, downloadTextFile, firstName, isClientRole, projectCsv } from '../lib/utils';
+import { downloadTextFile, firstName, isClientRole, projectCsv } from '../lib/utils';
+import { useCurrency } from '../lib/currency';
 import type { PaymentStatus, Priority, Profile, Project, ProjectStatus } from '../lib/types';
 
 function profileName(profiles: Profile[], id?: string | null) {
@@ -102,6 +103,7 @@ export function ProjectsPage({
   emptyTitle?: string;
   emptyMessage?: string;
 }) {
+  const { formatMoney } = useCurrency();
   const canViewPayments = canManageAll;
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'all'>('all');
   const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
@@ -248,7 +250,7 @@ export function ProjectsPage({
                   {canViewPayments ? (
                     <td className="border-t border-border px-4 py-3">
                       <PaymentBadge status={project.payment_status} />
-                      <p className="mt-1 text-xs text-muted">{currency(project.remaining_balance)} due</p>
+                      <p className="mt-1 text-xs text-muted">{formatMoney(project.remaining_balance, 'USD')} due</p>
                     </td>
                   ) : null}
                   <td className="border-t border-border px-4 py-3">

@@ -35,7 +35,8 @@ import { RevisionRequestsPage } from '../pages/RevisionRequestsPage';
 import { revisionStatuses, timelineStages } from '../lib/constants';
 import { deadlineClass, deadlineLabel, formatDate, todayInput } from '../lib/date';
 import { getTimelineSummary, timelineUpdateForStage } from '../lib/timeline';
-import { currency, firstName, initials } from '../lib/utils';
+import { firstName, initials } from '../lib/utils';
+import { useCurrency } from '../lib/currency';
 import type {
   ActivityLog,
   ChatMessage,
@@ -145,6 +146,7 @@ export function ProjectDetail({
   ) => Promise<ChatMessage>;
   onGetOrCreateProjectConversation?: (projectId: string, isInternal: boolean) => Promise<Conversation>;
 }) {
+  const { formatMoney } = useCurrency();
   const [activeTab, setActiveTab] = useState<ProjectDetailTab>('overview');
   const [stage, setStage] = useState<TimelineStage>(project.current_stage || 'Files Required');
   const [noteType, setNoteType] = useState<NoteType>('work');
@@ -591,15 +593,15 @@ export function ProjectDetail({
                   <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4 text-xs">
                     <div className="rounded-lg bg-ivory p-2.5">
                       <span className="text-muted block">Total Price</span>
-                      <p className="text-sm font-bold text-ink mt-0.5">{currency(project.total_price)}</p>
+                      <p className="text-sm font-bold text-ink mt-0.5">{formatMoney(project.total_price, 'USD')}</p>
                     </div>
                     <div className="rounded-lg bg-ivory p-2.5">
                       <span className="text-muted block">Advance Paid</span>
-                      <p className="text-sm font-bold text-success mt-0.5">{currency(project.advance_paid)}</p>
+                      <p className="text-sm font-bold text-success mt-0.5">{formatMoney(project.advance_paid, 'USD')}</p>
                     </div>
                     <div className="rounded-lg bg-ivory p-2.5">
                       <span className="text-muted block">Remaining</span>
-                      <p className="text-sm font-bold text-amber-900 mt-0.5">{currency(project.remaining_balance)}</p>
+                      <p className="text-sm font-bold text-amber-900 mt-0.5">{formatMoney(project.remaining_balance, 'USD')}</p>
                     </div>
                     <div className="rounded-lg bg-ivory p-2.5">
                       <span className="text-muted block">Payment Status</span>
@@ -1066,15 +1068,15 @@ export function ProjectDetail({
                 <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-xs">
                   <div className="rounded-lg border border-border bg-ivory p-3">
                     <span className="text-muted block font-medium">Total Contract Price</span>
-                    <p className="text-xl font-bold text-ink mt-1">{currency(project.total_price)}</p>
+                    <p className="text-xl font-bold text-ink mt-1">{formatMoney(project.total_price, 'USD')}</p>
                   </div>
                   <div className="rounded-lg border border-border bg-green-50/50 p-3">
                     <span className="text-green-800 block font-medium">Advance Paid</span>
-                    <p className="text-xl font-bold text-success mt-1">{currency(project.advance_paid)}</p>
+                    <p className="text-xl font-bold text-success mt-1">{formatMoney(project.advance_paid, 'USD')}</p>
                   </div>
                   <div className="rounded-lg border border-border bg-amber-50/50 p-3">
                     <span className="text-amber-800 block font-medium">Remaining Balance</span>
-                    <p className="text-xl font-bold text-amber-900 mt-1">{currency(project.remaining_balance)}</p>
+                    <p className="text-xl font-bold text-amber-900 mt-1">{formatMoney(project.remaining_balance, 'USD')}</p>
                   </div>
                   <div className="rounded-lg border border-border bg-ivory p-3">
                     <span className="text-muted block font-medium">Payment Status</span>

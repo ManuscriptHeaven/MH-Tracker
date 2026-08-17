@@ -1,4 +1,4 @@
-import { CheckCircle2, Clock, Database, KeyRound, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, Clock, Database, DollarSign, KeyRound, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 import { Button, Card, Field } from '../components/ui';
 import { DEFAULT_WORKFLOW_SETTINGS } from '../lib/constants';
@@ -6,9 +6,14 @@ import { isSupabaseConfigured } from '../lib/supabase';
 import type { WorkflowSettings } from '../lib/types';
 import { AISettingsSection } from '../components/ai/AISettingsSection';
 import { useAIContext } from '../lib/ai/aiContext';
+import { useCurrency } from '../lib/currency';
 
 export function SettingsPage({ mode }: { mode: 'demo' | 'supabase' }) {
   const { settings, updateSettings } = useAIContext();
+  const { exchangeRate, setExchangeRate, exchangeRateLastUpdated } = useCurrency();
+  const [customRate, setCustomRate] = useState(String(exchangeRate));
+  const [rateSaved, setRateSaved] = useState(false);
+
   const [workflowSettings, setWorkflowSettings] = useState<WorkflowSettings>(() => {
     const saved = localStorage.getItem('mh_workflow_settings');
     if (saved) {
@@ -21,6 +26,15 @@ export function SettingsPage({ mode }: { mode: 'demo' | 'supabase' }) {
     return DEFAULT_WORKFLOW_SETTINGS;
   });
   const [isSaved, setIsSaved] = useState(false);
+
+  function handleSaveRate() {
+    const num = Number(customRate);
+    if (!isNaN(num) && num > 0) {
+      setExchangeRate(num);
+      setRateSaved(true);
+      setTimeout(() => setRateSaved(false), 2500);
+    }
+  }
 
   function saveWorkflowSettings() {
     localStorage.setItem('mh_workflow_settings', JSON.stringify(workflowSettings));
@@ -139,6 +153,62 @@ export function SettingsPage({ mode }: { mode: 'demo' | 'supabase' }) {
             Save Workflow Settings
           </Button>
           {isSaved ? <span className="text-xs font-semibold text-success">Settings saved!</span> : null}
+        </div>
+      </Card>
+
+      {/* Currency & Exchange Rate Settings */}
+      <Card>
+        <div className="flex items-center gap-2 mb-2">
+          <DollarSign className="h-5 w-5 text-gold" />
+          <h2 className="font-display text-2xl font-semibold">Currency & Exchange Rate Settings</h2>
+        </div>
+        <p className="text-sm text-muted mb-6">
+          Global base reporting currency and real-time exchange rates for multi-currency financial display.
+        </p>
+
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-lg border border-border bg-ivory p-4">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted block">Base Currency</span>
+            <p className="mt-1 font-display text-xl font-bold text-ink">USD ($)</p>
+            <p className="mt-1 text-xs text-muted">Core business reporting currency</p>
+          </div>
+
+          <div className="rounded-lg border border-border bg-ivory p-4">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted block">Supported Currencies</span>
+            <div className="mt-2 space-y-1 text-sm font-semibold text-ink">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600" /> USD ($) — US Dollar
+              </div>
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600" /> PKR (Rs.) — Pakistani Rupee
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-border bg-white p-4">
+            <Field
+              label="Current USD → PKR Rate *"
+              type="number"
+              min="1"
+              step="any"
+              value={customRate}
+              onChange={(e) => setCustomRate(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-muted">Example: $1.00 USD = Rs. {customRate} PKR</p>
+          </div>
+
+          <div className="rounded-lg border border-border bg-ivory p-4 flex flex-col justify-between">
+            <div>
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted block">Last Updated</span>
+              <p className="mt-1 font-mono text-sm font-semibold text-ink">{exchangeRateLastUpdated}</p>
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              <Button type="button" variant="primary" onClick={handleSaveRate}>
+                Update Exchange Rate
+              </Button>
+              {rateSaved && <span className="text-xs font-semibold text-success">Updated!</span>}
+            </div>
+          </div>
         </div>
       </Card>
 

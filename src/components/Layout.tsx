@@ -21,6 +21,7 @@ import type { NotificationItem, Profile, TrackerData } from '../lib/types';
 import { Button, IconButton } from './ui';
 import { NotificationBell } from './NotificationBell';
 import { MessageNotificationBell, getUnreadMessagesInfo } from './MessageNotificationBell';
+import { CurrencySelector } from './CurrencySelector';
 
 export type ViewKey =
   | 'dashboard'
@@ -190,6 +191,7 @@ export function Layout({
               </label>
 
               <div className="flex items-center gap-2">
+                <CurrencySelector />
                 <MessageNotificationBell
                   currentProfile={currentProfile}
                   data={data}

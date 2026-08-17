@@ -5,7 +5,8 @@ import { ProjectTimelineCompact } from '../components/ProjectTimeline';
 import { Button, Card, SelectField } from '../components/ui';
 import { closedStatuses } from '../lib/constants';
 import { isDueThisWeek, isDueToday, isOverdue, formatDate, deadlineClass, deadlineLabel } from '../lib/date';
-import { currency, firstName, initials, isClientRole } from '../lib/utils';
+import { firstName, initials, isClientRole } from '../lib/utils';
+import { useCurrency } from '../lib/currency';
 import type { Profile, Project } from '../lib/types';
 
 function profileName(profiles: Profile[], id?: string | null) {
@@ -56,6 +57,7 @@ export function DashboardPage({
   onAddProject: () => void;
   onSelectProject: (project: Project) => void;
 }) {
+  const { formatMoney } = useCurrency();
   const [quickFilter, setQuickFilter] = useState<'all' | 'mine' | 'unassigned' | 'today' | 'overdue' | 'week' | 'revision' | 'review'>('all');
   const [assignedTo, setAssignedTo] = useState('all');
   const [status, setStatus] = useState('all');
@@ -151,7 +153,7 @@ export function DashboardPage({
         {canViewPayments ? (
           <StatCard
             label="Pending Payments"
-            value={currency(pendingPayments)}
+            value={formatMoney(pendingPayments, 'USD')}
             icon={CircleDollarSign}
             tone="bg-gold/20 text-ink"
           />
