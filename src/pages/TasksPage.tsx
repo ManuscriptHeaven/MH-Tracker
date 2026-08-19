@@ -251,7 +251,7 @@ export function TasksPage({
       </div>
 
       {/* Summary Metrics Row */}
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <SummaryCard label="Total Tasks" value={counts.all} />
         <SummaryCard label="To Do" value={counts.todo} colorClass="text-amber-600" />
         <SummaryCard label="In Progress" value={counts.progress} colorClass="text-blue-600" />
@@ -261,7 +261,7 @@ export function TasksPage({
       {/* Filter and Control Bar */}
       <div className="flex flex-col gap-4 rounded-xl border border-border bg-white p-4 shadow-sm xl:flex-row xl:items-center xl:justify-between">
         {/* Quick Filter Tabs */}
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
           {([
             ['all', 'All', counts.all],
             ['todo', 'To Do', counts.todo],
@@ -276,7 +276,7 @@ export function TasksPage({
                 key={id}
                 type="button"
                 onClick={() => setQuickFilter(id)}
-                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold whitespace-nowrap shrink-0 transition ${
                   active
                     ? 'bg-ink text-white shadow-sm'
                     : 'bg-ivory text-charcoal hover:bg-gold/15 hover:text-ink'

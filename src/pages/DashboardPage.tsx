@@ -121,23 +121,23 @@ export function DashboardPage({
 
   return (
     <div className="space-y-6">
-      <Card>
-        <div className="flex flex-wrap items-center gap-2">
+      <Card className="p-4 sm:p-6">
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-thin">
           {([
             ['all', 'All'], ['mine', 'My Projects'], ['unassigned', 'Unassigned'], ['today', 'Due Today'], ['overdue', 'Overdue'], ['week', 'This Week'], ['revision', 'In Revision'], ['review', 'Client Review'],
           ] as const).map(([id, label]) => {
             const count = id === 'all' ? scopedProjects.length : scopedProjects.filter((project) => id === 'mine' ? project.assigned_to === currentProfileId : id === 'unassigned' ? !project.assigned_to : id === 'today' ? isDueToday(project) : id === 'overdue' ? isOverdue(project) : id === 'week' ? isDueThisWeek(project) : id === 'revision' ? isRevision(project) : isReview(project)).length;
-            return <Button key={id} type="button" variant={quickFilter === id ? 'primary' : 'secondary'} onClick={() => setQuickFilter(id)}>{label} ({count})</Button>;
+            return <Button key={id} type="button" variant={quickFilter === id ? 'primary' : 'secondary'} onClick={() => setQuickFilter(id)} className="shrink-0 text-xs sm:text-sm py-1.5 px-3">{label} ({count})</Button>;
           })}
         </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-3 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
           <SelectField label="Assigned To" value={assignedTo} onChange={(event) => setAssignedTo(event.target.value)}><option value="all">All Team Members</option>{profiles.filter((profile) => !isClientRole(profile.role)).map((profile) => <option key={profile.id} value={profile.id}>{profile.full_name}</option>)}</SelectField>
           <SelectField label="Status" value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">All Statuses</option>{[...new Set(allActiveProjects.map((project) => project.status))].map((item) => <option key={item} value={item}>{item}</option>)}</SelectField>
           <SelectField label="Client" value={client} onChange={(event) => setClient(event.target.value)}><option value="all">All Clients</option>{[...new Set(allActiveProjects.map((project) => project.client_name))].map((item) => <option key={item} value={item}>{item}</option>)}</SelectField>
           <SelectField label="Priority" value={priority} onChange={(event) => setPriority(event.target.value)}><option value="all">All Priorities</option>{[...new Set(allActiveProjects.map((project) => project.priority))].map((item) => <option key={item} value={item}>{item}</option>)}</SelectField>
         </div>
       </Card>
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <StatCard label="Active Projects" value={activeProjects.length} icon={FolderOpen} tone="bg-blue-50 text-info" />
         <StatCard label="Due Today" value={dueToday.length} icon={Clock3} tone="bg-orange-50 text-warning" />
         <StatCard label="Overdue" value={overdueProjects.length} icon={AlertTriangle} tone="bg-red-50 text-danger" />
@@ -161,23 +161,23 @@ export function DashboardPage({
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1.4fr_0.8fr]">
-        <Card>
+        <Card className="p-4 sm:p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="font-display text-2xl font-semibold">Open Projects</h2>
-              <p className="text-sm text-muted">
+              <h2 className="font-display text-xl sm:text-2xl font-semibold">Open Projects</h2>
+              <p className="text-xs sm:text-sm text-muted">
                 Showing {activeProjects.length} matching open project{activeProjects.length === 1 ? '' : 's'}, newest first.
               </p>
             </div>
             {canManageProjects ? (
-              <Button onClick={onAddProject}>
+              <Button onClick={onAddProject} className="self-start sm:self-auto text-xs py-2 px-3">
                 <Plus className="h-4 w-4" />
                 Add Project
               </Button>
             ) : null}
           </div>
 
-          <div className="mt-5 overflow-x-auto">
+          <div className="mt-5 hidden md:block overflow-x-auto">
             <table className="w-full min-w-[900px] border-separate border-spacing-0 text-left text-sm">
               <thead>
                 <tr className="text-xs uppercase tracking-[0.12em] text-muted">
@@ -217,25 +217,75 @@ export function DashboardPage({
               </tbody>
             </table>
           </div>
+
+          <div className="mt-4 block md:hidden space-y-3">
+            {activeProjects.length ? (
+              activeProjects.map((project) => (
+                <div
+                  key={project.id}
+                  className="rounded-xl border border-border bg-white p-4 shadow-xs space-y-3 transition hover:border-gold/60"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-semibold text-ink text-base truncate">{project.project_title}</h3>
+                      <p className="text-xs text-muted mt-0.5">{project.project_number} · {project.client_name}</p>
+                    </div>
+                    <StatusBadge status={project.status} />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-border/60">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-muted font-semibold">Assigned</p>
+                      <p className="font-medium text-ink mt-0.5">{profileName(profiles, project.assigned_to)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-muted font-semibold">Due</p>
+                      <p className={`text-xs font-semibold mt-0.5 ${deadlineClass(project)}`}>
+                        {deadlineLabel(project)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="pt-1">
+                    <ProjectTimelineCompact project={project} />
+                  </div>
+
+                  <div className="pt-2 border-t border-border/60 flex items-center justify-end">
+                    <Button
+                      type="button"
+                      onClick={() => onSelectProject(project)}
+                      className="w-full text-xs py-2"
+                    >
+                      Open Project
+                    </Button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted">
+                No projects match these filters.
+              </p>
+            )}
+          </div>
         </Card>
 
         <div className="space-y-6">
-          <Card>
-            <h2 className="font-display text-2xl font-semibold">Urgent Projects</h2>
+          <Card className="p-4 sm:p-6">
+            <h2 className="font-display text-xl sm:text-2xl font-semibold">Urgent Projects</h2>
             <div className="mt-4 space-y-3">
               {urgentProjects.length ? (
                 urgentProjects.map((project) => (
                   <button
                     key={project.id}
                     onClick={() => onSelectProject(project)}
-                    className="w-full rounded-md border border-border bg-white p-3 text-left transition hover:border-gold"
+                    className="w-full rounded-xl border border-border bg-white p-3.5 text-left transition hover:border-gold shadow-xs active:scale-[0.99]"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="font-semibold">{project.project_title}</p>
-                        <p className="text-sm text-muted">{project.client_name}</p>
+                        <p className="font-semibold text-ink">{project.project_title}</p>
+                        <p className="text-xs text-muted">{project.client_name}</p>
                       </div>
-                      <span className={`text-sm font-semibold ${deadlineClass(project)}`}>
+                      <span className={`text-xs font-semibold ${deadlineClass(project)}`}>
                         {deadlineLabel(project)}
                       </span>
                     </div>
@@ -253,8 +303,8 @@ export function DashboardPage({
           </Card>
 
           {canManageProjects ? (
-            <Card>
-              <h2 className="font-display text-2xl font-semibold">Workload</h2>
+            <Card className="p-4 sm:p-6">
+              <h2 className="font-display text-xl sm:text-2xl font-semibold">Workload</h2>
               <div className="mt-4 space-y-3">
                 {workload.map(({ profile, active, overdue }) => (
                   <div key={profile.id} className="flex items-center gap-3">

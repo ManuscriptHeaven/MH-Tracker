@@ -29,6 +29,7 @@ import type { Project, ProjectDraft } from './lib/types';
 
 import { RevisionRequestModal } from './components/RevisionRequestModal';
 import { Toast, type ToastData } from './components/Toast';
+import { OfflineBanner } from './components/OfflineBanner';
 
 export default function App() {
   const tracker = useTracker();
@@ -90,7 +91,14 @@ export default function App() {
     if (selectedProjectFresh) await tracker.updateProject(selectedProjectFresh.id, updates);
   }
 
-  if (!tracker.currentProfile) return <LoginPage onLogin={tracker.login} onDemoLogin={tracker.loginDemo} error={tracker.error} isLoading={tracker.isLoading} />;
+  if (!tracker.currentProfile) {
+    return (
+      <>
+        <OfflineBanner />
+        <LoginPage onLogin={tracker.login} onDemoLogin={tracker.loginDemo} error={tracker.error} isLoading={tracker.isLoading} />
+      </>
+    );
+  }
 
   /* ---------- AI Assistant Integration ---------- */
 
@@ -99,6 +107,7 @@ export default function App() {
   return (
     <CurrencyProvider>
       <AIProvider tracker={tracker}>
+        <OfflineBanner />
         <Layout activeView={activeView} setActiveView={setActiveView} currentProfile={tracker.currentProfile} data={tracker.data} notifications={tracker.visibleNotifications} searchTerm={searchTerm} setSearchTerm={setSearchTerm} onAddProject={openAddProject} onMarkNotificationRead={tracker.markNotificationRead} onMarkAllNotificationsRead={tracker.markAllNotificationsRead} onMarkConversationRead={tracker.markConversationRead} onViewNotifications={() => setActiveView('notifications')} onOpenNotificationProject={openProjectById} onSignOut={tracker.signOut}>
     {activeView === 'dashboard' && isClient && (
       <ClientPortalPage

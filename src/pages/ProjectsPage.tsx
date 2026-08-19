@@ -207,7 +207,8 @@ export function ProjectsPage({
       </Card>
 
       <Card className="overflow-hidden p-0">
-        <div className="overflow-x-auto">
+        {/* Desktop Table (md and above) */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full min-w-[1120px] border-separate border-spacing-0 text-left text-sm">
             <thead className="bg-ivory text-xs uppercase tracking-[0.12em] text-muted">
               <tr>
@@ -284,6 +285,82 @@ export function ProjectsPage({
           </table>
         </div>
 
+        {/* Mobile Project Cards (< md) */}
+        <div className="block md:hidden p-3 space-y-3">
+          {filtered.map((project) => (
+            <div
+              key={project.id}
+              className="rounded-xl border border-border bg-white p-4 shadow-xs space-y-3 transition hover:border-gold/60"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-semibold text-ink text-base truncate">{project.project_title}</h3>
+                  <p className="text-xs text-muted mt-0.5">{project.project_number} · {project.client_name}</p>
+                </div>
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  <StatusBadge status={project.status} />
+                  <PriorityBadge priority={project.priority} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-border/60">
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider text-muted font-semibold">Assigned</p>
+                  <p className="font-medium text-ink mt-0.5">{profileName(profiles, project.assigned_to)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider text-muted font-semibold">Due</p>
+                  <p className={`text-xs font-semibold mt-0.5 ${deadlineClass(project)}`}>
+                    {deadlineLabel(project)} ({formatDate(project.due_date)})
+                  </p>
+                </div>
+              </div>
+
+              {canViewPayments ? (
+                <div className="flex items-center justify-between text-xs pt-1 border-t border-border/60">
+                  <span className="text-muted text-[10px] uppercase font-semibold">Payment</span>
+                  <div className="flex items-center gap-2">
+                    <PaymentBadge status={project.payment_status} />
+                    <span className="font-semibold text-ink">{formatMoney(project.remaining_balance, 'USD')}</span>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="pt-1">
+                <ProjectTimelineCompact project={project} />
+              </div>
+
+              <div className="pt-2 border-t border-border/60 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  {canManageAll ? (
+                    <IconButton title="Edit" onClick={() => onEditProject(project)} className="h-9 w-9">
+                      <Edit className="h-4 w-4" />
+                    </IconButton>
+                  ) : null}
+                  {canManageAll ? (
+                    <IconButton title="Duplicate" onClick={() => onDuplicateProject(project)} className="h-9 w-9">
+                      <Copy className="h-4 w-4" />
+                    </IconButton>
+                  ) : null}
+                  {currentProfile.role === 'admin' ? (
+                    <IconButton title="Delete" onClick={() => onDeleteProject(project)} className="h-9 w-9 text-danger">
+                      <Trash2 className="h-4 w-4" />
+                    </IconButton>
+                  ) : null}
+                </div>
+                <Button
+                  type="button"
+                  onClick={() => onSelectProject(project)}
+                  className="text-xs px-4 py-2"
+                >
+                  <Eye className="h-4 w-4 mr-1" />
+                  Open Project
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+
         {!filtered.length ? (
           <div className="p-6">
             <EmptyState title="No matching projects" message="Try changing the search term or filters." />
@@ -293,3 +370,4 @@ export function ProjectsPage({
     </div>
   );
 }
+

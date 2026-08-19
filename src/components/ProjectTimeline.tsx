@@ -119,7 +119,8 @@ export function ProjectTimelinePanel({ project, clientView = false }: { project:
         </div>
       ) : null}
 
-      <div className="mt-5 overflow-x-auto">
+      {/* Desktop Horizontal Timeline (md and above) */}
+      <div className="mt-5 hidden md:block overflow-x-auto">
         <div className="grid min-w-[900px] gap-2" style={{ gridTemplateColumns: `repeat(${milestones.length}, minmax(0, 1fr))` }}>
           {milestones.map((milestone, index) => (
             <div key={milestone.key} className="relative">
@@ -128,15 +129,15 @@ export function ProjectTimelinePanel({ project, clientView = false }: { project:
                 className={cn(
                   'grid gap-1.5 rounded-md border px-2 py-3 text-center text-xs min-h-[110px] flex flex-col justify-between',
                   milestone.state === 'completed' && 'border-green-200 bg-green-50 text-success',
-                  milestone.state === 'current' && 'border-blue-200 bg-blue-50 text-blue-800',
+                  milestone.state === 'current' && 'border-blue-200 bg-blue-50 text-blue-800 ring-2 ring-blue-400/40',
                   milestone.state === 'paused' && 'border-amber-200 bg-amber-50 text-amber-800',
-                  milestone.state === 'revision' && 'border-orange-200 bg-orange-50 text-orange-900',
-                  milestone.state === 'overdue' && 'border-red-200 bg-red-50 text-danger',
+                  milestone.state === 'revision' && 'border-orange-200 bg-orange-50 text-orange-900 ring-2 ring-orange-400/40',
+                  milestone.state === 'overdue' && 'border-red-200 bg-red-50 text-danger ring-2 ring-red-400/40',
                   milestone.state === 'future' && 'border-border bg-ivory text-muted',
                 )}
               >
                 <div>
-                  <span className="mx-auto mb-1 grid h-7 w-7 place-items-center rounded-full border bg-white">
+                  <span className="mx-auto mb-1 grid h-7 w-7 place-items-center rounded-full border bg-white shadow-xs">
                     <MilestoneIcon state={milestone.state} />
                   </span>
                   <span className="font-semibold block leading-tight">{milestone.label}</span>
@@ -155,12 +156,88 @@ export function ProjectTimelinePanel({ project, clientView = false }: { project:
                               ? 'Approval Stage'
                               : `${milestone.durationDays} days`}
                   </span>
-                  <span className="text-[11px] block mt-0.5">{milestone.date ? formatDate(milestone.date) : 'Pending'}</span>
+                  <span className="text-[11px] block mt-0.5 font-medium">{milestone.date ? formatDate(milestone.date) : 'Pending'}</span>
                 </div>
               </div>
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Mobile Vertical Timeline (< md) */}
+      <div className="mt-5 block md:hidden space-y-1">
+        {milestones.map((milestone, index) => {
+          const isLast = index === milestones.length - 1;
+
+          return (
+            <div key={milestone.key} className="flex flex-col items-stretch">
+              <div
+                className={cn(
+                  'flex items-center justify-between rounded-xl border p-3 text-xs transition shadow-xs',
+                  milestone.state === 'completed' && 'border-green-200 bg-green-50/70 text-success',
+                  milestone.state === 'current' && 'border-blue-300 bg-blue-50 text-blue-900 ring-2 ring-blue-400/40 font-semibold',
+                  milestone.state === 'paused' && 'border-amber-300 bg-amber-50 text-amber-900 ring-2 ring-amber-400/40 font-semibold',
+                  milestone.state === 'revision' && 'border-orange-300 bg-orange-50 text-orange-950 ring-2 ring-orange-400/40 font-semibold',
+                  milestone.state === 'overdue' && 'border-red-300 bg-red-50 text-danger ring-2 ring-red-400/40 font-semibold',
+                  milestone.state === 'future' && 'border-border bg-white text-muted',
+                )}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <span
+                    className={cn(
+                      'grid h-7 w-7 shrink-0 place-items-center rounded-full border text-xs font-bold shadow-xs',
+                      milestone.state === 'completed' && 'bg-green-600 text-white border-green-600',
+                      milestone.state === 'current' && 'bg-blue-600 text-white border-blue-600 animate-pulse',
+                      milestone.state === 'paused' && 'bg-amber-500 text-white border-amber-500',
+                      milestone.state === 'revision' && 'bg-orange-500 text-white border-orange-500',
+                      milestone.state === 'overdue' && 'bg-red-600 text-white border-red-600',
+                      milestone.state === 'future' && 'bg-ivory text-muted border-border',
+                    )}
+                  >
+                    {milestone.state === 'completed' ? (
+                      '✓'
+                    ) : milestone.state === 'current' ? (
+                      '●'
+                    ) : milestone.state === 'paused' ? (
+                      '⏸'
+                    ) : milestone.state === 'revision' ? (
+                      '⚠'
+                    ) : (
+                      '○'
+                    )}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="font-bold truncate text-ink">{milestone.label}</p>
+                    <p className="text-[10px] opacity-75 font-normal">
+                      {milestone.state === 'completed'
+                        ? 'Completed'
+                        : milestone.state === 'paused'
+                          ? 'Waiting for Client'
+                          : milestone.state === 'revision'
+                            ? 'Revision Required'
+                            : milestone.state === 'current'
+                              ? 'Currently in progress'
+                              : milestone.isApproval
+                                ? 'Client Approval Stage'
+                                : `${milestone.durationDays} production days`}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right shrink-0 pl-2">
+                  <span className="text-[11px] font-semibold text-charcoal block">
+                    {milestone.date ? formatDate(milestone.date) : 'Pending'}
+                  </span>
+                </div>
+              </div>
+
+              {!isLast ? (
+                <div className="flex items-center justify-center py-1 text-muted text-xs font-bold select-none opacity-60">
+                  ↓
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -174,3 +251,4 @@ function Info({ label, value, valueClass }: { label: string; value: string; valu
     </div>
   );
 }
+

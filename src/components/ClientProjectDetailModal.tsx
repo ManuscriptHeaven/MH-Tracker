@@ -257,10 +257,10 @@ export function ClientProjectDetailModal({
             <p className="mt-1 text-sm font-medium text-muted">{project.service_type} {project.genre ? `• ${project.genre}` : ''}</p>
           </div>
 
-          <div className="flex flex-wrap gap-2 shrink-0">
+          <div className="flex flex-col sm:flex-row flex-wrap gap-2 shrink-0 w-full sm:w-auto">
             {/* Only show Approve when waiting on client, not during an active revision */}
             {milestoneToApprove && summary.waitingOn === 'Client' ? (
-              <Button type="button" onClick={handleApprove} disabled={isApproving} className="bg-success hover:bg-green-700 text-white">
+              <Button type="button" onClick={handleApprove} disabled={isApproving} className="w-full sm:w-auto py-3 px-4 text-sm font-bold bg-success hover:bg-green-700 text-white shadow-xs">
                 <CheckCircle2 className="h-4 w-4" />
                 {isApproving ? 'Approving...' : approvalLabel(milestoneToApprove)}
               </Button>
@@ -271,6 +271,7 @@ export function ClientProjectDetailModal({
                 type="button"
                 variant={milestoneToApprove && summary.waitingOn === 'Client' ? 'secondary' : 'primary'}
                 onClick={() => onRequestRevision(project.id)}
+                className="w-full sm:w-auto py-3 px-4 text-sm font-semibold"
               >
                 <Plus className="h-4 w-4" />
                 {revisionLabel(milestoneToApprove)}
@@ -322,13 +323,13 @@ export function ClientProjectDetailModal({
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-border bg-white px-6">
+      <div className="flex border-b border-border bg-white px-3 sm:px-6 overflow-x-auto scrollbar-thin">
         <button
           type="button"
           onClick={() => setActiveTab('overview')}
           className={cn(
-            'flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold transition',
-            activeTab === 'overview' ? 'border-gold text-gold' : 'border-transparent text-muted hover:text-ink',
+            'flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-xs sm:text-sm font-semibold transition shrink-0',
+            activeTab === 'overview' ? 'border-gold text-gold font-bold bg-ivory/50 rounded-t' : 'border-transparent text-muted hover:text-ink',
           )}
         >
           <Layers className="h-4 w-4" />
@@ -338,8 +339,8 @@ export function ClientProjectDetailModal({
           type="button"
           onClick={() => setActiveTab('files')}
           className={cn(
-            'flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold transition',
-            activeTab === 'files' ? 'border-gold text-gold' : 'border-transparent text-muted hover:text-ink',
+            'flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-xs sm:text-sm font-semibold transition shrink-0',
+            activeTab === 'files' ? 'border-gold text-gold font-bold bg-ivory/50 rounded-t' : 'border-transparent text-muted hover:text-ink',
           )}
         >
           <FolderOpen className="h-4 w-4" />
@@ -349,8 +350,8 @@ export function ClientProjectDetailModal({
           type="button"
           onClick={() => setActiveTab('messages')}
           className={cn(
-            'flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold transition',
-            activeTab === 'messages' ? 'border-gold text-gold' : 'border-transparent text-muted hover:text-ink',
+            'flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-xs sm:text-sm font-semibold transition shrink-0',
+            activeTab === 'messages' ? 'border-gold text-gold font-bold bg-ivory/50 rounded-t' : 'border-transparent text-muted hover:text-ink',
           )}
         >
           <MessageSquare className="h-4 w-4" />
@@ -360,14 +361,14 @@ export function ClientProjectDetailModal({
           type="button"
           onClick={() => setActiveTab('revisions')}
           className={cn(
-            'relative flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold transition',
-            activeTab === 'revisions' ? 'border-gold text-gold' : 'border-transparent text-muted hover:text-ink',
+            'relative flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-xs sm:text-sm font-semibold transition shrink-0',
+            activeTab === 'revisions' ? 'border-gold text-gold font-bold bg-ivory/50 rounded-t' : 'border-transparent text-muted hover:text-ink',
           )}
         >
           <MessageSquare className="h-4 w-4" />
           Revisions
           {projectRevisionRequests.length > 0 ? (
-            <span className="flex h-4 w-4 items-center justify-center rounded-full bg-gold text-[10px] font-bold text-white">
+            <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-gold px-1 text-[10px] font-bold text-ink">
               {projectRevisionRequests.length}
             </span>
           ) : null}
@@ -376,8 +377,8 @@ export function ClientProjectDetailModal({
           type="button"
           onClick={() => setActiveTab('activity')}
           className={cn(
-            'flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold transition',
-            activeTab === 'activity' ? 'border-gold text-gold' : 'border-transparent text-muted hover:text-ink',
+            'flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-xs sm:text-sm font-semibold transition shrink-0',
+            activeTab === 'activity' ? 'border-gold text-gold font-bold bg-ivory/50 rounded-t' : 'border-transparent text-muted hover:text-ink',
           )}
         >
           <History className="h-4 w-4" />

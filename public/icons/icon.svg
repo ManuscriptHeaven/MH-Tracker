@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#DFCA96"/>
+      <stop offset="50%" stop-color="#C8A96B"/>
+      <stop offset="100%" stop-color="#A88746"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#1A1A1A"/>
+  <rect x="16" y="16" width="480" height="480" rx="96" fill="none" stroke="url(#goldGrad)" stroke-width="8" opacity="0.85"/>
+  <rect x="72" y="72" width="368" height="368" rx="32" fill="#242424" stroke="url(#goldGrad)" stroke-width="4" stroke-opacity="0.4"/>
+  <text x="256" y="325" font-family="Georgia, Cambria, 'Times New Roman', serif" font-size="200" font-weight="bold" fill="url(#goldGrad)" text-anchor="middle" letter-spacing="4">MH</text>
+  <text x="256" y="390" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="600" fill="#C8A96B" text-anchor="middle" letter-spacing="8" opacity="0.9">TRACKER</text>
+</svg>
