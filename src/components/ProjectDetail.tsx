@@ -148,7 +148,8 @@ export function ProjectDetail({
 }) {
   const { formatMoney } = useCurrency();
   const [activeTab, setActiveTab] = useState<ProjectDetailTab>('overview');
-  const [stage, setStage] = useState<TimelineStage>(project.current_stage || 'Files Required');
+  const [stage, setStage] = useState<TimelineStage>(project.current_stage || 'Files Received');
+  const [isSavingStage, setIsSavingStage] = useState(false);
   const [noteType, setNoteType] = useState<NoteType>('work');
   const [note, setNote] = useState('');
   const [revisionNote, setRevisionNote] = useState('');
@@ -217,8 +218,14 @@ export function ProjectDetail({
       alert('A project can only become "Completed" after reaching and completing the Final Delivery stage.');
       return;
     }
-    await onUpdateProject(timelineUpdateForStage(project, stage));
-    await onAddNote('qa', `Production stage updated to: ${stage}`);
+    try {
+      setIsSavingStage(true);
+      const updates = timelineUpdateForStage(project, stage);
+      await onUpdateProject(updates);
+      await onAddNote('qa', `Production stage updated to: ${stage}`);
+    } finally {
+      setIsSavingStage(false);
+    }
   }
 
   async function markDelivered() {
@@ -578,8 +585,8 @@ export function ProjectDetail({
                           </option>
                         ))}
                       </SelectField>
-                      <Button onClick={saveStage} className="min-h-9 text-xs px-3">
-                        Save
+                      <Button onClick={saveStage} disabled={isSavingStage} className="min-h-9 text-xs px-3">
+                        {isSavingStage ? 'Saving...' : 'Save'}
                       </Button>
                     </div>
                   </Card>
@@ -709,7 +716,9 @@ export function ProjectDetail({
                       </option>
                     ))}
                   </SelectField>
-                  <Button onClick={saveStage}>Save Stage</Button>
+                  <Button onClick={saveStage} disabled={isSavingStage}>
+                    {isSavingStage ? 'Saving...' : 'Save Stage'}
+                  </Button>
                   <Button variant="secondary" onClick={markDelivered}>
                     <CheckCircle2 className="h-4 w-4" />
                     Complete Project

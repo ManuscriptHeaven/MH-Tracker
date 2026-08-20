@@ -116,6 +116,9 @@ export function timelineUpdateForStage(project: TimelineProject, stage: Timeline
       : '',
     stage_started_at: now,
     stage_due_at: isApproval ? null : due,
+    final_delivery_date: null,
+    delivery_date: null,
+    stage_completed_at: null,
     updated_at: now,
   };
 }
@@ -360,10 +363,14 @@ export function deriveProjectTimeline<T extends TimelineProject>(
     return next;
   }
 
-  // A project is ONLY genuinely completed if Final Delivery was completed
+  // Recalculate normalized stage
+  const rawStage = next.current_stage || next.status;
+  const normStage = normalizeStage(rawStage);
+
+  // A project is ONLY genuinely completed if the stage is Final Delivery or Completed AND has completed status or date
   const isGenuinelyCompleted = Boolean(
-    next.final_delivery_date ||
-    (next.status === 'Completed' && (next.current_stage === 'Final Delivery' || next.current_stage === 'Completed' || next.delivery_date))
+    (normStage === 'Final Delivery' || normStage === 'Completed') &&
+    (next.status === 'Completed' || next.stage_status === 'COMPLETED' || next.final_delivery_date)
   );
 
   if (isGenuinelyCompleted) {
@@ -377,11 +384,12 @@ export function deriveProjectTimeline<T extends TimelineProject>(
     return next;
   }
 
-  // Recalculate normalized stage
-  const rawStage = next.current_stage || next.status;
-  const normStage = normalizeStage(rawStage === 'Completed' ? 'Print Approval' : rawStage);
+  // Active non-completed stage: clear any stale completion dates
+  next.final_delivery_date = null;
+  next.delivery_date = null;
+  next.stage_completed_at = null;
 
-  next.current_stage = (normStage === 'Completed' ? 'Final Delivery' : normStage) as TimelineStage;
+  next.current_stage = normStage as TimelineStage;
   next.progress_percentage = timelineProgressByStage[next.current_stage as TimelineStage] || 10;
 
   if (isClientApprovalStage(next.current_stage)) {
