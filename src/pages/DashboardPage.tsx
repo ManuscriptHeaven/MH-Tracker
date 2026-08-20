@@ -58,60 +58,61 @@ export function DashboardPage({
   onSelectProject: (project: Project) => void;
 }) {
   const { formatMoney } = useCurrency();
-  const [quickFilter, setQuickFilter] = useState<'all' | 'mine' | 'unassigned' | 'today' | 'overdue' | 'week' | 'revision' | 'review'>('all');
+  const [quickFilter, setQuickFilter] = useState<'all' | 'mine' | 'in_progress' | 'awaiting_approval' | 'revision' | 'today' | 'overdue' | 'completed'>('all');
   const [assignedTo, setAssignedTo] = useState('all');
   const [status, setStatus] = useState('all');
   const [client, setClient] = useState('all');
   const [priority, setPriority] = useState('all');
+
   const allActiveProjects = projects
     .filter((project) => !closedStatuses.includes(project.status))
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  const isRevision = (project: Project) => ['In Revision', 'Revision Requested', 'Concept Revisions', 'Print Revisions'].includes(project.status) || project.stage_status === 'REVISION_ACTIVE';
-  const isReview = (project: Project) => (['Client Review', 'Awaiting Concept Approval', 'Awaiting Print Approval', 'eBook Review'].includes(project.status) || project.stage_status === 'PAUSED_CLIENT_REVIEW') && project.stage_status !== 'REVISION_ACTIVE';
+
+  const isRevision = (project: Project) => project.status === 'In Revision' || project.stage_status === 'REVISION_ACTIVE';
+  const isAwaitingApproval = (project: Project) => (project.status === 'Awaiting Client Approval' || project.stage_status === 'PAUSED_CLIENT_REVIEW') && project.stage_status !== 'REVISION_ACTIVE';
+  const isInProgress = (project: Project) => project.status === 'In Progress' || project.status === 'Active' || project.status === 'Final Delivery';
+  const isCompleted = (project: Project) => project.status === 'Completed' || project.status === 'Delivered';
+
   const scopedProjects = useMemo(() => allActiveProjects.filter((project) =>
     (assignedTo === 'all' || project.assigned_to === assignedTo) &&
     (status === 'all' || project.status === status) &&
     (client === 'all' || project.client_name === client) &&
     (priority === 'all' || project.priority === priority),
   ), [allActiveProjects, assignedTo, status, client, priority]);
+
   const scopedAllProjects = useMemo(() => projects.filter((project) =>
     (assignedTo === 'all' || project.assigned_to === assignedTo) &&
     (status === 'all' || project.status === status) &&
     (client === 'all' || project.client_name === client) &&
     (priority === 'all' || project.priority === priority),
   ), [projects, assignedTo, status, client, priority]);
-  const activeProjects = scopedProjects.filter((project) => {
+
+  const activeProjects = scopedAllProjects.filter((project) => {
+    if (quickFilter === 'completed') return isCompleted(project);
+    if (closedStatuses.includes(project.status)) return false;
     if (quickFilter === 'mine') return project.assigned_to === currentProfileId;
-    if (quickFilter === 'unassigned') return !project.assigned_to;
+    if (quickFilter === 'in_progress') return isInProgress(project);
+    if (quickFilter === 'awaiting_approval') return isAwaitingApproval(project);
+    if (quickFilter === 'revision') return isRevision(project);
     if (quickFilter === 'today') return isDueToday(project);
     if (quickFilter === 'overdue') return isOverdue(project);
-    if (quickFilter === 'week') return isDueThisWeek(project);
-    if (quickFilter === 'revision') return isRevision(project);
-    if (quickFilter === 'review') return isReview(project);
     return true;
   });
-  const overdueProjects = activeProjects.filter(isOverdue);
-  const dueToday = activeProjects.filter(isDueToday);
-  const dueThisWeek = activeProjects.filter(isDueThisWeek);
-  const inRevision = activeProjects.filter(isRevision);
-  const clientReview = activeProjects.filter(isReview);
-  const deliveredThisMonth = scopedAllProjects.filter((project) => {
-    const deliveryDate = project.delivery_date || project.final_delivery_date;
-    if (!closedStatuses.includes(project.status) || !deliveryDate) {
-      return false;
-    }
 
-    const delivered = new Date(`${deliveryDate}T12:00:00`);
-    const now = new Date();
-    return delivered.getMonth() === now.getMonth() && delivered.getFullYear() === now.getFullYear();
-  });
-  const pendingPayments = activeProjects.reduce((total, project) => total + Number(project.remaining_balance || 0), 0);
-  const urgentProjects = activeProjects
+  const inProgressProjects = scopedProjects.filter(isInProgress);
+  const awaitingApprovalProjects = scopedProjects.filter(isAwaitingApproval);
+  const inRevisionProjects = scopedProjects.filter(isRevision);
+  const overdueProjects = scopedProjects.filter(isOverdue);
+  const dueTodayProjects = scopedProjects.filter(isDueToday);
+  const completedProjects = scopedAllProjects.filter(isCompleted);
+
+  const pendingPayments = scopedProjects.reduce((total, project) => total + Number(project.remaining_balance || 0), 0);
+  const urgentProjects = scopedProjects
     .filter((project) => project.priority === 'Urgent' || isOverdue(project) || isDueToday(project))
     .slice(0, 5);
 
   const workload = profiles.filter((profile) => !isClientRole(profile.role) && (assignedTo === 'all' || profile.id === assignedTo)).map((profile) => {
-    const assigned = activeProjects.filter((project) => project.assigned_to === profile.id);
+    const assigned = scopedProjects.filter((project) => project.assigned_to === profile.id);
     return {
       profile,
       active: assigned.length,
@@ -124,29 +125,35 @@ export function DashboardPage({
       <Card className="p-4 sm:p-6">
         <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-thin">
           {([
-            ['all', 'All'], ['mine', 'My Projects'], ['unassigned', 'Unassigned'], ['today', 'Due Today'], ['overdue', 'Overdue'], ['week', 'This Week'], ['revision', 'In Revision'], ['review', 'Client Review'],
-          ] as const).map(([id, label]) => {
-            const count = id === 'all' ? scopedProjects.length : scopedProjects.filter((project) => id === 'mine' ? project.assigned_to === currentProfileId : id === 'unassigned' ? !project.assigned_to : id === 'today' ? isDueToday(project) : id === 'overdue' ? isOverdue(project) : id === 'week' ? isDueThisWeek(project) : id === 'revision' ? isRevision(project) : isReview(project)).length;
-            return <Button key={id} type="button" variant={quickFilter === id ? 'primary' : 'secondary'} onClick={() => setQuickFilter(id)} className="shrink-0 text-xs sm:text-sm py-1.5 px-3">{label} ({count})</Button>;
+            ['all', 'Active Projects', scopedProjects.length],
+            ['in_progress', 'In Progress', inProgressProjects.length],
+            ['awaiting_approval', 'Awaiting Client Approval', awaitingApprovalProjects.length],
+            ['revision', 'In Revision', inRevisionProjects.length],
+            ['today', 'Due Today', dueTodayProjects.length],
+            ['overdue', 'Overdue', overdueProjects.length],
+            ['completed', 'Completed', completedProjects.length],
+            ['mine', 'My Projects', scopedProjects.filter((p) => p.assigned_to === currentProfileId).length],
+          ] as const).map(([id, label, count]) => {
+            return <Button key={id} type="button" variant={quickFilter === id ? 'primary' : 'secondary'} onClick={() => setQuickFilter(id as typeof quickFilter)} className="shrink-0 text-xs sm:text-sm py-1.5 px-3">{label} ({count})</Button>;
           })}
         </div>
         <div className="mt-3 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
           <SelectField label="Assigned To" value={assignedTo} onChange={(event) => setAssignedTo(event.target.value)}><option value="all">All Team Members</option>{profiles.filter((profile) => !isClientRole(profile.role)).map((profile) => <option key={profile.id} value={profile.id}>{profile.full_name}</option>)}</SelectField>
-          <SelectField label="Status" value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">All Statuses</option>{[...new Set(allActiveProjects.map((project) => project.status))].map((item) => <option key={item} value={item}>{item}</option>)}</SelectField>
-          <SelectField label="Client" value={client} onChange={(event) => setClient(event.target.value)}><option value="all">All Clients</option>{[...new Set(allActiveProjects.map((project) => project.client_name))].map((item) => <option key={item} value={item}>{item}</option>)}</SelectField>
-          <SelectField label="Priority" value={priority} onChange={(event) => setPriority(event.target.value)}><option value="all">All Priorities</option>{[...new Set(allActiveProjects.map((project) => project.priority))].map((item) => <option key={item} value={item}>{item}</option>)}</SelectField>
+          <SelectField label="Status" value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">All Statuses</option>{[...new Set(scopedAllProjects.map((project) => project.status))].map((item) => <option key={item} value={item}>{item}</option>)}</SelectField>
+          <SelectField label="Client" value={client} onChange={(event) => setClient(event.target.value)}><option value="all">All Clients</option>{[...new Set(scopedAllProjects.map((project) => project.client_name))].map((item) => <option key={item} value={item}>{item}</option>)}</SelectField>
+          <SelectField label="Priority" value={priority} onChange={(event) => setPriority(event.target.value)}><option value="all">All Priorities</option>{[...new Set(scopedAllProjects.map((project) => project.priority))].map((item) => <option key={item} value={item}>{item}</option>)}</SelectField>
         </div>
       </Card>
       <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-        <StatCard label="Active Projects" value={activeProjects.length} icon={FolderOpen} tone="bg-blue-50 text-info" />
-        <StatCard label="Due Today" value={dueToday.length} icon={Clock3} tone="bg-orange-50 text-warning" />
+        <StatCard label="Active Projects" value={scopedProjects.length} icon={FolderOpen} tone="bg-blue-50 text-info" />
+        <StatCard label="In Progress" value={inProgressProjects.length} icon={FolderOpen} tone="bg-amber-50 text-amber-800" />
+        <StatCard label="Awaiting Client Approval" value={awaitingApprovalProjects.length} icon={Clock3} tone="bg-purple-50 text-purple-700" />
+        <StatCard label="In Revision" value={inRevisionProjects.length} icon={FolderOpen} tone="bg-orange-50 text-orange-700" />
+        <StatCard label="Due Today" value={dueTodayProjects.length} icon={Clock3} tone="bg-orange-50 text-warning" />
         <StatCard label="Overdue" value={overdueProjects.length} icon={AlertTriangle} tone="bg-red-50 text-danger" />
-        <StatCard label="Due This Week" value={dueThisWeek.length} icon={CalendarClock} tone="bg-amber-50 text-amber-700" />
-        <StatCard label="In Revision" value={inRevision.length} icon={FolderOpen} tone="bg-orange-50 text-orange-700" />
-        <StatCard label="Client Review" value={clientReview.length} icon={Clock3} tone="bg-cyan-50 text-cyan-700" />
         <StatCard
-          label="Delivered This Month"
-          value={deliveredThisMonth.length}
+          label="Completed"
+          value={completedProjects.length}
           icon={CheckCircle2}
           tone="bg-green-50 text-success"
         />

@@ -1,7 +1,16 @@
 export type Role = 'admin' | 'manager' | 'project_manager' | 'employee' | 'junior_assistant' | 'client';
 
-export type ProjectStatus =
+export type StandardProjectStatus =
   | 'Active'
+  | 'In Progress'
+  | 'Awaiting Client Approval'
+  | 'In Revision'
+  | 'Final Delivery'
+  | 'Completed'
+  | 'On Hold'
+  | 'Cancelled';
+
+export type LegacyProjectStatus =
   | 'New'
   | 'Waiting for Files'
   | 'Files Required'
@@ -15,9 +24,7 @@ export type ProjectStatus =
   | 'eBook in Progress'
   | 'eBook Review'
   | 'Final Quality Check'
-  | 'Completed'
   | 'Ready to Start'
-  | 'In Progress'
   | 'Formatting'
   | 'Cover Design'
   | 'eBook Conversion'
@@ -25,13 +32,12 @@ export type ProjectStatus =
   | 'Sent to Client'
   | 'Client Review'
   | 'Revision Requested'
-  | 'In Revision'
   | 'Final QA'
   | 'Ready for Delivery'
   | 'Delivered'
-  | 'On Hold'
-  | 'Archived'
-  | 'Cancelled';
+  | 'Archived';
+
+export type ProjectStatus = StandardProjectStatus | LegacyProjectStatus;
 
 export type OfficialTimelineStage =
   | 'Files Received'
@@ -45,6 +51,9 @@ export type OfficialTimelineStage =
 
 export type TimelineStage =
   | OfficialTimelineStage
+  | 'Completed'
+  | 'On Hold'
+  | 'Cancelled'
   | 'Files Required'
   | 'Design Concept in Progress'
   | 'Awaiting Concept Approval'
@@ -54,10 +63,7 @@ export type TimelineStage =
   | 'Print Revisions'
   | 'eBook in Progress'
   | 'eBook Review'
-  | 'Final Quality Check'
-  | 'Completed'
-  | 'On Hold'
-  | 'Cancelled';
+  | 'Final Quality Check';
 
 export type ClockState = 'ACTIVE' | 'PAUSED_CLIENT_REVIEW' | 'REVISION_ACTIVE' | 'COMPLETED' | 'PENDING';
 

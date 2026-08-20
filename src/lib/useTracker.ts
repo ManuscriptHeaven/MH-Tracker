@@ -1816,19 +1816,19 @@ export function useTracker() {
       const now = new Date().toISOString();
 
       const stage = project?.current_stage || 'Print Approval';
-      const approvalStatus: ProjectStatus =
-        stage === 'Concept Approval' || stage === 'Awaiting Concept Approval'
-          ? 'Awaiting Concept Approval'
-          : stage === 'Print Approval' || stage === 'Awaiting Print Approval'
-            ? 'Awaiting Print Approval'
-            : 'eBook Review';
+      const approvalStatus: ProjectStatus = 'Awaiting Client Approval';
 
       const projectUpdates: Partial<Project> = {
         status: approvalStatus,
         stage_status: 'PAUSED_CLIENT_REVIEW',
         waiting_on: 'Client',
         timeline_status: 'Paused',
-        client_action_required: 'Review the updated proof and approve or request further changes.',
+        client_action_required:
+          stage === 'Concept Approval'
+            ? 'Review and approve the updated design concept'
+            : stage === 'Print Approval'
+              ? 'Review and approve the updated print version'
+              : 'Review and approve the updated eBook version',
         updated_at: now,
       };
 
@@ -2002,11 +2002,9 @@ export function useTracker() {
       };
 
       if (nextStage === 'Final Delivery') {
-        projectUpdates.status = 'Final QA' as ProjectStatus;
-      } else if (nextStage === 'Print Version') {
-        projectUpdates.status = 'Print Version in Progress' as ProjectStatus;
-      } else if (nextStage === 'Ebook Version') {
-        projectUpdates.status = 'eBook in Progress' as ProjectStatus;
+        projectUpdates.status = 'Final Delivery';
+      } else {
+        projectUpdates.status = 'In Progress';
       }
 
       const recipientId = project.assigned_to || project.project_manager || currentProfile.id;

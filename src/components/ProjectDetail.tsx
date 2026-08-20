@@ -209,16 +209,28 @@ export function ProjectDetail({
   );
 
   useEffect(() => {
-    setStage(project.current_stage || 'Files Required');
+    setStage(project.current_stage || 'Files Received');
   }, [project.current_stage, project.id]);
 
   async function saveStage() {
+    if (stage === 'Completed' && summary.officialStage !== 'Final Delivery') {
+      alert('A project can only become "Completed" after reaching and completing the Final Delivery stage.');
+      return;
+    }
     await onUpdateProject(timelineUpdateForStage(project, stage));
+    await onAddNote('qa', `Production stage updated to: ${stage}`);
   }
 
   async function markDelivered() {
-    setStage('Completed');
-    await onUpdateProject(timelineUpdateForStage({ ...project, final_delivery_date: todayInput() }, 'Completed'));
+    if (summary.officialStage !== 'Final Delivery' && project.status !== 'Completed') {
+      alert('A project can only be completed after Final Delivery stage is reached.');
+      return;
+    }
+    const confirmed = window.confirm(`Are you sure you want to mark "${project.project_title}" as Completed?`);
+    if (!confirmed) return;
+    setStage('Final Delivery');
+    await onUpdateProject(timelineUpdateForStage({ ...project, final_delivery_date: todayInput(), delivery_date: todayInput() }, 'Completed'));
+    await onAddNote('delivery', 'Final delivery completed. Project is now marked Completed.');
   }
 
   async function submitNote() {

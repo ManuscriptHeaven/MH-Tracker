@@ -56,23 +56,66 @@ export function timelineUpdateForStage(project: TimelineProject, stage: Timeline
   if (norm === 'Completed') {
     return {
       status: 'Completed' as Project['status'],
-      current_stage: 'Completed',
+      current_stage: 'Final Delivery',
       stage_status: 'COMPLETED',
       timeline_status: 'Completed',
       waiting_on: 'None',
       stage_completed_at: now,
       final_delivery_date: now.slice(0, 10),
       delivery_date: now.slice(0, 10),
+      client_action_required: '',
+      updated_at: now,
     };
   }
 
+  if (norm === 'On Hold') {
+    return {
+      status: 'On Hold' as Project['status'],
+      current_stage: 'On Hold',
+      stage_status: 'COMPLETED',
+      timeline_status: 'On Hold',
+      waiting_on: 'None',
+      client_action_required: '',
+      updated_at: now,
+    };
+  }
+
+  if (norm === 'Cancelled') {
+    return {
+      status: 'Cancelled' as Project['status'],
+      current_stage: 'Cancelled',
+      stage_status: 'COMPLETED',
+      timeline_status: 'Cancelled',
+      waiting_on: 'None',
+      client_action_required: '',
+      updated_at: now,
+    };
+  }
+
+  const isApproval = isClientApprovalStage(norm);
+  const standardStatus = isApproval
+    ? ('Awaiting Client Approval' as Project['status'])
+    : norm === 'Files Received'
+      ? ('Active' as Project['status'])
+      : norm === 'Final Delivery'
+        ? ('Final Delivery' as Project['status'])
+        : ('In Progress' as Project['status']);
+
   return {
+    status: standardStatus,
     current_stage: norm as TimelineStage,
-    stage_status: isClientApprovalStage(norm) ? 'PAUSED_CLIENT_REVIEW' : 'ACTIVE',
-    timeline_status: isClientApprovalStage(norm) ? 'Paused' : 'Active',
-    waiting_on: isClientApprovalStage(norm) ? 'Client' : 'Manuscript Heaven',
+    stage_status: isApproval ? 'PAUSED_CLIENT_REVIEW' : 'ACTIVE',
+    timeline_status: isApproval ? 'Paused' : 'Active',
+    waiting_on: isApproval ? 'Client' : 'Manuscript Heaven',
+    client_action_required: isApproval
+      ? norm === 'Concept Approval'
+        ? 'Review and approve the design concept'
+        : norm === 'Print Approval'
+          ? 'Review and approve the print version'
+          : 'Review and approve the eBook version'
+      : '',
     stage_started_at: now,
-    stage_due_at: due,
+    stage_due_at: isApproval ? null : due,
     updated_at: now,
   };
 }
@@ -194,7 +237,7 @@ export function getStageDurationDays(
   const norm = normalizeStage(stage);
 
   if (isClientApprovalStage(norm)) {
-    return 0; // Client approval stages do NOT consume production time
+    return isRevision ? 2 : 0; // Client approval stages do NOT consume production time; revisions allocate 2 working days
   }
 
   switch (norm) {
@@ -202,16 +245,16 @@ export function getStageDurationDays(
       return settings.files_received_days ?? 2;
     case 'Design Concept':
       return isRevision
-        ? settings.design_concept_revision_days ?? 2
-        : settings.design_concept_days ?? 3;
+        ? (settings.design_concept_revision_days ?? 2)
+        : (settings.design_concept_days ?? 3);
     case 'Print Version':
       return isRevision
-        ? settings.print_version_revision_days ?? 2
-        : settings.print_version_days ?? 5;
+        ? (settings.print_version_revision_days ?? 2)
+        : (settings.print_version_days ?? 5);
     case 'Ebook Version':
       return isRevision
-        ? settings.ebook_version_revision_days ?? 2
-        : settings.ebook_version_days ?? 5;
+        ? (settings.ebook_version_revision_days ?? 2)
+        : (settings.ebook_version_days ?? 5);
     case 'Final Delivery':
       return settings.final_delivery_days ?? 2;
     default:
@@ -294,9 +337,9 @@ export function deriveProjectTimeline<T extends TimelineProject>(
   const syncStatus = Boolean(options.syncStatus);
   const settings = getWorkflowSettings(next);
 
-  const normStage = normalizeStage(next.current_stage || next.status);
-
-  if (next.status === 'On Hold' || normStage === 'On Hold') {
+  // If explicitly on hold or cancelled
+  if (next.status === 'On Hold' || next.current_stage === 'On Hold') {
+    next.status = 'On Hold';
     next.current_stage = 'On Hold';
     next.stage_status = 'COMPLETED';
     next.timeline_status = 'On Hold';
@@ -306,7 +349,8 @@ export function deriveProjectTimeline<T extends TimelineProject>(
     return next;
   }
 
-  if (next.status === 'Cancelled' || next.status === 'Archived' || normStage === 'Cancelled') {
+  if (next.status === 'Cancelled' || next.status === 'Archived' || next.current_stage === 'Cancelled') {
+    next.status = 'Cancelled';
     next.current_stage = 'Cancelled';
     next.stage_status = 'COMPLETED';
     next.timeline_status = 'Cancelled';
@@ -316,54 +360,56 @@ export function deriveProjectTimeline<T extends TimelineProject>(
     return next;
   }
 
-  if (next.final_delivery_date || next.status === 'Completed' || normStage === 'Completed') {
-    next.current_stage = 'Completed';
+  // A project is ONLY genuinely completed if Final Delivery was completed
+  const isGenuinelyCompleted = Boolean(
+    next.final_delivery_date ||
+    (next.status === 'Completed' && (next.current_stage === 'Final Delivery' || next.current_stage === 'Completed' || next.delivery_date))
+  );
+
+  if (isGenuinelyCompleted) {
+    next.status = 'Completed';
+    next.current_stage = 'Final Delivery';
     next.stage_status = 'COMPLETED';
     next.timeline_status = 'Completed';
     next.waiting_on = 'None';
     next.client_action_required = '';
     next.progress_percentage = 100;
-    if (syncStatus) next.status = 'Completed';
     return next;
   }
 
-  next.current_stage = normStage as TimelineStage;
-  next.progress_percentage = timelineProgressByStage[normStage as TimelineStage] || 10;
+  // Recalculate normalized stage
+  const rawStage = next.current_stage || next.status;
+  const normStage = normalizeStage(rawStage === 'Completed' ? 'Print Approval' : rawStage);
 
-  if (isClientApprovalStage(normStage)) {
+  next.current_stage = (normStage === 'Completed' ? 'Final Delivery' : normStage) as TimelineStage;
+  next.progress_percentage = timelineProgressByStage[next.current_stage as TimelineStage] || 10;
+
+  if (isClientApprovalStage(next.current_stage)) {
     if (next.stage_status === 'REVISION_ACTIVE') {
+      next.status = 'In Revision';
       next.timeline_status = 'Revision Required';
       next.waiting_on = 'Manuscript Heaven';
       next.client_action_required = '';
       if (!next.stage_due_at) {
         const revStart = next.stage_started_at || todayInput();
-        const revDays = getStageDurationDays(normStage, settings, true);
+        const revDays = getStageDurationDays(next.current_stage, settings, true);
         next.stage_due_at = calculateStageDueDate(revStart, revDays, settings);
       }
-      // Always sync status so all panels see 'In Revision' immediately
-      next.status = 'In Revision';
     } else {
       next.stage_status = 'PAUSED_CLIENT_REVIEW';
       next.timeline_status = 'Paused';
       next.waiting_on = 'Client';
+      next.status = 'Awaiting Client Approval';
       next.client_action_required =
-        normStage === 'Concept Approval'
+        next.current_stage === 'Concept Approval'
           ? 'Review and approve the design concept'
-          : normStage === 'Print Approval'
-            ? 'Review and approve the complete print version'
+          : next.current_stage === 'Print Approval'
+            ? 'Review and approve the print version'
             : 'Review and approve the eBook version';
-      const expectedStatus =
-        normStage === 'Concept Approval'
-          ? 'Awaiting Concept Approval'
-          : normStage === 'Print Approval'
-            ? 'Awaiting Print Approval'
-            : 'eBook Review';
-      if (syncStatus || next.status === 'In Revision' || next.status === 'Revision Requested') {
-        next.status = expectedStatus;
-      }
+      next.stage_due_at = null; // Production clock is paused
     }
   } else {
-    // Production Stage
+    // Production Stage: Files Received, Design Concept, Print Version, Ebook Version, Final Delivery
     next.stage_status = 'ACTIVE';
     next.timeline_status = 'Active';
     next.waiting_on = 'Manuscript Heaven';
@@ -371,21 +417,16 @@ export function deriveProjectTimeline<T extends TimelineProject>(
 
     if (!next.stage_due_at) {
       const stageStart = next.stage_started_at || next.files_received_date || todayInput();
-      const duration = getStageDurationDays(normStage, settings, false);
+      const duration = getStageDurationDays(next.current_stage, settings, false);
       next.stage_due_at = calculateStageDueDate(stageStart, duration, settings);
     }
 
-    if (syncStatus) {
-      next.status =
-        normStage === 'Files Received'
-          ? 'Files Received'
-          : normStage === 'Design Concept'
-            ? 'Design Concept in Progress'
-            : normStage === 'Print Version'
-              ? 'Print Version in Progress'
-              : normStage === 'Ebook Version'
-                ? 'eBook in Progress'
-                : 'Final Quality Check';
+    if (next.current_stage === 'Files Received') {
+      next.status = 'Active';
+    } else if (next.current_stage === 'Final Delivery') {
+      next.status = 'Final Delivery';
+    } else {
+      next.status = 'In Progress';
     }
   }
 

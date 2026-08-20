@@ -64,12 +64,13 @@ function approvalMilestoneForStage(stage: string): ApprovalMilestone | null {
 function approvalLabel(milestone: ApprovalMilestone) {
   if (milestone === 'concept') return 'Approve Design Concept';
   if (milestone === 'print') return 'Approve Print Version';
-  return 'Approve eBook Version';
+  return 'Approve Ebook Version';
 }
 
 function revisionLabel(milestone: ApprovalMilestone | null) {
-  if (milestone === 'concept') return 'Request Concept Revisions';
-  if (milestone === 'print') return 'Request Print Revisions';
+  if (milestone === 'concept') return 'Request Design Revision';
+  if (milestone === 'print') return 'Request Print Revision';
+  if (milestone === 'ebook') return 'Request Ebook Revision';
   return 'Request Revision';
 }
 

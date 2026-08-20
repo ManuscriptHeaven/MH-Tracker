@@ -86,16 +86,20 @@ function approvalLabel(milestone: ApprovalMilestone) {
     return 'Approve Print Version';
   }
 
-  return 'Approve eBook Version';
+  return 'Approve Ebook Version';
 }
 
 function revisionLabel(milestone: ApprovalMilestone | null) {
   if (milestone === 'concept') {
-    return 'Request Concept Revisions';
+    return 'Request Design Revision';
   }
 
   if (milestone === 'print') {
-    return 'Request Print Revisions';
+    return 'Request Print Revision';
+  }
+
+  if (milestone === 'ebook') {
+    return 'Request Ebook Revision';
   }
 
   return 'Request Revision';
