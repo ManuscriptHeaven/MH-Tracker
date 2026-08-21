@@ -159,10 +159,14 @@ export interface Profile {
   created_at: string;
 }
 
+export type SalaryType = 'Monthly' | 'Per Project' | 'Per Task';
+
 export interface EmployeeCompensation {
   employee_id: string;
   monthly_salary: number;
   per_project_rate: number;
+  salary_type?: SalaryType;
+  default_currency?: CurrencyCode;
   joining_date: string | null;
   responsibilities: string;
   performance_rating: number | null;
@@ -170,16 +174,22 @@ export interface EmployeeCompensation {
 }
 
 export type EmployeeLedgerType = 'Salary' | 'Project Payment' | 'Bonus' | 'Advance' | 'Deduction' | 'Payment' | 'Other';
+export type PayrollPaymentMethod = 'Bank Transfer' | 'Cash' | 'Wise' | 'PayPal' | 'Other';
+export type PayrollStatus = 'Paid' | 'Partially Paid' | 'Pending' | 'Overdue';
 
 export interface EmployeeLedgerEntry {
   id: string;
   employee_id: string;
   entry_type: EmployeeLedgerType;
   amount: number;
+  currency?: CurrencyCode;
   salary_month: string | null;
   payment_method: string | null;
   project_id: string | null;
   notes: string;
+  description?: string;
+  reference?: string | null;
+  status?: 'Pending' | 'Partially Paid' | 'Paid';
   paid_at: string;
   created_at: string;
 }
@@ -344,12 +354,12 @@ export interface ProjectNote {
 
 export interface ActivityLog {
   id: string;
-  project_id: string;
+  project_id?: string | null;
   action: string;
   activity_type?: string | null;
   description?: string | null;
-  old_value: string | null;
-  new_value: string | null;
+  old_value?: string | null;
+  new_value?: string | null;
   user_id: string;
   attachment_url?: string | null;
   internal_note?: string | null;

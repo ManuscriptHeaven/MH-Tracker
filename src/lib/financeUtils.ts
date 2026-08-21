@@ -324,11 +324,11 @@ export function calculateTeamPayments(
 
     const totalEarnings = monthlySalary + salaryBonus + projectEarnings + other;
     const netPayable = Math.max(0, totalEarnings - deductions);
-    const outstanding = Math.max(0, netPayable - (paid + advances));
+    const outstanding = Math.max(0, netPayable - paid);
 
     let status: 'Paid' | 'Partial' | 'Pending' = 'Pending';
     if (netPayable > 0 && outstanding === 0) status = 'Paid';
-    else if ((paid > 0 || advances > 0) && outstanding > 0) status = 'Partial';
+    else if (paid > 0 && outstanding > 0) status = 'Partial';
     else if (netPayable === 0 && outstanding === 0) status = 'Paid';
 
     const latestPayment = monthEntries

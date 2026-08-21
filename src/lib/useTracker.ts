@@ -1041,10 +1041,10 @@ export function useTracker() {
 
       if (supabase && mode === 'supabase') {
         await supabase.from('activity_logs').insert({
-          project_id: activity.project_id,
+          project_id: activity.project_id || null,
           action: activity.action,
-          old_value: activity.old_value,
-          new_value: activity.new_value,
+          old_value: activity.old_value || null,
+          new_value: activity.new_value || null,
           user_id: activity.user_id,
         });
       }
@@ -2381,15 +2381,18 @@ export function useTracker() {
   }, [currentProfile, data.notifications]);
 
   const saveEmployeeCompensation = useCallback(
-    async (employeeId: string, updates: Pick<EmployeeCompensation, 'monthly_salary' | 'per_project_rate' | 'joining_date' | 'responsibilities'>) => {
+    async (employeeId: string, updates: Partial<EmployeeCompensation>) => {
       if (!currentProfile || currentProfile.role !== 'admin') throw new Error('Only admins can manage employee compensation.');
+      const existing = data.employeeCompensation.find((item) => item.employee_id === employeeId);
       const compensation: EmployeeCompensation = {
         employee_id: employeeId,
-        monthly_salary: Number(updates.monthly_salary || 0),
-        per_project_rate: Number(updates.per_project_rate || 0),
-        joining_date: updates.joining_date || null,
-        responsibilities: updates.responsibilities || '',
-        performance_rating: data.employeeCompensation.find((item) => item.employee_id === employeeId)?.performance_rating ?? null,
+        monthly_salary: Number(updates.monthly_salary !== undefined ? updates.monthly_salary : existing?.monthly_salary || 0),
+        per_project_rate: Number(updates.per_project_rate !== undefined ? updates.per_project_rate : existing?.per_project_rate || 0),
+        salary_type: updates.salary_type || existing?.salary_type || 'Monthly',
+        default_currency: updates.default_currency || existing?.default_currency || 'USD',
+        joining_date: updates.joining_date !== undefined ? updates.joining_date : existing?.joining_date || null,
+        responsibilities: updates.responsibilities !== undefined ? updates.responsibilities : existing?.responsibilities || '',
+        performance_rating: existing?.performance_rating ?? null,
         updated_at: new Date().toISOString(),
       };
       if (supabase && mode === 'supabase') {
@@ -2400,25 +2403,53 @@ export function useTracker() {
         ...previous,
         employeeCompensation: [compensation, ...previous.employeeCompensation.filter((item) => item.employee_id !== employeeId)],
       }));
+
+      const empName = data.profiles.find((p) => p.id === employeeId)?.full_name || 'Employee';
+      await addActivity({
+        action: `Salary/compensation updated for ${empName}`,
+        user_id: currentProfile.id,
+      });
     },
-    [currentProfile, data.employeeCompensation, mode],
+    [addActivity, currentProfile, data.employeeCompensation, data.profiles, mode],
   );
+
   const addEmployeeLedgerEntry = useCallback(
     async (entry: Omit<EmployeeLedgerEntry, 'id' | 'created_at'>) => {
       if (!currentProfile || currentProfile.role !== 'admin') throw new Error('Only admins can manage employee payroll.');
-      const ledgerEntry: EmployeeLedgerEntry = { ...entry, id: createUuid(), created_at: new Date().toISOString() };
+      const ledgerEntry: EmployeeLedgerEntry = {
+        ...entry,
+        id: createUuid(),
+        currency: entry.currency || 'USD',
+        created_at: new Date().toISOString(),
+      };
       if (supabase && mode === 'supabase') {
         const { error: entryError } = await supabase.from('employee_ledger').insert(ledgerEntry);
         if (entryError) throw entryError;
       }
       setData((previous) => ({ ...previous, employeeLedger: [ledgerEntry, ...previous.employeeLedger] }));
+
+      const empName = data.profiles.find((p) => p.id === entry.employee_id)?.full_name || 'Employee';
+      const actionLabel =
+        entry.entry_type === 'Payment'
+          ? `Payroll payment of $${entry.amount} recorded for ${empName}`
+          : entry.entry_type === 'Advance'
+            ? `Advance of $${entry.amount} recorded for ${empName}`
+            : entry.entry_type === 'Deduction'
+              ? `Deduction of $${entry.amount} added for ${empName}`
+              : `${entry.entry_type} of $${entry.amount} added for ${empName}`;
+
+      await addActivity({
+        action: actionLabel,
+        user_id: currentProfile.id,
+      });
     },
-    [currentProfile, mode],
+    [addActivity, currentProfile, data.profiles, mode],
   );
 
   const deleteEmployeeLedgerEntry = useCallback(
     async (entryId: string) => {
       if (!currentProfile || currentProfile.role !== 'admin') throw new Error('Only admins can delete employee payroll entries.');
+      const existing = data.employeeLedger.find((entry) => entry.id === entryId);
       if (supabase && mode === 'supabase') {
         const { error: deleteError } = await supabase.from('employee_ledger').delete().eq('id', entryId);
         if (deleteError) throw deleteError;
@@ -2427,8 +2458,14 @@ export function useTracker() {
         ...previous,
         employeeLedger: previous.employeeLedger.filter((entry) => entry.id !== entryId),
       }));
+
+      const empName = existing ? data.profiles.find((p) => p.id === existing.employee_id)?.full_name || 'Employee' : 'Employee';
+      await addActivity({
+        action: `Payroll entry (${existing?.entry_type || 'Ledger'}) deleted for ${empName}`,
+        user_id: currentProfile.id,
+      });
     },
-    [currentProfile, mode],
+    [addActivity, currentProfile, data.employeeLedger, data.profiles, mode],
   );
 
   const createFinanceTransaction = useCallback(

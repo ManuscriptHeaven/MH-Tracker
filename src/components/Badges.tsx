@@ -44,3 +44,17 @@ export function RoleBadge({ role }: { role: Role }) {
 export function TaskStatusBadge({ status }: { status: TaskStatus }) {
   return <Badge className={taskStatusBadgeClasses[status]}>{status}</Badge>;
 }
+
+export function PayrollStatusBadge({ status }: { status: string }) {
+  let badgeClass = 'bg-blue-50 text-blue-800 border-blue-200';
+  if (status === 'Paid') {
+    badgeClass = 'bg-emerald-50 text-emerald-800 border-emerald-200';
+  } else if (status === 'Partially Paid' || status === 'Partial') {
+    badgeClass = 'bg-amber-50 text-amber-800 border-amber-200';
+  } else if (status === 'Overdue') {
+    badgeClass = 'bg-rose-50 text-rose-800 border-rose-200';
+  } else if (status === 'Pending') {
+    badgeClass = 'bg-sky-50 text-sky-800 border-sky-200';
+  }
+  return <Badge className={badgeClass}>{status || 'Pending'}</Badge>;
+}

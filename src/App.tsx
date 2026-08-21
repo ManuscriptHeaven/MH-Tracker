@@ -151,8 +151,20 @@ export default function App() {
       />
     )}
     {activeView === 'calendar' && <CalendarPage projects={visibleProjects} onSelectProject={setSelectedProject} />}
-    {activeView === 'notifications' && <NotificationsPage notifications={tracker.visibleNotifications} projects={visibleProjects} onMarkRead={tracker.markNotificationRead} onMarkAllRead={tracker.markAllNotificationsRead} onOpenProject={openProjectById} />}
-    {activeView === 'team' && <TeamPage profiles={tracker.data.profiles} projects={visibleProjects} tasks={tracker.data.tasks} compensation={tracker.data.employeeCompensation} ledger={tracker.data.employeeLedger} canManagePayroll={tracker.currentProfile.role === 'admin'} onAddLedgerEntry={tracker.addEmployeeLedgerEntry} />}
+    {activeView === 'team' && (
+      <TeamPage
+        currentProfile={tracker.currentProfile}
+        profiles={tracker.data.profiles}
+        projects={visibleProjects}
+        tasks={tracker.data.tasks}
+        compensation={tracker.data.employeeCompensation}
+        ledger={tracker.data.employeeLedger}
+        canManagePayroll={tracker.currentProfile.role === 'admin'}
+        onAddLedgerEntry={tracker.addEmployeeLedgerEntry}
+        onSaveCompensation={tracker.saveEmployeeCompensation}
+        onDeleteLedgerEntry={tracker.deleteEmployeeLedgerEntry}
+      />
+    )}
     {activeView === 'clients' && tracker.currentProfile.role === 'admin' && <ClientAccessPage profiles={tracker.data.profiles} projects={tracker.data.projects} clientProjectAccess={tracker.data.clientProjectAccess} onInviteClient={tracker.inviteClient} />}
     {activeView === 'delivered' && <ProjectsPage {...pageProps} title="Delivered Projects" projects={deliveredProjects} />}
     {activeView === 'payments' && tracker.canManageAll && (
