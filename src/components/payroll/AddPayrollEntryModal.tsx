@@ -1,6 +1,51 @@
 import React, { useState } from 'react';
 import { Button, Field, Modal, SelectField, TextareaField } from '../ui';
 import type { CurrencyCode, EmployeeLedgerEntry, Profile, Project } from '../../lib/types';
+import { formatMonthLabel } from '../../lib/payrollUtils';
+
+const ENTRY_TYPES: Array<{
+  type: EmployeeLedgerEntry['entry_type'];
+  label: string;
+  emoji: string;
+  hint: string;
+}> = [
+  {
+    type: 'Project Payment',
+    label: 'Project Earning',
+    emoji: '💼',
+    hint: 'Add commission or earnings for a specific project milestone.',
+  },
+  {
+    type: 'Bonus',
+    label: 'Bonus / Reward',
+    emoji: '🎁',
+    hint: 'Reward for good performance or milestone delivery.',
+  },
+  {
+    type: 'Advance',
+    label: 'Cash Advance',
+    emoji: '💸',
+    hint: 'Mid-month loan or advance payment given to the employee.',
+  },
+  {
+    type: 'Deduction',
+    label: 'Deduction',
+    emoji: '✂️',
+    hint: 'Advance repayment or expense adjustment (reduces payable).',
+  },
+  {
+    type: 'Salary',
+    label: 'Salary Adjustment',
+    emoji: '💵',
+    hint: 'Base pay adjustment or stipend for this month.',
+  },
+  {
+    type: 'Other',
+    label: 'Other',
+    emoji: '📌',
+    hint: 'Custom addition or adjustment.',
+  },
+];
 
 export function AddPayrollEntryModal({
   profiles,
@@ -27,12 +72,11 @@ export function AddPayrollEntryModal({
   const [payrollMonth, setPayrollMonth] = useState(initialMonth.slice(0, 7));
   const [paymentMethod, setPaymentMethod] = useState<string>('Bank Transfer');
   const [projectId, setProjectId] = useState('');
-  const [status, setStatus] = useState<'Pending' | 'Partially Paid' | 'Paid'>('Pending');
   const [description, setDescription] = useState('');
-  const [reference, setReference] = useState('');
-  const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  const selectedTypeInfo = ENTRY_TYPES.find((t) => t.type === entryType) || ENTRY_TYPES[0];
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -59,12 +103,11 @@ export function AddPayrollEntryModal({
         amount: numAmount,
         currency,
         salary_month: `${payrollMonth}-01`,
-        payment_method: entryType === 'Payment' || entryType === 'Advance' ? paymentMethod : null,
+        payment_method: entryType === 'Advance' || entryType === 'Payment' ? paymentMethod : null,
         project_id: projectId || null,
         description: description.trim() || undefined,
-        reference: reference.trim() || null,
-        status,
-        notes: notes.trim() || description.trim() || '',
+        status: entryType === 'Payment' ? 'Paid' : 'Pending',
+        notes: description.trim() || `${selectedTypeInfo.label} recorded for ${formatMonthLabel(payrollMonth)}`,
         paid_at: date,
       });
       onClose();
@@ -84,11 +127,42 @@ export function AddPayrollEntryModal({
   }
 
   return (
-    <Modal title="Add Payroll Entry" onClose={onClose} width="max-w-2xl">
+    <Modal title="Add Team Entry" onClose={onClose} width="max-w-xl">
       <form onSubmit={handleSubmit} className="space-y-4">
-        {error ? <div className="rounded-lg bg-red-50 p-3 text-xs font-semibold text-danger">{error}</div> : null}
+        {error ? (
+          <div className="rounded-lg bg-red-50 p-3 text-xs font-semibold text-danger">{error}</div>
+        ) : null}
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        {/* 1. Select Entry Type visual pills */}
+        <div>
+          <label className="block text-xs font-bold text-ink mb-2">What kind of entry do you want to add?</label>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {ENTRY_TYPES.map((t) => {
+              const isSelected = entryType === t.type;
+              return (
+                <button
+                  key={t.type}
+                  type="button"
+                  onClick={() => setEntryType(t.type)}
+                  className={`flex items-center gap-2 p-2.5 rounded-lg border text-left text-xs transition ${
+                    isSelected
+                      ? 'border-gold bg-gold/15 font-bold text-ink shadow-sm ring-1 ring-gold'
+                      : 'border-border bg-white text-charcoal hover:bg-ivory'
+                  }`}
+                >
+                  <span className="text-base">{t.emoji}</span>
+                  <span className="truncate">{t.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-muted mt-1.5 bg-ivory p-2 rounded border border-border/50">
+            ℹ️ {selectedTypeInfo.hint}
+          </p>
+        </div>
+
+        {/* 2. Employee & Month */}
+        <div className="grid gap-3 sm:grid-cols-2">
           <SelectField
             label="Employee *"
             value={employeeId}
@@ -102,38 +176,6 @@ export function AddPayrollEntryModal({
             ))}
           </SelectField>
 
-          <SelectField
-            label="Entry Type *"
-            value={entryType}
-            onChange={(e) => setEntryType(e.target.value as EmployeeLedgerEntry['entry_type'])}
-            required
-          >
-            <option value="Salary">Salary (Base / Adjustment)</option>
-            <option value="Project Payment">Project Earning</option>
-            <option value="Bonus">Bonus</option>
-            <option value="Advance">Advance</option>
-            <option value="Deduction">Deduction</option>
-            <option value="Payment">Payment</option>
-            <option value="Other">Other</option>
-          </SelectField>
-
-          <div className="grid grid-cols-[1fr_100px] gap-2">
-            <Field
-              label="Amount *"
-              type="number"
-              min="0.01"
-              step="any"
-              required
-              placeholder="0.00"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-            />
-            <SelectField label="Currency" value={currency} onChange={(e) => setCurrency(e.target.value as CurrencyCode)}>
-              <option value="USD">USD ($)</option>
-              <option value="PKR">PKR (Rs)</option>
-            </SelectField>
-          </div>
-
           <Field
             label="Payroll Month *"
             type="month"
@@ -141,73 +183,82 @@ export function AddPayrollEntryModal({
             value={payrollMonth}
             onChange={(e) => setPayrollMonth(e.target.value)}
           />
+        </div>
 
+        {/* 3. Amount & Currency */}
+        <div className="grid grid-cols-[1fr_100px] gap-2">
           <Field
-            label="Entry Date *"
+            label="Amount *"
+            type="number"
+            min="0.01"
+            step="any"
+            required
+            placeholder="0.00"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            autoFocus
+          />
+          <SelectField
+            label="Currency"
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value as CurrencyCode)}
+          >
+            <option value="USD">USD ($)</option>
+            <option value="PKR">PKR (Rs)</option>
+          </SelectField>
+        </div>
+
+        {/* 4. Project (if project earning) or Payment method (if advance) */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field
+            label="Date *"
             type="date"
             required
             value={date}
             onChange={(e) => setDate(e.target.value)}
           />
 
-          <SelectField
-            label="Linked Project (Optional)"
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-          >
-            <option value="">None / General</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.project_number} - {p.project_title}
-              </option>
-            ))}
-          </SelectField>
-
-          {entryType === 'Payment' || entryType === 'Advance' ? (
+          {entryType === 'Project Payment' ? (
             <SelectField
-              label="Payment Method"
+              label="Linked Project (Optional)"
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value)}
+            >
+              <option value="">No specific project</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.project_number} - {p.project_title}
+                </option>
+              ))}
+            </SelectField>
+          ) : entryType === 'Advance' ? (
+            <SelectField
+              label="Disbursement Method"
               value={paymentMethod}
               onChange={(e) => setPaymentMethod(e.target.value)}
             >
-              <option value="Bank Transfer">Bank Transfer</option>
               <option value="Cash">Cash</option>
+              <option value="Bank Transfer">Bank Transfer</option>
               <option value="Wise">Wise</option>
               <option value="PayPal">PayPal</option>
-              <option value="Other">Other</option>
             </SelectField>
-          ) : null}
-
-          {entryType === 'Payment' ? (
-            <Field
-              label="Transaction Reference"
-              placeholder="e.g. Bank Ref # or Receipt ID"
-              value={reference}
-              onChange={(e) => setReference(e.target.value)}
-            />
           ) : null}
         </div>
 
+        {/* 5. Description / Note */}
         <Field
-          label="Short Description / Reason"
-          placeholder="e.g. Book formatting milestone bonus, Advance for travel, etc."
+          label="Reason / Description (Optional)"
+          placeholder="e.g. Formatting completed for Atlas project, Travel advance, etc."
           value={description}
           onChange={(e) => setDescription(e.target.value)}
         />
 
-        <TextareaField
-          label="Internal Notes"
-          placeholder="Optional notes or details..."
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          rows={2}
-        />
-
-        <div className="flex justify-end gap-2 pt-2 border-t border-border">
+        <div className="flex justify-end gap-2 pt-3 border-t border-border">
           <Button type="button" variant="secondary" onClick={onClose} disabled={isSubmitting}>
             Cancel
           </Button>
           <Button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? 'Saving...' : 'Save Payroll Entry'}
+            {isSubmitting ? 'Saving...' : `Add ${selectedTypeInfo.label}`}
           </Button>
         </div>
       </form>
