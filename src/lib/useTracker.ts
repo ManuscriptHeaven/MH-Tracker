@@ -2390,14 +2390,37 @@ export function useTracker() {
         per_project_rate: Number(updates.per_project_rate !== undefined ? updates.per_project_rate : existing?.per_project_rate || 0),
         salary_type: updates.salary_type || existing?.salary_type || 'Monthly',
         default_currency: updates.default_currency || existing?.default_currency || 'USD',
-        joining_date: updates.joining_date !== undefined ? updates.joining_date : existing?.joining_date || null,
+        joining_date: updates.joining_date !== undefined ? (updates.joining_date || null) : (existing?.joining_date || null),
         responsibilities: updates.responsibilities !== undefined ? updates.responsibilities : existing?.responsibilities || '',
         performance_rating: existing?.performance_rating ?? null,
         updated_at: new Date().toISOString(),
       };
       if (supabase && mode === 'supabase') {
-        const { error: saveError } = await supabase.from('employee_compensation').upsert(compensation, { onConflict: 'employee_id' });
-        if (saveError) throw saveError;
+        const basePayload: Record<string, unknown> = {
+          employee_id: compensation.employee_id,
+          monthly_salary: compensation.monthly_salary,
+          per_project_rate: compensation.per_project_rate,
+          joining_date: compensation.joining_date,
+          responsibilities: compensation.responsibilities,
+          performance_rating: compensation.performance_rating,
+          updated_at: compensation.updated_at,
+        };
+
+        // Try upserting full payload first, fallback to base payload if custom columns aren't in Supabase yet
+        const fullPayload = {
+          ...basePayload,
+          salary_type: compensation.salary_type,
+          default_currency: compensation.default_currency,
+        };
+
+        const { error: fullError } = await supabase.from('employee_compensation').upsert(fullPayload, { onConflict: 'employee_id' });
+        if (fullError) {
+          console.warn('Upsert with extended compensation columns failed, falling back to base schema:', fullError);
+          const { error: baseError } = await supabase.from('employee_compensation').upsert(basePayload, { onConflict: 'employee_id' });
+          if (baseError) {
+            throw new Error(baseError.message || baseError.details || 'Failed to save employee compensation in Supabase.');
+          }
+        }
       }
       setData((previous) => ({
         ...previous,
@@ -2423,8 +2446,35 @@ export function useTracker() {
         created_at: new Date().toISOString(),
       };
       if (supabase && mode === 'supabase') {
-        const { error: entryError } = await supabase.from('employee_ledger').insert(ledgerEntry);
-        if (entryError) throw entryError;
+        const basePayload: Record<string, unknown> = {
+          id: ledgerEntry.id,
+          employee_id: ledgerEntry.employee_id,
+          entry_type: ledgerEntry.entry_type,
+          amount: ledgerEntry.amount,
+          salary_month: ledgerEntry.salary_month || null,
+          payment_method: ledgerEntry.payment_method || null,
+          project_id: ledgerEntry.project_id || null,
+          notes: ledgerEntry.notes || ledgerEntry.description || '',
+          paid_at: ledgerEntry.paid_at,
+          created_at: ledgerEntry.created_at,
+        };
+
+        const fullPayload = {
+          ...basePayload,
+          currency: ledgerEntry.currency || 'USD',
+          reference: ledgerEntry.reference || null,
+          status: ledgerEntry.status || 'Pending',
+          description: ledgerEntry.description || '',
+        };
+
+        const { error: fullError } = await supabase.from('employee_ledger').insert(fullPayload);
+        if (fullError) {
+          console.warn('Insert with extended ledger columns failed, falling back to base schema:', fullError);
+          const { error: baseError } = await supabase.from('employee_ledger').insert(basePayload);
+          if (baseError) {
+            throw new Error(baseError.message || baseError.details || 'Failed to record employee payroll entry in Supabase.');
+          }
+        }
       }
       setData((previous) => ({ ...previous, employeeLedger: [ledgerEntry, ...previous.employeeLedger] }));
 

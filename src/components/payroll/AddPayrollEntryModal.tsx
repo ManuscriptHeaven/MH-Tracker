@@ -68,8 +68,16 @@ export function AddPayrollEntryModal({
         paid_at: date,
       });
       onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save payroll entry.');
+    } catch (err: unknown) {
+      console.error('Error saving payroll entry:', err);
+      let msg = 'Failed to save payroll entry.';
+      if (err instanceof Error) {
+        msg = err.message;
+      } else if (err && typeof err === 'object') {
+        const anyErr = err as Record<string, unknown>;
+        msg = String(anyErr.message || anyErr.details || anyErr.error_description || msg);
+      }
+      setError(msg);
     } finally {
       setIsSubmitting(false);
     }

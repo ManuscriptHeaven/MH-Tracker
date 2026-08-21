@@ -47,8 +47,16 @@ export function EditEmployeeSalaryModal({
         responsibilities: responsibilities.trim(),
       });
       onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update employee compensation.');
+    } catch (err: unknown) {
+      console.error('Error saving compensation:', err);
+      let msg = 'Failed to update employee compensation.';
+      if (err instanceof Error) {
+        msg = err.message;
+      } else if (err && typeof err === 'object') {
+        const anyErr = err as Record<string, unknown>;
+        msg = String(anyErr.message || anyErr.details || anyErr.error_description || msg);
+      }
+      setError(msg);
     } finally {
       setIsSubmitting(false);
     }
