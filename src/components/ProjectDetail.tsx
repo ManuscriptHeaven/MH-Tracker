@@ -214,10 +214,6 @@ export function ProjectDetail({
   }, [project.current_stage, project.id]);
 
   async function saveStage() {
-    if (stage === 'Completed' && summary.officialStage !== 'Final Delivery') {
-      alert('A project can only become "Completed" after reaching and completing the Final Delivery stage.');
-      return;
-    }
     try {
       setIsSavingStage(true);
       const updates = timelineUpdateForStage(project, stage);
@@ -229,15 +225,20 @@ export function ProjectDetail({
   }
 
   async function markDelivered() {
-    if (summary.officialStage !== 'Final Delivery' && project.status !== 'Completed') {
-      alert('A project can only be completed after Final Delivery stage is reached.');
-      return;
-    }
     const confirmed = window.confirm(`Are you sure you want to mark "${project.project_title}" as Completed?`);
     if (!confirmed) return;
-    setStage('Final Delivery');
-    await onUpdateProject(timelineUpdateForStage({ ...project, final_delivery_date: todayInput(), delivery_date: todayInput() }, 'Completed'));
-    await onAddNote('delivery', 'Final delivery completed. Project is now marked Completed.');
+    try {
+      setIsSavingStage(true);
+      setStage('Final Delivery');
+      const updates = timelineUpdateForStage(
+        { ...project, final_delivery_date: todayInput(), delivery_date: todayInput() },
+        'Completed',
+      );
+      await onUpdateProject(updates);
+      await onAddNote('delivery', 'Final delivery completed. Project is now marked Completed.');
+    } finally {
+      setIsSavingStage(false);
+    }
   }
 
   async function submitNote() {

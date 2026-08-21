@@ -255,6 +255,7 @@ export const timelineStages: TimelineStage[] = [
   'Ebook Version',
   'Ebook Approval',
   'Final Delivery',
+  'Completed',
   'On Hold',
   'Cancelled',
 ];

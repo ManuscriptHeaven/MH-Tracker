@@ -156,7 +156,9 @@ export function ProjectTimelinePanel({ project, clientView = false }: { project:
                               ? 'Approval Stage'
                               : `${milestone.durationDays} days`}
                   </span>
-                  <span className="text-[11px] block mt-0.5 font-medium">{milestone.date ? formatDate(milestone.date) : 'Pending'}</span>
+                  <span className="text-[11px] block mt-0.5 font-medium">
+                    {milestone.date ? formatDate(milestone.date) : milestone.state === 'completed' ? 'Done' : 'Pending'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -225,7 +227,7 @@ export function ProjectTimelinePanel({ project, clientView = false }: { project:
                 </div>
                 <div className="text-right shrink-0 pl-2">
                   <span className="text-[11px] font-semibold text-charcoal block">
-                    {milestone.date ? formatDate(milestone.date) : 'Pending'}
+                    {milestone.date ? formatDate(milestone.date) : milestone.state === 'completed' ? 'Done' : 'Pending'}
                   </span>
                 </div>
               </div>

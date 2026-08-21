@@ -367,10 +367,14 @@ export function deriveProjectTimeline<T extends TimelineProject>(
   const rawStage = next.current_stage || next.status;
   const normStage = normalizeStage(rawStage);
 
-  // A project is ONLY genuinely completed if the stage is Final Delivery or Completed AND has completed status or date
+  // A project is Completed if its status, stage, or stage_status is Completed, or if final_delivery_date is present
   const isGenuinelyCompleted = Boolean(
-    (normStage === 'Final Delivery' || normStage === 'Completed') &&
-    (next.status === 'Completed' || next.stage_status === 'COMPLETED' || next.final_delivery_date)
+    next.status === 'Completed' ||
+    next.status === 'Delivered' ||
+    next.current_stage === 'Completed' ||
+    normStage === 'Completed' ||
+    (normStage === 'Final Delivery' && next.stage_status === 'COMPLETED') ||
+    next.final_delivery_date
   );
 
   if (isGenuinelyCompleted) {
@@ -381,6 +385,9 @@ export function deriveProjectTimeline<T extends TimelineProject>(
     next.waiting_on = 'None';
     next.client_action_required = '';
     next.progress_percentage = 100;
+    if (!next.final_delivery_date) {
+      next.final_delivery_date = next.delivery_date || todayInput();
+    }
     return next;
   }
 
