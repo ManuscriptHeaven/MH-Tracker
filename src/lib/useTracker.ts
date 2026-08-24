@@ -103,6 +103,27 @@ function isMissingSchemaError(error: unknown) {
   );
 }
 
+function isEnumStatusError(error: unknown) {
+  const message = errorMessage(error, '').toLowerCase();
+  return (
+    message.includes('enum') ||
+    message.includes('project_status') ||
+    message.includes('22p02') ||
+    message.includes('invalid input value for enum')
+  );
+}
+
+const LEGACY_STATUS_FALLBACK_MAP: Record<string, string> = {
+  Active: 'In Progress',
+  'Awaiting Client Approval': 'Client Review',
+  'Final Delivery': 'Ready for Delivery',
+  'In Revision': 'In Revision',
+  'In Progress': 'In Progress',
+  Completed: 'Completed',
+  'On Hold': 'On Hold',
+  Cancelled: 'Cancelled',
+};
+
 async function safeSelect<T>(
   query: PromiseLike<{ data: T[] | null; error: unknown }>,
 ): Promise<{ data: T[]; error: null }> {
@@ -1076,24 +1097,47 @@ export function useTracker() {
       });
 
       if (supabase && mode === 'supabase') {
+        const payload = supabaseProjectPayload(localProject);
+        let insertedProject: Project | null = null;
+
         const { data: inserted, error: insertError } = await supabase
           .from('projects')
           .insert({
-            ...supabaseProjectPayload(localProject),
+            ...payload,
             created_by: currentProfile.id,
           })
           .select()
           .single();
 
         if (insertError) {
-          throw insertError;
+          if (isEnumStatusError(insertError)) {
+            console.warn('Enum status error during project insert, retrying with compatible fallback status:', insertError);
+            const fallbackStatus = LEGACY_STATUS_FALLBACK_MAP[localProject.status] || 'In Progress';
+            const { data: retryData, error: retryError } = await supabase
+              .from('projects')
+              .insert({
+                ...payload,
+                status: fallbackStatus,
+                created_by: currentProfile.id,
+              })
+              .select()
+              .single();
+
+            if (retryError) throw retryError;
+            insertedProject = retryData as Project;
+          } else {
+            throw insertError;
+          }
+        } else {
+          insertedProject = inserted as Project;
         }
 
         const projectPayment = paymentPayload(localProject);
-        await upsertProjectPayment((inserted as Project).id, localProject, currentProfile.id);
+        await upsertProjectPayment(insertedProject.id, localProject, currentProfile.id);
 
         const project = normalizeProject({
-          ...(inserted as Project),
+          ...insertedProject,
+          ...localProject,
           total_price: projectPayment.total_price,
           advance_paid: projectPayment.advance_paid,
           payment_status: projectPayment.payment_status,
@@ -1132,7 +1176,6 @@ export function useTracker() {
           user_id: currentProfile.id,
         });
         return project;
-
       }
 
       setData((previous) => ({ ...previous, projects: [localProject, ...previous.projects] }));
@@ -1179,15 +1222,42 @@ export function useTracker() {
       if (supabase && mode === 'supabase') {
         let updated: Project | null = null;
         try {
-          const { data: updatedData, error: updateError } = await supabase
+          const payload = supabaseProjectPayload(nextProject);
+          let { data: updatedData, error: updateError } = await supabase
             .from('projects')
             .update({
-              ...supabaseProjectPayload(nextProject),
+              ...payload,
               updated_at: nextProject.updated_at,
             })
             .eq('id', projectId)
             .select()
             .maybeSingle();
+
+          if (updateError && isEnumStatusError(updateError)) {
+            console.warn('Enum status error during project update, retrying with compatible fallback status:', updateError);
+            const fallbackStatus = LEGACY_STATUS_FALLBACK_MAP[nextProject.status] || 'In Progress';
+            const { data: retryData, error: retryError } = await supabase
+              .from('projects')
+              .update({
+                ...payload,
+                status: fallbackStatus,
+                updated_at: nextProject.updated_at,
+              })
+              .eq('id', projectId)
+              .select()
+              .maybeSingle();
+
+            if (retryError) {
+              if (isMissingSchemaError(retryError)) {
+                console.warn('Supabase project update schema warning:', retryError);
+              } else {
+                throw retryError;
+              }
+            } else {
+              updatedData = retryData;
+              updateError = null;
+            }
+          }
 
           if (updateError) {
             if (isMissingSchemaError(updateError)) {
