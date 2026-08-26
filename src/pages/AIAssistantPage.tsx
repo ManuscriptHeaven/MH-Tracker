@@ -19,12 +19,12 @@ import { useAIContext } from '../lib/ai/aiContext';
 import { AIChatMessage } from '../components/ai/AIChatMessage';
 import { AIVoiceIndicator } from '../components/ai/AIVoiceIndicator';
 import { AIActivityHistory } from '../components/ai/AIActivityHistory';
-import { useTracker } from '../lib/useTracker';
 import { cn } from '../lib/utils';
 import { isOverdue } from '../lib/date';
 import { useCurrency } from '../lib/currency';
+import type { Project } from '../lib/types';
 
-export function AIAssistantPage() {
+export function AIAssistantPage({ projects = [] }: { projects?: Project[] }) {
   const {
     messages,
     sendMessage,
@@ -45,13 +45,11 @@ export function AIAssistantPage() {
     auditLogs,
   } = useAIContext();
 
-  const tracker = useTracker();
   const { formatMoney } = useCurrency();
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const projects = tracker.visibleProjects || [];
   const activeProjects = projects.filter((p) => p.status !== 'Completed' && p.status !== 'Delivered' && p.status !== 'Cancelled');
   const overdueProjects = activeProjects.filter((p) => isOverdue(p));
   const pendingApprovals = activeProjects.filter((p) => p.status === 'Awaiting Client Approval' || p.current_stage?.includes('Approval'));
@@ -86,7 +84,7 @@ export function AIAssistantPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-6rem)] flex-col gap-4 p-4 lg:p-6">
+    <div className="flex flex-col gap-4 p-4 lg:p-6 min-h-[calc(100vh-10rem)] max-w-7xl mx-auto w-full">
       {/* Header Banner */}
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-gold/30 bg-ink p-4 text-white shadow-md">
         <div className="flex items-center gap-3">
@@ -175,9 +173,9 @@ export function AIAssistantPage() {
       </div>
 
       {/* Main Content Grid */}
-      <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-12 overflow-hidden">
+      <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-12">
         {/* Left / Main Column: Chat Console or Activity History */}
-        <div className="flex flex-col rounded-xl border border-border bg-card shadow-sm lg:col-span-8 overflow-hidden">
+        <div className="flex flex-col rounded-xl border border-border bg-card shadow-sm lg:col-span-8 overflow-hidden h-[650px] lg:h-[750px]">
           {activeTab === 'activity' ? (
             <div className="flex-1 overflow-y-auto p-4">
               <AIActivityHistory />
