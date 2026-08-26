@@ -35,6 +35,8 @@ export type AIToolName =
   | 'get_payroll_summary'
   | 'get_project_activity'
   // Write & Action Tools (Phase 2)
+  | 'create_project'
+  | 'duplicate_project'
   | 'create_task'
   | 'update_task_status'
   | 'assign_task'
@@ -44,10 +46,12 @@ export type AIToolName =
   | 'update_project_due_date'
   | 'assign_project'
   | 'delete_project'
+  | 'create_revision_request'
   | 'reassign_revision'
   | 'update_revision_status'
   | 'add_revision_note'
   | 'add_project_note'
+  | 'invite_client'
   | 'approve_project_milestone'
   | 'record_project_payment'
   | 'record_income'
@@ -134,6 +138,8 @@ export interface AIToolContext {
 
   // Tracker Mutations for Phase 2 Write Tools
   trackerMutations?: {
+    createProject?: (draft: any) => Promise<any>;
+    duplicateProject?: (projectId: string) => Promise<any>;
     createTask?: (draft: TaskDraft) => Promise<Task>;
     updateTask?: (taskId: string, updates: Partial<Task>) => Promise<Task>;
     deleteTask?: (taskId: string) => Promise<void>;
@@ -144,6 +150,7 @@ export interface AIToolContext {
     updateRevisionRequest?: (id: string, updates: Partial<RevisionRequest>) => Promise<void>;
     respondToRevisionRequest?: (id: string, response: string, status?: string, assignedTo?: string) => Promise<void>;
     approveProjectMilestone?: (projectId: string, milestone: string, approvedBy?: string, notes?: string, clientSignedName?: string) => Promise<void>;
+    inviteClient?: (draft: any) => Promise<void>;
     createFinanceTransaction?: (draft: FinanceTransactionDraft) => Promise<any>;
     updateFinanceTransaction?: (id: string, updates: any) => Promise<any>;
     deleteFinanceTransaction?: (id: string) => Promise<void>;

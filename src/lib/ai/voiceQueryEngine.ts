@@ -10,7 +10,7 @@ import type {
 import * as tools from './secureTools';
 import * as safeActions from './safeActionTools';
 import { isClientRole, isManagerRole, firstName } from '../utils';
-import { formatDate, parseNaturalDate, todayInput } from '../date';
+import { formatDate, parseNaturalDate, todayInput, addDays } from '../date';
 
 export class VoiceQueryEngine {
   private static instance: VoiceQueryEngine;
@@ -326,6 +326,267 @@ export class VoiceQueryEngine {
   // ==========================================
 
   private async detectWriteIntent(lower: string, q: string, ctx: AIToolContext): Promise<AIToolResult | null> {
+    // ----------------------------------------------------
+    // 0. CREATE PROJECT INTENT
+    // e.g. "Add a new project named as Good One Client BCH", "Create a project called Good One for BCH", "New project Good One for BCH"
+    // ----------------------------------------------------
+    if (
+      (lower.startsWith('add a new project') ||
+        lower.startsWith('add new project') ||
+        lower.startsWith('add a project') ||
+        lower.startsWith('add project') ||
+        lower.startsWith('create a new project') ||
+        lower.startsWith('create new project') ||
+        lower.startsWith('create a project') ||
+        lower.startsWith('create project') ||
+        lower.startsWith('new project') ||
+        lower.startsWith('start a new project') ||
+        lower.startsWith('start project')) &&
+      !lower.includes('task') &&
+      !lower.includes('note') &&
+      !lower.includes('revision')
+    ) {
+      if (isClientRole(ctx.currentProfile.role)) {
+        return {
+          success: false,
+          toolName: 'create_project',
+          error: 'permission_denied',
+          spokenText: "I can't create projects with client permissions.",
+          displayText: '🔒 Project creation is restricted for client accounts.',
+        };
+      }
+
+      // Extract client name
+      let clientName = this.extractClientFromQuery(lower, ctx) || '';
+      if (!clientName) {
+        const clientMatch = q.match(/(?:for\s+client|client|for)\s+[:\-]?\s*([a-zA-Z0-9\s]+?)(?:\s+(?:due|with|priced|genre|service)|\s*$)/i);
+        if (clientMatch && clientMatch[1]) {
+          clientName = clientMatch[1].trim();
+        }
+      }
+      if (!clientName) clientName = 'Manuscript Client';
+
+      // Extract project title
+      let projectTitle = '';
+      const namedAsMatch = q.match(/(?:named\s+as|named|called|title|titled)\s+[:\-]?\s*([^,\n]+?)(?:\s+(?:for\s+)?client|\s+client|\s+due|\s+with|\s+priced|\s*$)/i);
+      if (namedAsMatch && namedAsMatch[1]) {
+        projectTitle = namedAsMatch[1].trim();
+      } else {
+        // Match "create project <title> for [client] <client>"
+        const inlineTitleMatch = q.match(/^(?:add|create|start|new)\s+(?:a\s+)?(?:new\s+)?project\s+[:\-]?\s*([a-zA-Z0-9\s]+?)(?:\s+(?:for\s+client|client|for)\s+([a-zA-Z0-9\s]+))/i);
+        if (inlineTitleMatch && inlineTitleMatch[1]) {
+          projectTitle = inlineTitleMatch[1].trim();
+        } else {
+          projectTitle = q
+            .replace(/^(?:add|create|start|new)\s+(?:a\s+)?(?:new\s+)?project\s*(?:named\s+as|called|named|title|:\s*)?/i, '')
+            .replace(/(?:for\s+client|client|for)\s+[a-zA-Z0-9\s]+$/i, '')
+            .trim();
+        }
+      }
+
+      // Clean up common noise
+      projectTitle = projectTitle.replace(/^(?:named\s+as|called|named|title)\s+/i, '').trim();
+
+      if (!projectTitle || projectTitle.length < 2) {
+        projectTitle = `New Project for ${clientName}`;
+      }
+
+      // Extract price if specified (e.g. "$500", "500 dollars")
+      const priceMatch = lower.match(/(?:\$|rs\.?|usd)?\s*(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:dollars|\$|usd|total)?/i);
+      const totalPrice = priceMatch ? parseFloat(priceMatch[1].replace(/,/g, '')) : 0;
+
+      // Extract due date if specified
+      const dateMatch = lower.match(/(?:due\s+|by\s+|on\s+)?(tomorrow|friday|monday|tuesday|wednesday|thursday|saturday|sunday|\b[a-zA-Z]+\s+\d{1,2}(?:st|nd|rd|th)?(?:\s*,\s*\d{4})?|\b\d{4}-\d{2}-\d{2}\b)/i);
+      const dueDate = dateMatch ? parseNaturalDate(dateMatch[1]) : addDays(14);
+
+      // Extract assignee if specified
+      const targetEmp = this.extractEmployeeFromQuery(lower, ctx);
+      const targetEmpProfile = targetEmp ? ctx.data.profiles.find((p) => p.full_name === targetEmp) : null;
+
+      const preview: AIActionPreview = {
+        actionId: `act-${Date.now()}`,
+        toolName: 'create_project',
+        category: 'high_risk',
+        title: 'Create New Project',
+        description: `Create new project "${projectTitle}" for client ${clientName}`,
+        targetType: 'project',
+        targetTitle: projectTitle,
+        clientName: clientName,
+        changes: [
+          { field: 'title', label: 'Project Title', newValue: projectTitle },
+          { field: 'client', label: 'Client', newValue: clientName },
+          { field: 'service', label: 'Service Type', newValue: 'Print + eBook' },
+          ...(dueDate ? [{ field: 'due_date', label: 'Due Date', newValue: formatDate(dueDate) }] : []),
+          ...(totalPrice ? [{ field: 'price', label: 'Total Price', newValue: ctx.formatMoney(totalPrice) }] : []),
+          ...(targetEmpProfile ? [{ field: 'assigned_to', label: 'Assigned To', newValue: targetEmpProfile.full_name }] : []),
+        ],
+        payload: {
+          projectTitle,
+          clientName,
+          serviceType: 'Print + eBook',
+          totalPrice,
+          dueDate,
+          assignedToId: targetEmpProfile?.id,
+        },
+        confirmButtonText: 'Create Project',
+        cancelButtonText: 'Cancel',
+        spokenPrompt: `Create new project "${projectTitle}" for client ${clientName}? Confirm?`,
+      };
+
+      this.memory.pendingAction = preview;
+
+      return {
+        success: true,
+        toolName: 'create_project',
+        spokenText: preview.spokenPrompt,
+        displayText: `I will create the new project **"${projectTitle}"** for client **${clientName}**${dueDate ? ` (Due: **${formatDate(dueDate)}**)` : ''}.\n\nConfirm?`,
+        pendingAction: preview,
+      };
+    }
+
+    // ----------------------------------------------------
+    // 0B. DUPLICATE PROJECT
+    // ----------------------------------------------------
+    if (lower.startsWith('duplicate project') || lower.startsWith('clone project') || lower.startsWith('copy project')) {
+      const matchedProject = this.findProjectInQueryOrMemory(lower, ctx);
+      if (!matchedProject) {
+        return {
+          success: false,
+          toolName: 'duplicate_project',
+          error: 'project_not_found',
+          spokenText: "I couldn't find the project to duplicate.",
+          displayText: '❌ Project not found.',
+        };
+      }
+
+      const preview: AIActionPreview = {
+        actionId: `act-${Date.now()}`,
+        toolName: 'duplicate_project',
+        category: 'high_risk',
+        title: 'Duplicate Project',
+        description: `Create duplicate copy of ${matchedProject.project_title}`,
+        targetType: 'project',
+        targetId: matchedProject.id,
+        targetTitle: matchedProject.project_title,
+        clientName: matchedProject.client_name,
+        changes: [
+          { field: 'original', label: 'Original Project', newValue: matchedProject.project_title },
+          { field: 'new', label: 'New Project Title', newValue: `${matchedProject.project_title} (Copy)` },
+        ],
+        payload: { projectId: matchedProject.id },
+        confirmButtonText: 'Duplicate Project',
+        cancelButtonText: 'Cancel',
+        spokenPrompt: `Duplicate project ${matchedProject.project_title}? Confirm?`,
+      };
+
+      this.memory.pendingAction = preview;
+
+      return {
+        success: true,
+        toolName: 'duplicate_project',
+        spokenText: preview.spokenPrompt,
+        displayText: `Duplicate **${matchedProject.project_title}** (${matchedProject.project_number})?\n\nConfirm?`,
+        pendingAction: preview,
+      };
+    }
+
+    // ----------------------------------------------------
+    // 0C. DELETE PROJECT / DELETE TASK
+    // ----------------------------------------------------
+    if ((lower.startsWith('delete project') || lower.startsWith('remove project')) && !lower.includes('task')) {
+      if (ctx.currentProfile.role !== 'admin') {
+        return {
+          success: false,
+          toolName: 'delete_project',
+          error: 'permission_denied',
+          spokenText: 'Only administrators can delete projects.',
+          displayText: '🔒 Only administrators can delete projects.',
+        };
+      }
+
+      const matchedProject = this.findProjectInQueryOrMemory(lower, ctx);
+      if (!matchedProject) {
+        return {
+          success: false,
+          toolName: 'delete_project',
+          error: 'project_not_found',
+          spokenText: "I couldn't find the project to delete.",
+          displayText: '❌ Project not found.',
+        };
+      }
+
+      const preview: AIActionPreview = {
+        actionId: `act-${Date.now()}`,
+        toolName: 'delete_project',
+        category: 'destructive',
+        requiresStrongConfirmation: true,
+        title: 'Delete Project Permanently',
+        description: `Permanently delete ${matchedProject.project_title} (${matchedProject.project_number})`,
+        targetType: 'project',
+        targetId: matchedProject.id,
+        targetTitle: matchedProject.project_title,
+        clientName: matchedProject.client_name,
+        changes: [
+          { field: 'project', label: 'Project', oldValue: matchedProject.project_title, newValue: 'PERMANENT DELETION' },
+        ],
+        payload: { projectId: matchedProject.id },
+        confirmButtonText: 'Yes, Delete Project',
+        cancelButtonText: 'Cancel',
+        spokenPrompt: `Warning: This will permanently delete project ${matchedProject.project_title}. Are you absolutely sure?`,
+      };
+
+      this.memory.pendingAction = preview;
+
+      return {
+        success: true,
+        toolName: 'delete_project',
+        spokenText: preview.spokenPrompt,
+        displayText: `⚠️ **Warning:** You are about to permanently delete **${matchedProject.project_title}** (${matchedProject.project_number}).\n\nAre you sure?`,
+        pendingAction: preview,
+      };
+    }
+
+    if (lower.startsWith('delete task') || lower.startsWith('remove task')) {
+      const cleanTaskName = lower.replace(/^(?:delete|remove)\s+task\s+/i, '').trim();
+      const matchedTask = ctx.visibleTasks.find((t) => t.title.toLowerCase().includes(cleanTaskName) || cleanTaskName.includes(t.title.toLowerCase()));
+
+      if (!matchedTask) {
+        return {
+          success: false,
+          toolName: 'delete_task',
+          error: 'task_not_found',
+          spokenText: "I couldn't find the task to delete.",
+          displayText: '❌ Task not found.',
+        };
+      }
+
+      const preview: AIActionPreview = {
+        actionId: `act-${Date.now()}`,
+        toolName: 'delete_task',
+        category: 'destructive',
+        title: 'Delete Task',
+        description: `Delete task "${matchedTask.title}"`,
+        targetType: 'task',
+        targetId: matchedTask.id,
+        targetTitle: matchedTask.title,
+        changes: [{ field: 'task', label: 'Task', oldValue: matchedTask.title, newValue: 'DELETED' }],
+        payload: { taskId: matchedTask.id },
+        confirmButtonText: 'Yes, Delete Task',
+        cancelButtonText: 'Cancel',
+        spokenPrompt: `Delete task "${matchedTask.title}"? Confirm?`,
+      };
+
+      this.memory.pendingAction = preview;
+
+      return {
+        success: true,
+        toolName: 'delete_task',
+        spokenText: preview.spokenPrompt,
+        displayText: `Delete task **"${matchedTask.title}"**?\n\nConfirm?`,
+        pendingAction: preview,
+      };
+    }
+
     // ----------------------------------------------------
     // A. REVISION REASSIGNMENT & ACTIONS
     // e.g. "Assign QAI Reformatting revision to Zain", "Give QAI revision to Zain", "Put Zain on the QAI revision"
@@ -1028,6 +1289,62 @@ export class VoiceQueryEngine {
       };
     }
 
+    // ----------------------------------------------------
+    // K. INVITE / ADD CLIENT (e.g. "Invite client John Doe with email john@gmail.com")
+    // ----------------------------------------------------
+    if (lower.startsWith('invite client') || lower.startsWith('add client')) {
+      if (ctx.currentProfile.role !== 'admin') {
+        return {
+          success: false,
+          toolName: 'invite_client',
+          error: 'permission_denied',
+          spokenText: 'Only administrators can invite or add clients.',
+          displayText: '🔒 Client management is restricted to administrators.',
+        };
+      }
+
+      const emailMatch = q.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+      const email = emailMatch ? emailMatch[1] : '';
+      let clientName = q
+        .replace(/^(?:invite\s+client|add\s+client)\s+/i, '')
+        .replace(/(?:with\s+)?email\s+[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i, '')
+        .trim();
+
+      if (!clientName) clientName = 'New Client';
+
+      const preview: AIActionPreview = {
+        actionId: `act-${Date.now()}`,
+        toolName: 'invite_client',
+        category: 'high_risk',
+        title: 'Invite Client',
+        description: `Add client access for ${clientName}`,
+        targetType: 'message',
+        targetTitle: clientName,
+        changes: [
+          { field: 'name', label: 'Client Name', newValue: clientName },
+          { field: 'email', label: 'Email', newValue: email || 'No email provided' },
+        ],
+        payload: {
+          full_name: clientName,
+          email: email || `${clientName.toLowerCase().replace(/\s+/g, '')}@client.com`,
+          project_ids: [],
+        },
+        confirmButtonText: 'Invite Client',
+        cancelButtonText: 'Cancel',
+        spokenPrompt: `Invite client ${clientName}${email ? ` at ${email}` : ''}? Confirm?`,
+      };
+
+      this.memory.pendingAction = preview;
+
+      return {
+        success: true,
+        toolName: 'invite_client',
+        spokenText: preview.spokenPrompt,
+        displayText: `Invite client **${clientName}**${email ? ` (${email})` : ''}?\n\nConfirm?`,
+        pendingAction: preview,
+      };
+    }
+
     return null;
   }
 
@@ -1037,6 +1354,10 @@ export class VoiceQueryEngine {
 
   public async executeAction(action: AIActionPreview, ctx: AIToolContext): Promise<AIToolResult> {
     switch (action.toolName) {
+      case 'create_project':
+        return safeActions.execute_create_project(action.payload as any, ctx);
+      case 'duplicate_project':
+        return safeActions.execute_duplicate_project(action.payload as any, ctx);
       case 'create_task':
         return safeActions.execute_create_task(action.payload as any, ctx);
       case 'update_task_status':
@@ -1063,6 +1384,8 @@ export class VoiceQueryEngine {
         return safeActions.execute_add_project_note(action.payload as any, ctx);
       case 'approve_project_milestone':
         return safeActions.execute_approve_project_milestone(action.payload as any, ctx);
+      case 'invite_client':
+        return safeActions.execute_invite_client(action.payload as any, ctx);
       case 'record_income':
         return safeActions.execute_record_income(action.payload as any, ctx);
       case 'record_expense':

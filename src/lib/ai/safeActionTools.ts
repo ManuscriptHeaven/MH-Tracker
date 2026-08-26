@@ -7,7 +7,7 @@ import type {
 } from './aiTypes';
 import type { ProjectStatus } from '../types';
 import { isManagerRole, isClientRole, firstName } from '../utils';
-import { formatDate } from '../date';
+import { formatDate, todayInput, addDays } from '../date';
 
 function createAuditLog(
   ctx: AIToolContext,
@@ -410,6 +410,158 @@ export async function execute_delete_task(
 // ==========================================
 // 2. PROJECT & TIMELINE ACTIONS
 // ==========================================
+
+export async function execute_create_project(
+  payload: {
+    projectTitle: string;
+    clientName: string;
+    clientEmail?: string;
+    serviceType?: string;
+    genre?: string;
+    totalPrice?: number;
+    advancePaid?: number;
+    dueDate?: string;
+    assignedToId?: string;
+    projectManagerId?: string;
+    notes?: string;
+  },
+  ctx: AIToolContext,
+): Promise<AIToolResult> {
+  if (isClientRole(ctx.currentProfile.role)) {
+    return {
+      success: false,
+      toolName: 'create_project',
+      error: 'permission_denied',
+      spokenText: "I can't create projects with client permissions.",
+      displayText: "🔒 Project creation is restricted for client accounts.",
+    };
+  }
+
+  const assignedProfile = payload.assignedToId ? ctx.data.profiles.find((p) => p.id === payload.assignedToId) : null;
+  const assignedName = assignedProfile ? firstName(assignedProfile.full_name) : 'the team';
+
+  try {
+    let createdProject: any = null;
+    if (ctx.trackerMutations?.createProject) {
+      createdProject = await ctx.trackerMutations.createProject({
+        project_title: payload.projectTitle,
+        client_name: payload.clientName,
+        client_email: payload.clientEmail || `${payload.clientName.toLowerCase().replace(/\s+/g, '')}@client.com`,
+        service_type: (payload.serviceType as any) || 'Print + eBook',
+        genre: payload.genre || 'General Non-Fiction',
+        trim_size: '6 x 9',
+        page_count: 200,
+        word_count: 50000,
+        platform: 'KDP',
+        start_date: todayInput(),
+        due_date: payload.dueDate || addDays(14),
+        total_price: payload.totalPrice || 0,
+        advance_paid: payload.advancePaid || 0,
+        status: 'In Progress',
+        assigned_to: payload.assignedToId || null,
+        project_manager: payload.projectManagerId || ctx.currentProfile.id,
+        general_notes: payload.notes || 'Created via AI Assistant',
+      });
+    }
+
+    const audit = createAuditLog(
+      ctx,
+      `Created project: "${payload.projectTitle}" for ${payload.clientName}`,
+      'project',
+      createdProject?.id,
+      payload.projectTitle,
+      null,
+      `Client: ${payload.clientName}`,
+      'success',
+    );
+
+    const spoken = `Done. Project "${payload.projectTitle}" for ${payload.clientName} has been created.`;
+    const display = `### ✅ Project Created Successfully\n\n• **Project:** **${payload.projectTitle}**\n• **Client:** **${payload.clientName}**\n• **Service:** ${payload.serviceType || 'Print + eBook'}\n${payload.dueDate ? `• **Due Date:** ${formatDate(payload.dueDate)}\n` : ''}${payload.totalPrice ? `• **Total Price:** ${ctx.formatMoney(payload.totalPrice)}\n` : ''}• **Status:** In Progress`;
+
+    return {
+      success: true,
+      toolName: 'create_project',
+      spokenText: spoken,
+      displayText: display,
+      auditLog: audit,
+    };
+  } catch (err: any) {
+    const errorMsg = err?.message || 'Failed to create project.';
+    return {
+      success: false,
+      toolName: 'create_project',
+      error: errorMsg,
+      spokenText: `I couldn't create the project. ${errorMsg}`,
+      displayText: `❌ Failed to create project: ${errorMsg}`,
+      auditLog: createAuditLog(ctx, `Create project failed: "${payload.projectTitle}"`, 'project', undefined, payload.projectTitle, null, null, 'failed', errorMsg),
+    };
+  }
+}
+
+export async function execute_duplicate_project(
+  payload: { projectId: string },
+  ctx: AIToolContext,
+): Promise<AIToolResult> {
+  if (isClientRole(ctx.currentProfile.role)) {
+    return {
+      success: false,
+      toolName: 'duplicate_project',
+      error: 'permission_denied',
+      spokenText: "I can't duplicate projects with client permissions.",
+      displayText: "🔒 Project duplication is restricted for client accounts.",
+    };
+  }
+
+  const project = ctx.data.projects.find((p) => p.id === payload.projectId);
+  if (!project) {
+    return {
+      success: false,
+      toolName: 'duplicate_project',
+      error: 'project_not_found',
+      spokenText: "I couldn't find the project to duplicate.",
+      displayText: "❌ Project not found.",
+    };
+  }
+
+  try {
+    let duplicated: any = null;
+    if (ctx.trackerMutations?.duplicateProject) {
+      duplicated = await ctx.trackerMutations.duplicateProject(project.id);
+    }
+
+    const audit = createAuditLog(
+      ctx,
+      `Duplicated project "${project.project_title}"`,
+      'project',
+      duplicated?.id,
+      duplicated?.project_title || `${project.project_title} (Copy)`,
+      project.project_title,
+      'Duplicated',
+      'success',
+    );
+
+    const spoken = `Done. ${project.project_title} has been duplicated as "${duplicated?.project_title || `${project.project_title} (Copy)`}".`;
+    const display = `### ✅ Project Duplicated\n\n• **Original:** ${project.project_title}\n• **New Project:** **${duplicated?.project_title || `${project.project_title} (Copy)`}**\n• **Status:** In Progress`;
+
+    return {
+      success: true,
+      toolName: 'duplicate_project',
+      spokenText: spoken,
+      displayText: display,
+      auditLog: audit,
+    };
+  } catch (err: any) {
+    const errorMsg = err?.message || 'Failed to duplicate project.';
+    return {
+      success: false,
+      toolName: 'duplicate_project',
+      error: errorMsg,
+      spokenText: `I couldn't duplicate the project. ${errorMsg}`,
+      displayText: `❌ Failed to duplicate project: ${errorMsg}`,
+      auditLog: createAuditLog(ctx, `Duplicate project failed: "${project.project_title}"`, 'project', project.id, project.project_title, null, null, 'failed', errorMsg),
+    };
+  }
+}
 
 export async function execute_update_project_status(
   payload: { projectId: string; status: ProjectStatus },
@@ -1416,4 +1568,62 @@ export async function execute_send_client_message(
     displayText: display,
     auditLog: audit,
   };
+}
+
+export async function execute_invite_client(
+  payload: { full_name: string; email: string; project_ids?: string[] },
+  ctx: AIToolContext,
+): Promise<AIToolResult> {
+  if (ctx.currentProfile.role !== 'admin') {
+    return {
+      success: false,
+      toolName: 'invite_client',
+      error: 'permission_denied',
+      spokenText: 'Only administrators can invite or add clients.',
+      displayText: '🔒 Client management is restricted to administrators.',
+    };
+  }
+
+  try {
+    if (ctx.trackerMutations?.inviteClient) {
+      await ctx.trackerMutations.inviteClient({
+        full_name: payload.full_name,
+        email: payload.email,
+        project_ids: payload.project_ids || [],
+        status: 'active',
+      });
+    }
+
+    const audit = createAuditLog(
+      ctx,
+      `Invited client: ${payload.full_name} (${payload.email})`,
+      'message',
+      undefined,
+      payload.full_name,
+      null,
+      payload.email,
+      'success',
+    );
+
+    const spoken = `Done. Client invitation for ${payload.full_name} has been processed.`;
+    const display = `### ✅ Client Invited\n\n• **Client Name:** **${payload.full_name}**\n• **Email:** ${payload.email}\n• **Status:** Active`;
+
+    return {
+      success: true,
+      toolName: 'invite_client',
+      spokenText: spoken,
+      displayText: display,
+      auditLog: audit,
+    };
+  } catch (err: any) {
+    const errorMsg = err?.message || 'Failed to invite client.';
+    return {
+      success: false,
+      toolName: 'invite_client',
+      error: errorMsg,
+      spokenText: `I couldn't complete the client invitation. ${errorMsg}`,
+      displayText: `❌ Failed to invite client: ${errorMsg}`,
+      auditLog: createAuditLog(ctx, `Client invite failed: ${payload.full_name}`, 'message', undefined, payload.full_name, null, null, 'failed', errorMsg),
+    };
+  }
 }

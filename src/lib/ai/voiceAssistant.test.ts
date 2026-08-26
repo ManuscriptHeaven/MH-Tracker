@@ -581,6 +581,50 @@ export async function runVoiceAssistantTests() {
   assert(Boolean(!res33.success && res33.error === 'permission_denied'), 'Test 33: RBAC - Employee denied payroll modification');
   console.log(`   Assistant (Denied): "${res33.spokenText}"`);
 
+  // TEST 34: Create New Project Intent (Fix for user issue "Add a new project named as Good One Client BCH")
+  voiceQueryEngine.clearMemory();
+  const res34a = await voiceQueryEngine.processQuery('Add a new project named as Good One Client BCH', createAdminCtx());
+  assert(
+    Boolean(
+      res34a.success &&
+      res34a.pendingAction &&
+      res34a.pendingAction.toolName === 'create_project' &&
+      res34a.pendingAction.payload.projectTitle === 'Good One' &&
+      res34a.pendingAction.payload.clientName === 'BCH',
+    ),
+    'Test 34a: "Add a new project named as Good One Client BCH" correctly generates create_project preview',
+  );
+  console.log(`   User: "Add a new project named as Good One Client BCH"\n   Assistant (Preview): "${res34a.spokenText}"`);
+
+  const res34b = await voiceQueryEngine.processQuery('Yes', createAdminCtx());
+  assert(Boolean(res34b.success && res34b.spokenText.includes('has been created')), 'Test 34b: Verbal confirmation "Yes" creates project');
+  console.log(`   Assistant (Executed): "${res34b.spokenText}"`);
+
+  // TEST 35: Duplicate Project Intent
+  voiceQueryEngine.clearMemory();
+  const res35a = await voiceQueryEngine.processQuery('Duplicate project The Quiet Atlas', createAdminCtx());
+  assert(Boolean(res35a.success && res35a.pendingAction && res35a.pendingAction.toolName === 'duplicate_project'), 'Test 35a: Duplicate project preview');
+  const res35b = await voiceQueryEngine.processQuery('Confirm', createAdminCtx());
+  assert(Boolean(res35b.success && res35b.spokenText.includes('duplicated')), 'Test 35b: Duplicate project confirmed');
+  console.log(`   Assistant (Executed): "${res35b.spokenText}"`);
+
+  // TEST 36: Invite Client Intent
+  voiceQueryEngine.clearMemory();
+  const res36a = await voiceQueryEngine.processQuery('Invite client John Doe with email john@gmail.com', createAdminCtx());
+  assert(
+    Boolean(
+      res36a.success &&
+      res36a.pendingAction &&
+      res36a.pendingAction.toolName === 'invite_client' &&
+      res36a.pendingAction.payload.full_name === 'John Doe' &&
+      res36a.pendingAction.payload.email === 'john@gmail.com',
+    ),
+    'Test 36a: Invite client preview',
+  );
+  const res36b = await voiceQueryEngine.processQuery('Yes', createAdminCtx());
+  assert(Boolean(res36b.success && res36b.spokenText.includes('processed')), 'Test 36b: Invite client executed');
+  console.log(`   Assistant (Executed): "${res36b.spokenText}"`);
+
   console.log('====================================================');
   console.log(`📊 TEST RESULTS: ${passed}/${total} PASSED (${Math.round((passed / total) * 100)}%)`);
   console.log('====================================================');
