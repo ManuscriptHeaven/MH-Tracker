@@ -20,10 +20,10 @@ export class VoiceService {
   private isCurrentlySpeaking: boolean = false;
   private isMuted: boolean = false;
   private silenceTimer: any = null;
+  private restartTimeout: any = null;
 
   private constructor() {
     this.initSynth();
-    this.initRecognition();
   }
 
   public static getInstance(): VoiceService {
@@ -52,71 +52,85 @@ export class VoiceService {
     }
   }
 
-  private initRecognition() {
-    if (typeof window !== 'undefined') {
-      const SpeechRecognitionImpl =
-        (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+  private createRecognitionInstance(): SpeechRecognitionType | null {
+    if (typeof window === 'undefined') return null;
 
-      if (SpeechRecognitionImpl) {
-        try {
-          this.recognition = new SpeechRecognitionImpl();
-          this.recognition.continuous = true;
-          this.recognition.interimResults = true;
-          this.recognition.maxAlternatives = 1;
-          this.recognition.lang = this.currentLanguage;
+    const SpeechRecognitionImpl =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
-          this.recognition.onstart = () => {
-            this.isCurrentlyListening = true;
-            this.onListeningChange?.(true);
-          };
+    if (!SpeechRecognitionImpl) return null;
 
-          this.recognition.onresult = (event: any) => {
-            // If the user starts speaking while TTS is talking, interrupt TTS
-            if (this.isCurrentlySpeaking) {
-              this.stopSpeaking();
-            }
+    try {
+      const rec = new SpeechRecognitionImpl();
+      // Using continuous = false prevents persistent gRPC streaming network drops in Chrome/Brave
+      rec.continuous = false;
+      rec.interimResults = true;
+      rec.maxAlternatives = 1;
+      rec.lang = this.currentLanguage;
 
-            let interimTranscript = '';
-            let finalTranscript = '';
+      rec.onstart = () => {
+        this.isCurrentlyListening = true;
+        this.onListeningChange?.(true);
+      };
 
-            for (let i = event.resultIndex; i < event.results.length; ++i) {
-              if (event.results[i].isFinal) {
-                finalTranscript += event.results[i][0].transcript;
-              } else {
-                interimTranscript += event.results[i][0].transcript;
-              }
-            }
-
-            if (finalTranscript) {
-              this.clearSilenceTimer();
-              this.onTranscript?.(finalTranscript.trim(), true);
-            } else if (interimTranscript) {
-              this.onTranscript?.(interimTranscript.trim(), false);
-              this.resetSilenceTimer();
-            }
-          };
-
-          this.recognition.onerror = (event: any) => {
-            console.warn('Speech recognition error event:', event.error);
-            if (event.error === 'no-speech') {
-              // Harmless timeout, just notify if needed
-              return;
-            }
-            if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-              this.onError?.('Microphone access was denied. Please allow microphone permissions in your browser.');
-            } else {
-              this.onError?.(`Voice recognition notice: ${event.error}`);
-            }
-          };
-
-          this.recognition.onend = () => {
-            this.isCurrentlyListening = false;
-            this.onListeningChange?.(false);
-          };
-        } catch (err) {
-          console.warn('Failed to initialize SpeechRecognition:', err);
+      rec.onresult = (event: any) => {
+        if (this.isCurrentlySpeaking) {
+          this.stopSpeaking();
         }
-      }
+
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+
+        if (finalTranscript) {
+          this.clearSilenceTimer();
+          this.onTranscript?.(finalTranscript.trim(), true);
+          this.stopListening();
+        } else if (interimTranscript) {
+          this.onTranscript?.(interimTranscript.trim(), false);
+          this.resetSilenceTimer();
+        }
+      };
+
+      rec.onerror = (event: any) => {
+        console.warn('Speech recognition error event:', event.error);
+        this.isCurrentlyListening = false;
+        this.onListeningChange?.(false);
+        this.clearSilenceTimer();
+
+        if (event.error === 'no-speech') {
+          // Normal timeout if user hasn't started speaking yet
+          return;
+        }
+
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          this.onError?.('Microphone permission was denied. Please allow microphone access in your browser.');
+        } else if (event.error === 'network') {
+          this.onError?.(
+            'Browser speech service unreachable. (If using Brave, enable "Google services for voice recognition" in Settings > Privacy, or use Chrome/Edge).'
+          );
+        } else {
+          this.onError?.(`Voice recognition notice: ${event.error}`);
+        }
+      };
+
+      rec.onend = () => {
+        this.isCurrentlyListening = false;
+        this.onListeningChange?.(false);
+        this.clearSilenceTimer();
+      };
+
+      return rec;
+    } catch (err) {
+      console.warn('Failed to create SpeechRecognition:', err);
+      return null;
     }
   }
 
@@ -137,7 +151,10 @@ export class VoiceService {
   }
 
   public isSupported(): boolean {
-    return typeof window !== 'undefined' && (Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) || 'speechSynthesis' in window);
+    return (
+      typeof window !== 'undefined' &&
+      (Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) || 'speechSynthesis' in window)
+    );
   }
 
   public isRecognitionSupported(): boolean {
@@ -150,9 +167,6 @@ export class VoiceService {
 
   public setLanguage(lang: string) {
     this.currentLanguage = lang;
-    if (this.recognition) {
-      this.recognition.lang = lang;
-    }
   }
 
   public setMuted(muted: boolean) {
@@ -166,39 +180,60 @@ export class VoiceService {
     return this.isMuted;
   }
 
-  public startListening(language?: string) {
-    if (!this.recognition) {
-      this.onError?.('Speech recognition is not supported on this browser. You can still type your questions!');
-      return;
+  public async startListening(language?: string) {
+    if (language) {
+      this.setLanguage(language);
     }
 
     if (this.isCurrentlySpeaking) {
       this.stopSpeaking();
     }
 
-    if (language) {
-      this.setLanguage(language);
+    // Attempt to verify/request hardware microphone access first
+    if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((track) => track.stop());
+      } catch (micErr: any) {
+        if (micErr.name === 'NotAllowedError' || micErr.name === 'PermissionDeniedError') {
+          this.onError?.('Microphone access was denied. Please allow microphone permissions in your browser.');
+          return;
+        }
+      }
+    }
+
+    // Create a fresh SpeechRecognition instance on every session to avoid stale socket states
+    this.stopListening();
+    this.recognition = this.createRecognitionInstance();
+
+    if (!this.recognition) {
+      this.onError?.('Speech recognition is not supported on this browser. You can still type your questions!');
+      return;
     }
 
     try {
       this.recognition.start();
     } catch (e: any) {
-      // If already started, ignore error
-      if (!e.message?.includes('already started')) {
-        console.warn('Recognition start error:', e);
+      console.warn('Recognition start error:', e);
+      if (e.name === 'InvalidStateError' || e.message?.includes('already started')) {
+        // Try stopping and restarting cleanly
+        this.stopListening();
+      } else {
+        this.onError?.(`Could not start microphone: ${e.message || 'Unknown error'}`);
       }
     }
   }
 
   public stopListening() {
     this.clearSilenceTimer();
-    if (this.recognition && this.isCurrentlyListening) {
+    if (this.recognition) {
       try {
         this.recognition.stop();
-      } catch (e) {
-        console.warn('Recognition stop error:', e);
-      }
+      } catch (e) {}
+      this.recognition = null;
     }
+    this.isCurrentlyListening = false;
+    this.onListeningChange?.(false);
   }
 
   public cleanTextForSpeech(text: string): string {

@@ -38,6 +38,7 @@ interface AIContextType {
   toggleMute: () => void;
   speakText: (text: string) => Promise<void>;
   stopSpeaking: () => void;
+  clearVoiceError: () => void;
 }
 
 const AIContext = createContext<AIContextType | undefined>(undefined);
@@ -293,6 +294,10 @@ export function AIProvider({ children, tracker }: { children: ReactNode; tracker
     voiceService.stopListening();
   }, []);
 
+  const clearVoiceError = useCallback(() => {
+    setVoiceError(null);
+  }, []);
+
   const value = {
     isOpen, isChatMinimized, conversations, activeConversationId,
     messages, isProcessing, isListening, isSpeaking, isMuted: Boolean(settings.isMuted),
@@ -301,7 +306,7 @@ export function AIProvider({ children, tracker }: { children: ReactNode; tracker
     toggleChat, openChat, closeChat, minimizeChat, sendMessage,
     startNewConversation, switchConversation, clearConversation,
     dismissDailyPopup, updateSettings, startVoice, stopVoice, toggleMute,
-    speakText, stopSpeaking
+    speakText, stopSpeaking, clearVoiceError
   };
 
   return <AIContext.Provider value={value}>{children}</AIContext.Provider>;

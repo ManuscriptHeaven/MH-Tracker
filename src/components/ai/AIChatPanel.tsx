@@ -10,7 +10,7 @@ export function AIChatPanel() {
     isOpen, closeChat, messages, isProcessing,
     sendMessage, startNewConversation, clearConversation, settings,
     isListening, isSpeaking, isMuted, startVoice, stopVoice, toggleMute,
-    liveTranscript, voiceError, stopSpeaking
+    liveTranscript, voiceError, stopSpeaking, clearVoiceError
   } = useAIContext();
 
   const [input, setInput] = useState('');
@@ -170,14 +170,38 @@ export function AIChatPanel() {
 
         {/* Voice Error Notification */}
         {voiceError && (
-          <div className="p-2.5 rounded-xl bg-danger/10 border border-danger/20 text-xs text-danger flex items-center justify-between my-2">
-            <span>{voiceError}</span>
-            <button 
-              onClick={startVoice}
-              className="ml-2 font-semibold underline text-xs text-danger"
-            >
-              Retry
-            </button>
+          <div className="p-3 rounded-xl bg-amber-50 border border-amber-200/80 text-xs text-amber-900 shadow-xs flex flex-col gap-1.5 my-2">
+            <div className="flex items-start justify-between gap-2">
+              <p className="leading-relaxed">{voiceError}</p>
+              <button
+                onClick={clearVoiceError}
+                className="text-amber-700/60 hover:text-amber-900 p-0.5"
+                title="Dismiss"
+                aria-label="Dismiss notification"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="flex items-center gap-3 pt-0.5">
+              <button 
+                onClick={() => {
+                  clearVoiceError();
+                  startVoice();
+                }}
+                className="font-semibold text-xs text-amber-800 underline hover:text-amber-950 flex items-center gap-1"
+              >
+                <RotateCcw className="w-3 h-3" /> Retry Microphone
+              </button>
+              <button
+                onClick={() => {
+                  clearVoiceError();
+                  inputRef.current?.focus();
+                }}
+                className="text-xs text-muted hover:text-ink"
+              >
+                Type question instead →
+              </button>
+            </div>
           </div>
         )}
         
