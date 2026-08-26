@@ -30,7 +30,7 @@ export const sampleProfiles: Profile[] = [
     role: 'admin',
     phone: '+1 555 0101',
     status: 'active',
-    avatar_url: null,
+    avatar_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
     created_at: now,
   },
   {
@@ -40,7 +40,7 @@ export const sampleProfiles: Profile[] = [
     role: 'project_manager',
     phone: '+1 555 0102',
     status: 'active',
-    avatar_url: null,
+    avatar_url: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
     created_at: now,
   },
   {
@@ -50,7 +50,7 @@ export const sampleProfiles: Profile[] = [
     role: 'client',
     phone: '+1 555 0190',
     status: 'active',
-    avatar_url: null,
+    avatar_url: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80',
     created_at: now,
   },
   {
@@ -60,7 +60,7 @@ export const sampleProfiles: Profile[] = [
     role: 'employee',
     phone: '+1 555 0103',
     status: 'active',
-    avatar_url: null,
+    avatar_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
     created_at: now,
   },
   {
@@ -70,7 +70,7 @@ export const sampleProfiles: Profile[] = [
     role: 'employee',
     phone: '+1 555 0104',
     status: 'active',
-    avatar_url: null,
+    avatar_url: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=150&auto=format&fit=crop&q=80',
     created_at: now,
   },
   {
@@ -80,7 +80,7 @@ export const sampleProfiles: Profile[] = [
     role: 'junior_assistant',
     phone: '+1 555 0105',
     status: 'active',
-    avatar_url: null,
+    avatar_url: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=150&auto=format&fit=crop&q=80',
     created_at: now,
   },
 ];

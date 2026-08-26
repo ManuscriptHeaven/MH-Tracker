@@ -17,6 +17,7 @@ import { firstName, initials, isClientRole, isManagerRole } from '../lib/utils';
 import type { NotificationItem, Profile, TrackerData } from '../lib/types';
 import type { ViewKey } from './Layout';
 import { CurrencySelector } from './CurrencySelector';
+import { UserAvatar } from './UserAvatar';
 import { getUnreadMessagesInfo } from './MessageNotificationBell';
 
 export function MobileMoreMenu({
@@ -129,9 +130,7 @@ export function MobileMoreMenu({
         {/* Header with user info */}
         <div className="flex items-center justify-between border-b border-border/80 pb-4">
           <div className="flex items-center gap-3">
-            <div className="grid h-11 w-11 place-items-center rounded-full bg-gold text-sm font-bold text-ink shadow-sm">
-              {initials(displayName)}
-            </div>
+            <UserAvatar profile={currentProfile} size="lg" showRoleRing showStatusDot />
             <div>
               <p className="font-semibold text-ink leading-tight">{currentProfile.full_name}</p>
               <p className="text-xs text-muted mt-0.5">{roleLabels[currentProfile.role]}</p>

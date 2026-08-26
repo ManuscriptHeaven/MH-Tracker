@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { PayrollStatusBadge, RoleBadge } from '../components/Badges';
 import { Button, Card, SelectField } from '../components/ui';
+import { UserAvatar } from '../components/UserAvatar';
 import { closedStatuses } from '../lib/constants';
 import { useCurrency } from '../lib/currency';
 import { isOverdue } from '../lib/date';
@@ -328,9 +329,7 @@ export function TeamPage({
                       <tr key={row.profile.id} className="hover:bg-ivory/20 transition">
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-2.5">
-                            <div className="grid h-8 w-8 place-items-center rounded-full bg-gold/20 font-bold text-ink text-xs shrink-0">
-                              {initials(firstName(row.profile.full_name))}
-                            </div>
+                            <UserAvatar profile={row.profile} size="sm" showRoleRing />
                             <div>
                               <p className="font-bold text-ink">{row.profile.full_name}</p>
                               <p className="text-[10px] text-muted capitalize">{row.profile.role}</p>
@@ -420,9 +419,7 @@ export function TeamPage({
                 <div key={row.profile.id} className="p-3.5 space-y-2.5">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <div className="grid h-8 w-8 place-items-center rounded-full bg-gold/20 font-bold text-ink text-xs shrink-0">
-                        {initials(firstName(row.profile.full_name))}
-                      </div>
+                      <UserAvatar profile={row.profile} size="sm" showRoleRing />
                       <div>
                         <p className="font-bold text-ink text-xs">{row.profile.full_name}</p>
                         <p className="text-[10px] text-muted capitalize">{row.profile.role}</p>
@@ -492,9 +489,7 @@ export function TeamPage({
               <Card key={profile.id} className="p-4 bg-white space-y-3">
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="grid h-11 w-11 place-items-center rounded-lg bg-gold/20 font-bold text-ink text-base">
-                      {initials(firstName(profile.full_name))}
-                    </div>
+                    <UserAvatar profile={profile} size="lg" showRoleRing showStatusDot />
                     <div>
                       <h4 className="font-display font-bold text-sm text-ink">{profile.full_name}</h4>
                       <RoleBadge role={profile.role} />

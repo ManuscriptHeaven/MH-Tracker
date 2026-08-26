@@ -57,6 +57,7 @@ import type {
 import { PaymentBadge, PriorityBadge, RoleBadge, StatusBadge } from './Badges';
 import { ProjectTimelinePanel, TimelineBadge } from './ProjectTimeline';
 import { ProjectDiscussionChat } from './ProjectDiscussionChat';
+import { UserAvatar } from './UserAvatar';
 import { Button, Card, Field, Modal, SelectField, TextareaField } from './ui';
 
 export type ProjectDetailTab =
@@ -551,9 +552,13 @@ export function ProjectDetail({
                     <div className="space-y-2.5 text-xs">
                       {/* Employee */}
                       <div className="flex items-center gap-3 rounded-lg border border-border bg-ivory/50 p-2.5">
-                        <div className="grid h-9 w-9 place-items-center rounded-full bg-gold/20 font-bold text-ink text-xs">
-                          {initials(profileName(profiles, project.assigned_to))}
-                        </div>
+                        <UserAvatar
+                          profile={profiles.find((p) => p.id === project.assigned_to)}
+                          name={fullProfileName(profiles, project.assigned_to)}
+                          role="employee"
+                          size="sm"
+                          showRoleRing
+                        />
                         <div className="min-w-0 flex-1">
                           <span className="text-[10px] uppercase font-bold text-muted block">Assigned Employee</span>
                           <p className="font-semibold text-ink truncate">{fullProfileName(profiles, project.assigned_to)}</p>
@@ -562,9 +567,13 @@ export function ProjectDetail({
 
                       {/* Project Manager */}
                       <div className="flex items-center gap-3 rounded-lg border border-border bg-ivory/50 p-2.5">
-                        <div className="grid h-9 w-9 place-items-center rounded-full bg-blue-100 font-bold text-blue-900 text-xs">
-                          {initials(profileName(profiles, project.project_manager))}
-                        </div>
+                        <UserAvatar
+                          profile={profiles.find((p) => p.id === project.project_manager)}
+                          name={fullProfileName(profiles, project.project_manager)}
+                          role="project_manager"
+                          size="sm"
+                          showRoleRing
+                        />
                         <div className="min-w-0 flex-1">
                           <span className="text-[10px] uppercase font-bold text-muted block">Project Manager</span>
                           <p className="font-semibold text-ink truncate">{fullProfileName(profiles, project.project_manager)}</p>

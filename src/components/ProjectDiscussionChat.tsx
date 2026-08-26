@@ -4,6 +4,7 @@ import type { ChatMessage, Conversation, Profile } from '../lib/types';
 import { firstName, initials } from '../lib/utils';
 import { roleLabels } from '../lib/constants';
 import { Button } from './ui';
+import { UserAvatar } from './UserAvatar';
 
 export function ProjectDiscussionChat({
   projectId,
@@ -214,19 +215,13 @@ export function ProjectDiscussionChat({
                 key={msg.id}
                 className={`flex gap-2.5 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}
               >
-                {/* Avatar */}
-                <div
-                  className={`grid h-7 w-7 place-items-center rounded-full text-[11px] font-bold shrink-0 ${
-                    isMe
-                      ? 'bg-gold text-ink'
-                      : sender?.role === 'client'
-                        ? 'bg-blue-100 text-blue-900 border border-blue-200'
-                        : 'bg-linen text-ink border border-border'
-                  }`}
-                  title={`${senderName} (${roleLabel})`}
-                >
-                  {initials(sender?.full_name || (isMe ? currentProfile.full_name : 'User'))}
-                </div>
+                {/* Sender Avatar */}
+                <UserAvatar
+                  profile={sender || (isMe ? currentProfile : null)}
+                  name={senderName}
+                  size="sm"
+                  showRoleRing
+                />
 
                 {/* Message Body */}
                 <div className={`max-w-[75%] space-y-1 ${isMe ? 'items-end text-right' : ''}`}>

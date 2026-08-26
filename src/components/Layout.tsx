@@ -29,6 +29,8 @@ import { NotificationBell } from './NotificationBell';
 import { MessageNotificationBell, getUnreadMessagesInfo } from './MessageNotificationBell';
 import { CurrencySelector } from './CurrencySelector';
 import { MobileMoreMenu } from './MobileMoreMenu';
+import { ManuscriptHeavenLogo } from './ManuscriptHeavenLogo';
+import { UserAvatar } from './UserAvatar';
 import { usePwaInstall } from '../lib/pwa';
 import { isSoundEnabled, setSoundEnabled, playNotificationSound } from '../lib/sound';
 
@@ -159,15 +161,7 @@ export function Layout({
       <aside className="no-print fixed left-0 top-0 z-30 hidden h-screen w-72 border-r border-border bg-ink text-white lg:block">
         <div className="flex h-full flex-col">
           <div className="border-b border-white/10 p-6">
-            <div className="flex items-center gap-3">
-              <div className="grid h-12 w-12 place-items-center rounded-md border border-gold/50 bg-gold text-ink font-display text-xl font-bold">
-                MH
-              </div>
-              <div>
-                <p className="font-display text-xl font-semibold">Manuscript Heaven</p>
-                <p className="text-xs uppercase tracking-[0.24em] text-gold">Project Tracker</p>
-              </div>
-            </div>
+            <ManuscriptHeavenLogo variant="full" darkTheme />
           </div>
 
           <nav className="flex-1 space-y-1 px-4 py-5">
@@ -213,9 +207,7 @@ export function Layout({
 
           <div className="border-t border-white/10 p-4">
             <div className="flex items-center gap-3 rounded-lg bg-white/10 p-3">
-              <div className="grid h-10 w-10 place-items-center rounded-full bg-gold text-sm font-bold text-ink">
-                {initials(displayName)}
-              </div>
+              <UserAvatar profile={currentProfile} size="md" showRoleRing showStatusDot />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold">{displayName}</p>
                 <p className="truncate text-xs text-white/60">{roleLabels[currentProfile.role]}</p>

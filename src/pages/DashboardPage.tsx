@@ -3,6 +3,7 @@ import { AlertTriangle, CalendarClock, CheckCircle2, CircleDollarSign, Clock3, F
 import { StatusBadge } from '../components/Badges';
 import { ProjectTimelineCompact } from '../components/ProjectTimeline';
 import { Button, Card, SelectField } from '../components/ui';
+import { UserAvatar } from '../components/UserAvatar';
 import { closedStatuses } from '../lib/constants';
 import { isDueThisWeek, isDueToday, isOverdue, formatDate, deadlineClass, deadlineLabel } from '../lib/date';
 import { firstName, initials, isClientRole } from '../lib/utils';
@@ -315,11 +316,9 @@ export function DashboardPage({
               <div className="mt-4 space-y-3">
                 {workload.map(({ profile, active, overdue }) => (
                   <div key={profile.id} className="flex items-center gap-3">
-                    <div className="grid h-10 w-10 place-items-center rounded-full bg-gold/20 text-sm font-bold">
-                      {initials(firstName(profile.full_name))}
-                    </div>
+                    <UserAvatar profile={profile} size="sm" showRoleRing />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-semibold">{firstName(profile.full_name)}</p>
+                      <p className="truncate font-semibold">{profile.full_name}</p>
                       <p className="text-xs text-muted">
                         {active} active | {overdue} overdue
                       </p>

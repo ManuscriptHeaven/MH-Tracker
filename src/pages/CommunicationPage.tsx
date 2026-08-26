@@ -26,6 +26,7 @@ import type {
 } from '../lib/types';
 import { firstName, initials, isClientRole } from '../lib/utils';
 import { roleLabels } from '../lib/constants';
+import { UserAvatar } from '../components/UserAvatar';
 
 interface CommunicationPageProps {
   currentProfile: Profile;
@@ -311,12 +312,7 @@ export function CommunicationPage({
                       onClick={() => handleSelectDM(member.id)}
                       className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-xs font-medium hover:bg-black/5 text-ink/80"
                     >
-                      <div className="relative">
-                        <div className="grid h-6 w-6 place-items-center rounded-full bg-gold/30 text-[10px] font-bold text-ink">
-                          {initials(member.full_name)}
-                        </div>
-                        <span className="absolute bottom-0 right-0 h-2 w-2 rounded-full bg-success ring-1 ring-white" />
-                      </div>
+                      <UserAvatar profile={member} size="xs" showStatusDot isOnline />
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-semibold">{member.full_name}</p>
                         <p className="truncate text-[10px] text-muted">{roleLabels[member.role]}</p>
@@ -430,9 +426,12 @@ export function CommunicationPage({
 
                 return (
                   <div key={msg.id} className={`flex gap-3 ${isMe ? 'flex-row-reverse' : ''}`}>
-                    <div className="grid h-8 w-8 place-items-center rounded-full bg-gold text-ink font-bold text-xs shrink-0">
-                      {initials(sender?.full_name || 'User')}
-                    </div>
+                    <UserAvatar
+                      profile={sender || (isMe ? currentProfile : null)}
+                      name={sender?.full_name || 'User'}
+                      size="sm"
+                      showRoleRing
+                    />
 
                     <div className={`max-w-[70%] space-y-1 ${isMe ? 'items-end text-right' : ''}`}>
                       <div className="flex items-center gap-2 text-xs text-muted">
