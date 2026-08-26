@@ -16,6 +16,7 @@ import {
   Plus,
   Search,
   Settings,
+  Sparkles,
   Users,
   Volume2,
   VolumeX,
@@ -33,6 +34,7 @@ import { isSoundEnabled, setSoundEnabled, playNotificationSound } from '../lib/s
 
 export type ViewKey =
   | 'dashboard'
+  | 'ai_assistant'
   | 'projects'
   | 'my_tasks'
   | 'team_tasks'
@@ -48,6 +50,7 @@ export type ViewKey =
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: Home },
+  { id: 'ai_assistant', label: 'AI Assistant', icon: Sparkles },
   { id: 'projects', label: 'Projects', icon: FolderKanban },
   { id: 'my_tasks', label: 'My Tasks', icon: CheckSquare },
   { id: 'team_tasks', label: 'Team Tasks', icon: CheckSquare, managersOnly: true },
@@ -107,7 +110,7 @@ export function Layout({
 
   const visibleNavItems = navItems.filter((item) => {
     if (isClient) {
-      return item.id === 'dashboard' || item.id === 'projects' || item.id === 'communication' || item.id === 'notifications';
+      return item.id === 'dashboard' || item.id === 'ai_assistant' || item.id === 'projects' || item.id === 'communication' || item.id === 'notifications';
     }
 
     if ('adminOnly' in item && item.adminOnly) {

@@ -9,6 +9,7 @@ import type {
 } from './aiTypes';
 import * as tools from './secureTools';
 import * as safeActions from './safeActionTools';
+import type { ProjectStatus } from '../types';
 import { isClientRole, isManagerRole, firstName } from '../utils';
 import { formatDate, parseNaturalDate, todayInput, addDays } from '../date';
 
@@ -844,60 +845,159 @@ export class VoiceQueryEngine {
     }
 
     // ----------------------------------------------------
-    // D. PROJECT STATUS (e.g. "Put QAI Reformatting on hold", "Resume Book 2", "Move Book 2 to In Revision")
+    // D. PROJECT STATUS & STAGE ACTIONS
+    // e.g. "Put Project BCH to Print Approval", "Put QAI Reformatting on hold", "Resume Book 2", "Move Book 2 to In Revision", "Change status for project BCH to Print approval", "Set project BCH to Print Approval"
     // ----------------------------------------------------
-    if (
-      (lower.includes('on hold') || lower.includes('pause') || lower.includes('resume') || lower.includes('move to in revision') || lower.includes('mark completed')) &&
-      !lower.includes('task')
-    ) {
+    const isProjectStatusIntent =
+      !lower.includes('task') &&
+      (((lower.includes('on hold') ||
+        lower.includes('pause') ||
+        lower.includes('resume') ||
+        lower.includes('in revision') ||
+        lower.includes('print approval') ||
+        lower.includes('concept approval') ||
+        lower.includes('ebook approval') ||
+        lower.includes('approval') ||
+        lower.includes('print version') ||
+        lower.includes('design concept') ||
+        lower.includes('ebook version') ||
+        lower.includes('final delivery') ||
+        lower.includes('completed') ||
+        lower.includes('complete') ||
+        lower.includes('mark complete') ||
+        lower.includes('in progress')) &&
+        (lower.includes('put ') ||
+          lower.includes('move ') ||
+          lower.includes('set ') ||
+          lower.includes('change status') ||
+          lower.includes('advance ') ||
+          lower.includes('mark '))) ||
+        (lower.includes('change') &&
+          lower.includes('status') &&
+          (lower.includes('project') || this.containsProjectName(lower, ctx) || this.containsClientName(lower, ctx))));
+
+    if (isProjectStatusIntent) {
       if (!isManagerRole(ctx.currentProfile.role)) {
         return {
           success: false,
           toolName: 'update_project_status',
           error: 'permission_denied',
-          spokenText: "Only managers and admins can change project statuses.",
-          displayText: "🔒 Only managers and admins can change project statuses.",
+          spokenText: 'Only managers and admins can change project statuses.',
+          displayText: '🔒 Only managers and admins can change project statuses.',
         };
       }
 
-      const matchedProject = this.findProjectInQueryOrMemory(lower, ctx);
+      let targetStage: string | undefined = undefined;
+      let targetStatus: ProjectStatus = 'In Progress';
+
+      if (lower.includes('print approval')) {
+        targetStage = 'Print Approval';
+        targetStatus = 'Awaiting Client Approval';
+      } else if (lower.includes('concept approval')) {
+        targetStage = 'Concept Approval';
+        targetStatus = 'Awaiting Client Approval';
+      } else if (lower.includes('ebook approval')) {
+        targetStage = 'eBook Approval';
+        targetStatus = 'Awaiting Client Approval';
+      } else if (
+        lower.includes('awaiting approval') ||
+        lower.includes('client approval') ||
+        (lower.includes('approval') && (lower.includes('put') || lower.includes('move') || lower.includes('to')))
+      ) {
+        targetStage = 'Print Approval';
+        targetStatus = 'Awaiting Client Approval';
+      } else if (lower.includes('files received')) {
+        targetStage = 'Files Received';
+        targetStatus = 'Active';
+      } else if (lower.includes('design concept')) {
+        targetStage = 'Design Concept';
+        targetStatus = 'In Progress';
+      } else if (lower.includes('print version')) {
+        targetStage = 'Print Version';
+        targetStatus = 'In Progress';
+      } else if (lower.includes('ebook version')) {
+        targetStage = 'eBook Version';
+        targetStatus = 'In Progress';
+      } else if (lower.includes('final delivery')) {
+        targetStage = 'Final Delivery';
+        targetStatus = 'Final Delivery';
+      } else if (lower.includes('on hold') || lower.includes('pause')) {
+        targetStatus = 'On Hold';
+      } else if (lower.includes('resume') || lower.includes('in progress')) {
+        targetStatus = 'In Progress';
+      } else if (lower.includes('in revision') || lower.includes('revision')) {
+        targetStatus = 'In Revision';
+      } else if (lower.includes('completed') || lower.includes('complete') || lower.includes('delivered')) {
+        targetStatus = 'Completed';
+      }
+
+      let matchedProject = this.findProjectInQueryOrMemory(lower, ctx);
+
+      // If no project title matched directly, check if query references a client name (e.g. "put Project BCH to...")
+      if (!matchedProject) {
+        const clientName = this.extractClientFromQuery(lower, ctx);
+        if (clientName) {
+          const clientProjects = ctx.data.projects.filter(
+            (p) => p.client_name.toLowerCase() === clientName.toLowerCase(),
+          );
+
+          if (clientProjects.length === 1) {
+            matchedProject = clientProjects[0];
+          } else if (clientProjects.length > 1) {
+            const options: DisambiguationOption[] = clientProjects.map((p) => ({
+              id: p.id,
+              title: p.project_title,
+              subtitle: `${p.project_number} • Stage: ${p.current_stage || p.status}`,
+              type: 'project',
+              data: { projectId: p.id, status: targetStatus, currentStage: targetStage },
+            }));
+
+            this.setPendingDisambiguation(options, {
+              originalQuery: q,
+              intentType: 'update_project_status',
+              targetPayload: { status: targetStatus, currentStage: targetStage },
+            });
+
+            return {
+              success: true,
+              toolName: 'update_project_status',
+              spokenText: `I found ${clientProjects.length} projects for ${clientName}. Which one would you like to move to ${targetStage || targetStatus}?`,
+              displayText: `I found **${clientProjects.length} projects for ${clientName}**. Which one would you like to move to **${targetStage || targetStatus}**?`,
+              disambiguation: options,
+            };
+          }
+        }
+      }
+
       if (!matchedProject) {
         return {
           success: false,
           toolName: 'update_project_status',
           error: 'project_not_found',
           spokenText: "I couldn't find the project to change status for.",
-          displayText: "❌ Project not found.",
+          displayText: '❌ Project not found.',
         };
       }
-
-      const targetStatus: any = lower.includes('on hold') || lower.includes('pause')
-        ? 'On Hold'
-        : lower.includes('resume')
-          ? 'In Progress'
-          : lower.includes('revision')
-            ? 'In Revision'
-            : lower.includes('complete')
-              ? 'Completed'
-              : 'In Progress';
 
       const preview: AIActionPreview = {
         actionId: `act-${Date.now()}`,
         toolName: 'update_project_status',
         category: 'high_risk',
-        title: 'Change Project Status',
-        description: `Change ${matchedProject.project_title} status from ${matchedProject.status} to ${targetStatus}`,
+        title: 'Change Project Status / Stage',
+        description: `Change ${matchedProject.project_title} to ${targetStage || targetStatus}`,
         targetType: 'project',
         targetId: matchedProject.id,
         targetTitle: matchedProject.project_title,
         clientName: matchedProject.client_name,
         changes: [
+          { field: 'project', label: 'Project', newValue: matchedProject.project_title },
+          ...(targetStage ? [{ field: 'stage', label: 'Stage', oldValue: matchedProject.current_stage || 'None', newValue: targetStage }] : []),
           { field: 'status', label: 'Status', oldValue: matchedProject.status, newValue: targetStatus },
         ],
-        payload: { projectId: matchedProject.id, status: targetStatus },
-        confirmButtonText: `Set to ${targetStatus}`,
+        payload: { projectId: matchedProject.id, status: targetStatus, currentStage: targetStage },
+        confirmButtonText: `Set to ${targetStage || targetStatus}`,
         cancelButtonText: 'Cancel',
-        spokenPrompt: `Change ${matchedProject.project_title} from ${matchedProject.status} to ${targetStatus}? Confirm?`,
+        spokenPrompt: `Move ${matchedProject.project_title} to ${targetStage || targetStatus}? Confirm?`,
       };
 
       this.memory.pendingAction = preview;
@@ -906,7 +1006,7 @@ export class VoiceQueryEngine {
         success: true,
         toolName: 'update_project_status',
         spokenText: preview.spokenPrompt,
-        displayText: `Change **${matchedProject.project_title}** from *${matchedProject.status}* to **${targetStatus}**?`,
+        displayText: `Move **${matchedProject.project_title}** to **${targetStage || targetStatus}**?`,
         pendingAction: preview,
       };
     }
@@ -1459,6 +1559,46 @@ export class VoiceQueryEngine {
           toolName: 'update_task_status',
           spokenText: preview.spokenPrompt,
           displayText: `Should I mark task **"${task.title}"** from *${task.status}* to **${targetStatus}**?`,
+          pendingAction: preview,
+        };
+      }
+    }
+
+    if (selected.type === 'project' && context?.intentType === 'update_project_status') {
+      const project = ctx.data.projects.find((p) => p.id === selected.id);
+      if (project) {
+        const targetStatus = selected.data?.status || 'In Progress';
+        const targetStage = selected.data?.currentStage;
+        const targetLabel = targetStage || targetStatus;
+
+        const preview: AIActionPreview = {
+          actionId: `act-${Date.now()}`,
+          toolName: 'update_project_status',
+          category: 'high_risk',
+          title: 'Change Project Status / Stage',
+          description: `Change ${project.project_title} to ${targetLabel}`,
+          targetType: 'project',
+          targetId: project.id,
+          targetTitle: project.project_title,
+          clientName: project.client_name,
+          changes: [
+            { field: 'project', label: 'Project', newValue: project.project_title },
+            ...(targetStage ? [{ field: 'stage', label: 'Stage', oldValue: project.current_stage || 'None', newValue: targetStage }] : []),
+            { field: 'status', label: 'Status', oldValue: project.status, newValue: targetStatus },
+          ],
+          payload: { projectId: project.id, status: targetStatus, currentStage: targetStage },
+          confirmButtonText: `Set to ${targetLabel}`,
+          cancelButtonText: 'Cancel',
+          spokenPrompt: `Move ${project.project_title} to ${targetLabel}? Confirm?`,
+        };
+
+        this.memory.pendingAction = preview;
+
+        return {
+          success: true,
+          toolName: 'update_project_status',
+          spokenText: preview.spokenPrompt,
+          displayText: `Move **${project.project_title}** to **${targetLabel}**?`,
           pendingAction: preview,
         };
       }

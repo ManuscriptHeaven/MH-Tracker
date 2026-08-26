@@ -8,6 +8,7 @@ import {
   MessageSquare,
   PackageCheck,
   Settings,
+  Sparkles,
   Users,
   X,
 } from 'lucide-react';
@@ -56,6 +57,12 @@ export function MobileMoreMenu({
   }
 
   const menuItems = [
+    {
+      id: 'ai_assistant' as ViewKey,
+      label: 'AI Assistant',
+      icon: Sparkles,
+      show: true,
+    },
     {
       id: 'communication' as ViewKey,
       label: 'Communication',

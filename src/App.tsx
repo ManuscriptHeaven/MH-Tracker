@@ -17,6 +17,7 @@ import { ClientAccessPage } from './pages/ClientAccessPage';
 import { TasksPage } from './pages/TasksPage';
 import { FinancePage } from './pages/FinancePage';
 import { CommunicationPage } from './pages/CommunicationPage';
+import { AIAssistantPage } from './pages/AIAssistantPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AIProvider } from './lib/ai/aiContext';
 import { CurrencyProvider } from './lib/currency';
@@ -157,6 +158,7 @@ export default function App() {
       />
     )}
     {activeView === 'dashboard' && !isClient && <DashboardPage projects={visibleProjects} profiles={tracker.data.profiles} canViewPayments={tracker.canManageAll} canManageProjects={tracker.canManageAll} currentProfileId={tracker.currentProfile.id} onAddProject={openAddProject} onSelectProject={setSelectedProject} />}
+    {activeView === 'ai_assistant' && <AIAssistantPage />}
     {activeView === 'projects' && isClient && <ClientProjectsPage projects={visibleProjects} searchTerm={searchTerm} onSelectProject={setSelectedProject} />}
     {activeView === 'projects' && !isClient && <ProjectsPage {...pageProps} />}
     {activeView === 'my_tasks' && <TasksPage mode="personal" tasks={tracker.visibleTasks} projects={tracker.data.projects} profiles={tracker.data.profiles} currentProfile={tracker.currentProfile} searchTerm={searchTerm} onCreateTask={async (draft) => { await tracker.createTask(draft); }} onUpdateTask={async (taskId, updates) => { await tracker.updateTask(taskId, updates); }} onSelectProject={setSelectedProject} />}

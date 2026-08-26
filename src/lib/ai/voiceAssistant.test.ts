@@ -535,7 +535,7 @@ export async function runVoiceAssistantTests() {
   console.log(`   User: "Put The Quiet Atlas on hold"\n   Assistant (Preview): "${res27a.spokenText}"`);
 
   const res27b = await voiceQueryEngine.processQuery('Go ahead', createAdminCtx());
-  assert(Boolean(res27b.success && res27b.spokenText.includes('is now On Hold')), 'Test 27b: Verbal confirmation "Go ahead" changes project status');
+  assert(Boolean(res27b.success && res27b.spokenText.includes('On Hold')), 'Test 27b: Verbal confirmation "Go ahead" changes project status');
   console.log(`   User: "Go ahead"\n   Assistant (Executed): "${res27b.spokenText}"`);
 
   // TEST 28: Cancellation of Pending Action ("Cancel")
@@ -624,6 +624,41 @@ export async function runVoiceAssistantTests() {
   const res36b = await voiceQueryEngine.processQuery('Yes', createAdminCtx());
   assert(Boolean(res36b.success && res36b.spokenText.includes('processed')), 'Test 36b: Invite client executed');
   console.log(`   Assistant (Executed): "${res36b.spokenText}"`);
+
+  // TEST 37: Move Project to Print Approval (Fix for user issue "put Project BCH to Print Approval")
+  voiceQueryEngine.clearMemory();
+  const res37a = await voiceQueryEngine.processQuery('put Project BCH to Print Approval', createAdminCtx());
+  assert(
+    Boolean(
+      res37a.success &&
+      res37a.pendingAction &&
+      res37a.pendingAction.toolName === 'update_project_status' &&
+      res37a.pendingAction.payload.currentStage === 'Print Approval' &&
+      res37a.pendingAction.payload.status === 'Awaiting Client Approval',
+    ),
+    'Test 37a: "put Project BCH to Print Approval" generates stage update preview for Magazine 2',
+  );
+  console.log(`   User: "put Project BCH to Print Approval"\n   Assistant (Preview): "${res37a.spokenText}"`);
+
+  const res37b = await voiceQueryEngine.processQuery('Yes', createAdminCtx());
+  assert(Boolean(res37b.success && res37b.spokenText.includes('Print Approval')), 'Test 37b: Verbal confirmation executes stage update');
+  console.log(`   Assistant (Executed): "${res37b.spokenText}"`);
+
+  // TEST 38: Move specific project to Print Approval
+  voiceQueryEngine.clearMemory();
+  const res38a = await voiceQueryEngine.processQuery('move The Quiet Atlas to Print Approval', createAdminCtx());
+  assert(
+    Boolean(
+      res38a.success &&
+      res38a.pendingAction &&
+      res38a.pendingAction.toolName === 'update_project_status' &&
+      res38a.pendingAction.payload.currentStage === 'Print Approval',
+    ),
+    'Test 38a: "move The Quiet Atlas to Print Approval" generates stage update preview',
+  );
+  const res38b = await voiceQueryEngine.processQuery('Confirm', createAdminCtx());
+  assert(Boolean(res38b.success && res38b.spokenText.includes('Print Approval')), 'Test 38b: Verbal confirmation executes stage update');
+  console.log(`   Assistant (Executed): "${res38b.spokenText}"`);
 
   console.log('====================================================');
   console.log(`📊 TEST RESULTS: ${passed}/${total} PASSED (${Math.round((passed / total) * 100)}%)`);

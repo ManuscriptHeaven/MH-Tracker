@@ -5,7 +5,7 @@ import type {
   AIActionAuditLog,
   AIToolName,
 } from './aiTypes';
-import type { ProjectStatus } from '../types';
+import type { Project, ProjectStatus } from '../types';
 import { isManagerRole, isClientRole, firstName } from '../utils';
 import { formatDate, todayInput, addDays } from '../date';
 
@@ -564,7 +564,7 @@ export async function execute_duplicate_project(
 }
 
 export async function execute_update_project_status(
-  payload: { projectId: string; status: ProjectStatus },
+  payload: { projectId: string; status: ProjectStatus; currentStage?: string },
   ctx: AIToolContext,
 ): Promise<AIToolResult> {
   if (!isManagerRole(ctx.currentProfile.role)) {
@@ -572,8 +572,8 @@ export async function execute_update_project_status(
       success: false,
       toolName: 'update_project_status',
       error: 'permission_denied',
-      spokenText: "Only managers and admins can change project statuses.",
-      displayText: "🔒 Only managers and admins can change project statuses.",
+      spokenText: 'Only managers and admins can change project statuses.',
+      displayText: '🔒 Only managers and admins can change project statuses.',
     };
   }
 
@@ -584,29 +584,36 @@ export async function execute_update_project_status(
       toolName: 'update_project_status',
       error: 'project_not_found',
       spokenText: "I couldn't find the specified project.",
-      displayText: "❌ Project not found.",
+      displayText: '❌ Project not found.',
     };
   }
 
   const oldStatus = project.status;
+  const oldStage = project.current_stage;
+  const updates: Partial<Project> = { status: payload.status };
+  if (payload.currentStage) {
+    updates.current_stage = payload.currentStage as any;
+  }
+
   try {
     if (ctx.trackerMutations?.updateProject) {
-      await ctx.trackerMutations.updateProject(project.id, { status: payload.status });
+      await ctx.trackerMutations.updateProject(project.id, updates);
     }
 
+    const stageNote = payload.currentStage ? ` (Stage: ${payload.currentStage})` : '';
     const audit = createAuditLog(
       ctx,
       `Changed project status for "${project.project_title}"`,
       'project',
       project.id,
       project.project_title,
-      oldStatus,
-      payload.status,
+      `${oldStatus}${oldStage ? ` / ${oldStage}` : ''}`,
+      `${payload.status}${stageNote}`,
       'success',
     );
 
-    const spoken = `Done. ${project.project_title} is now ${payload.status}.`;
-    const display = `### ✅ Project Status Updated\n\n• **Project:** ${project.project_title} (${project.project_number})\n• **Previous Status:** ${oldStatus}\n• **New Status:** **${payload.status}**`;
+    const spoken = `Done. ${project.project_title} has been moved to ${payload.currentStage || payload.status}.`;
+    const display = `### ✅ Project Updated\n\n• **Project:** **${project.project_title}** (${project.project_number})\n• **Previous:** ${oldStatus}${oldStage ? ` (Stage: ${oldStage})` : ''}\n• **New Status:** **${payload.status}**${payload.currentStage ? `\n• **New Stage:** **${payload.currentStage}**` : ''}`;
 
     return {
       success: true,
