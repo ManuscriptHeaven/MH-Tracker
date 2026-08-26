@@ -16,6 +16,7 @@ export function ProjectDiscussionChat({
   messages,
   onSendMessage,
   onGetOrCreateProjectConversation,
+  onMarkRead,
 }: {
   projectId: string;
   projectName?: string;
@@ -32,6 +33,7 @@ export function ProjectDiscussionChat({
     parentMessageId?: string | null,
   ) => Promise<ChatMessage>;
   onGetOrCreateProjectConversation: (projectId: string, isInternal: boolean) => Promise<Conversation>;
+  onMarkRead?: (conversationId: string) => void;
 }) {
   const [activeConv, setActiveConv] = useState<Conversation | null>(null);
   const [inputMsg, setInputMsg] = useState('');
@@ -85,6 +87,13 @@ export function ProjectDiscussionChat({
       .filter((m) => m.conversation_id === activeConv.id)
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   }, [messages, activeConv]);
+
+  // Auto-mark conversation as read when viewing it or receiving new messages
+  useEffect(() => {
+    if (activeConv && onMarkRead) {
+      onMarkRead(activeConv.id);
+    }
+  }, [activeConv, projectMessages.length, onMarkRead]);
 
   // Scroll to bottom on new messages
   useEffect(() => {

@@ -88,6 +88,7 @@ export function ClientProjectDetailModal({
   messages = [],
   onSendMessage,
   onGetOrCreateProjectConversation,
+  onMarkRead,
   onClose,
   onApproveMilestone,
   onRequestRevision,
@@ -110,6 +111,7 @@ export function ClientProjectDetailModal({
     parentMessageId?: string | null,
   ) => Promise<ChatMessage>;
   onGetOrCreateProjectConversation?: (projectId: string, isInternal: boolean) => Promise<Conversation>;
+  onMarkRead?: (conversationId: string) => void;
   onClose: () => void;
   onApproveMilestone: (projectId: string, milestone: ApprovalMilestone) => Promise<void>;
   onRequestRevision: (projectId: string) => void;
@@ -544,6 +546,7 @@ export function ClientProjectDetailModal({
                   messages={messages}
                   onSendMessage={onSendMessage}
                   onGetOrCreateProjectConversation={onGetOrCreateProjectConversation}
+                  onMarkRead={onMarkRead}
                 />
               ) : (
                 <p className="text-xs text-muted">Messaging service is currently connecting...</p>

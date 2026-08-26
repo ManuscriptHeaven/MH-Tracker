@@ -49,6 +49,7 @@ export function approvalUpdateForMilestone(milestone: ApprovalMilestone) {
 export function timelineUpdateForStage(project: TimelineProject, stage: TimelineStage): Partial<Project> {
   const norm = normalizeStage(stage);
   const now = new Date().toISOString();
+  const today = now.slice(0, 10);
   const settings = getWorkflowSettings(project);
   const duration = getStageDurationDays(norm, settings, false);
   const due = calculateStageDueDate(now, duration, settings);
@@ -61,8 +62,8 @@ export function timelineUpdateForStage(project: TimelineProject, stage: Timeline
       timeline_status: 'Completed',
       waiting_on: 'None',
       stage_completed_at: now,
-      final_delivery_date: now.slice(0, 10),
-      delivery_date: now.slice(0, 10),
+      final_delivery_date: project.final_delivery_date || today,
+      delivery_date: project.delivery_date || today,
       client_action_required: '',
       updated_at: now,
     };
@@ -101,7 +102,80 @@ export function timelineUpdateForStage(project: TimelineProject, stage: Timeline
         ? ('Final Delivery' as Project['status'])
         : ('In Progress' as Project['status']);
 
+  // Milestone date synchronization so Supabase triggers and client stay 100% in sync
+  const milestoneDates: Partial<Project> = {
+    final_delivery_date: null,
+    delivery_date: null,
+  };
+
+  if (norm === 'Files Received') {
+    milestoneDates.files_received_date = project.files_received_date || today;
+    milestoneDates.design_concept_submitted_date = null;
+    milestoneDates.design_concept_approval_date = null;
+    milestoneDates.print_version_submitted_date = null;
+    milestoneDates.print_version_approval_date = null;
+    milestoneDates.ebook_submitted_date = null;
+    milestoneDates.ebook_approval_date = null;
+  } else if (norm === 'Design Concept') {
+    milestoneDates.files_received_date = project.files_received_date || today;
+    milestoneDates.design_concept_submitted_date = null;
+    milestoneDates.design_concept_approval_date = null;
+    milestoneDates.print_version_submitted_date = null;
+    milestoneDates.print_version_approval_date = null;
+    milestoneDates.ebook_submitted_date = null;
+    milestoneDates.ebook_approval_date = null;
+  } else if (norm === 'Concept Approval') {
+    milestoneDates.files_received_date = project.files_received_date || today;
+    milestoneDates.design_concept_submitted_date = project.design_concept_submitted_date || today;
+    milestoneDates.design_concept_approval_date = null;
+    milestoneDates.print_version_submitted_date = null;
+    milestoneDates.print_version_approval_date = null;
+    milestoneDates.ebook_submitted_date = null;
+    milestoneDates.ebook_approval_date = null;
+  } else if (norm === 'Print Version') {
+    milestoneDates.files_received_date = project.files_received_date || today;
+    milestoneDates.design_concept_submitted_date = project.design_concept_submitted_date || today;
+    milestoneDates.design_concept_approval_date = project.design_concept_approval_date || today;
+    milestoneDates.print_version_submitted_date = null;
+    milestoneDates.print_version_approval_date = null;
+    milestoneDates.ebook_submitted_date = null;
+    milestoneDates.ebook_approval_date = null;
+  } else if (norm === 'Print Approval') {
+    milestoneDates.files_received_date = project.files_received_date || today;
+    milestoneDates.design_concept_submitted_date = project.design_concept_submitted_date || today;
+    milestoneDates.design_concept_approval_date = project.design_concept_approval_date || today;
+    milestoneDates.print_version_submitted_date = project.print_version_submitted_date || today;
+    milestoneDates.print_version_approval_date = null;
+    milestoneDates.ebook_submitted_date = null;
+    milestoneDates.ebook_approval_date = null;
+  } else if (norm === 'Ebook Version') {
+    milestoneDates.files_received_date = project.files_received_date || today;
+    milestoneDates.design_concept_submitted_date = project.design_concept_submitted_date || today;
+    milestoneDates.design_concept_approval_date = project.design_concept_approval_date || today;
+    milestoneDates.print_version_submitted_date = project.print_version_submitted_date || today;
+    milestoneDates.print_version_approval_date = project.print_version_approval_date || today;
+    milestoneDates.ebook_submitted_date = null;
+    milestoneDates.ebook_approval_date = null;
+  } else if (norm === 'Ebook Approval') {
+    milestoneDates.files_received_date = project.files_received_date || today;
+    milestoneDates.design_concept_submitted_date = project.design_concept_submitted_date || today;
+    milestoneDates.design_concept_approval_date = project.design_concept_approval_date || today;
+    milestoneDates.print_version_submitted_date = project.print_version_submitted_date || today;
+    milestoneDates.print_version_approval_date = project.print_version_approval_date || today;
+    milestoneDates.ebook_submitted_date = project.ebook_submitted_date || today;
+    milestoneDates.ebook_approval_date = null;
+  } else if (norm === 'Final Delivery') {
+    milestoneDates.files_received_date = project.files_received_date || today;
+    milestoneDates.design_concept_submitted_date = project.design_concept_submitted_date || today;
+    milestoneDates.design_concept_approval_date = project.design_concept_approval_date || today;
+    milestoneDates.print_version_submitted_date = project.print_version_submitted_date || today;
+    milestoneDates.print_version_approval_date = project.print_version_approval_date || today;
+    milestoneDates.ebook_submitted_date = project.ebook_submitted_date || today;
+    milestoneDates.ebook_approval_date = project.ebook_approval_date || today;
+  }
+
   return {
+    ...milestoneDates,
     status: standardStatus,
     current_stage: norm as TimelineStage,
     stage_status: isApproval ? 'PAUSED_CLIENT_REVIEW' : 'ACTIVE',
@@ -116,8 +190,6 @@ export function timelineUpdateForStage(project: TimelineProject, stage: Timeline
       : '',
     stage_started_at: now,
     stage_due_at: isApproval ? null : due,
-    final_delivery_date: null,
-    delivery_date: null,
     stage_completed_at: null,
     updated_at: now,
   };

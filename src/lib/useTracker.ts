@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabase';
 import { sampleData, sampleProfiles } from './sampleData';
 import { errorMessage, firstName, isClientRole, isManagerRole } from './utils';
@@ -8,6 +8,7 @@ import {
   markNotificationAsRead,
   subscribeToNotifications,
 } from './notifications';
+import { notifyWithSoundAndVoice } from './sound';
 import {
   calculateStageDueDate,
   createStageHistoryEntry,
@@ -596,13 +597,103 @@ function loginErrorMessage(error: unknown) {
   return message;
 }
 
+const AUTH_PROFILE_STORAGE_KEY = 'mh_auth_profile';
+const AUTH_MODE_STORAGE_KEY = 'mh_auth_mode';
+const TRACKER_DATA_STORAGE_KEY = 'mh_tracker_cache';
+
+function getStoredProfile(): Profile | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(AUTH_PROFILE_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as Profile) : null;
+  } catch {
+    return null;
+  }
+}
+
+function setStoredProfile(profile: Profile | null) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (profile) {
+      localStorage.setItem(AUTH_PROFILE_STORAGE_KEY, JSON.stringify(profile));
+    } else {
+      localStorage.removeItem(AUTH_PROFILE_STORAGE_KEY);
+    }
+  } catch (err) {
+    console.warn('Could not persist profile in localStorage:', err);
+  }
+}
+
+function getStoredMode(): AuthMode {
+  if (typeof window === 'undefined') return supabase ? 'supabase' : 'demo';
+  try {
+    const raw = localStorage.getItem(AUTH_MODE_STORAGE_KEY) as AuthMode | null;
+    if (raw === 'supabase' || raw === 'demo') return raw;
+  } catch {
+    // fallback
+  }
+  return supabase ? 'supabase' : 'demo';
+}
+
+function setStoredMode(mode: AuthMode | null) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (mode) {
+      localStorage.setItem(AUTH_MODE_STORAGE_KEY, mode);
+    } else {
+      localStorage.removeItem(AUTH_MODE_STORAGE_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function getStoredTrackerData(): TrackerData | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(TRACKER_DATA_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as TrackerData) : null;
+  } catch {
+    return null;
+  }
+}
+
+function setStoredTrackerData(trackerData: TrackerData) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(TRACKER_DATA_STORAGE_KEY, JSON.stringify(trackerData));
+  } catch {
+    // ignore quota errors
+  }
+}
+
+function clearStoredAuth() {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(AUTH_PROFILE_STORAGE_KEY);
+    localStorage.removeItem(AUTH_MODE_STORAGE_KEY);
+    localStorage.removeItem(TRACKER_DATA_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export function useTracker() {
-  const [mode, setMode] = useState<AuthMode>(supabase ? 'supabase' : 'demo');
-  const [currentProfile, setCurrentProfile] = useState<Profile | null>(null);
-  const [data, setData] = useState<TrackerData>(sampleData);
-  const [isLoading, setIsLoading] = useState(Boolean(supabase));
+  const initialProfile = useMemo(() => getStoredProfile(), []);
+  const initialMode = useMemo(() => getStoredMode(), []);
+  const initialData = useMemo(() => getStoredTrackerData() || sampleData, []);
+
+  const [mode, setMode] = useState<AuthMode>(initialMode);
+  const [currentProfile, setCurrentProfile] = useState<Profile | null>(initialProfile);
+  const [data, setData] = useState<TrackerData>(initialData);
+  // isInitializing is true only on cold startup when no cached profile exists
+  const [isInitializing, setIsInitializing] = useState<boolean>(() => Boolean(supabase && !initialProfile));
+  const [isSubmittingLogin, setIsSubmittingLogin] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [notificationToast, setNotificationToast] = useState<NotificationItem | null>(null);
+
+  const isRestoringRef = useRef<boolean>(false);
 
   const loadSupabaseData = useCallback(async (profile: Profile) => {
     if (!supabase) {
@@ -787,7 +878,7 @@ export function useTracker() {
       ? rawConvs.filter((c) => c.type === 'project_client')
       : rawConvs;
 
-    setData({
+    const nextData: TrackerData = {
       profiles: profilesRes.data as Profile[],
       projects: mergePayments(projects, payments),
       revisionNotes: revisionsRes.data as RevisionNote[],
@@ -810,8 +901,10 @@ export function useTracker() {
       messageAttachments: messageAttachmentsRes.data as MessageAttachment[],
       messageReactions: messageReactionsRes.data as MessageReaction[],
       messageMentions: messageMentionsRes.data as MessageMention[],
-    });
+    };
 
+    setData(nextData);
+    setStoredTrackerData(nextData);
     setIsLoading(false);
   }, []);
 
@@ -838,36 +931,80 @@ export function useTracker() {
 
     async function restoreSession() {
       if (!supabase) {
+        setIsInitializing(false);
         setIsLoading(false);
         return;
       }
 
+      if (isRestoringRef.current) {
+        return;
+      }
+      isRestoringRef.current = true;
+
       try {
         const {
           data: { session },
+          error: sessionError,
         } = await supabase.auth.getSession();
 
         if (!active) {
           return;
         }
 
+        if (sessionError) {
+          console.warn('Session check error:', sessionError);
+        }
+
         if (!session?.user) {
+          // If there is no active session on Supabase, clear stored credentials
+          clearStoredAuth();
+          if (active) {
+            setCurrentProfile(null);
+          }
+          return;
+        }
+
+        let profile: Profile | null = null;
+        try {
+          profile = await fetchProfile(session.user.id);
+        } catch (fetchErr) {
+          console.warn('Failed to fetch live profile during restore, checking cached profile:', fetchErr);
+          const cached = getStoredProfile();
+          if (cached && cached.id === session.user.id) {
+            profile = cached;
+          }
+        }
+
+        if (!active) {
+          return;
+        }
+
+        if (!profile) {
+          clearStoredAuth();
           setCurrentProfile(null);
-          setIsLoading(false);
           return;
         }
 
-        const profile = await fetchProfile(session.user.id);
-        if (!profile || !active) {
-          return;
-        }
-
+        setStoredProfile(profile);
+        setStoredMode('supabase');
+        setMode('supabase');
         setCurrentProfile(profile);
-        await loadSupabaseData(profile);
+
+        try {
+          await loadSupabaseData(profile);
+        } catch (dataErr) {
+          console.warn('Background Supabase data load error:', dataErr);
+          // Keep the user logged in even if background data sync encounters an issue
+        }
       } catch (sessionError) {
-        if (active) {
-          setError(sessionError instanceof Error ? sessionError.message : 'Could not restore session.');
+        console.warn('Session restoration error:', sessionError);
+        if (!getStoredProfile() && active) {
           setCurrentProfile(null);
+        }
+      } finally {
+        isRestoringRef.current = false;
+        if (active) {
+          setIsInitializing(false);
           setIsLoading(false);
         }
       }
@@ -875,21 +1012,40 @@ export function useTracker() {
 
     restoreSession();
 
-    const authListener = supabase?.auth.onAuthStateChange(async (_event, session) => {
-      if (!session?.user) {
+    const authListener = supabase?.auth.onAuthStateChange(async (event, session) => {
+      if (!active) return;
+
+      if (event === 'SIGNED_OUT' || !session?.user) {
+        clearStoredAuth();
         setCurrentProfile(null);
+        setIsInitializing(false);
         setIsLoading(false);
         return;
       }
 
-      try {
-        const profile = await fetchProfile(session.user.id);
-        if (profile) {
-          setCurrentProfile(profile);
-          await loadSupabaseData(profile);
+      if (isRestoringRef.current) {
+        return;
+      }
+
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        try {
+          const profile = await fetchProfile(session.user.id);
+          if (!active) return;
+          if (profile) {
+            setStoredProfile(profile);
+            setStoredMode('supabase');
+            setMode('supabase');
+            setCurrentProfile(profile);
+            await loadSupabaseData(profile);
+          }
+        } catch (authError) {
+          console.warn('onAuthStateChange error:', authError);
+        } finally {
+          if (active) {
+            setIsInitializing(false);
+            setIsLoading(false);
+          }
         }
-      } catch (authError) {
-        setError(authError instanceof Error ? authError.message : 'Could not load profile.');
       }
     });
 
@@ -922,6 +1078,7 @@ export function useTracker() {
           };
         });
         setNotificationToast(notification);
+        notifyWithSoundAndVoice('notification', notification.title, notification.message);
       },
       onUpdated: (notification) => {
         setData((previous) => ({
@@ -935,6 +1092,84 @@ export function useTracker() {
       if (subscription) {
         supabaseClient.removeChannel(subscription);
       }
+    };
+  }, [currentProfile, mode]);
+
+  useEffect(() => {
+    const supabaseClient = supabase;
+
+    if (!supabaseClient || mode !== 'supabase' || !currentProfile) {
+      return undefined;
+    }
+
+    // Realtime chat message and reaction synchronization
+    const subscription = supabaseClient
+      .channel(`realtime-chat-sync:${currentProfile.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => {
+          const newMsg = payload.new as ChatMessage;
+          if (!newMsg || !newMsg.id) return;
+
+          setData((prev) => {
+            const exists = (prev.messages || []).some((m) => m.id === newMsg.id);
+            if (exists) return prev;
+
+            // Trigger sound and voice alert if message was sent by another user
+            if (newMsg.sender_id !== currentProfile.id) {
+              const sender = (prev.profiles || []).find((p) => p.id === newMsg.sender_id);
+              const senderName = sender?.full_name || 'Team Member';
+              notifyWithSoundAndVoice('message', senderName, newMsg.body);
+            }
+
+            return {
+              ...prev,
+              messages: [...(prev.messages || []), newMsg],
+            };
+          });
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'conversation_members' },
+        (payload) => {
+          const updatedMember = payload.new as ConversationMember;
+          if (!updatedMember || !updatedMember.id) return;
+
+          setData((prev) => {
+            const members = prev.conversationMembers || [];
+            const idx = members.findIndex(
+              (m) =>
+                m.id === updatedMember.id ||
+                (m.conversation_id === updatedMember.conversation_id && m.user_id === updatedMember.user_id),
+            );
+
+            if (idx >= 0) {
+              const next = [...members];
+              next[idx] = updatedMember;
+              return { ...prev, conversationMembers: next };
+            }
+
+            return { ...prev, conversationMembers: [...members, updatedMember] };
+          });
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'message_reactions' },
+        () => {
+          void safeSelect<MessageReaction>(supabaseClient.from('message_reactions').select('*')).then((res) => {
+            if (res.data) {
+              setData((prev) => ({ ...prev, messageReactions: res.data }));
+            }
+          });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabaseClient.removeChannel(subscription);
     };
   }, [currentProfile, mode]);
 
@@ -975,12 +1210,17 @@ export function useTracker() {
       }
 
       if (!supabase) {
-        const profile = sampleProfiles.find((item) => profileMatchesLoginName(item, cleanLoginName));
-        setCurrentProfile(profile || sampleProfiles[0]);
+        const profile = sampleProfiles.find((item) => profileMatchesLoginName(item, cleanLoginName)) || sampleProfiles[0];
+        setStoredProfile(profile);
+        setStoredMode('demo');
         setMode('demo');
+        setCurrentProfile(profile);
+        setIsLoading(false);
+        setIsInitializing(false);
         return;
       }
 
+      setIsSubmittingLogin(true);
       setIsLoading(true);
       try {
         let email = cleanLoginName;
@@ -1015,14 +1255,18 @@ export function useTracker() {
           throw new Error('This user does not have a profile record yet.');
         }
 
+        setStoredProfile(profile);
+        setStoredMode('supabase');
         setMode('supabase');
         setCurrentProfile(profile);
         await loadSupabaseData(profile);
       } catch (loginError) {
         const message = loginErrorMessage(loginError);
         setError(message);
-        setIsLoading(false);
         throw new Error(message);
+      } finally {
+        setIsSubmittingLogin(false);
+        setIsLoading(false);
       }
     },
     [fetchProfile, loadSupabaseData],
@@ -1030,21 +1274,31 @@ export function useTracker() {
 
   const loginDemo = useCallback((role: Role) => {
     const profile = sampleProfiles.find((item) => item.role === role) || sampleProfiles[0];
+    setStoredProfile(profile);
+    setStoredMode('demo');
     setMode('demo');
     setCurrentProfile(profile);
     setData(sampleData);
     setError(null);
     setIsLoading(false);
+    setIsInitializing(false);
   }, []);
 
   const signOut = useCallback(async () => {
-    if (supabase && mode === 'supabase') {
-      await supabase.auth.signOut();
+    try {
+      if (supabase && mode === 'supabase') {
+        await supabase.auth.signOut();
+      }
+    } catch (err) {
+      console.warn('Sign out warning:', err);
+    } finally {
+      clearStoredAuth();
+      setCurrentProfile(null);
+      setData(sampleData);
+      setMode(supabase ? 'supabase' : 'demo');
+      setIsLoading(false);
+      setIsInitializing(false);
     }
-
-    setCurrentProfile(null);
-    setData(sampleData);
-    setMode(supabase ? 'supabase' : 'demo');
   }, [mode]);
 
   const addActivity = useCallback(
@@ -2930,6 +3184,8 @@ export function useTracker() {
         messageAttachments: [...(prev.messageAttachments || []), ...newAttachments],
       }));
 
+      void markConversationRead(conversationId);
+
       return newMessage;
     },
     [currentProfile, data.profiles, mode],
@@ -2985,8 +3241,27 @@ export function useTracker() {
 
         return { ...prev, conversationMembers: updated };
       });
+
+      if (supabase && mode === 'supabase') {
+        try {
+          const { error } = await supabase.from('conversation_members').upsert(
+            {
+              conversation_id: conversationId,
+              user_id: currentProfile.id,
+              last_read_at: now,
+            },
+            { onConflict: 'conversation_id,user_id' },
+          );
+
+          if (error && !isMissingSchemaError(error)) {
+            console.warn('conversation_members upsert warning:', error);
+          }
+        } catch (err) {
+          console.warn('Could not persist markConversationRead in supabase:', err);
+        }
+      }
     },
-    [currentProfile],
+    [currentProfile, mode],
   );
 
   const getOrCreateProjectConversation = useCallback(
@@ -3148,6 +3423,8 @@ export function useTracker() {
     currentProfile,
     data,
     isLoading,
+    isInitializing,
+    isSubmittingLogin,
     error,
     setError,
     canManageAll,

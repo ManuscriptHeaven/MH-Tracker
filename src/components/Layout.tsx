@@ -17,6 +17,8 @@ import {
   Search,
   Settings,
   Users,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { roleLabels } from '../lib/constants';
 import { initials, cn, firstName, isClientRole, isManagerRole } from '../lib/utils';
@@ -27,6 +29,7 @@ import { MessageNotificationBell, getUnreadMessagesInfo } from './MessageNotific
 import { CurrencySelector } from './CurrencySelector';
 import { MobileMoreMenu } from './MobileMoreMenu';
 import { usePwaInstall } from '../lib/pwa';
+import { isSoundEnabled, setSoundEnabled, playNotificationSound } from '../lib/sound';
 
 export type ViewKey =
   | 'dashboard'
@@ -93,6 +96,7 @@ export function Layout({
   onSignOut: () => void;
 }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [soundActive, setSoundActive] = useState<boolean>(() => isSoundEnabled());
   const { canInstall, promptInstall } = usePwaInstall();
   const canAddProject = isManagerRole(currentProfile.role) && (activeView === 'dashboard' || activeView === 'projects');
   const canManageAll = isManagerRole(currentProfile.role);
@@ -245,6 +249,18 @@ export function Layout({
               </label>
 
               <div className="flex items-center justify-between sm:justify-end gap-1.5 sm:gap-2">
+                <IconButton
+                  title={soundActive ? 'Sound & Voice Alerts: Enabled (Click to mute)' : 'Sound & Voice Alerts: Muted (Click to unmute)'}
+                  onClick={() => {
+                    const next = !soundActive;
+                    setSoundActive(next);
+                    setSoundEnabled(next);
+                    if (next) playNotificationSound();
+                  }}
+                  className={cn('transition', soundActive ? 'text-gold hover:text-gold/80' : 'text-muted/60 hover:text-muted')}
+                >
+                  {soundActive ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+                </IconButton>
                 <CurrencySelector />
                 <MessageNotificationBell
                   currentProfile={currentProfile}

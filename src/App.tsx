@@ -91,11 +91,36 @@ export default function App() {
     if (selectedProjectFresh) await tracker.updateProject(selectedProjectFresh.id, updates);
   }
 
+  if (tracker.isInitializing && !tracker.currentProfile) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-linen p-4">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <div className="grid h-16 w-16 place-items-center rounded-xl bg-gold text-ink font-display text-2xl font-bold shadow-lg animate-pulse">
+            MH
+          </div>
+          <div>
+            <h1 className="font-display text-xl font-semibold text-ink">Manuscript Heaven</h1>
+            <p className="text-xs uppercase tracking-[0.2em] text-gold mt-1">Publishing Operations</p>
+          </div>
+          <div className="mt-4 flex items-center gap-2 text-sm font-medium text-muted">
+            <div className="h-4 w-4 rounded-full border-2 border-gold border-t-transparent animate-spin" />
+            <span>Restoring session...</span>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   if (!tracker.currentProfile) {
     return (
       <>
         <OfflineBanner />
-        <LoginPage onLogin={tracker.login} onDemoLogin={tracker.loginDemo} error={tracker.error} isLoading={tracker.isLoading} />
+        <LoginPage
+          onLogin={tracker.login}
+          onDemoLogin={tracker.loginDemo}
+          error={tracker.error}
+          isLoading={tracker.isSubmittingLogin}
+        />
       </>
     );
   }
@@ -220,6 +245,7 @@ export default function App() {
         messages={tracker.data.messages}
         onSendMessage={tracker.sendMessage}
         onGetOrCreateProjectConversation={tracker.getOrCreateProjectConversation}
+        onMarkRead={tracker.markConversationRead}
       />
     )}
     {selectedProjectFresh && isClient && (
@@ -237,6 +263,7 @@ export default function App() {
         messages={tracker.data.messages}
         onSendMessage={tracker.sendMessage}
         onGetOrCreateProjectConversation={tracker.getOrCreateProjectConversation}
+        onMarkRead={tracker.markConversationRead}
         onClose={() => setSelectedProject(null)}
         onApproveMilestone={async (projectId, milestone) => {
           try {

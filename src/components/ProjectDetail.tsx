@@ -114,6 +114,7 @@ export function ProjectDetail({
   messages = [],
   onSendMessage,
   onGetOrCreateProjectConversation,
+  onMarkRead,
 }: {
   project: Project;
   profiles: Profile[];
@@ -145,6 +146,7 @@ export function ProjectDetail({
     parentMessageId?: string | null,
   ) => Promise<ChatMessage>;
   onGetOrCreateProjectConversation?: (projectId: string, isInternal: boolean) => Promise<Conversation>;
+  onMarkRead?: (conversationId: string) => void;
 }) {
   const { formatMoney } = useCurrency();
   const [activeTab, setActiveTab] = useState<ProjectDetailTab>('overview');
@@ -1061,6 +1063,7 @@ export function ProjectDetail({
                       messages={messages}
                       onSendMessage={onSendMessage}
                       onGetOrCreateProjectConversation={onGetOrCreateProjectConversation}
+                      onMarkRead={onMarkRead}
                     />
                   ) : (
                     <p className="text-xs text-muted">Messaging service is currently connecting...</p>

@@ -77,6 +77,7 @@ export function LoginPage({
               placeholder="First name, for example Tahir"
               value={loginName}
               onChange={(event) => setLoginName(event.target.value)}
+              autoComplete="username"
               required
             />
             <Field
@@ -84,12 +85,13 @@ export function LoginPage({
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
               required={isSupabaseConfigured}
             />
             {error ? <p className="rounded-md bg-red-50 p-3 text-sm text-danger">{error}</p> : null}
             <Button type="submit" className="w-full" disabled={isLoading}>
               <UserRound className="h-4 w-4" />
-              {isLoading ? 'Signing in' : 'Sign In'}
+              {isLoading ? 'Signing in...' : 'Sign In'}
             </Button>
           </form>
 
