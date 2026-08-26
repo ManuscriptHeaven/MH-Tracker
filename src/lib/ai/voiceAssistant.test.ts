@@ -660,6 +660,33 @@ export async function runVoiceAssistantTests() {
   assert(Boolean(res38b.success && res38b.spokenText.includes('Print Approval')), 'Test 38b: Verbal confirmation executes stage update');
   console.log(`   Assistant (Executed): "${res38b.spokenText}"`);
 
+  // TEST 39: Generate Invoice for Client Pending Payments
+  voiceQueryEngine.clearMemory();
+  const res39 = await voiceQueryEngine.processQuery('Generate invoice for BCH for all pending payments', createAdminCtx());
+  assert(
+    Boolean(
+      res39.success &&
+      res39.invoice &&
+      res39.invoice.client_name === 'BCH' &&
+      res39.invoice.total_due === 1000 &&
+      res39.spokenText.includes('$1,000'),
+    ),
+    'Test 39: "Generate invoice for BCH for all pending payments" creates itemized invoice for $1,000',
+  );
+  console.log(`   User: "Generate invoice for BCH for all pending payments"\n   Assistant (Invoice): "${res39.spokenText}"`);
+
+  // TEST 40: Generate Invoice for settled client
+  voiceQueryEngine.clearMemory();
+  const res40 = await voiceQueryEngine.processQuery('Create invoice for Noah Brooks for pending payments', createAdminCtx());
+  assert(
+    Boolean(
+      res40.success &&
+      (res40.spokenText.includes('no pending payments') || res40.spokenText.includes('settled')),
+    ),
+    'Test 40: "Create invoice for Noah Brooks" detects settled account',
+  );
+  console.log(`   User: "Create invoice for Noah Brooks for pending payments"\n   Assistant: "${res40.spokenText}"`);
+
   console.log('====================================================');
   console.log(`📊 TEST RESULTS: ${passed}/${total} PASSED (${Math.round((passed / total) * 100)}%)`);
   console.log('====================================================');

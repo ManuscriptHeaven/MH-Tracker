@@ -2,16 +2,19 @@ import React from 'react';
 import { Bot, User, Volume2, VolumeX, Square, Sparkles } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { AIMessage } from '../../lib/ai/aiTypes';
+import type { Invoice } from '../../lib/types';
 import { useAIContext } from '../../lib/ai/aiContext';
 import { AIActionPreviewCard } from './AIActionPreviewCard';
 import { AIDisambiguationCard } from './AIDisambiguationCard';
+import { AIInvoiceCard } from './AIInvoiceCard';
 
 interface AIChatMessageProps {
   message: AIMessage;
   isProcessing?: boolean;
+  onViewInvoice?: (invoice: Invoice) => void;
 }
 
-export function AIChatMessage({ message, isProcessing }: AIChatMessageProps) {
+export function AIChatMessage({ message, isProcessing, onViewInvoice }: AIChatMessageProps) {
   const { isSpeaking, isMuted, speakText, stopSpeaking } = useAIContext();
   const isUser = message.role === 'user';
 
@@ -86,6 +89,11 @@ export function AIChatMessage({ message, isProcessing }: AIChatMessageProps) {
         {/* Phase 2: Disambiguation Card */}
         {message.metadata?.disambiguation && message.metadata.disambiguation.length > 0 && (
           <AIDisambiguationCard options={message.metadata.disambiguation} />
+        )}
+
+        {/* Phase 2: Invoice Card */}
+        {message.metadata?.invoice && (
+          <AIInvoiceCard invoice={message.metadata.invoice} onViewInvoice={onViewInvoice} />
         )}
 
         {/* Footer info & Action buttons */}

@@ -338,6 +338,7 @@ export function AIProvider({ children, tracker }: { children: ReactNode; tracker
             pendingAction: result.pendingAction,
             disambiguation: result.disambiguation,
             auditLog: result.auditLog,
+            invoice: result.invoice,
           },
           createdAt: new Date().toISOString(),
         };

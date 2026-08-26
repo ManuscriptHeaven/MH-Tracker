@@ -8,6 +8,7 @@ import type {
 import type { Project, ProjectStatus } from '../types';
 import { isManagerRole, isClientRole, firstName } from '../utils';
 import { formatDate, todayInput, addDays } from '../date';
+import { createBulkInvoice, getEligibleProjectsForClient } from '../invoiceUtils';
 
 function createAuditLog(
   ctx: AIToolContext,
@@ -1633,4 +1634,114 @@ export async function execute_invite_client(
       auditLog: createAuditLog(ctx, `Client invite failed: ${payload.full_name}`, 'message', undefined, payload.full_name, null, null, 'failed', errorMsg),
     };
   }
+}
+
+export async function execute_generate_client_invoice(
+  payload: {
+    clientName: string;
+    month?: number | 'all';
+    year?: number | 'all';
+    paymentStatus?: string;
+  },
+  ctx: AIToolContext,
+): Promise<AIToolResult> {
+  if (isClientRole(ctx.currentProfile.role)) {
+    return {
+      success: false,
+      toolName: 'generate_client_invoice',
+      error: 'permission_denied',
+      spokenText: 'Clients cannot generate invoices through the assistant.',
+      displayText: '🔒 Only staff and admins can generate client invoices.',
+    };
+  }
+
+  const { clientName, month = 'all', year = 'all', paymentStatus = 'pending' } = payload;
+  const projects = ctx.visibleProjects || [];
+
+  // Find matching client
+  const clientProjects = projects.filter(
+    (p) => (p.client_name || '').toLowerCase() === clientName.toLowerCase(),
+  );
+
+  let resolvedClient = clientProjects[0]?.client_name;
+  if (!resolvedClient) {
+    const allClients = Array.from(new Set(projects.map((p) => p.client_name).filter(Boolean)));
+    const fuzzy = allClients.find((c) => c.toLowerCase().includes(clientName.toLowerCase()));
+    if (fuzzy) {
+      resolvedClient = fuzzy;
+    } else {
+      return {
+        success: false,
+        toolName: 'generate_client_invoice',
+        spokenText: `I couldn't find any projects for client "${clientName}".`,
+        displayText: `❌ No projects found for client **${clientName}**.`,
+      };
+    }
+  }
+
+  const eligible = getEligibleProjectsForClient(projects, resolvedClient, month, year, paymentStatus, true);
+
+  // Check if there are eligible projects or any with positive remaining balance
+  const invoiceProjects =
+    eligible.length > 0
+      ? eligible
+      : projects.filter(
+          (p) =>
+            (p.client_name || '').toLowerCase() === resolvedClient.toLowerCase() &&
+            (p.remaining_balance || 0) > 0,
+        );
+
+  if (invoiceProjects.length === 0) {
+    return {
+      success: true,
+      toolName: 'generate_client_invoice',
+      spokenText: `${resolvedClient} currently has no pending payments or unpaid projects. All accounts are settled.`,
+      displayText: `### 🧾 Invoice Status for ${resolvedClient}\n\n• **Status:** All accounts settled\n• **Pending Projects:** 0\n• **Outstanding Balance:** **${ctx.formatMoney(0)}**\n\nNo pending invoice is required.`,
+    };
+  }
+
+  const clientEmail = invoiceProjects[0]?.client_email || '';
+  const invoice = createBulkInvoice(resolvedClient, clientEmail, invoiceProjects, month, year);
+
+  const audit = createAuditLog(
+    ctx,
+    `Generated Invoice #${invoice.invoice_number} for "${resolvedClient}"`,
+    'finance',
+    invoice.id,
+    `Invoice #${invoice.invoice_number}`,
+    null,
+    `Total: ${ctx.formatMoney(invoice.total_due)}`,
+    'success',
+  );
+
+  const totalFormatted = ctx.formatMoney(invoice.total_due);
+  const spoken = `I generated an invoice for ${resolvedClient} for ${invoiceProjects.length} pending ${invoiceProjects.length === 1 ? 'project' : 'projects'} totaling ${totalFormatted}.`;
+
+  const itemRows = invoice.items
+    .map(
+      (it) =>
+        `| **${it.project_title}** (${it.project_number}) | ${it.service_type} | ${ctx.formatMoney(it.total_price)} | ${ctx.formatMoney(it.advance_paid)} | **${ctx.formatMoney(it.due_amount)}** |`,
+    )
+    .join('\n');
+
+  const display =
+    `### 🧾 Invoice Generated\n\n` +
+    `• **Invoice #:** **${invoice.invoice_number}**\n` +
+    `• **Client:** **${resolvedClient}** (${clientEmail || 'No email set'})\n` +
+    `• **Due Date:** ${invoice.due_date}\n` +
+    `• **Total Projects:** ${invoiceProjects.length}\n` +
+    `• **Total Due:** **${totalFormatted}**\n\n` +
+    `| Project | Service | Total | Advance | Due Amount |\n` +
+    `| :--- | :--- | :--- | :--- | :--- |\n` +
+    `${itemRows}\n\n` +
+    `**Total Balance Due: ${totalFormatted}**`;
+
+  return {
+    success: true,
+    toolName: 'generate_client_invoice',
+    spokenText: spoken,
+    displayText: display,
+    invoice,
+    auditLog: audit,
+  };
 }

@@ -10,6 +10,7 @@ import type {
   ProjectStatus,
   FinanceTransactionDraft,
   EmployeeLedgerType,
+  Invoice,
 } from '../types';
 
 export type AIToolName =
@@ -61,7 +62,8 @@ export type AIToolName =
   | 'add_payroll_deduction'
   | 'send_internal_message'
   | 'send_client_message'
-  | 'send_whatsapp_message';
+  | 'send_whatsapp_message'
+  | 'generate_client_invoice';
 
 export type AIActionCategory = 'safe_read' | 'safe_write' | 'high_risk' | 'destructive';
 
@@ -174,6 +176,7 @@ export interface AIToolResult<T = any> {
   pendingAction?: AIActionPreview;
   disambiguation?: DisambiguationOption[];
   auditLog?: AIActionAuditLog;
+  invoice?: Invoice;
   entities?: {
     projects?: Project[];
     clients?: string[];
@@ -232,6 +235,7 @@ export interface AIMessageMetadata {
   disambiguation?: DisambiguationOption[];
   actionStatus?: 'pending' | 'confirmed' | 'cancelled' | 'executed' | 'failed';
   auditLog?: AIActionAuditLog;
+  invoice?: Invoice;
   sources?: RAGSource[];
   suggestedFollowUps?: string[];
 }

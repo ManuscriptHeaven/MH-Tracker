@@ -328,6 +328,42 @@ export class VoiceQueryEngine {
 
   private async detectWriteIntent(lower: string, q: string, ctx: AIToolContext): Promise<AIToolResult | null> {
     // ----------------------------------------------------
+    // 00. INVOICE GENERATION INTENT
+    // e.g. "Generate invoice for BCH for all pending payments", "Create invoice for BCH", "Invoice BCH"
+    // ----------------------------------------------------
+    if (
+      (lower.includes('invoice') || lower.includes('generate bill') || lower.includes('bill client')) &&
+      (lower.includes('generate') ||
+        lower.includes('create') ||
+        lower.includes('make') ||
+        lower.includes('send') ||
+        lower.includes('for all pending') ||
+        lower.includes('pending payment') ||
+        lower.includes('outstanding') ||
+        lower.startsWith('invoice ') ||
+        lower.startsWith('bill '))
+    ) {
+      const clientName = this.extractClientFromQuery(lower, ctx);
+      if (!clientName) {
+        // Fallback matching: extract word after "for" or "to"
+        const match = q.match(/(?:invoice|bill|for)\s+(?:client\s+)?([a-zA-Z0-9\s]+?)(?:\s+for\s+all|\s+for\s+pending|\s+pending|\s*$)/i);
+        const candidate = match ? match[1].trim() : '';
+        if (candidate && candidate.toLowerCase() !== 'all' && candidate.toLowerCase() !== 'client') {
+          return safeActions.execute_generate_client_invoice({ clientName: candidate }, ctx);
+        }
+
+        return {
+          success: false,
+          toolName: 'generate_client_invoice',
+          spokenText: 'Which client would you like me to generate an invoice for?',
+          displayText: '❓ Please specify which client to generate the invoice for.',
+        };
+      }
+
+      return safeActions.execute_generate_client_invoice({ clientName }, ctx);
+    }
+
+    // ----------------------------------------------------
     // 0. CREATE PROJECT INTENT
     // e.g. "Add a new project named as Good One Client BCH", "Create a project called Good One for BCH", "New project Good One for BCH"
     // ----------------------------------------------------
@@ -1500,6 +1536,8 @@ export class VoiceQueryEngine {
         return safeActions.execute_send_internal_message(action.payload as any, ctx);
       case 'send_client_message':
         return safeActions.execute_send_client_message(action.payload as any, ctx);
+      case 'generate_client_invoice':
+        return safeActions.execute_generate_client_invoice(action.payload as any, ctx);
       default:
         return {
           success: false,
