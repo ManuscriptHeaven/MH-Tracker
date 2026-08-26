@@ -3,6 +3,8 @@ import { Bot, User, Volume2, VolumeX, Square, Sparkles } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { AIMessage } from '../../lib/ai/aiTypes';
 import { useAIContext } from '../../lib/ai/aiContext';
+import { AIActionPreviewCard } from './AIActionPreviewCard';
+import { AIDisambiguationCard } from './AIDisambiguationCard';
 
 interface AIChatMessageProps {
   message: AIMessage;
@@ -72,6 +74,19 @@ export function AIChatMessage({ message, isProcessing }: AIChatMessageProps) {
             </div>
           ) : null}
         </div>
+
+        {/* Phase 2: Action Preview Confirmation Card */}
+        {message.metadata?.pendingAction && (
+          <AIActionPreviewCard 
+            action={message.metadata.pendingAction} 
+            isConfirmedOrCancelled={Boolean(message.metadata.actionStatus)}
+          />
+        )}
+
+        {/* Phase 2: Disambiguation Card */}
+        {message.metadata?.disambiguation && message.metadata.disambiguation.length > 0 && (
+          <AIDisambiguationCard options={message.metadata.disambiguation} />
+        )}
 
         {/* Footer info & Action buttons */}
         <div className="flex items-center justify-between gap-2 mt-2 pt-1 border-t border-black/5 text-[10px] text-muted">

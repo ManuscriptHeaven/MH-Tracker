@@ -495,12 +495,98 @@ export async function runVoiceAssistantTests() {
   assert(res24.success && res24.spokenText.includes('payroll obligation'), 'Test 24: How much do we owe the team?');
   console.log(`   Assistant: "${res24.spokenText}"`);
 
+  // ==========================================
+  // PHASE 2 SAFE WRITE & CONFIRMATION TESTS
+  // ==========================================
+  console.log('\n--- 🛡️ PHASE 2: SAFE ACTIONS & CONFIRMATION TESTS ---');
+
+  // TEST 25: Critical Acceptance Test Turn 1-4 (Revision Reassignment with Voice Confirmation)
+  voiceQueryEngine.clearMemory();
+  const res25a = await voiceQueryEngine.processQuery('How many projects are in revision?', createAdminCtx());
+  assert(res25a.success && res25a.spokenText.includes('revision'), 'Test 25a: "How many projects are in revision?"');
+  console.log(`   User: "How many projects are in revision?"\n   Assistant: "${res25a.spokenText}"`);
+
+  const res25b = await voiceQueryEngine.processQuery('Which ones?', createAdminCtx());
+  assert(res25b.success && res25b.spokenText.includes('Founder Notes Workbook'), 'Test 25b: "Which ones?"');
+  console.log(`   User: "Which ones?"\n   Assistant: "${res25b.spokenText}"`);
+
+  const res25c = await voiceQueryEngine.processQuery('Assign Founder Notes Workbook revision to Zain', createAdminCtx());
+  assert(Boolean(res25c.success && res25c.pendingAction && res25c.pendingAction.toolName === 'reassign_revision'), 'Test 25c: Preview generated for revision reassignment');
+  console.log(`   User: "Assign Founder Notes Workbook revision to Zain"\n   Assistant (Preview): "${res25c.spokenText}"`);
+
+  const res25d = await voiceQueryEngine.processQuery('Yes', createAdminCtx());
+  assert(Boolean(res25d.success && res25d.spokenText.includes('is now assigned to Zain')), 'Test 25d: Verbal confirmation "Yes" executes reassignment');
+  console.log(`   User: "Yes"\n   Assistant (Executed): "${res25d.spokenText}"`);
+
+  // TEST 26: Create Task with Voice Preview & Verbal Confirmation
+  voiceQueryEngine.clearMemory();
+  const res26a = await voiceQueryEngine.processQuery('Create a task for Zain to check the print PDF tomorrow', createAdminCtx());
+  assert(Boolean(res26a.success && res26a.pendingAction && res26a.pendingAction.toolName === 'create_task'), 'Test 26a: Task creation intent detected');
+  console.log(`   User: "Create a task for Zain to check the print PDF tomorrow"\n   Assistant (Preview): "${res26a.spokenText}"`);
+
+  const res26b = await voiceQueryEngine.processQuery('Confirm', createAdminCtx());
+  assert(Boolean(res26b.success && res26b.spokenText.includes('assigned to Zain')), 'Test 26b: Verbal confirmation "Confirm" creates task');
+  console.log(`   User: "Confirm"\n   Assistant (Executed): "${res26b.spokenText}"`);
+
+  // TEST 27: Change Project Status with High Risk Confirmation
+  voiceQueryEngine.clearMemory();
+  const res27a = await voiceQueryEngine.processQuery('Put The Quiet Atlas on hold', createAdminCtx());
+  assert(Boolean(res27a.success && res27a.pendingAction && res27a.pendingAction.category === 'high_risk'), 'Test 27a: Project status change preview');
+  console.log(`   User: "Put The Quiet Atlas on hold"\n   Assistant (Preview): "${res27a.spokenText}"`);
+
+  const res27b = await voiceQueryEngine.processQuery('Go ahead', createAdminCtx());
+  assert(Boolean(res27b.success && res27b.spokenText.includes('is now On Hold')), 'Test 27b: Verbal confirmation "Go ahead" changes project status');
+  console.log(`   User: "Go ahead"\n   Assistant (Executed): "${res27b.spokenText}"`);
+
+  // TEST 28: Cancellation of Pending Action ("Cancel")
+  voiceQueryEngine.clearMemory();
+  const res28a = await voiceQueryEngine.processQuery('Put The Quiet Atlas on hold', createAdminCtx());
+  const res28b = await voiceQueryEngine.processQuery('Cancel', createAdminCtx());
+  assert(Boolean(res28b.success && res28b.spokenText === 'Action cancelled.'), 'Test 28: Verbal cancellation "Cancel" dismisses pending action');
+  console.log(`   User: "Cancel"\n   Assistant (Cancelled): "${res28b.spokenText}"`);
+
+  // TEST 29: Move Project Deadline
+  voiceQueryEngine.clearMemory();
+  const res29a = await voiceQueryEngine.processQuery('Move The Quiet Atlas deadline to August 30', createAdminCtx());
+  assert(Boolean(res29a.success && res29a.pendingAction && res29a.pendingAction.payload.dueDate === '2026-08-30'), 'Test 29a: Date parsing and deadline change preview');
+  const res29b = await voiceQueryEngine.processQuery('Yes do it', createAdminCtx());
+  assert(Boolean(res29b.success && res29b.spokenText.includes('moved to')), 'Test 29b: Deadline change confirmed');
+  console.log(`   Assistant (Executed): "${res29b.spokenText}"`);
+
+  // TEST 30: Record Income / Expense
+  voiceQueryEngine.clearMemory();
+  const res30a = await voiceQueryEngine.processQuery('Record a $100 payment from BCH', createAdminCtx());
+  assert(Boolean(res30a.success && res30a.pendingAction && res30a.pendingAction.payload.amount === 100), 'Test 30a: Record income preview');
+  const res30b = await voiceQueryEngine.processQuery('Sure', createAdminCtx());
+  assert(Boolean(res30b.success && res30b.spokenText.includes('income for Client Payment')), 'Test 30b: Income recorded');
+  console.log(`   Assistant (Executed): "${res30b.spokenText}"`);
+
+  // TEST 31: Record Payroll Payment
+  voiceQueryEngine.clearMemory();
+  const res31a = await voiceQueryEngine.processQuery("Record Zain's salary payment of $500", createAdminCtx());
+  assert(Boolean(res31a.success && res31a.pendingAction && res31a.pendingAction.payload.amount === 500), 'Test 31a: Payroll salary preview');
+  const res31b = await voiceQueryEngine.processQuery('Yes', createAdminCtx());
+  assert(Boolean(res31b.success && res31b.spokenText.includes('payroll payment has been recorded')), 'Test 31b: Payroll payment recorded');
+  console.log(`   Assistant (Executed): "${res31b.spokenText}"`);
+
+  // TEST 32: RBAC Write Protection — Client role denied task creation
+  voiceQueryEngine.clearMemory();
+  const res32 = await voiceQueryEngine.processQuery('Create a task for Zain to check files', createClientCtx());
+  assert(Boolean(!res32.success && res32.error === 'permission_denied'), 'Test 32: RBAC - Client denied task creation');
+  console.log(`   Assistant (Denied): "${res32.spokenText}"`);
+
+  // TEST 33: RBAC Write Protection — Employee denied payroll modification
+  voiceQueryEngine.clearMemory();
+  const res33 = await voiceQueryEngine.processQuery("Record Zain's salary payment of $500", createEmployeeCtx());
+  assert(Boolean(!res33.success && res33.error === 'permission_denied'), 'Test 33: RBAC - Employee denied payroll modification');
+  console.log(`   Assistant (Denied): "${res33.spokenText}"`);
+
   console.log('====================================================');
   console.log(`📊 TEST RESULTS: ${passed}/${total} PASSED (${Math.round((passed / total) * 100)}%)`);
   console.log('====================================================');
 
   if (passed === total) {
-    console.log('🎉 ALL VOICE ASSISTANT TESTS PASSED SUCCESSFULLY!');
+    console.log('🎉 ALL VOICE ASSISTANT & SAFE ACTION TESTS PASSED SUCCESSFULLY!');
   } else {
     throw new Error(`${total - passed} tests failed!`);
   }

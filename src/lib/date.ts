@@ -2,7 +2,10 @@ import { closedStatuses } from './constants';
 import type { Project } from './types';
 
 export function toDateInput(date: Date) {
-  return date.toISOString().slice(0, 10);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 export function addDays(days: number) {
@@ -15,6 +18,44 @@ export function addDays(days: number) {
 export function isWeekend(date: Date) {
   const day = date.getDay();
   return day === 0 || day === 6; // Sunday = 0, Saturday = 6
+}
+
+export function parseNaturalDate(inputStr?: string | null): string | null {
+  if (!inputStr) return null;
+  const str = inputStr.trim().toLowerCase();
+
+  if (str === 'today') return todayInput();
+  if (str === 'tomorrow') return addDays(1);
+  if (str === 'day after tomorrow') return addDays(2);
+
+  const inDaysMatch = str.match(/(?:in\s+)?(\d+)\s+days?/);
+  if (inDaysMatch) {
+    return addDays(parseInt(inDaysMatch[1], 10));
+  }
+
+  const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const dayIndex = daysOfWeek.indexOf(str.replace(/^next\s+/, ''));
+  if (dayIndex !== -1) {
+    const today = new Date();
+    const currentDay = today.getDay();
+    let diff = dayIndex - currentDay;
+    if (diff <= 0) diff += 7;
+    return addDays(diff);
+  }
+
+  // Try parsing direct date formats e.g. "August 30", "Aug 30", "2026-08-30"
+  try {
+    // If year is not specified, append current year
+    const hasYear = /\d{4}/.test(str);
+    const dateToParse = hasYear ? str : `${str}, ${new Date().getFullYear()}`;
+    const parsed = new Date(dateToParse);
+    if (!isNaN(parsed.getTime())) {
+      parsed.setHours(12, 0, 0, 0);
+      return toDateInput(parsed);
+    }
+  } catch (e) {}
+
+  return null;
 }
 
 export function addWorkingDays(startDateStr: string, days: number, excludeWeekends: boolean = true) {
