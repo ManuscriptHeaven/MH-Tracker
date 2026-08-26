@@ -1,5 +1,5 @@
 import React from 'react';
-import { Brain, Mic, Volume2, Languages, Upload, Trash2, Play } from 'lucide-react';
+import { Brain, Mic, Volume2, VolumeX, Languages, Upload, Trash2, Play } from 'lucide-react';
 import type { AIUserSettings } from '../../lib/ai/aiTypes';
 import { Card, Button } from '../ui';
 
@@ -9,12 +9,12 @@ interface AISettingsSectionProps {
 }
 
 export function AISettingsSection({ settings, onUpdate }: AISettingsSectionProps) {
-  // Fallback default settings if none provided
   const currentSettings = settings || {
-    voiceEnabled: false,
+    voiceEnabled: true,
     voiceLanguage: 'en-US',
-    ttsEnabled: false,
-    autoSpeak: false
+    ttsEnabled: true,
+    autoSpeak: true,
+    isMuted: false,
   };
 
   const handleToggle = (key: keyof AIUserSettings) => {
@@ -27,7 +27,9 @@ export function AISettingsSection({ settings, onUpdate }: AISettingsSectionProps
 
   const testVoice = () => {
     if ('speechSynthesis' in window) {
-      const msg = new SpeechSynthesisUtterance("Hello, I am your MH AI Assistant.");
+      window.speechSynthesis.cancel();
+      const msg = new SpeechSynthesisUtterance("Hello! I am your Manuscript Heaven voice assistant. How can I help with your projects today?");
+      msg.lang = currentSettings.voiceLanguage || 'en-US';
       window.speechSynthesis.speak(msg);
     }
   };
@@ -40,8 +42,8 @@ export function AISettingsSection({ settings, onUpdate }: AISettingsSectionProps
             <Brain className="w-6 h-6 text-gold" />
           </div>
           <div>
-            <h2 className="text-lg font-display font-semibold text-ink dark:text-white">AI Assistant Settings</h2>
-            <p className="text-sm text-muted">Configure your AI experience, voice interactions, and knowledge base.</p>
+            <h2 className="text-lg font-display font-semibold text-ink dark:text-white">AI Voice Assistant Settings</h2>
+            <p className="text-sm text-muted">Configure speech-to-text, voice responses, and language preferences.</p>
           </div>
         </div>
 
@@ -55,8 +57,8 @@ export function AISettingsSection({ settings, onUpdate }: AISettingsSectionProps
                 <div className="flex items-center gap-3">
                   <Mic className="w-5 h-5 text-muted" />
                   <div>
-                    <div className="font-medium text-ink dark:text-white">Voice Commands</div>
-                    <div className="text-sm text-muted">Allow speaking to the AI assistant</div>
+                    <div className="font-medium text-ink dark:text-white">Voice Input (Microphone)</div>
+                    <div className="text-sm text-muted">Allow speaking questions using speech-to-text</div>
                   </div>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
@@ -69,8 +71,8 @@ export function AISettingsSection({ settings, onUpdate }: AISettingsSectionProps
                 <div className="flex items-center gap-3">
                   <Languages className="w-5 h-5 text-muted" />
                   <div>
-                    <div className="font-medium text-ink dark:text-white">Voice Language</div>
-                    <div className="text-sm text-muted">Primary language for voice recognition</div>
+                    <div className="font-medium text-ink dark:text-white">Assistant Language</div>
+                    <div className="text-sm text-muted">Language for speech recognition and synthesized voice</div>
                   </div>
                 </div>
                 <select 
@@ -79,6 +81,7 @@ export function AISettingsSection({ settings, onUpdate }: AISettingsSectionProps
                   className="bg-white dark:bg-ink border border-border dark:border-white/10 rounded-md px-3 py-1.5 text-sm text-ink dark:text-white focus:ring-gold focus:border-gold outline-none"
                 >
                   <option value="en-US">English (US)</option>
+                  <option value="en-GB">English (UK)</option>
                   <option value="ur-PK">Urdu (Pakistan)</option>
                 </select>
               </div>
@@ -87,8 +90,8 @@ export function AISettingsSection({ settings, onUpdate }: AISettingsSectionProps
                 <div className="flex items-center gap-3">
                   <Volume2 className="w-5 h-5 text-muted" />
                   <div>
-                    <div className="font-medium text-ink dark:text-white">Text-to-Speech</div>
-                    <div className="text-sm text-muted">Enable voice responses from AI</div>
+                    <div className="font-medium text-ink dark:text-white">Text-to-Speech (TTS)</div>
+                    <div className="text-sm text-muted">Enable spoken answers from assistant</div>
                   </div>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
@@ -98,85 +101,41 @@ export function AISettingsSection({ settings, onUpdate }: AISettingsSectionProps
               </div>
 
               {currentSettings.ttsEnabled && (
-                <div className="flex items-center justify-between pl-8">
-                  <div className="text-sm font-medium text-ink dark:text-white">Auto-speak responses</div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" className="sr-only peer" checked={!!currentSettings.autoSpeak} onChange={() => handleToggle('autoSpeak')} />
-                    <div className="w-9 h-5 bg-border dark:bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-gold"></div>
-                  </label>
-                </div>
+                <>
+                  <div className="flex items-center justify-between pl-8">
+                    <div className="text-sm font-medium text-ink dark:text-white">Auto-speak responses after answering</div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" className="sr-only peer" checked={!!currentSettings.autoSpeak} onChange={() => handleToggle('autoSpeak')} />
+                      <div className="w-9 h-5 bg-border dark:bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-gold"></div>
+                    </label>
+                  </div>
+
+                  <div className="flex items-center justify-between pl-8">
+                    <div className="text-sm font-medium text-ink dark:text-white">Mute all voice audio</div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" className="sr-only peer" checked={!!currentSettings.isMuted} onChange={() => handleToggle('isMuted')} />
+                      <div className="w-9 h-5 bg-border dark:bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-danger"></div>
+                    </label>
+                  </div>
+                </>
               )}
               
-              <Button variant="secondary" onClick={testVoice} className="mt-2 text-sm w-full sm:w-auto">
-                <Play className="w-4 h-4" />
-                Test Voice
-              </Button>
+              <div className="pt-2">
+                <Button variant="secondary" onClick={testVoice} className="text-sm w-full sm:w-auto">
+                  <Play className="w-4 h-4" />
+                  Test Voice Response
+                </Button>
+              </div>
             </div>
           </div>
 
-          {/* Knowledge Base */}
-          <div className="pt-2">
-            <h3 className="text-sm font-semibold text-ink dark:text-white uppercase tracking-wider mb-4 border-b border-border dark:border-white/10 pb-2">Knowledge Base</h3>
-            
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-sm text-muted">Upload documents to help the AI understand your projects better.</p>
-              <Button className="bg-ink text-white hover:bg-ink/90 dark:bg-white dark:text-ink dark:hover:bg-white/90 border-transparent">
-                <Upload className="w-4 h-4" />
-                Upload Doc
-              </Button>
-            </div>
-            
-            <div className="bg-white dark:bg-ink rounded-lg border border-border dark:border-white/10 divide-y divide-border dark:divide-white/10">
-              <div className="flex items-center justify-between p-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded bg-gold/10 flex items-center justify-center text-gold font-mono text-xs">PDF</div>
-                  <div>
-                    <div className="text-sm font-medium text-ink dark:text-white">Project_Guidelines_2023.pdf</div>
-                    <div className="text-xs text-muted">2.4 MB • Uploaded 2 days ago</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <select className="text-xs bg-transparent border-none focus:ring-0 text-muted outline-none">
-                    <option>General</option>
-                    <option>Guidelines</option>
-                    <option>Templates</option>
-                  </select>
-                  <button
-                    title="Delete document"
-                    aria-label="Delete document"
-                    className="inline-flex h-8 w-8 items-center justify-center rounded text-danger hover:bg-danger/10"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-              
-              <div className="flex items-center justify-between p-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded bg-info/10 flex items-center justify-center text-info font-mono text-xs">DOC</div>
-                  <div>
-                    <div className="text-sm font-medium text-ink dark:text-white">Client_Onboarding.docx</div>
-                    <div className="text-xs text-muted">1.1 MB • Uploaded last week</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <select className="text-xs bg-transparent border-none focus:ring-0 text-muted outline-none">
-                    <option>Templates</option>
-                    <option>General</option>
-                    <option>Guidelines</option>
-                  </select>
-                  <button
-                    title="Delete document"
-                    aria-label="Delete document"
-                    className="inline-flex h-8 w-8 items-center justify-center rounded text-danger hover:bg-danger/10"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
+          {/* Phase 1 Status Banner */}
+          <div className="p-4 rounded-xl bg-gold/10 border border-gold/30 text-xs text-ink dark:text-linen">
+            <h4 className="font-semibold text-gold mb-1">MH Voice Assistant Phase 1: Read-Only Business Assistant</h4>
+            <p className="text-muted">
+              In Phase 1, the AI Assistant queries live authorized project data, team workload, deadlines, and finances. All operations are strictly read-only. Database modification actions are disabled.
+            </p>
           </div>
-          
         </div>
       </div>
     </Card>

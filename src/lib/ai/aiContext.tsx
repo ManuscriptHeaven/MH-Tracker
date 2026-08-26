@@ -1,9 +1,10 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
-import { aiService } from './aiService';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { voiceService } from './voiceService';
-import { parseCommand, executeCommand } from './aiCommands';
+import { voiceQueryEngine } from './voiceQueryEngine';
+import { aiService } from './aiService';
+import { useCurrency } from '../currency';
 import type { 
-  AIConversation, AIMessage, AIUserSettings, DailySummary, AICommand 
+  AIConversation, AIMessage, AIUserSettings, DailySummary, AIToolContext, AIToolResult
 } from './aiTypes';
 
 interface AIContextType {
@@ -12,14 +13,15 @@ interface AIContextType {
   conversations: AIConversation[];
   activeConversationId: string | null;
   messages: AIMessage[];
-  isStreaming: boolean;
-  streamingText: string;
+  isProcessing: boolean;
+  isListening: boolean;
+  isSpeaking: boolean;
+  isMuted: boolean;
+  liveTranscript: string;
+  voiceError: string | null;
   dailySummary: DailySummary | null;
   showDailyPopup: boolean;
   settings: AIUserSettings;
-  isListening: boolean;
-  isSpeaking: boolean;
-  pendingCommand: AICommand | null;
   
   toggleChat: () => void;
   openChat: () => void;
@@ -28,18 +30,20 @@ interface AIContextType {
   sendMessage: (text: string) => Promise<void>;
   startNewConversation: () => void;
   switchConversation: (id: string) => void;
-  deleteConversation: (id: string) => Promise<void>;
+  clearConversation: () => void;
   dismissDailyPopup: () => void;
   updateSettings: (settings: Partial<AIUserSettings>) => Promise<void>;
   startVoice: () => void;
   stopVoice: () => void;
-  confirmAction: (command: AICommand) => Promise<void>;
-  cancelAction: () => void;
+  toggleMute: () => void;
+  speakText: (text: string) => Promise<void>;
+  stopSpeaking: () => void;
 }
 
 const AIContext = createContext<AIContextType | undefined>(undefined);
 
-export function AIProvider({ children, tracker }: { children: ReactNode, tracker: any }) {
+export function AIProvider({ children, tracker }: { children: ReactNode; tracker: any }) {
+  const currencyCtx = useCurrency();
   const [isOpen, setIsOpen] = useState(false);
   const [isChatMinimized, setIsChatMinimized] = useState(false);
   
@@ -47,230 +51,221 @@ export function AIProvider({ children, tracker }: { children: ReactNode, tracker
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AIMessage[]>([]);
   
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [streamingText, setStreamingText] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [liveTranscript, setLiveTranscript] = useState('');
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   
   const [dailySummary, setDailySummary] = useState<DailySummary | null>(null);
   const [showDailyPopup, setShowDailyPopup] = useState(false);
   
   const [settings, setSettings] = useState<AIUserSettings>({
-    voiceEnabled: false,
+    voiceEnabled: true,
     voiceLanguage: 'en-US',
-    ttsEnabled: false,
-    autoSpeak: false
+    ttsEnabled: true,
+    autoSpeak: true,
+    isMuted: false,
   });
-  
-  const [isListening, setIsListening] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  
-  const [pendingCommand, setPendingCommand] = useState<AICommand | null>(null);
 
+  // Keep a ref to activeConversationId & settings to avoid stale closures in voice callbacks
+  const activeConvoRef = useRef<string | null>(null);
+  activeConvoRef.current = activeConversationId;
+  const settingsRef = useRef<AIUserSettings>(settings);
+  settingsRef.current = settings;
+  const trackerRef = useRef<any>(tracker);
+  trackerRef.current = tracker;
+  const currencyRef = useRef<any>(currencyCtx);
+  currencyRef.current = currencyCtx;
+
+  // Initialize initial greeting or load user settings
   useEffect(() => {
     async function init() {
-      const userId = 'local-user'; // Replace with real auth if needed
-      
       const loadedSettings = await aiService.getUserSettings();
-      setSettings(loadedSettings);
+      setSettings(prev => ({ ...prev, ...loadedSettings }));
+      voiceService.setMuted(Boolean(loadedSettings.isMuted));
+      if (loadedSettings.voiceLanguage) {
+        voiceService.setLanguage(loadedSettings.voiceLanguage);
+      }
       
       const summary = await aiService.getDailySummary();
       if (summary) {
         setDailySummary(summary);
-        setShowDailyPopup(true);
-      }
-      
-      const loadedConvos = await aiService.loadConversations(userId);
-      setConversations(loadedConvos);
-      if (loadedConvos.length > 0) {
-        switchConversation(loadedConvos[0].id);
       }
     }
     
     init();
   }, []);
 
+  // Voice Event Handlers
   useEffect(() => {
-    voiceService.onListeningChange = setIsListening;
-    voiceService.onSpeakingChange = setIsSpeaking;
+    voiceService.onListeningChange = (listening) => {
+      setIsListening(listening);
+      if (listening) {
+        setVoiceError(null);
+      } else {
+        setLiveTranscript('');
+      }
+    };
+
+    voiceService.onSpeakingChange = (speaking) => {
+      setIsSpeaking(speaking);
+    };
+
+    voiceService.onError = (err) => {
+      setVoiceError(err);
+      setIsListening(false);
+      setLiveTranscript('');
+    };
+
     voiceService.onTranscript = (text, isFinal) => {
-      if (isFinal) {
-        sendMessage(text);
+      setLiveTranscript(text);
+      if (isFinal && text.trim()) {
+        sendMessage(text.trim());
       }
     };
     
     return () => {
       voiceService.onListeningChange = undefined;
       voiceService.onSpeakingChange = undefined;
+      voiceService.onError = undefined;
       voiceService.onTranscript = undefined;
     };
-  }, [activeConversationId, settings]);
+  }, []);
 
-  const toggleChat = useCallback(() => setIsOpen(p => !p), []);
+  const toggleChat = useCallback(() => {
+    setIsOpen(p => {
+      const next = !p;
+      if (!next && isSpeaking) {
+        voiceService.stopSpeaking();
+      }
+      return next;
+    });
+  }, [isSpeaking]);
+
   const openChat = useCallback(() => setIsOpen(true), []);
-  const closeChat = useCallback(() => setIsOpen(false), []);
+  const closeChat = useCallback(() => {
+    setIsOpen(false);
+    voiceService.stopSpeaking();
+    voiceService.stopListening();
+  }, []);
+
   const minimizeChat = useCallback((min: boolean) => setIsChatMinimized(min), []);
 
   const switchConversation = useCallback(async (id: string) => {
     setActiveConversationId(id);
-    const msgs = await aiService.loadMessages(id);
-    setMessages(msgs);
   }, []);
 
   const startNewConversation = useCallback(() => {
+    voiceQueryEngine.clearMemory();
     const newId = `conv-${Date.now()}`;
-    const newConvo: AIConversation = {
-      id: newId,
-      userId: 'local-user',
-      title: 'New Conversation',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      messages: []
-    };
-    setConversations(prev => [newConvo, ...prev]);
     setActiveConversationId(newId);
     setMessages([]);
+    setVoiceError(null);
     if (!isOpen) openChat();
   }, [isOpen, openChat]);
 
-  const deleteConversation = useCallback(async (id: string) => {
-    await aiService.deleteConversation(id);
-    setConversations(prev => prev.filter(c => c.id !== id));
-    if (activeConversationId === id) {
-      setActiveConversationId(null);
-      setMessages([]);
-    }
-  }, [activeConversationId]);
+  const clearConversation = useCallback(() => {
+    voiceQueryEngine.clearMemory();
+    voiceService.stopSpeaking();
+    setMessages([]);
+    setVoiceError(null);
+  }, []);
+
+  const toggleMute = useCallback(() => {
+    setSettings(prev => {
+      const nextMuted = !prev.isMuted;
+      voiceService.setMuted(nextMuted);
+      return { ...prev, isMuted: nextMuted };
+    });
+  }, []);
+
+  const speakText = useCallback(async (text: string) => {
+    if (!text) return;
+    await voiceService.speak(text, settingsRef.current.voiceLanguage);
+  }, []);
+
+  const stopSpeaking = useCallback(() => {
+    voiceService.stopSpeaking();
+  }, []);
 
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim()) return;
     
     if (!isOpen) openChat();
     
-    let convoId = activeConversationId;
+    let convoId = activeConvoRef.current;
     if (!convoId) {
       convoId = `conv-${Date.now()}`;
-      startNewConversation();
+      setActiveConversationId(convoId);
     }
     
     const userMsgId = `msg-${Date.now()}`;
     const userMsg: AIMessage = {
       id: userMsgId,
-      conversationId: convoId!,
+      conversationId: convoId,
       role: 'user',
       content: text,
-      metadata: {},
       createdAt: new Date().toISOString()
     };
     
     setMessages(prev => [...prev, userMsg]);
-    
-    const command = parseCommand(text);
-    if (command && command.requiresConfirmation) {
-      setPendingCommand(command);
-      
-      const assistantMsg: AIMessage = {
-        id: `msg-${Date.now() + 1}`,
-        conversationId: convoId!,
-        role: 'assistant',
-        content: `I'm ready to ${command.description}. Should I proceed?`,
-        metadata: { command },
-        createdAt: new Date().toISOString()
-      };
-      setMessages(prev => [...prev, assistantMsg]);
-      return;
-    }
-    
-    if (command && !command.requiresConfirmation) {
-      const result = await executeCommand(command, tracker.data, tracker);
-      const assistantMsg: AIMessage = {
-        id: `msg-${Date.now() + 1}`,
-        conversationId: convoId!,
-        role: 'assistant',
-        content: result.message,
-        metadata: { actionResult: result },
-        createdAt: new Date().toISOString()
-      };
-      setMessages(prev => [...prev, assistantMsg]);
-      return;
-    }
+    setIsProcessing(true);
+    setVoiceError(null);
 
-    setIsStreaming(true);
-    setStreamingText('');
-    
-    let fullResponse = '';
-    const context = {
-      activeProjectsCount: tracker.visibleProjects?.length || 0,
-      activeTasksCount: tracker.visibleTasks?.length || 0,
-    };
-    
     try {
-      for await (const chunk of aiService.sendMessage(text, convoId!, context)) {
-        fullResponse += chunk;
-        setStreamingText(fullResponse);
-      }
-      
-      const finalMsg: AIMessage = {
-        id: `msg-${Date.now() + 1}`,
-        conversationId: convoId!,
+      const t = trackerRef.current;
+      const c = currencyRef.current;
+
+      const toolCtx: AIToolContext = {
+        currentProfile: t.currentProfile,
+        data: t.data,
+        visibleProjects: t.visibleProjects || [],
+        visibleTasks: t.visibleTasks || [],
+        displayCurrency: c.displayCurrency || 'USD',
+        exchangeRate: c.exchangeRate || 277.5,
+        formatMoney: c.formatMoney,
+        convertMoney: c.convertMoney,
+      };
+
+      // Process query using semantic Natural Language Voice Query Engine
+      const result: AIToolResult = await voiceQueryEngine.processQuery(text, toolCtx);
+
+      const assistantMsgId = `msg-${Date.now() + 1}`;
+      const assistantMsg: AIMessage = {
+        id: assistantMsgId,
+        conversationId: convoId,
         role: 'assistant',
-        content: fullResponse,
-        metadata: {},
+        content: result.displayText,
+        spokenText: result.spokenText,
+        metadata: {
+          toolUsed: result.toolName,
+          toolResult: result,
+        },
         createdAt: new Date().toISOString()
       };
-      
-      setMessages(prev => [...prev, finalMsg]);
-      
-      if (settings.ttsEnabled && settings.autoSpeak) {
-        voiceService.speak(fullResponse, settings.voiceLanguage);
+
+      setMessages(prev => [...prev, assistantMsg]);
+
+      // Speak response if voice TTS is enabled and not muted
+      if (settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
+        voiceService.speak(result.spokenText || result.displayText, settingsRef.current.voiceLanguage);
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      console.error('Error processing query:', e);
       const errorMsg: AIMessage = {
         id: `msg-${Date.now() + 1}`,
-        conversationId: convoId!,
+        conversationId: convoId,
         role: 'assistant',
-        content: "Sorry, I encountered an error processing your request.",
-        metadata: {},
+        content: "I'm having trouble answering right now. Please try again.",
+        spokenText: "I'm having trouble answering right now. Please try again.",
         createdAt: new Date().toISOString()
       };
       setMessages(prev => [...prev, errorMsg]);
     } finally {
-      setIsStreaming(false);
-      setStreamingText('');
+      setIsProcessing(false);
     }
-  }, [activeConversationId, isOpen, openChat, startNewConversation, tracker, settings]);
-
-  const confirmAction = useCallback(async (command: AICommand) => {
-    if (!activeConversationId) return;
-    
-    const result = await executeCommand(command, tracker.data, tracker);
-    const assistantMsg: AIMessage = {
-      id: `msg-${Date.now()}`,
-      conversationId: activeConversationId,
-      role: 'assistant',
-      content: result.message,
-      metadata: { actionResult: result },
-      createdAt: new Date().toISOString()
-    };
-    
-    setMessages(prev => [...prev, assistantMsg]);
-    setPendingCommand(null);
-  }, [activeConversationId, tracker]);
-
-  const cancelAction = useCallback(() => {
-    if (!activeConversationId) return;
-    
-    const assistantMsg: AIMessage = {
-      id: `msg-${Date.now()}`,
-      conversationId: activeConversationId,
-      role: 'assistant',
-      content: "Action cancelled.",
-      metadata: {},
-      createdAt: new Date().toISOString()
-    };
-    
-    setMessages(prev => [...prev, assistantMsg]);
-    setPendingCommand(null);
-  }, [activeConversationId]);
+  }, [isOpen, openChat]);
 
   const dismissDailyPopup = useCallback(() => {
     setShowDailyPopup(false);
@@ -280,13 +275,17 @@ export function AIProvider({ children, tracker }: { children: ReactNode, tracker
   const updateSettings = useCallback(async (newSettings: Partial<AIUserSettings>) => {
     const updated = { ...settings, ...newSettings };
     setSettings(updated);
-    await aiService.updateUserSettings(updated);
+    if (newSettings.isMuted !== undefined) {
+      voiceService.setMuted(newSettings.isMuted);
+    }
     if (newSettings.voiceLanguage) {
       voiceService.setLanguage(newSettings.voiceLanguage);
     }
+    await aiService.updateUserSettings(updated);
   }, [settings]);
 
   const startVoice = useCallback(() => {
+    setVoiceError(null);
     voiceService.startListening(settings.voiceLanguage);
   }, [settings.voiceLanguage]);
 
@@ -296,12 +295,13 @@ export function AIProvider({ children, tracker }: { children: ReactNode, tracker
 
   const value = {
     isOpen, isChatMinimized, conversations, activeConversationId,
-    messages, isStreaming, streamingText, dailySummary, showDailyPopup,
-    settings, isListening, isSpeaking, pendingCommand,
+    messages, isProcessing, isListening, isSpeaking, isMuted: Boolean(settings.isMuted),
+    liveTranscript, voiceError, dailySummary, showDailyPopup,
+    settings,
     toggleChat, openChat, closeChat, minimizeChat, sendMessage,
-    startNewConversation, switchConversation, deleteConversation,
-    dismissDailyPopup, updateSettings, startVoice, stopVoice,
-    confirmAction, cancelAction
+    startNewConversation, switchConversation, clearConversation,
+    dismissDailyPopup, updateSettings, startVoice, stopVoice, toggleMute,
+    speakText, stopSpeaking
   };
 
   return <AIContext.Provider value={value}>{children}</AIContext.Provider>;

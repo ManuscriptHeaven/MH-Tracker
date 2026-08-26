@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test:timeline": "node scripts/timeline-tests.mjs"
+    "test:timeline": "npx --yes tsx scripts/timeline-tests.mjs",
+    "test:voice": "npx --yes tsx scripts/test-voice-assistant.mjs",
+    "test": "npx --yes tsx scripts/timeline-tests.mjs && npx --yes tsx scripts/test-voice-assistant.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

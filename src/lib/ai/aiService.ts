@@ -103,16 +103,16 @@ export class AIService {
 
     if (q.includes('help') || q.includes('what can you do')) {
       return [
-        'Here is what I can do for you:\n\n',
-        '1. **Project Management**: Type *"Find project [name]"* or *"Update status"*\n',
-        '2. **Task Tracking**: Type *"Show overdue tasks"* or *"What is due today?"*\n',
-        '3. **Finance & Invoices**: Type *"Show pending invoices"* or *"Calculate quote"*\n',
-        '4. **Reports & Summaries**: Type *"Generate report"* to view overall performance.'
+        'Here is what I can do for you in **Phase 1 (Read-Only Voice Assistant)**:\n\n',
+        '1. **Project Queries**: Ask *"How many projects are overdue?"*, *"What is due today?"*, or *"Which clients?"*\n',
+        '2. **Workflow & Revisions**: Ask *"How many projects are waiting for client approval?"* or *"What is QAI Reformatting status?"*\n',
+        '3. **Team & Workload**: Ask *"What is Zain working on?"* or *"Which employee has the most active projects?"*\n',
+        '4. **Finance & Receivables**: Ask *"How much do clients owe us?"* or *"What is our income this month?"*'
       ];
     }
 
     if (q.includes('thank')) {
-      return ['You\'re very welcome! Let me know if you need anything else for Manuscript Heaven! 🌟'];
+      return ['You\'re very welcome! Let me know if you need anything else from Manuscript Heaven! 🌟'];
     }
 
     // Default intelligent response summarizing workspace context
@@ -120,9 +120,9 @@ export class AIService {
     const activeTasks = context?.activeTasksCount ?? 'pending';
 
     return [
-      `I am processing your query regarding **"${message}"**.\n\n`,
+      `I am analyzing live data for **"${message}"**.\n\n`,
       `Currently in your workspace, you have **${activeProjects} active project(s)** and **${activeTasks} active task(s)**.\n\n`,
-      `You can ask me to search specific projects, show overdue tasks, generate invoices, or review payment statuses!`
+      `You can speak or type questions about deadlines, team assignments, client accounts, or financial metrics!`
     ];
   }
 

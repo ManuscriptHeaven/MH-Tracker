@@ -1,17 +1,91 @@
+import type { CurrencyCode, Profile, TrackerData, Project, Task, RevisionRequest } from '../types';
+
+export type AIToolName =
+  | 'get_project_summary'
+  | 'get_overdue_projects'
+  | 'get_due_today_projects'
+  | 'get_due_this_week_projects'
+  | 'get_projects_by_client'
+  | 'get_projects_by_employee'
+  | 'get_projects_by_status'
+  | 'get_projects_by_stage'
+  | 'get_pending_approvals'
+  | 'get_projects_in_revision'
+  | 'get_project_details'
+  | 'get_project_timeline'
+  | 'get_project_revisions'
+  | 'get_tasks_summary'
+  | 'get_employee_workload'
+  | 'get_client_summary'
+  | 'get_client_receivables'
+  | 'get_finance_summary'
+  | 'get_payroll_summary'
+  | 'get_project_activity';
+
+export interface AIToolContext {
+  currentProfile: Profile;
+  data: TrackerData;
+  visibleProjects: Project[];
+  visibleTasks: Task[];
+  displayCurrency: CurrencyCode;
+  exchangeRate: number;
+  formatMoney: (amount: number | null | undefined, fromCurrency?: CurrencyCode | string, options?: { showCode?: boolean; forceDecimals?: boolean }) => string;
+  convertMoney: (amount: number | null | undefined, fromCurrency?: CurrencyCode | string, toCurrency?: CurrencyCode | string, rateOverride?: number) => number;
+}
+
+export interface AIToolResult<T = any> {
+  success: boolean;
+  toolName: AIToolName;
+  spokenText: string;
+  displayText: string;
+  data?: T;
+  error?: string;
+  count?: number;
+  entities?: {
+    projects?: Project[];
+    clients?: string[];
+    employees?: string[];
+  };
+}
+
+export interface ConversationMemory {
+  lastTopic?: 'projects' | 'tasks' | 'revisions' | 'clients' | 'team' | 'finance' | 'payroll' | 'general';
+  lastToolUsed?: AIToolName;
+  lastProjects?: Project[];
+  lastClientName?: string;
+  lastEmployeeName?: string;
+  lastStatus?: string;
+  lastStage?: string;
+  lastQueryTime?: string;
+}
+
+export interface ToolExecutionLog {
+  id: string;
+  userId: string;
+  userRole: string;
+  question: string;
+  toolUsed: AIToolName;
+  timestamp: string;
+  success: boolean;
+  error?: string;
+}
+
 export interface AIMessage {
   id: string;
   conversationId: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
-  metadata: AIMessageMetadata;
+  spokenText?: string;
+  metadata?: AIMessageMetadata;
   createdAt: string;
   isStreaming?: boolean;
 }
 
 export interface AIMessageMetadata {
-  command?: AICommand;
-  actionResult?: AIActionResult;
+  toolUsed?: AIToolName;
+  toolResult?: AIToolResult;
   sources?: RAGSource[];
+  suggestedFollowUps?: string[];
 }
 
 export interface AIConversation {
@@ -21,24 +95,6 @@ export interface AIConversation {
   createdAt: string;
   updatedAt: string;
   messages: AIMessage[];
-}
-
-export interface AICommand {
-  type: AICommandType;
-  params: Record<string, unknown>;
-  requiresConfirmation: boolean;
-  description: string;
-}
-
-export type AICommandType = 
-  | 'find_project' | 'generate_invoice' | 'create_client' | 'update_status'
-  | 'search_files' | 'show_overdue_tasks' | 'draft_email' | 'calculate_quote'
-  | 'generate_report' | 'show_pending_invoices' | 'show_due_today' | 'general_query';
-
-export interface AIActionResult {
-  success: boolean;
-  message: string;
-  data?: unknown;
 }
 
 export interface RAGSource {
@@ -80,7 +136,7 @@ export interface QuickAction {
   label: string;
   command: string;
   icon?: string;
-  category: 'projects' | 'tasks' | 'invoices' | 'general';
+  category: 'projects' | 'tasks' | 'finance' | 'team' | 'general';
 }
 
 export interface AIUserSettings {
@@ -88,6 +144,7 @@ export interface AIUserSettings {
   voiceLanguage: string;
   ttsEnabled: boolean;
   autoSpeak: boolean;
+  isMuted?: boolean;
 }
 
 export interface KnowledgeBaseDocument {

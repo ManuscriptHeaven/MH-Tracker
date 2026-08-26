@@ -95,31 +95,35 @@ export function isClosed(project: Project) {
 }
 
 export function isOverdue(project: Project) {
-  if (project.timeline_status || project.waiting_on || project.current_stage) {
-    const dueDate =
-      project.current_stage === 'Design Concept in Progress'
+  if (isClosed(project)) {
+    return false;
+  }
+
+  // Check stage-specific due date if waiting on Manuscript Heaven
+  if (project.waiting_on === 'Manuscript Heaven' && project.current_stage) {
+    const stage = project.current_stage;
+    const stageDueDate =
+      stage === 'Design Concept' || stage === 'Design Concept in Progress'
         ? project.design_concept_due_date
-        : project.current_stage === 'Concept Revisions'
+        : stage === 'Concept Revisions'
           ? project.concept_revision_due_date || project.design_concept_due_date
-          : project.current_stage === 'Print Version in Progress'
+          : stage === 'Print Version' || stage === 'Print Version in Progress'
             ? project.print_version_due_date
-            : project.current_stage === 'Print Revisions'
+            : stage === 'Print Revisions'
               ? project.print_revision_due_date || project.print_version_due_date
-              : project.current_stage === 'eBook in Progress'
+              : stage === 'Ebook Version' || stage === 'eBook in Progress'
                 ? project.ebook_due_date
-                : project.current_stage === 'Final Quality Check'
+                : stage === 'Final Delivery' || stage === 'Final Quality Check'
                   ? project.final_delivery_date || project.due_date
                   : null;
 
-    return (
-      project.timeline_status === 'Active' &&
-      project.waiting_on === 'Manuscript Heaven' &&
-      Boolean(dueDate) &&
-      daysUntil(dueDate as string) < 0
-    );
+    if (stageDueDate && daysUntil(stageDueDate) < 0) {
+      return true;
+    }
   }
 
-  return !isClosed(project) && daysUntil(project.due_date) < 0;
+  // Fallback to overall project due_date
+  return Boolean(project.due_date) && daysUntil(project.due_date) < 0;
 }
 
 export function isDueToday(project: Project) {
