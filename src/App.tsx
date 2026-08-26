@@ -307,8 +307,12 @@ export default function App() {
     <Toast toast={toast} onClose={() => setToast(null)} onOpenProject={openProjectById} />
     <AIDailyPopup />
   </Layout>
-  <AIChatButton />
-  <AIChatPanel />
+  {activeView !== 'ai_assistant' && (
+    <>
+      <AIChatButton />
+      <AIChatPanel />
+    </>
+  )}
   </AIProvider>
   </CurrencyProvider>
   );
