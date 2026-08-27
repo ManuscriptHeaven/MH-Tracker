@@ -1,8 +1,10 @@
 import {
   Bell,
   CalendarDays,
+  CheckSquare,
   CreditCard,
   Download,
+  FolderKanban,
   Landmark,
   LogOut,
   MessageSquare,
@@ -48,7 +50,6 @@ export function MobileMoreMenu({
   const isClient = isClientRole(currentProfile.role);
   const isAdmin = currentProfile.role === 'admin';
   const isManager = isManagerRole(currentProfile.role);
-  const displayName = firstName(currentProfile.full_name);
   const unreadNotificationsCount = notifications.filter((n) => !n.is_read).length;
   const unreadMessagesInfo = getUnreadMessagesInfo(currentProfile, data);
 
@@ -57,62 +58,69 @@ export function MobileMoreMenu({
     onClose();
   }
 
-  const menuItems = [
+  interface MenuItem {
+    id: ViewKey;
+    label: string;
+    icon: typeof FolderKanban;
+    show: boolean;
+    badge?: number | null;
+  }
+
+  interface MenuSection {
+    title: string;
+    show: boolean;
+    items: MenuItem[];
+  }
+
+  const sections: MenuSection[] = [
     {
-      id: 'ai_assistant' as ViewKey,
-      label: 'AI Assistant',
-      icon: Sparkles,
+      title: 'Projects & Deadlines',
       show: true,
+      items: [
+        { id: 'projects', label: 'All Projects', icon: FolderKanban, show: true },
+        { id: 'delivered', label: 'Delivered Projects', icon: PackageCheck, show: !isClient },
+        { id: 'calendar', label: 'Calendar & Deadlines', icon: CalendarDays, show: !isClient },
+        { id: 'ai_assistant', label: 'AI Assistant', icon: Sparkles, show: true },
+      ],
     },
     {
-      id: 'communication' as ViewKey,
-      label: 'Communication',
-      icon: MessageSquare,
-      show: true,
-      badge: unreadMessagesInfo.totalUnreadCount > 0 ? unreadMessagesInfo.totalUnreadCount : null,
-    },
-    {
-      id: 'notifications' as ViewKey,
-      label: 'Notifications',
-      icon: Bell,
-      show: true,
-      badge: unreadNotificationsCount > 0 ? unreadNotificationsCount : null,
-    },
-    {
-      id: 'calendar' as ViewKey,
-      label: 'Calendar & Deadlines',
-      icon: CalendarDays,
+      title: 'Tasks & Team',
       show: !isClient,
+      items: [
+        { id: 'my_tasks', label: 'My Tasks', icon: CheckSquare, show: !isClient },
+        { id: 'team_tasks', label: 'Team Tasks', icon: Users, show: isManager },
+        { id: 'team', label: 'Team Members', icon: Users, show: isManager },
+      ],
     },
     {
-      id: 'delivered' as ViewKey,
-      label: 'Delivered Projects',
-      icon: PackageCheck,
-      show: !isClient,
+      title: 'Communication & Alerts',
+      show: true,
+      items: [
+        {
+          id: 'communication',
+          label: 'Communication',
+          icon: MessageSquare,
+          show: true,
+          badge: unreadMessagesInfo.totalUnreadCount > 0 ? unreadMessagesInfo.totalUnreadCount : null,
+        },
+        {
+          id: 'notifications',
+          label: 'Notifications',
+          icon: Bell,
+          show: true,
+          badge: unreadNotificationsCount > 0 ? unreadNotificationsCount : null,
+        },
+      ],
     },
     {
-      id: 'payments' as ViewKey,
-      label: 'Payments',
-      icon: CreditCard,
+      title: 'Finance & Management',
       show: isManager,
-    },
-    {
-      id: 'clients' as ViewKey,
-      label: 'Client Access',
-      icon: Users,
-      show: isAdmin,
-    },
-    {
-      id: 'finance' as ViewKey,
-      label: 'Finance & Payroll',
-      icon: Landmark,
-      show: isAdmin,
-    },
-    {
-      id: 'settings' as ViewKey,
-      label: 'Settings',
-      icon: Settings,
-      show: isAdmin,
+      items: [
+        { id: 'payments', label: 'Payments', icon: CreditCard, show: isManager },
+        { id: 'finance', label: 'Finance & Payroll', icon: Landmark, show: isAdmin },
+        { id: 'clients', label: 'Client Access', icon: Users, show: isAdmin },
+        { id: 'settings', label: 'Settings', icon: Settings, show: isAdmin },
+      ],
     },
   ];
 
@@ -173,43 +181,52 @@ export function MobileMoreMenu({
           </button>
         ) : null}
 
-        {/* Navigation Items Grid */}
-        <div className="space-y-1">
-          <p className="px-1 text-[11px] font-semibold uppercase tracking-wider text-muted mb-2">Navigation</p>
-          <div className="grid grid-cols-2 gap-2">
-            {menuItems
-              .filter((item) => item.show)
-              .map((item) => {
-                const Icon = item.icon;
-                const active = activeView === item.id;
+        {/* Navigation Items Grouped */}
+        <div className="space-y-4">
+          {sections
+            .filter((sec) => sec.show)
+            .map((section) => {
+              const visibleItems = section.items.filter((item) => item.show);
+              if (visibleItems.length === 0) return null;
 
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => handleNavigate(item.id)}
-                    className={`flex items-center justify-between rounded-xl border p-3 text-left text-sm font-medium transition active:scale-[0.98] ${
-                      active
-                        ? 'border-gold bg-gold text-ink font-semibold shadow-xs'
-                        : 'border-border bg-white text-charcoal hover:border-gold/60 hover:bg-ivory'
-                    }`}
-                  >
-                    <span className="flex items-center gap-2.5 truncate">
-                      <Icon className="h-4 w-4 shrink-0" />
-                      <span className="truncate">{item.label}</span>
-                    </span>
-                    {item.badge ? (
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold shrink-0 ${
-                          active ? 'bg-ink text-white' : 'bg-gold text-ink'
-                        }`}
-                      >
-                        {item.badge}
-                      </span>
-                    ) : null}
-                  </button>
-                );
-              })}
-          </div>
+              return (
+                <div key={section.title} className="space-y-1.5">
+                  <p className="px-1 text-[11px] font-semibold uppercase tracking-wider text-muted">{section.title}</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {visibleItems.map((item) => {
+                      const Icon = item.icon;
+                      const active = activeView === item.id;
+
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => handleNavigate(item.id)}
+                          className={`flex items-center justify-between rounded-xl border p-3 text-left text-sm font-medium transition active:scale-[0.98] ${
+                            active
+                              ? 'border-gold bg-gold text-ink font-semibold shadow-xs'
+                              : 'border-border bg-white text-charcoal hover:border-gold/60 hover:bg-ivory'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2.5 truncate">
+                            <Icon className="h-4 w-4 shrink-0" />
+                            <span className="truncate">{item.label}</span>
+                          </span>
+                          {item.badge ? (
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[10px] font-bold shrink-0 ${
+                                active ? 'bg-ink text-white' : 'bg-gold text-ink'
+                              }`}
+                            >
+                              {item.badge}
+                            </span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
         </div>
 
         {/* Sign Out Button */}
@@ -229,3 +246,4 @@ export function MobileMoreMenu({
     </div>
   );
 }
+

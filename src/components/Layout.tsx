@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Bell,
   CalendarDays,
   CheckSquare,
+  ChevronDown,
   CreditCard,
   Download,
   Landmark,
@@ -50,22 +51,110 @@ export type ViewKey =
   | 'finance'
   | 'settings';
 
-const navItems = [
-  { id: 'dashboard', label: 'Dashboard', icon: Home },
-  { id: 'ai_assistant', label: 'AI Assistant', icon: Sparkles },
-  { id: 'projects', label: 'Projects', icon: FolderKanban },
-  { id: 'my_tasks', label: 'My Tasks', icon: CheckSquare },
-  { id: 'team_tasks', label: 'Team Tasks', icon: CheckSquare, managersOnly: true },
-  { id: 'communication', label: 'Communication', icon: MessageSquare },
-  { id: 'calendar', label: 'Calendar', icon: CalendarDays },
-  { id: 'notifications', label: 'Notifications', icon: Bell },
-  { id: 'team', label: 'Team', icon: Users, managersOnly: true },
-  { id: 'clients', label: 'Clients', icon: Users, adminOnly: true },
-  { id: 'delivered', label: 'Delivered', icon: PackageCheck },
-  { id: 'payments', label: 'Payments', icon: CreditCard, managersOnly: true },
-  { id: 'finance', label: 'Finance', icon: Landmark, adminOnly: true },
-  { id: 'settings', label: 'Settings', icon: Settings, adminOnly: true },
-] as const;
+const viewHeaderTitles: Record<ViewKey, string> = {
+  dashboard: 'Dashboard',
+  ai_assistant: 'AI Assistant',
+  projects: 'Projects Overview',
+  delivered: 'Delivered Projects',
+  calendar: 'Calendar & Deadlines',
+  my_tasks: 'My Tasks',
+  team_tasks: 'Team Tasks',
+  communication: 'Communication',
+  notifications: 'Notifications',
+  team: 'Team Management',
+  clients: 'Client Access',
+  payments: 'Payments Overview',
+  finance: 'Finance & Payroll',
+  settings: 'System Settings',
+};
+
+interface NavSingleItem {
+  id: ViewKey;
+  label: string;
+  icon: typeof Home;
+  type: 'single';
+  managersOnly?: boolean;
+  adminOnly?: boolean;
+}
+
+interface NavChildItem {
+  id: ViewKey;
+  label: string;
+  icon: typeof Home;
+  managersOnly?: boolean;
+  adminOnly?: boolean;
+}
+
+interface NavGroupItem {
+  id: string;
+  label: string;
+  icon: typeof Home;
+  type: 'group';
+  managersOnly?: boolean;
+  adminOnly?: boolean;
+  children: NavChildItem[];
+}
+
+type NavEntry = NavSingleItem | NavGroupItem;
+
+const navStructure: NavEntry[] = [
+  { id: 'dashboard', label: 'Dashboard', icon: Home, type: 'single' },
+  { id: 'ai_assistant', label: 'AI Assistant', icon: Sparkles, type: 'single' },
+  {
+    id: 'projects_group',
+    label: 'Projects',
+    icon: FolderKanban,
+    type: 'group',
+    children: [
+      { id: 'projects', label: 'All Projects', icon: FolderKanban },
+      { id: 'delivered', label: 'Delivered', icon: PackageCheck },
+      { id: 'calendar', label: 'Calendar', icon: CalendarDays },
+    ],
+  },
+  {
+    id: 'tasks_group',
+    label: 'Tasks',
+    icon: CheckSquare,
+    type: 'group',
+    children: [
+      { id: 'my_tasks', label: 'My Tasks', icon: CheckSquare },
+      { id: 'team_tasks', label: 'Team Tasks', icon: Users, managersOnly: true },
+    ],
+  },
+  { id: 'communication', label: 'Communication', icon: MessageSquare, type: 'single' },
+  { id: 'notifications', label: 'Notifications', icon: Bell, type: 'single' },
+  {
+    id: 'finance_group',
+    label: 'Finance',
+    icon: Landmark,
+    type: 'group',
+    managersOnly: true,
+    children: [
+      { id: 'payments', label: 'Payments', icon: CreditCard, managersOnly: true },
+      { id: 'finance', label: 'Finance & Payroll', icon: Landmark, adminOnly: true },
+    ],
+  },
+  {
+    id: 'management_group',
+    label: 'Management',
+    icon: Settings,
+    type: 'group',
+    managersOnly: true,
+    children: [
+      { id: 'team', label: 'Team', icon: Users, managersOnly: true },
+      { id: 'clients', label: 'Clients', icon: Users, adminOnly: true },
+      { id: 'settings', label: 'Settings', icon: Settings, adminOnly: true },
+    ],
+  },
+];
+
+function getGroupForView(view: ViewKey): string | null {
+  if (['projects', 'delivered', 'calendar'].includes(view)) return 'projects_group';
+  if (['my_tasks', 'team_tasks'].includes(view)) return 'tasks_group';
+  if (['payments', 'finance'].includes(view)) return 'finance_group';
+  if (['team', 'clients', 'settings'].includes(view)) return 'management_group';
+  return null;
+}
 
 export function Layout({
   children,
@@ -110,17 +199,57 @@ export function Layout({
   const unreadMessagesInfo = getUnreadMessagesInfo(currentProfile, data);
   const unreadNotificationsCount = notifications.filter((n) => !n.is_read).length;
 
-  const visibleNavItems = navItems.filter((item) => {
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => ({
+    projects_group: true,
+    tasks_group: true,
+    finance_group: true,
+    management_group: true,
+  }));
+
+  useEffect(() => {
+    const activeGroup = getGroupForView(activeView);
+    if (activeGroup) {
+      setExpandedGroups((prev) => ({ ...prev, [activeGroup]: true }));
+    }
+  }, [activeView]);
+
+  const visibleNavEntries = useMemo(() => {
     if (isClient) {
-      return item.id === 'dashboard' || item.id === 'ai_assistant' || item.id === 'projects' || item.id === 'communication' || item.id === 'notifications';
+      return [
+        { id: 'dashboard' as ViewKey, label: 'Dashboard', icon: Home, type: 'single' as const },
+        { id: 'ai_assistant' as ViewKey, label: 'AI Assistant', icon: Sparkles, type: 'single' as const },
+        { id: 'projects' as ViewKey, label: 'Projects', icon: FolderKanban, type: 'single' as const },
+        { id: 'communication' as ViewKey, label: 'Communication', icon: MessageSquare, type: 'single' as const },
+        { id: 'notifications' as ViewKey, label: 'Notifications', icon: Bell, type: 'single' as const },
+      ];
     }
 
-    if ('adminOnly' in item && item.adminOnly) {
-      return currentProfile.role === 'admin';
-    }
+    return navStructure
+      .map((entry) => {
+        if (entry.type === 'single') {
+          if (entry.adminOnly && currentProfile.role !== 'admin') return null;
+          if (entry.managersOnly && !canManageAll) return null;
+          return entry;
+        }
 
-    return !('managersOnly' in item) || !item.managersOnly || canManageAll;
-  });
+        if (entry.adminOnly && currentProfile.role !== 'admin') return null;
+        if (entry.managersOnly && !canManageAll) return null;
+
+        const validChildren = entry.children.filter((child) => {
+          if (child.adminOnly && currentProfile.role !== 'admin') return false;
+          if (child.managersOnly && !canManageAll) return false;
+          return true;
+        });
+
+        if (validChildren.length === 0) return null;
+
+        return {
+          ...entry,
+          children: validChildren,
+        };
+      })
+      .filter(Boolean) as NavEntry[];
+  }, [isClient, currentProfile.role, canManageAll]);
 
   // Mobile Bottom Navigation Items
   const mobileNavItems: Array<{ id: ViewKey; label: string; icon: typeof Home; badge?: number }> = isClient
@@ -164,31 +293,96 @@ export function Layout({
             <ManuscriptHeavenLogo variant="full" darkTheme />
           </div>
 
-          <nav className="flex-1 space-y-1 px-4 py-5">
-            {visibleNavItems.map((item) => {
-              const Icon = item.icon;
-              const active = activeView === item.id;
-              const isComm = item.id === 'communication';
+          <nav className="flex-1 space-y-1.5 overflow-y-auto px-4 py-5">
+            {visibleNavEntries.map((entry) => {
+              if (entry.type === 'single') {
+                const Icon = entry.icon;
+                const active = activeView === entry.id;
+                const isComm = entry.id === 'communication';
+
+                return (
+                  <button
+                    key={entry.id}
+                    onClick={() => setActiveView(entry.id)}
+                    className={cn(
+                      'flex w-full items-center justify-between rounded-md px-3 py-2.5 text-left text-sm font-medium transition',
+                      active ? 'bg-gold text-ink font-semibold shadow-xs' : 'text-white/75 hover:bg-white/10 hover:text-white',
+                    )}
+                  >
+                    <span className="flex items-center gap-3">
+                      <Icon className="h-4 w-4" />
+                      {entry.label}
+                    </span>
+                    {isComm && unreadMessagesInfo.totalUnreadCount > 0 ? (
+                      <span className="rounded-full bg-gold px-2 py-0.5 text-[10px] font-bold text-ink">
+                        {unreadMessagesInfo.totalUnreadCount}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              }
+
+              const GroupIcon = entry.icon;
+              const isExpanded = !!expandedGroups[entry.id];
+              const isGroupActive = entry.children.some((child) => child.id === activeView);
 
               return (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveView(item.id)}
-                  className={cn(
-                    'flex w-full items-center justify-between rounded-md px-3 py-2.5 text-left text-sm font-medium transition',
-                    active ? 'bg-gold text-ink font-semibold' : 'text-white/75 hover:bg-white/10 hover:text-white',
-                  )}
-                >
-                  <span className="flex items-center gap-3">
-                    <Icon className="h-4 w-4" />
-                    {item.label}
-                  </span>
-                  {isComm && unreadMessagesInfo.totalUnreadCount > 0 ? (
-                    <span className="rounded-full bg-gold px-2 py-0.5 text-[10px] font-bold text-ink">
-                      {unreadMessagesInfo.totalUnreadCount}
+                <div key={entry.id} className="space-y-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextExpanded = !isExpanded;
+                      setExpandedGroups((prev) => ({ ...prev, [entry.id]: nextExpanded }));
+                      if (nextExpanded && !isGroupActive && entry.children.length > 0) {
+                        setActiveView(entry.children[0].id);
+                      }
+                    }}
+                    className={cn(
+                      'flex w-full items-center justify-between rounded-md px-3 py-2.5 text-left text-sm font-medium transition',
+                      isGroupActive
+                        ? 'bg-white/15 text-white font-semibold'
+                        : 'text-white/75 hover:bg-white/10 hover:text-white',
+                    )}
+                  >
+                    <span className="flex items-center gap-3">
+                      <GroupIcon className={cn('h-4 w-4', isGroupActive ? 'text-gold' : 'text-white/70')} />
+                      {entry.label}
                     </span>
-                  ) : null}
-                </button>
+                    <ChevronDown
+                      className={cn(
+                        'h-4 w-4 text-white/50 transition-transform duration-200',
+                        isExpanded ? 'rotate-180 text-gold' : 'rotate-0',
+                      )}
+                    />
+                  </button>
+
+                  {isExpanded && (
+                    <div className="ml-4 my-1 space-y-1 border-l border-white/15 pl-3">
+                      {entry.children.map((child) => {
+                        const ChildIcon = child.icon;
+                        const childActive = activeView === child.id;
+
+                        return (
+                          <button
+                            key={child.id}
+                            onClick={() => setActiveView(child.id)}
+                            className={cn(
+                              'flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-xs font-medium transition',
+                              childActive
+                                ? 'bg-gold text-ink font-semibold shadow-xs'
+                                : 'text-white/70 hover:bg-white/10 hover:text-white',
+                            )}
+                          >
+                            <span className="flex items-center gap-2.5">
+                              <ChildIcon className="h-3.5 w-3.5" />
+                              {child.label}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               );
             })}
           </nav>
@@ -224,7 +418,7 @@ export function Layout({
               <div>
                 <p className="text-xs sm:text-sm font-medium text-muted">Welcome back, {displayName}</p>
                 <h1 className="font-display text-xl sm:text-2xl lg:text-3xl font-semibold text-ink">
-                  {navItems.find((item) => item.id === activeView)?.label || 'MH Tracker'}
+                  {viewHeaderTitles[activeView] || 'MH Tracker'}
                 </h1>
               </div>
               <IconButton title="Open menu" onClick={() => setMobileMenuOpen(true)} className="lg:hidden">
