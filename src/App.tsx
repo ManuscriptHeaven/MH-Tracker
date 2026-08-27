@@ -134,7 +134,7 @@ export default function App() {
     <CurrencyProvider>
       <AIProvider tracker={tracker}>
         <OfflineBanner />
-        <Layout activeView={activeView} setActiveView={setActiveView} currentProfile={tracker.currentProfile} data={tracker.data} notifications={tracker.visibleNotifications} searchTerm={searchTerm} setSearchTerm={setSearchTerm} onAddProject={openAddProject} onMarkNotificationRead={tracker.markNotificationRead} onMarkAllNotificationsRead={tracker.markAllNotificationsRead} onMarkConversationRead={tracker.markConversationRead} onViewNotifications={() => setActiveView('notifications')} onOpenNotificationProject={openProjectById} onSignOut={tracker.signOut}>
+        <Layout activeView={activeView} setActiveView={setActiveView} currentProfile={tracker.currentProfile} data={tracker.data} notifications={tracker.visibleNotifications} searchTerm={searchTerm} setSearchTerm={setSearchTerm} onAddProject={openAddProject} onMarkNotificationRead={tracker.markNotificationRead} onMarkAllNotificationsRead={tracker.markAllNotificationsRead} onMarkConversationRead={tracker.markConversationRead} onViewNotifications={() => setActiveView('notifications')} onOpenNotificationProject={openProjectById} onSignOut={tracker.signOut} onUpdateProfile={tracker.updateProfile}>
     {activeView === 'dashboard' && isClient && (
       <ClientPortalPage
         projects={visibleProjects}
@@ -194,6 +194,7 @@ export default function App() {
         onAddLedgerEntry={tracker.addEmployeeLedgerEntry}
         onSaveCompensation={tracker.saveEmployeeCompensation}
         onDeleteLedgerEntry={tracker.deleteEmployeeLedgerEntry}
+        onUpdateProfile={tracker.updateProfile}
       />
     )}
     {activeView === 'clients' && tracker.currentProfile.role === 'admin' && <ClientAccessPage profiles={tracker.data.profiles} projects={tracker.data.projects} clientProjectAccess={tracker.data.clientProjectAccess} onInviteClient={tracker.inviteClient} />}
@@ -222,7 +223,13 @@ export default function App() {
         onSaveBudget={tracker.saveFinanceBudget}
       />
     )}
-    {activeView === 'settings' && tracker.currentProfile.role === 'admin' && <SettingsPage mode={tracker.mode} />}
+    {activeView === 'settings' && tracker.currentProfile.role === 'admin' && (
+      <SettingsPage
+        mode={tracker.mode}
+        currentProfile={tracker.currentProfile}
+        onUpdateProfile={tracker.updateProfile}
+      />
+    )}
     {showProjectForm && <ProjectFormModal currentProfile={tracker.currentProfile} profiles={tracker.data.profiles} projects={tracker.data.projects} project={editingProject} onClose={() => { setShowProjectForm(false); setEditingProject(null); }} onSubmit={handleSaveProject} />}
     {selectedProjectFresh && !isClient && (
       <ProjectDetail

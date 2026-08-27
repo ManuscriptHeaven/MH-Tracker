@@ -1,18 +1,32 @@
-import { CheckCircle2, Clock, Database, DollarSign, KeyRound, ShieldCheck } from 'lucide-react';
+import { Camera, CheckCircle2, Clock, Database, DollarSign, KeyRound, ShieldCheck, User as UserIcon } from 'lucide-react';
 import { useState } from 'react';
 import { Button, Card, Field } from '../components/ui';
 import { DEFAULT_WORKFLOW_SETTINGS } from '../lib/constants';
 import { isSupabaseConfigured } from '../lib/supabase';
-import type { WorkflowSettings } from '../lib/types';
+import type { Profile, WorkflowSettings } from '../lib/types';
 import { AISettingsSection } from '../components/ai/AISettingsSection';
 import { useAIContext } from '../lib/ai/aiContext';
 import { useCurrency } from '../lib/currency';
+import { UserAvatar } from '../components/UserAvatar';
+import { AvatarUploadModal } from '../components/AvatarUploadModal';
 
-export function SettingsPage({ mode }: { mode: 'demo' | 'supabase' }) {
+export function SettingsPage({
+  mode,
+  currentProfile,
+  onUpdateProfile,
+}: {
+  mode: 'demo' | 'supabase';
+  currentProfile?: Profile;
+  onUpdateProfile?: (
+    profileId: string,
+    updates: { full_name?: string; avatar_url?: string | null; phone?: string | null }
+  ) => Promise<string | void>;
+}) {
   const { settings, updateSettings } = useAIContext();
   const { exchangeRate, setExchangeRate, exchangeRateLastUpdated } = useCurrency();
   const [customRate, setCustomRate] = useState(String(exchangeRate));
   const [rateSaved, setRateSaved] = useState(false);
+  const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
 
   const [workflowSettings, setWorkflowSettings] = useState<WorkflowSettings>(() => {
     const saved = localStorage.getItem('mh_workflow_settings');
@@ -59,6 +73,41 @@ export function SettingsPage({ mode }: { mode: 'demo' | 'supabase' }) {
 
   return (
     <div className="space-y-6">
+      {/* My Profile & Display Picture Settings */}
+      {currentProfile && (
+        <Card className="bg-gradient-to-r from-ivory to-white border-gold/30">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-5">
+            <div className="flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left">
+              <div className="relative group cursor-pointer" onClick={() => setIsAvatarModalOpen(true)}>
+                <UserAvatar profile={currentProfile} size="xl" showRoleRing />
+                <span className="absolute bottom-0 right-0 grid h-6 w-6 place-items-center rounded-full bg-gold text-ink font-bold shadow-md">
+                  <Camera className="h-3.5 w-3.5" />
+                </span>
+              </div>
+
+              <div>
+                <h2 className="font-display text-xl font-bold text-ink">{currentProfile.full_name}</h2>
+                <p className="text-xs text-muted uppercase tracking-wider font-semibold">
+                  Role: <span className="text-gold">{currentProfile.role}</span>
+                </p>
+                <p className="text-xs text-muted mt-0.5">{currentProfile.email}</p>
+                {currentProfile.phone && (
+                  <p className="text-xs text-muted mt-0.5">Phone: {currentProfile.phone}</p>
+                )}
+              </div>
+            </div>
+
+            <Button
+              type="button"
+              variant="primary"
+              onClick={() => setIsAvatarModalOpen(true)}
+              className="bg-gold text-ink hover:bg-gold/90 font-bold text-xs"
+            >
+              <Camera className="mr-1.5 h-4 w-4" /> Upload Photo / Edit Profile
+            </Button>
+          </div>
+        </Card>
+      )}
       {/* Workflow Stage Allocations Settings */}
       <Card>
         <div className="flex items-center gap-2 mb-2">
@@ -258,6 +307,15 @@ export function SettingsPage({ mode }: { mode: 'demo' | 'supabase' }) {
       </div>
 
       <AISettingsSection settings={settings} onUpdate={updateSettings} />
+
+      {currentProfile && (
+        <AvatarUploadModal
+          isOpen={isAvatarModalOpen}
+          onClose={() => setIsAvatarModalOpen(false)}
+          profile={currentProfile}
+          onSaveProfile={onUpdateProfile || (async () => {})}
+        />
+      )}
     </div>
   );
 }

@@ -2598,6 +2598,38 @@ export function useTracker() {
     [currentProfile, data.profiles, loadSupabaseData, mode],
   );
 
+  const updateProfile = useCallback(
+    async (
+      profileId: string,
+      updates: Partial<Pick<Profile, 'full_name' | 'avatar_url' | 'phone'>>,
+    ) => {
+      if (supabase && mode === 'supabase') {
+        const { error: updateErr } = await supabase
+          .from('profiles')
+          .update(updates)
+          .eq('id', profileId);
+
+        if (updateErr) {
+          throw updateErr;
+        }
+      }
+
+      setData((previous) => ({
+        ...previous,
+        profiles: previous.profiles.map((p) => (p.id === profileId ? { ...p, ...updates } : p)),
+      }));
+
+      if (currentProfile?.id === profileId) {
+        const updatedCurrent = { ...currentProfile, ...updates };
+        setCurrentProfile(updatedCurrent);
+        setStoredProfile(updatedCurrent);
+      }
+
+      return 'Profile updated successfully!';
+    },
+    [currentProfile, mode],
+  );
+
   const markNotificationRead = useCallback(
     async (notificationId: string) => {
       setData((previous) => ({
@@ -3452,6 +3484,7 @@ export function useTracker() {
     createTask,
     updateTask,
     inviteClient,
+    updateProfile,
     markNotificationRead,
     markAllNotificationsRead,
     notificationToast,

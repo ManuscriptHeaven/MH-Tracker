@@ -1,6 +1,7 @@
 import {
   Bell,
   CalendarDays,
+  Camera,
   CheckSquare,
   CreditCard,
   Download,
@@ -33,6 +34,7 @@ export function MobileMoreMenu({
   canInstall,
   onInstall,
   onSignOut,
+  onOpenAvatarModal,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -41,9 +43,10 @@ export function MobileMoreMenu({
   currentProfile: Profile;
   data: TrackerData;
   notifications: NotificationItem[];
-  canInstall: boolean;
-  onInstall: () => void;
+  canInstall?: boolean;
+  onInstall?: () => void;
   onSignOut: () => void;
+  onOpenAvatarModal?: () => void;
 }) {
   if (!isOpen) return null;
 
@@ -137,13 +140,29 @@ export function MobileMoreMenu({
       <div className="relative w-full max-h-[85vh] overflow-y-auto rounded-t-2xl border-t border-border bg-linen p-5 shadow-2xl transition-transform animate-in slide-in-from-bottom duration-200">
         {/* Header with user info */}
         <div className="flex items-center justify-between border-b border-border/80 pb-4">
-          <div className="flex items-center gap-3">
-            <UserAvatar profile={currentProfile} size="lg" showRoleRing showStatusDot />
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              onOpenAvatarModal?.();
+            }}
+            className="flex items-center gap-3 text-left group cursor-pointer"
+            title="Click to change DP & update profile"
+          >
+            <div className="relative">
+              <UserAvatar profile={currentProfile} size="lg" showRoleRing showStatusDot />
+              <span className="absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full bg-gold text-[10px] font-bold text-ink shadow-sm group-hover:scale-110 transition-transform">
+                <Camera className="h-3 w-3" />
+              </span>
+            </div>
             <div>
-              <p className="font-semibold text-ink leading-tight">{currentProfile.full_name}</p>
+              <p className="font-semibold text-ink leading-tight flex items-center gap-1.5">
+                {currentProfile.full_name}
+                <span className="text-[10px] font-medium text-gold">Edit DP</span>
+              </p>
               <p className="text-xs text-muted mt-0.5">{roleLabels[currentProfile.role]}</p>
             </div>
-          </div>
+          </button>
           <button
             onClick={onClose}
             className="grid h-9 w-9 place-items-center rounded-full bg-ivory text-muted hover:text-ink active:scale-95"
@@ -163,7 +182,7 @@ export function MobileMoreMenu({
         {canInstall ? (
           <button
             onClick={() => {
-              onInstall();
+              onInstall?.();
               onClose();
             }}
             className="mb-4 flex w-full items-center justify-between rounded-xl border border-gold/40 bg-gold/15 p-3.5 text-left font-semibold text-ink transition hover:bg-gold/25 active:scale-[0.99]"

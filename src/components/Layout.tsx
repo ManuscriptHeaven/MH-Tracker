@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Bell,
   CalendarDays,
+  Camera,
   CheckSquare,
   ChevronDown,
   CreditCard,
@@ -32,6 +33,7 @@ import { CurrencySelector } from './CurrencySelector';
 import { MobileMoreMenu } from './MobileMoreMenu';
 import { ManuscriptHeavenLogo } from './ManuscriptHeavenLogo';
 import { UserAvatar } from './UserAvatar';
+import { AvatarUploadModal } from './AvatarUploadModal';
 import { usePwaInstall } from '../lib/pwa';
 import { isSoundEnabled, setSoundEnabled, playNotificationSound } from '../lib/sound';
 
@@ -172,6 +174,7 @@ export function Layout({
   onViewNotifications,
   onOpenNotificationProject,
   onSignOut,
+  onUpdateProfile,
 }: {
   children: React.ReactNode;
   activeView: ViewKey;
@@ -188,8 +191,13 @@ export function Layout({
   onViewNotifications: () => void;
   onOpenNotificationProject: (projectId: string) => void;
   onSignOut: () => void;
+  onUpdateProfile?: (
+    profileId: string,
+    updates: { full_name?: string; avatar_url?: string | null; phone?: string | null }
+  ) => Promise<string | void>;
 }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
   const [soundActive, setSoundActive] = useState<boolean>(() => isSoundEnabled());
   const { canInstall, promptInstall } = usePwaInstall();
   const canAddProject = isManagerRole(currentProfile.role) && (activeView === 'dashboard' || activeView === 'projects');
@@ -400,13 +408,26 @@ export function Layout({
           ) : null}
 
           <div className="border-t border-white/10 p-4">
-            <div className="flex items-center gap-3 rounded-lg bg-white/10 p-3">
-              <UserAvatar profile={currentProfile} size="md" showRoleRing showStatusDot />
+            <button
+              type="button"
+              onClick={() => setIsAvatarModalOpen(true)}
+              className="flex w-full items-center gap-3 rounded-lg bg-white/10 p-3 text-left transition hover:bg-white/15 group relative"
+              title="Click to update Display Picture & Profile"
+            >
+              <div className="relative">
+                <UserAvatar profile={currentProfile} size="md" showRoleRing showStatusDot />
+                <span className="absolute -bottom-1 -right-1 grid h-4 w-4 place-items-center rounded-full bg-gold text-[9px] font-bold text-ink shadow-sm group-hover:scale-110 transition-transform">
+                  <Camera className="h-2.5 w-2.5" />
+                </span>
+              </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold">{displayName}</p>
+                <p className="truncate text-sm font-semibold flex items-center justify-between">
+                  {displayName}
+                  <span className="text-[10px] text-gold font-normal opacity-0 group-hover:opacity-100 transition-opacity">Edit DP</span>
+                </p>
                 <p className="truncate text-xs text-white/60">{roleLabels[currentProfile.role]}</p>
               </div>
-            </div>
+            </button>
           </div>
         </div>
       </aside>
@@ -544,6 +565,15 @@ export function Layout({
         canInstall={canInstall}
         onInstall={promptInstall}
         onSignOut={onSignOut}
+        onOpenAvatarModal={() => setIsAvatarModalOpen(true)}
+      />
+
+      {/* Avatar & Profile Upload Modal */}
+      <AvatarUploadModal
+        isOpen={isAvatarModalOpen}
+        onClose={() => setIsAvatarModalOpen(false)}
+        profile={currentProfile}
+        onSaveProfile={onUpdateProfile || (async () => {})}
       />
     </div>
   );

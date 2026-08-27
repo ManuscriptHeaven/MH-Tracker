@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
+  Camera,
   ChevronLeft,
   ChevronRight,
   CreditCard,
@@ -17,6 +18,7 @@ import {
 import { PayrollStatusBadge, RoleBadge } from '../components/Badges';
 import { Button, Card, SelectField } from '../components/ui';
 import { UserAvatar } from '../components/UserAvatar';
+import { AvatarUploadModal } from '../components/AvatarUploadModal';
 import { closedStatuses } from '../lib/constants';
 import { useCurrency } from '../lib/currency';
 import { isOverdue } from '../lib/date';
@@ -62,6 +64,7 @@ export function TeamPage({
   onAddLedgerEntry,
   onSaveCompensation,
   onDeleteLedgerEntry,
+  onUpdateProfile,
 }: {
   currentProfile?: Profile;
   profiles: Profile[];
@@ -73,12 +76,17 @@ export function TeamPage({
   onAddLedgerEntry: (entry: Omit<EmployeeLedgerEntry, 'id' | 'created_at'>) => Promise<void>;
   onSaveCompensation?: (employeeId: string, updates: Partial<EmployeeCompensation>) => Promise<void>;
   onDeleteLedgerEntry?: (entryId: string) => Promise<void>;
+  onUpdateProfile?: (
+    profileId: string,
+    updates: { full_name?: string; avatar_url?: string | null; phone?: string | null }
+  ) => Promise<string | void>;
 }) {
   const { formatMoney, convertMoney, displayCurrency } = useCurrency();
   const [tab, setTab] = useState<Tab>('payroll');
   const [selectedMonth, setSelectedMonth] = useState<string>(() => normalizeMonth());
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [avatarTargetProfile, setAvatarTargetProfile] = useState<Profile | null>(null);
 
   // Modals
   const [showAddEntryModal, setShowAddEntryModal] = useState(false);
@@ -489,7 +497,17 @@ export function TeamPage({
               <Card key={profile.id} className="p-4 bg-white space-y-3">
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
-                    <UserAvatar profile={profile} size="lg" showRoleRing showStatusDot />
+                    <button
+                      type="button"
+                      onClick={() => setAvatarTargetProfile(profile)}
+                      className="relative group cursor-pointer"
+                      title="Click to update DP"
+                    >
+                      <UserAvatar profile={profile} size="lg" showRoleRing showStatusDot />
+                      <span className="absolute -bottom-1 -right-1 grid h-4 w-4 place-items-center rounded-full bg-gold text-[9px] font-bold text-ink opacity-90 group-hover:scale-110 transition-transform">
+                        <Camera className="h-2.5 w-2.5" />
+                      </span>
+                    </button>
                     <div>
                       <h4 className="font-display font-bold text-sm text-ink">{profile.full_name}</h4>
                       <RoleBadge role={profile.role} />
@@ -616,6 +634,15 @@ export function TeamPage({
             openEditSalary(employeeId);
           }}
           onDeleteEntry={onDeleteLedgerEntry}
+        />
+      )}
+
+      {avatarTargetProfile && (
+        <AvatarUploadModal
+          isOpen={!!avatarTargetProfile}
+          onClose={() => setAvatarTargetProfile(null)}
+          profile={avatarTargetProfile}
+          onSaveProfile={onUpdateProfile || (async () => {})}
         />
       )}
     </div>
