@@ -83,7 +83,7 @@ export function MobileMoreMenu({
         { id: 'projects', label: 'All Projects', icon: FolderKanban, show: true },
         { id: 'delivered', label: 'Delivered Projects', icon: PackageCheck, show: !isClient },
         { id: 'calendar', label: 'Calendar & Deadlines', icon: CalendarDays, show: !isClient },
-        { id: 'ai_assistant', label: 'AI Assistant', icon: Sparkles, show: true },
+        { id: 'ai_assistant', label: 'AI Assistant', icon: Sparkles, show: isManager },
       ],
     },
     {

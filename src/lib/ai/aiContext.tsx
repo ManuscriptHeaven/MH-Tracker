@@ -302,7 +302,13 @@ export function AIProvider({ children, tracker }: { children: ReactNode; tracker
 
   // Manage background Wake Word listener loop
   useEffect(() => {
-    if (settings.wakeWordEnabled && !isListening && !isSpeaking) {
+    const isManagerOrAdmin =
+      trackerRef.current?.canManageAll ||
+      trackerRef.current?.currentProfile?.role === 'admin' ||
+      trackerRef.current?.currentProfile?.role === 'project_manager' ||
+      trackerRef.current?.currentProfile?.role === 'manager';
+
+    if (settings.wakeWordEnabled && !isListening && !isSpeaking && isManagerOrAdmin) {
       wakeWordService.startListening(settings.wakeWord || 'hey james', settings.assistantName || 'James');
     } else {
       wakeWordService.stopListening();

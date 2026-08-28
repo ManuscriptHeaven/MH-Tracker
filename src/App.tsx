@@ -160,7 +160,7 @@ export default function App() {
       />
     )}
     {activeView === 'dashboard' && !isClient && <DashboardPage projects={visibleProjects} profiles={tracker.data.profiles} canViewPayments={tracker.canManageAll} canManageProjects={tracker.canManageAll} currentProfileId={tracker.currentProfile.id} onAddProject={openAddProject} onSelectProject={setSelectedProject} />}
-    {activeView === 'ai_assistant' && (
+    {activeView === 'ai_assistant' && tracker.canManageAll && (
       <ErrorBoundary>
         <AIAssistantPage projects={visibleProjects} />
       </ErrorBoundary>
@@ -362,9 +362,9 @@ export default function App() {
       />
     )}
     <Toast toast={toast} onClose={() => setToast(null)} onOpenProject={openProjectById} />
-    <AIDailyPopup />
+    {tracker.canManageAll && <AIDailyPopup />}
   </Layout>
-  {activeView !== 'ai_assistant' && (
+  {activeView !== 'ai_assistant' && tracker.canManageAll && (
     <>
       <AIChatButton />
       <AIChatPanel />

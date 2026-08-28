@@ -101,7 +101,7 @@ type NavEntry = NavSingleItem | NavGroupItem;
 
 const navStructure: NavEntry[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Home, type: 'single' },
-  { id: 'ai_assistant', label: 'AI Assistant', icon: Sparkles, type: 'single' },
+  { id: 'ai_assistant', label: 'AI Assistant', icon: Sparkles, type: 'single', managersOnly: true },
   {
     id: 'projects_group',
     label: 'Projects',
@@ -227,7 +227,6 @@ export function Layout({
     if (isClient) {
       return [
         { id: 'dashboard' as ViewKey, label: 'Dashboard', icon: Home, type: 'single' as const },
-        { id: 'ai_assistant' as ViewKey, label: 'AI Assistant', icon: Sparkles, type: 'single' as const },
         { id: 'projects' as ViewKey, label: 'Projects', icon: FolderKanban, type: 'single' as const },
         { id: 'communication' as ViewKey, label: 'Communication', icon: MessageSquare, type: 'single' as const },
         { id: 'notifications' as ViewKey, label: 'Notifications', icon: Bell, type: 'single' as const },
