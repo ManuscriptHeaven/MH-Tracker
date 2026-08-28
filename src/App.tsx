@@ -42,6 +42,7 @@ export default function App() {
   const [showRevisionModal, setShowRevisionModal] = useState(false);
   const [revisionModalProjectId, setRevisionModalProjectId] = useState<string | undefined>(undefined);
   const [toast, setToast] = useState<ToastData | null>(null);
+  const [jumpToConversationId, setJumpToConversationId] = useState<string | null>(null);
   const visibleProjects = tracker.visibleProjects;
   const isClient = tracker.currentProfile ? isClientRole(tracker.currentProfile.role) : false;
 
@@ -135,7 +136,7 @@ export default function App() {
     <CurrencyProvider>
       <AIProvider tracker={tracker}>
         <OfflineBanner />
-        <Layout activeView={activeView} setActiveView={setActiveView} currentProfile={tracker.currentProfile} data={tracker.data} notifications={tracker.visibleNotifications} searchTerm={searchTerm} setSearchTerm={setSearchTerm} onAddProject={openAddProject} onMarkNotificationRead={tracker.markNotificationRead} onMarkAllNotificationsRead={tracker.markAllNotificationsRead} onMarkConversationRead={tracker.markConversationRead} onViewNotifications={() => setActiveView('notifications')} onOpenNotificationProject={openProjectById} onSignOut={tracker.signOut} onUpdateProfile={tracker.updateProfile}>
+        <Layout activeView={activeView} setActiveView={setActiveView} currentProfile={tracker.currentProfile} data={tracker.data} notifications={tracker.visibleNotifications} searchTerm={searchTerm} setSearchTerm={setSearchTerm} onAddProject={openAddProject} onMarkNotificationRead={tracker.markNotificationRead} onMarkAllNotificationsRead={tracker.markAllNotificationsRead} onMarkConversationRead={tracker.markConversationRead} onViewNotifications={() => setActiveView('notifications')} onOpenNotificationProject={openProjectById} onSignOut={tracker.signOut} onUpdateProfile={tracker.updateProfile} onOpenConversation={(conversationId) => { setJumpToConversationId(conversationId); setActiveView('communication'); }}>
     {activeView === 'dashboard' && isClient && (
       <ClientPortalPage
         projects={visibleProjects}
@@ -181,6 +182,8 @@ export default function App() {
         onGetOrCreateDM={tracker.getOrCreateDM}
         onGetOrCreateProjectConversation={tracker.getOrCreateProjectConversation}
         onOpenProject={openProjectById}
+        jumpToConversationId={jumpToConversationId}
+        onJumpHandled={() => setJumpToConversationId(null)}
       />
     )}
     {activeView === 'calendar' && <CalendarPage projects={visibleProjects} onSelectProject={setSelectedProject} />}

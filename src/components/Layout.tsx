@@ -175,6 +175,7 @@ export function Layout({
   onOpenNotificationProject,
   onSignOut,
   onUpdateProfile,
+  onOpenConversation,
 }: {
   children: React.ReactNode;
   activeView: ViewKey;
@@ -195,6 +196,7 @@ export function Layout({
     profileId: string,
     updates: { full_name?: string; avatar_url?: string | null; phone?: string | null }
   ) => Promise<string | void>;
+  onOpenConversation?: (conversationId: string) => void;
 }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
@@ -476,8 +478,12 @@ export function Layout({
                   currentProfile={currentProfile}
                   data={data}
                   onMarkRead={onMarkConversationRead}
-                  onOpenConversation={() => {
-                    setActiveView('communication');
+                  onOpenConversation={(conversationId) => {
+                    if (onOpenConversation) {
+                      onOpenConversation(conversationId);
+                    } else {
+                      setActiveView('communication');
+                    }
                   }}
                   onViewAllMessages={() => {
                     setActiveView('communication');

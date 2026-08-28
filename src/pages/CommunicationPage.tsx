@@ -53,6 +53,10 @@ interface CommunicationPageProps {
   onGetOrCreateDM: (otherUserId: string) => Promise<Conversation>;
   onGetOrCreateProjectConversation: (projectId: string, isInternal: boolean) => Promise<Conversation>;
   onOpenProject?: (projectId: string) => void;
+  /** When set, the page will auto-select this conversation on mount/change */
+  jumpToConversationId?: string | null;
+  /** Called once the jump has been handled so the parent can clear the value */
+  onJumpHandled?: () => void;
 }
 
 const EMOJI_LIST = ['👍', '❤️', '🎉', '😄', '🚀', '👀', '✅'];
@@ -216,6 +220,8 @@ export function CommunicationPage({
   onGetOrCreateDM,
   onGetOrCreateProjectConversation,
   onOpenProject,
+  jumpToConversationId,
+  onJumpHandled,
 }: CommunicationPageProps) {
   const isClient = isClientRole(currentProfile.role);
 
@@ -323,6 +329,29 @@ export function CommunicationPage({
       setActiveConversationId(allConversations[0].id);
     }
   }, [allConversations, activeConversationId]);
+
+  /* ── Jump to a specific conversation from notification bell click ── */
+  useEffect(() => {
+    if (!jumpToConversationId) return;
+    const conv = allConversations.find((c) => c.id === jumpToConversationId);
+    if (!conv) return;
+
+    setActiveConversationId(jumpToConversationId);
+    setMobileShowConv(true);
+
+    // If it's a project conversation, also set the project + mode
+    if (conv.project_id) {
+      setActiveProjectId(conv.project_id);
+      setProjectConvMode(conv.type === 'project_internal' ? 'internal' : 'client');
+    } else {
+      setActiveProjectId(null);
+    }
+
+    // Mark as read and clear the jump target
+    onMarkRead(jumpToConversationId).catch(() => {});
+    onJumpHandled?.();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpToConversationId]);
 
   /* ── Scroll to bottom on new messages ── */
   useEffect(() => {
