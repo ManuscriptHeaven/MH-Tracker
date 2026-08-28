@@ -332,8 +332,8 @@ function ClientProjectCard({
           </div>
           <div>
             <span className="text-[11px] uppercase tracking-wider font-semibold text-muted block">Waiting On</span>
-            <p className={cn("mt-0.5 text-sm font-semibold", summary.waitingOn === 'Client' ? 'text-amber-800' : 'text-ink')}>
-              {summary.waitingOn}
+            <p className={cn("mt-0.5 text-sm font-semibold", summary.waitingOn === 'Client' ? 'text-amber-800 font-bold' : 'text-ink')}>
+              {summary.waitingOn === 'Client' ? 'Your Approval Needed' : summary.waitingOn === 'Manuscript Heaven' ? 'Manuscript Heaven Team' : summary.waitingOn}
             </p>
           </div>
         </div>

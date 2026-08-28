@@ -106,7 +106,10 @@ export function ProjectTimelinePanel({ project, clientView = false }: { project:
 
       <div className="mt-4 grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-5">
         <Info label="Timeline Status" value={summary.timelineStatus} />
-        <Info label="Waiting On" value={summary.waitingOn} />
+        <Info
+          label="Waiting On"
+          value={clientView ? (summary.waitingOn === 'Client' ? 'Your Approval Needed' : summary.waitingOn === 'Manuscript Heaven' ? 'Manuscript Heaven Team' : summary.waitingOn) : summary.waitingOn}
+        />
         <Info label="Current Due Date" value={summary.waitingOn === 'Client' ? 'Paused' : summary.dueDate ? formatDate(summary.dueDate) : 'Paused'} />
         <Info label="Final Due Date" value={summary.finalDueDate ? formatDate(summary.finalDueDate) : 'Not set'} />
         <Info

@@ -355,8 +355,8 @@ export function ClientProjectDetailModal({
           </div>
           <div className="rounded-lg border border-border bg-white p-3">
             <span className="text-xs font-medium text-muted">Waiting On</span>
-            <p className={cn("mt-1 text-sm font-semibold", summary.waitingOn === 'Client' ? 'text-amber-800' : 'text-ink')}>
-              {summary.waitingOn}
+            <p className={cn("mt-1 text-sm font-semibold", summary.waitingOn === 'Client' ? 'text-amber-800 font-bold' : 'text-ink')}>
+              {summary.waitingOn === 'Client' ? 'Your Approval Needed' : summary.waitingOn === 'Manuscript Heaven' ? 'Manuscript Heaven Team' : summary.waitingOn}
             </p>
           </div>
         </div>
