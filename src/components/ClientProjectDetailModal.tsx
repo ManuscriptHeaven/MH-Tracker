@@ -92,6 +92,7 @@ export function ClientProjectDetailModal({
   onClose,
   onApproveMilestone,
   onRequestRevision,
+  onRespondToStageSkip,
 }: {
   project: Project;
   profiles: Profile[];
@@ -115,6 +116,7 @@ export function ClientProjectDetailModal({
   onClose: () => void;
   onApproveMilestone: (projectId: string, milestone: ApprovalMilestone) => Promise<void>;
   onRequestRevision: (projectId: string) => void;
+  onRespondToStageSkip?: (requestId: string, approved: boolean) => Promise<void>;
 }) {
   const [activeTab, setActiveTab] = useState<'overview' | 'files' | 'messages' | 'revisions' | 'activity'>('overview');
   const [isApproving, setIsApproving] = useState(false);
@@ -282,6 +284,52 @@ export function ClientProjectDetailModal({
             ) : null}
           </div>
         </div>
+
+        {/* Pending Stage Skip Request Alert */}
+        {(() => {
+          const pendingSkip = (project.stage_skip_requests || []).find((r) => r.status === 'PENDING');
+          if (!pendingSkip) return null;
+          return (
+            <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 shadow-xs">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-amber-800 block">
+                    Stage Skip Requested by Team
+                  </span>
+                  <h4 className="font-display text-base font-semibold text-amber-950">
+                    Request to skip stage: {pendingSkip.stage}
+                  </h4>
+                  <p className="text-xs text-amber-900 mt-0.5">
+                    Reason: <span className="italic">"{pendingSkip.reason}"</span>
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    type="button"
+                    onClick={async () => {
+                      if (onRespondToStageSkip) await onRespondToStageSkip(pendingSkip.id, true);
+                    }}
+                    className="bg-success hover:bg-green-700 text-white text-xs px-3 py-2"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Approve Skip
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={async () => {
+                      if (onRespondToStageSkip) await onRespondToStageSkip(pendingSkip.id, false);
+                    }}
+                    className="text-xs px-3 py-2"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Reject
+                  </Button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Action Required Alert Banner */}
         {summary.clientActionRequired ? (

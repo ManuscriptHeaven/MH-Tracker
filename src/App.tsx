@@ -267,6 +267,30 @@ export default function App() {
         onSendMessage={tracker.sendMessage}
         onGetOrCreateProjectConversation={tracker.getOrCreateProjectConversation}
         onMarkRead={tracker.markConversationRead}
+        onSubmitStageForApproval={async () => {
+          try {
+            await tracker.submitStageForApproval(selectedProjectFresh.id);
+            setToast({ message: 'Submitted stage for client approval.', tone: 'success' });
+          } catch (err) {
+            setToast({ message: errorMessage(err, 'Failed to submit stage for approval.'), tone: 'error' });
+          }
+        }}
+        onRequestStageSkip={async (stage, reason) => {
+          try {
+            await tracker.requestStageSkip(selectedProjectFresh.id, stage, reason);
+            setToast({ message: 'Stage skip request sent to client for approval.', tone: 'success' });
+          } catch (err) {
+            setToast({ message: errorMessage(err, 'Failed to request stage skip.'), tone: 'error' });
+          }
+        }}
+        onAdminWorkflowOverride={async (newStage, reason, explanation) => {
+          try {
+            await tracker.adminWorkflowOverride(selectedProjectFresh.id, newStage, reason, explanation);
+            setToast({ message: 'Administrative workflow override recorded.', tone: 'success' });
+          } catch (err) {
+            setToast({ message: errorMessage(err, 'Admin override failed.'), tone: 'error' });
+          }
+        }}
       />
     )}
     {selectedProjectFresh && isClient && (
@@ -300,6 +324,14 @@ export default function App() {
           setSelectedProject(null);
           setRevisionModalProjectId(projectId);
           setShowRevisionModal(true);
+        }}
+        onRespondToStageSkip={async (requestId, approved) => {
+          try {
+            await tracker.respondToStageSkip(requestId, approved);
+            setToast({ message: `Stage skip ${approved ? 'approved' : 'rejected'}.`, tone: 'success' });
+          } catch (err) {
+            setToast({ message: errorMessage(err, 'Failed to respond to stage skip.'), tone: 'error' });
+          }
         }}
       />
     )}

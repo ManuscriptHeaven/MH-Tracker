@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, Circle, Pause } from 'lucide-react';
+import { AlertTriangle, Ban, Check, Circle, Pause } from 'lucide-react';
 import { formatDate } from '../lib/date';
 import { cn } from '../lib/utils';
 import { getTimelineMilestones, getTimelineSummary } from '../lib/timeline';
@@ -35,6 +35,10 @@ function MilestoneIcon({ state }: { state: string }) {
 
   if (state === 'overdue') {
     return <AlertTriangle className="h-3.5 w-3.5" />;
+  }
+
+  if (state === 'skipped') {
+    return <Ban className="h-3.5 w-3.5 text-slate-400" />;
   }
 
   return <Circle className="h-3.5 w-3.5" />;
@@ -133,6 +137,7 @@ export function ProjectTimelinePanel({ project, clientView = false }: { project:
                   milestone.state === 'paused' && 'border-amber-200 bg-amber-50 text-amber-800',
                   milestone.state === 'revision' && 'border-orange-200 bg-orange-50 text-orange-900 ring-2 ring-orange-400/40',
                   milestone.state === 'overdue' && 'border-red-200 bg-red-50 text-danger ring-2 ring-red-400/40',
+                  milestone.state === 'skipped' && 'border-slate-300 bg-slate-100 text-slate-500 opacity-75',
                   milestone.state === 'future' && 'border-border bg-ivory text-muted',
                 )}
               >
@@ -144,21 +149,21 @@ export function ProjectTimelinePanel({ project, clientView = false }: { project:
                 </div>
                 <div>
                   <span className="text-[10px] font-medium block opacity-80">
-                    {milestone.state === 'completed'
-                      ? 'Completed'
-                      : milestone.state === 'paused'
-                        ? 'Waiting for Client'
-                        : milestone.state === 'revision'
-                          ? 'Revision Required'
-                          : milestone.state === 'current'
-                            ? 'In Progress'
-                            : milestone.isApproval
-                              ? 'Approval Stage'
-                              : `${milestone.durationDays} days`}
+                    {milestone.state === 'skipped'
+                      ? (milestone.skipLabel || 'Skipped')
+                      : milestone.state === 'completed'
+                        ? 'Completed'
+                        : milestone.state === 'paused'
+                          ? 'Waiting for Client'
+                          : milestone.state === 'revision'
+                            ? 'Revision Required'
+                            : milestone.state === 'current'
+                              ? 'In Progress'
+                              : milestone.isApproval
+                                ? 'Approval Stage'
+                                : `${milestone.durationDays} days`}
                   </span>
-                  <span className="text-[11px] block mt-0.5 font-medium">
-                    {milestone.date ? formatDate(milestone.date) : milestone.state === 'completed' ? 'Done' : 'Pending'}
-                  </span>
+                  <span className="text-[11px] block mt-0.5">{milestone.state === 'skipped' ? '⊘ Skipped' : milestone.date ? formatDate(milestone.date) : 'Pending'}</span>
                 </div>
               </div>
             </div>

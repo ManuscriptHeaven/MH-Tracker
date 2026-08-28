@@ -34,7 +34,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { RevisionRequestsPage } from '../pages/RevisionRequestsPage';
 import { revisionStatuses, timelineStages } from '../lib/constants';
 import { deadlineClass, deadlineLabel, formatDate, todayInput } from '../lib/date';
-import { getTimelineSummary, timelineUpdateForStage } from '../lib/timeline';
+import { getTimelineSummary, timelineUpdateForStage, type OfficialTimelineStage } from '../lib/timeline';
 import { firstName, initials } from '../lib/utils';
 import { useCurrency } from '../lib/currency';
 import type {
@@ -116,6 +116,9 @@ export function ProjectDetail({
   onSendMessage,
   onGetOrCreateProjectConversation,
   onMarkRead,
+  onSubmitStageForApproval,
+  onRequestStageSkip,
+  onAdminWorkflowOverride,
 }: {
   project: Project;
   profiles: Profile[];
@@ -148,6 +151,9 @@ export function ProjectDetail({
   ) => Promise<ChatMessage>;
   onGetOrCreateProjectConversation?: (projectId: string, isInternal: boolean) => Promise<Conversation>;
   onMarkRead?: (conversationId: string) => void;
+  onSubmitStageForApproval?: () => Promise<void>;
+  onRequestStageSkip?: (stage: OfficialTimelineStage, reason: string) => Promise<any>;
+  onAdminWorkflowOverride?: (newStage: TimelineStage, reason: string, explanation: string) => Promise<any>;
 }) {
   const { formatMoney } = useCurrency();
   const [activeTab, setActiveTab] = useState<ProjectDetailTab>('overview');
@@ -158,6 +164,14 @@ export function ProjectDetail({
   const [revisionNote, setRevisionNote] = useState('');
   const [revisionStatus, setRevisionStatus] = useState<RevisionStatus>('Pending');
   const [commSubTab, setCommSubTab] = useState<'internal' | 'client'>('internal');
+  const [showSkipModal, setShowSkipModal] = useState(false);
+  const [showAdminOverrideModal, setShowAdminOverrideModal] = useState(false);
+  const [skipTargetStage, setSkipTargetStage] = useState<OfficialTimelineStage>('Ebook Version');
+  const [skipReason, setSkipReason] = useState('');
+  const [overrideTargetStage, setOverrideTargetStage] = useState<TimelineStage>('Print Version');
+  const [overrideReason, setOverrideReason] = useState('');
+  const [overrideExplanation, setOverrideExplanation] = useState('');
+  const [isSubmittingWorkflow, setIsSubmittingWorkflow] = useState(false);
   const [quickMsg, setQuickMsg] = useState('');
   const [activityFilter, setActivityFilter] = useState<'all' | 'client' | 'team' | 'files' | 'status' | 'revisions' | 'system'>('all');
   const [taskFilter, setTaskFilter] = useState<'all' | 'open' | 'in_progress' | 'done'>('all');
@@ -582,24 +596,111 @@ export function ProjectDetail({
                     </div>
                   </Card>
 
-                  {/* Stage Transition Quick Select */}
-                  <Card>
-                    <h3 className="font-display text-sm font-semibold text-ink mb-2">Change Stage</h3>
-                    <div className="flex items-center gap-2">
-                      <SelectField
-                        value={stage}
-                        onChange={(e) => setStage(e.target.value as TimelineStage)}
-                        className="flex-1 text-xs"
-                      >
-                        {timelineStages.map((item) => (
-                          <option key={item} value={item}>
-                            {item}
-                          </option>
-                        ))}
-                      </SelectField>
-                      <Button onClick={saveStage} disabled={isSavingStage} className="min-h-9 text-xs px-3">
-                        {isSavingStage ? 'Saving...' : 'Save'}
-                      </Button>
+                  {/* Current Workflow Actions Card */}
+                  <Card className="border-gold/30 bg-ivory/40">
+                    <h3 className="font-display text-sm font-semibold text-ink mb-1 flex items-center gap-1.5">
+                      <Clock3 className="h-4 w-4 text-gold" />
+                      Workflow Actions
+                    </h3>
+                    <p className="text-xs text-muted mb-3">
+                      Stage: <strong className="text-ink">{project.current_stage || 'Files Received'}</strong> | Status:{' '}
+                      <strong className="text-ink">{project.status}</strong>
+                    </p>
+
+                    <div className="flex flex-col gap-2">
+                      {project.current_stage === 'Design Concept' && project.stage_status !== 'PAUSED_CLIENT_REVIEW' && (
+                        <Button
+                          onClick={async () => {
+                            setIsSubmittingWorkflow(true);
+                            try {
+                              if (onSubmitStageForApproval) await onSubmitStageForApproval();
+                            } finally {
+                              setIsSubmittingWorkflow(false);
+                            }
+                          }}
+                          disabled={isSubmittingWorkflow}
+                          className="w-full text-xs py-2"
+                        >
+                          <Send className="h-3.5 w-3.5" />
+                          Submit Design Concept
+                        </Button>
+                      )}
+
+                      {project.current_stage === 'Print Version' && project.stage_status !== 'PAUSED_CLIENT_REVIEW' && (
+                        <Button
+                          onClick={async () => {
+                            setIsSubmittingWorkflow(true);
+                            try {
+                              if (onSubmitStageForApproval) await onSubmitStageForApproval();
+                            } finally {
+                              setIsSubmittingWorkflow(false);
+                            }
+                          }}
+                          disabled={isSubmittingWorkflow}
+                          className="w-full text-xs py-2"
+                        >
+                          <Send className="h-3.5 w-3.5" />
+                          Submit Print Version
+                        </Button>
+                      )}
+
+                      {project.current_stage === 'Ebook Version' && project.stage_status !== 'PAUSED_CLIENT_REVIEW' && (
+                        <Button
+                          onClick={async () => {
+                            setIsSubmittingWorkflow(true);
+                            try {
+                              if (onSubmitStageForApproval) await onSubmitStageForApproval();
+                            } finally {
+                              setIsSubmittingWorkflow(false);
+                            }
+                          }}
+                          disabled={isSubmittingWorkflow}
+                          className="w-full text-xs py-2"
+                        >
+                          <Send className="h-3.5 w-3.5" />
+                          Submit eBook Version
+                        </Button>
+                      )}
+
+                      {project.current_stage === 'Final Delivery' && project.status !== 'Completed' && (
+                        <Button
+                          onClick={async () => {
+                            setIsSubmittingWorkflow(true);
+                            try {
+                              if (onSubmitStageForApproval) await onSubmitStageForApproval();
+                            } finally {
+                              setIsSubmittingWorkflow(false);
+                            }
+                          }}
+                          disabled={isSubmittingWorkflow}
+                          className="w-full text-xs py-2"
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          Complete Final Delivery
+                        </Button>
+                      )}
+
+                      {project.status !== 'Completed' && (
+                        <Button
+                          variant="secondary"
+                          onClick={() => setShowSkipModal(true)}
+                          className="w-full text-xs py-2"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          Request Stage Skip
+                        </Button>
+                      )}
+
+                      {currentProfile.role === 'admin' && (
+                        <Button
+                          variant="secondary"
+                          onClick={() => setShowAdminOverrideModal(true)}
+                          className="w-full text-xs py-1.5 border-red-200 text-danger hover:bg-red-50 mt-1"
+                        >
+                          <ShieldAlert className="h-3.5 w-3.5" />
+                          Admin Override
+                        </Button>
+                      )}
                     </div>
                   </Card>
                 </div>
@@ -713,28 +814,28 @@ export function ProjectDetail({
             <div className="space-y-4">
               <ProjectTimelinePanel project={project} />
 
-              <Card>
-                <h3 className="font-display text-lg font-semibold text-ink mb-3">Timeline Controls</h3>
-                <div className="flex flex-col sm:flex-row sm:items-end gap-3">
-                  <SelectField
-                    label="Manually Override Timeline Stage"
-                    value={stage}
-                    onChange={(e) => setStage(e.target.value as TimelineStage)}
-                    className="sm:w-80 text-sm"
-                  >
-                    {timelineStages.map((item) => (
-                      <option key={item} value={item}>
-                        {item}
-                      </option>
-                    ))}
-                  </SelectField>
-                  <Button onClick={saveStage} disabled={isSavingStage}>
-                    {isSavingStage ? 'Saving...' : 'Save Stage'}
-                  </Button>
-                  <Button variant="secondary" onClick={markDelivered}>
-                    <CheckCircle2 className="h-4 w-4" />
-                    Complete Project
-                  </Button>
+              <Card className="border-gold/30 bg-ivory/30">
+                <h3 className="font-display text-lg font-semibold text-ink mb-1">Timeline Workflow Status</h3>
+                <p className="text-xs text-muted mb-4">
+                  The Production Timeline advances automatically through actual workflow actions, project service type pre-configuration, and mandatory client approvals.
+                </p>
+                <div className="flex flex-wrap items-center gap-3">
+                  {project.status !== 'Completed' && (
+                    <Button variant="secondary" onClick={() => setShowSkipModal(true)} className="text-xs">
+                      <RotateCcw className="h-4 w-4" />
+                      Request Stage Skip
+                    </Button>
+                  )}
+                  {currentProfile.role === 'admin' && (
+                    <Button
+                      variant="secondary"
+                      onClick={() => setShowAdminOverrideModal(true)}
+                      className="text-xs border-red-300 text-danger hover:bg-red-50"
+                    >
+                      <ShieldAlert className="h-4 w-4" />
+                      Administrative Workflow Override
+                    </Button>
+                  )}
                 </div>
               </Card>
             </div>
@@ -1254,6 +1355,135 @@ export function ProjectDetail({
           )}
         </div>
       </div>
+
+      {/* Request Stage Skip Modal */}
+      {showSkipModal && (
+        <Modal title="Request Stage Skip" onClose={() => setShowSkipModal(false)} width="max-w-lg">
+          <div className="space-y-4 text-xs">
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900 font-medium">
+              Stage skipping requires explicit client approval. A skip request will be sent to the client's portal for approval.
+            </div>
+
+            <SelectField
+              label="Select Stage to Skip"
+              value={skipTargetStage}
+              onChange={(e) => setSkipTargetStage(e.target.value as OfficialTimelineStage)}
+            >
+              <option value="Print Version">Print Version & Approval</option>
+              <option value="Ebook Version">Ebook Version & Approval</option>
+              <option value="Final Delivery">Final Delivery</option>
+            </SelectField>
+
+            <TextareaField
+              label="Reason for Skipping (Client Visible)"
+              placeholder="e.g. Client purchased Print-Only package, so eBook version is not required."
+              value={skipReason}
+              onChange={(e) => setSkipReason(e.target.value)}
+              rows={3}
+              required
+            />
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setShowSkipModal(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={async () => {
+                  if (!skipReason.trim()) return;
+                  setIsSubmittingWorkflow(true);
+                  try {
+                    if (onRequestStageSkip) {
+                      await onRequestStageSkip(skipTargetStage, skipReason);
+                    }
+                    setShowSkipModal(false);
+                    setSkipReason('');
+                  } finally {
+                    setIsSubmittingWorkflow(false);
+                  }
+                }}
+                disabled={isSubmittingWorkflow || !skipReason.trim()}
+              >
+                Send Skip Request to Client
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Administrative Emergency Workflow Override Modal */}
+      {showAdminOverrideModal && (
+        <Modal title="Administrative Workflow Override" onClose={() => setShowAdminOverrideModal(false)} width="max-w-lg">
+          <div className="space-y-4 text-xs">
+            <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-danger font-medium flex items-start gap-2">
+              <ShieldAlert className="h-4 w-4 shrink-0 text-red-600 mt-0.5" />
+              <div>
+                <strong>Warning: Restricted Admin Function</strong>
+                <p className="mt-0.5">
+                  Administrative overrides force a manual stage change outside standard client approval logic. This action is recorded in the permanent audit log.
+                </p>
+              </div>
+            </div>
+
+            <SelectField
+              label="Target Stage"
+              value={overrideTargetStage}
+              onChange={(e) => setOverrideTargetStage(e.target.value as TimelineStage)}
+            >
+              {timelineStages.map((stg) => (
+                <option key={stg} value={stg}>
+                  {stg}
+                </option>
+              ))}
+            </SelectField>
+
+            <Field
+              label="Reason Summary"
+              placeholder="e.g. Client approved print version verbally via phone call"
+              value={overrideReason}
+              onChange={(e) => setOverrideReason(e.target.value)}
+              required
+            />
+
+            <TextareaField
+              label="Detailed Explanation"
+              placeholder="Provide a detailed explanation for why this emergency workflow override is required..."
+              value={overrideExplanation}
+              onChange={(e) => setOverrideExplanation(e.target.value)}
+              rows={3}
+              required
+            />
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setShowAdminOverrideModal(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                className="border-red-300 text-danger hover:bg-red-50"
+                onClick={async () => {
+                  if (!overrideReason.trim() || !overrideExplanation.trim()) return;
+                  setIsSubmittingWorkflow(true);
+                  try {
+                    if (onAdminWorkflowOverride) {
+                      await onAdminWorkflowOverride(overrideTargetStage, overrideReason, overrideExplanation);
+                    }
+                    setShowAdminOverrideModal(false);
+                    setOverrideReason('');
+                    setOverrideExplanation('');
+                  } finally {
+                    setIsSubmittingWorkflow(false);
+                  }
+                }}
+                disabled={isSubmittingWorkflow || !overrideReason.trim() || !overrideExplanation.trim()}
+              >
+                Confirm Administrative Override
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </Modal>
   );
 }

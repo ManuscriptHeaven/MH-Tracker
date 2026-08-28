@@ -1,10 +1,15 @@
 import {
   calculateStageDueDate,
   deriveProjectTimeline,
+  getAutoSkippedStagesForServiceType,
   getStageDurationDays,
+  getTimelineMilestones,
   getTimelineSummary,
   getWorkflowSettings,
+  isStageSkipped,
+  nextStageAfterApproval,
   normalizeStage,
+  validateWorkflowTransition,
 } from './timeline';
 import { DEFAULT_WORKFLOW_SETTINGS } from './constants';
 import type { Project } from './types';
@@ -214,7 +219,84 @@ export function runProductionTimelineTests() {
   console.assert(summary.dueDate === null, 'Test 14 Failed: Due date should be null when completed');
   console.log('✓ TEST 14 PASSED: Project & All 8 Stages Completed, Status = Completed!');
 
+  // TEST 15: Print-Only Package Service Type Auto-Skipping
+  const printOnlyProject: Partial<Project> = {
+    id: 'test-print-only',
+    service_type: 'Print Formatting & Cover',
+    current_stage: 'Concept Approval',
+  };
+  const printOnlyAutoSkipped = getAutoSkippedStagesForServiceType(printOnlyProject.service_type);
+  console.assert(
+    printOnlyAutoSkipped.includes('Ebook Version') && printOnlyAutoSkipped.includes('Ebook Approval'),
+    'Test 15 Failed: Print-Only should auto-skip Ebook stages',
+  );
+  const nextAfterPrintApp = nextStageAfterApproval('Print Approval', printOnlyProject as Project);
+  console.assert(nextAfterPrintApp === 'Final Delivery', 'Test 15 Failed: Next stage after Print Approval in Print-Only should be Final Delivery');
+  console.log('✓ TEST 15 PASSED: Print-Only service type auto-skips eBook stages and advances to Final Delivery');
+
+  // TEST 16: eBook-Only Package Service Type Auto-Skipping
+  const ebookOnlyProject: Partial<Project> = {
+    id: 'test-ebook-only',
+    service_type: 'eBook Cover Design',
+    current_stage: 'Concept Approval',
+  };
+  const ebookOnlyAutoSkipped = getAutoSkippedStagesForServiceType(ebookOnlyProject.service_type);
+  console.assert(
+    ebookOnlyAutoSkipped.includes('Print Version') && ebookOnlyAutoSkipped.includes('Print Approval'),
+    'Test 16 Failed: eBook-Only should auto-skip Print stages',
+  );
+  const nextAfterConceptApp = nextStageAfterApproval('Concept Approval', ebookOnlyProject as Project);
+  console.assert(nextAfterConceptApp === 'Ebook Version', 'Test 16 Failed: Next stage after Concept Approval in eBook-Only should be Ebook Version');
+  console.log('✓ TEST 16 PASSED: eBook-Only service type auto-skips Print stages and advances to Ebook Version');
+
+  // TEST 17: Stage Skip Validation & State Machine Guarding
+  const validationResult = validateWorkflowTransition(project as Project, 'Completed', { isClientApproved: false });
+  console.assert(validationResult.valid === true, 'Test 17 Failed: Transition from Final Delivery to Completed should be valid');
+
+  const invalidResult = validateWorkflowTransition({ ...project, current_stage: 'Files Received' } as Project, 'Ebook Version');
+  console.assert(invalidResult.valid === false, 'Test 17 Failed: Direct jump from Files Received to Ebook Version without skip must be invalid');
+  console.log('✓ TEST 17 PASSED: Workflow transition validator prevents illegal stage jumps');
+
+  // TEST 18: In-Flight Stage Skip Check
+  const projectWithSkip: Partial<Project> = {
+    id: 'test-skip-req',
+    service_type: 'Print + eBook',
+    current_stage: 'Design Concept',
+    stage_skip_requests: [
+      {
+        id: 'skip-1',
+        project_id: 'test-skip-req',
+        stage: 'Print Version',
+        requested_by: 'user-1',
+        requested_at: '2026-08-20',
+        reason: 'Client requested eBook first',
+        status: 'APPROVED',
+      },
+    ],
+  };
+  console.assert(isStageSkipped(projectWithSkip as Project, 'Print Version') === true, 'Test 18 Failed: Print Version should be marked as skipped');
+  console.assert(isStageSkipped(projectWithSkip as Project, 'Print Approval') === true, 'Test 18 Failed: Print Approval should be marked as skipped');
+  console.log('✓ TEST 18 PASSED: In-flight stage skip correctly marks target production and approval stages as skipped');
+
+  // TEST 19: Timeline Milestones Rendering with Skipped State
+  const milestones = getTimelineMilestones(printOnlyProject as Project);
+  const ebookMilestone = milestones.find((m) => m.stageName === 'Ebook Version');
+  console.assert(ebookMilestone?.state === 'skipped', 'Test 19 Failed: Ebook Version milestone state should be skipped');
+  console.assert(
+    ebookMilestone?.skipLabel?.includes('Skipped — Service Type'),
+    'Test 19 Failed: Skip label should indicate Skipped — Service Type',
+  );
+  console.log('✓ TEST 19 PASSED: Timeline milestones correctly render skipped badge');
+
+  // TEST 20: Emergency Admin Override Validation
+  const adminOverrideValidation = validateWorkflowTransition(project as Project, 'Files Received', {
+    isAdminOverride: true,
+    actorRole: 'admin',
+  });
+  console.assert(adminOverrideValidation.valid === true, 'Test 20 Failed: Admin override must be allowed for admin role');
+  console.log('✓ TEST 20 PASSED: Administrative workflow override validated for admin role');
+
   console.log('====================================================');
-  console.log('ALL 14 PRODUCTION TIMELINE TESTS SUCCEEDED PERFECTLY!');
+  console.log('ALL 20 PRODUCTION TIMELINE TESTS SUCCEEDED PERFECTLY!');
   console.log('====================================================');
 }

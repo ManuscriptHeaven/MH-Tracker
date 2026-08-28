@@ -65,11 +65,36 @@ export type TimelineStage =
   | 'eBook Review'
   | 'Final Quality Check';
 
-export type ClockState = 'ACTIVE' | 'PAUSED_CLIENT_REVIEW' | 'REVISION_ACTIVE' | 'COMPLETED' | 'PENDING';
+export type ClockState = 'ACTIVE' | 'PAUSED_CLIENT_REVIEW' | 'REVISION_ACTIVE' | 'COMPLETED' | 'PENDING' | 'SKIPPED';
 
-export type TimelineStatus = 'Active' | 'Paused' | 'Revision Required' | 'Completed' | 'On Hold' | 'Cancelled';
+export type TimelineStatus = 'Active' | 'Paused' | 'Revision Required' | 'Completed' | 'On Hold' | 'Cancelled' | 'Skipped';
 
 export type TimelineWaitingOn = 'Manuscript Heaven' | 'Client' | 'None';
+
+export type StageSkipStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'SERVICE_TYPE_PRESET';
+
+export interface StageSkipRequest {
+  id: string;
+  project_id: string;
+  stage: OfficialTimelineStage;
+  requested_by: string;
+  requested_at: string;
+  reason: string;
+  status: StageSkipStatus;
+  client_response_at?: string | null;
+  client_notes?: string | null;
+}
+
+export interface AdminWorkflowOverrideLog {
+  id: string;
+  project_id: string;
+  actor_id: string;
+  previous_stage: TimelineStage;
+  new_stage: TimelineStage;
+  reason: string;
+  explanation: string;
+  created_at: string;
+}
 
 export interface WorkflowSettings {
   files_received_days: number;
@@ -95,6 +120,7 @@ export interface StageData {
   client_wait_seconds: number;
   pause_reason: string | null;
   revision_count: number;
+  skip_reason?: string | null;
 }
 
 export interface StageHistoryEntry {
@@ -260,6 +286,9 @@ export interface Project {
   production_time_used?: number;
   client_wait_time?: number;
   revision_count?: number;
+  requirements_submitted_at?: string | null;
+  stage_skip_requests?: StageSkipRequest[];
+  admin_workflow_overrides?: AdminWorkflowOverrideLog[];
   stage_states?: Record<string, StageData>;
   stage_history?: StageHistoryEntry[];
   workflow_settings?: WorkflowSettings;
@@ -495,6 +524,8 @@ export interface TrackerData {
   employeeLedger: EmployeeLedgerEntry[];
   workflowSettings?: WorkflowSettings;
   stageHistory?: StageHistoryEntry[];
+  stageSkipRequests?: StageSkipRequest[];
+  adminWorkflowOverrides?: AdminWorkflowOverrideLog[];
   financeTransactions?: FinanceTransaction[];
   financeBudgets?: FinanceBudget[];
   projectProfitability?: ProjectProfitabilityItem[];

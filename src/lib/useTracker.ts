@@ -10,19 +10,25 @@ import {
 } from './notifications';
 import { notifyWithSoundAndVoice } from './sound';
 import {
+  approvalStageForProductionStage,
   calculateStageDueDate,
   createStageHistoryEntry,
   deriveProjectTimeline,
+  getAutoSkippedStagesForServiceType,
   getStageDurationDays,
   getWorkflowSettings,
   isClientApprovalStage,
+  isStageSkipped,
   nextStageAfterApproval,
   normalizeStage,
   validateTimelineDates,
+  validateWorkflowTransition,
   type ApprovalMilestone,
+  type OfficialTimelineStage,
 } from './timeline';
 import type {
   ActivityLog,
+  AdminWorkflowOverrideLog,
   ClientInviteDraft,
   ClientProjectAccess,
   EmployeeCompensation,
@@ -45,6 +51,10 @@ import type {
   RevisionRequestDraft,
   RevisionStatus,
   Role,
+  StageData,
+  StageHistoryEntry,
+  StageSkipRequest,
+  StageSkipStatus,
   Task,
   TaskDraft,
   TrackerData,
@@ -1490,9 +1500,29 @@ export function useTracker() {
         throw new Error(timelineErrors[0]);
       }
 
-      const timelineDraft = deriveProjectTimeline(draft, { syncStatus: true });
+      const autoSkipped = getAutoSkippedStagesForServiceType(draft.service_type);
+      const stageStates: Record<string, StageData> = { ...(draft.stage_states || {}) };
+      autoSkipped.forEach((stg) => {
+        stageStates[stg] = {
+          stage: stg,
+          status: 'SKIPPED',
+          started_at: now,
+          paused_at: null,
+          resumed_at: null,
+          completed_at: now,
+          due_at: null,
+          active_seconds: 0,
+          client_wait_seconds: 0,
+          pause_reason: null,
+          revision_count: 0,
+          skip_reason: `Pre-configured by service type (${draft.service_type || 'Preset'})`,
+        };
+      });
+
+      const timelineDraft = deriveProjectTimeline({ ...draft, stage_states: stageStates }, { syncStatus: true });
       const localProject: Project = normalizeProject({
         ...timelineDraft,
+        stage_states: stageStates,
         id: createId('project'),
         project_number: timelineDraft.project_number || `MH-${1001 + data.projects.length}`,
         created_by: currentProfile.id,
@@ -2433,29 +2463,28 @@ export function useTracker() {
       const now = new Date().toISOString();
       const settings = getWorkflowSettings(project);
 
-      let nextStage: TimelineStage = 'Print Version';
+      let currentApprovalStage: OfficialTimelineStage = 'Concept Approval';
       let approvalField: keyof Project = 'design_concept_approval_date';
-      let daysAllocated = settings.print_version_days ?? 5;
       let label = 'Design Concept';
 
       if (milestone === 'concept') {
-        nextStage = 'Print Version';
+        currentApprovalStage = 'Concept Approval';
         approvalField = 'design_concept_approval_date';
-        daysAllocated = settings.print_version_days ?? 5;
         label = 'Design Concept';
       } else if (milestone === 'print') {
-        nextStage = 'Ebook Version';
+        currentApprovalStage = 'Print Approval';
         approvalField = 'print_version_approval_date';
-        daysAllocated = settings.ebook_version_days ?? 5;
         label = 'Print Version';
       } else if (milestone === 'ebook') {
-        nextStage = 'Final Delivery';
+        currentApprovalStage = 'Ebook Approval';
         approvalField = 'ebook_approval_date';
-        daysAllocated = settings.final_delivery_days ?? 2;
         label = 'eBook Version';
       }
 
-      const stageDueDate = calculateStageDueDate(today, daysAllocated, settings);
+      const nextStage = nextStageAfterApproval(currentApprovalStage, project);
+      const daysAllocated = nextStage === 'Completed' ? 0 : getStageDurationDays(nextStage, settings, false);
+      const stageDueDate = nextStage === 'Completed' ? null : calculateStageDueDate(today, daysAllocated, settings);
+
       const historyEntry = createStageHistoryEntry(
         project,
         `Client approved ${label}. Activated ${nextStage}.`,
@@ -2466,17 +2495,20 @@ export function useTracker() {
       const projectUpdates: Partial<Project> = {
         [approvalField]: today,
         current_stage: nextStage,
-        stage_status: 'ACTIVE',
-        waiting_on: 'Manuscript Heaven',
-        timeline_status: 'Active',
+        stage_status: nextStage === 'Completed' ? 'COMPLETED' : 'ACTIVE',
+        waiting_on: nextStage === 'Completed' ? 'None' : 'Manuscript Heaven',
+        timeline_status: nextStage === 'Completed' ? 'Completed' : 'Active',
         stage_started_at: now,
         stage_due_at: stageDueDate,
-        stage_completed_at: null,
+        stage_completed_at: nextStage === 'Completed' ? now : null,
         client_action_required: '',
         updated_at: now,
       };
 
-      if (nextStage === 'Final Delivery') {
+      if (nextStage === 'Completed') {
+        projectUpdates.status = 'Completed';
+        projectUpdates.final_delivery_date = today;
+      } else if (nextStage === 'Final Delivery') {
         projectUpdates.status = 'Final Delivery';
       } else {
         projectUpdates.status = 'In Progress';
@@ -2526,6 +2558,379 @@ export function useTracker() {
         notifications: [notification, ...previous.notifications],
         stageHistory: [historyEntry, ...(previous.stageHistory || [])],
       }));
+    },
+    [currentProfile, data.projects, loadSupabaseData, mode],
+  );
+
+  const submitStageForApproval = useCallback(
+    async (projectId: string) => {
+      if (!currentProfile) throw new Error('No signed-in profile found.');
+      const project = data.projects.find((p) => p.id === projectId);
+      if (!project) throw new Error('Project not found.');
+
+      const currentStage = normalizeStage(project.current_stage || project.status);
+      const now = new Date().toISOString();
+      const today = now.slice(0, 10);
+
+      let targetApprovalStage: OfficialTimelineStage = 'Concept Approval';
+      let submissionField: keyof Project = 'design_concept_submitted_date';
+      let label = 'Design Concept';
+
+      if (currentStage === 'Design Concept') {
+        targetApprovalStage = 'Concept Approval';
+        submissionField = 'design_concept_submitted_date';
+        label = 'Design Concept';
+      } else if (currentStage === 'Print Version') {
+        targetApprovalStage = 'Print Approval';
+        submissionField = 'print_version_submitted_date';
+        label = 'Print Version';
+      } else if (currentStage === 'Ebook Version') {
+        targetApprovalStage = 'Ebook Approval';
+        submissionField = 'ebook_submitted_date';
+        label = 'eBook Version';
+      } else if (currentStage === 'Final Delivery') {
+        const updates: Partial<Project> = {
+          status: 'Completed',
+          current_stage: 'Completed',
+          stage_status: 'COMPLETED',
+          timeline_status: 'Completed',
+          waiting_on: 'None',
+          stage_completed_at: now,
+          final_delivery_date: today,
+          delivery_date: today,
+          client_action_required: '',
+          updated_at: now,
+        };
+        await updateProject(projectId, updates);
+        return;
+      } else {
+        throw new Error(`Cannot submit ${currentStage} for approval.`);
+      }
+
+      const projectUpdates: Partial<Project> = {
+        [submissionField]: today,
+        current_stage: targetApprovalStage,
+        stage_status: 'PAUSED_CLIENT_REVIEW',
+        waiting_on: 'Client',
+        timeline_status: 'Paused',
+        status: 'Awaiting Client Approval',
+        stage_started_at: now,
+        stage_due_at: null,
+        client_action_required: `Review and approve ${label}`,
+        updated_at: now,
+      };
+
+      const notification: NotificationItem = {
+        id: createId('notification'),
+        recipient_id: project.client_email
+          ? data.profiles.find((p) => p.email === project.client_email)?.id || currentProfile.id
+          : currentProfile.id,
+        project_id: projectId,
+        type: 'milestone_submitted',
+        title: `${label} Ready for Review: ${project.project_title}`,
+        message: `${label} has been completed and submitted for your approval.`,
+        is_read: false,
+        created_at: now,
+      };
+
+      const historyEntry = createStageHistoryEntry(
+        project,
+        `${label} submitted for client review`,
+        currentProfile.id,
+        'Production clock paused. Waiting on client.',
+      );
+
+      if (supabase && mode === 'supabase') {
+        await supabase.from('projects').update(projectUpdates).eq('id', projectId);
+        await supabase.from('notifications').insert(notification);
+        await loadSupabaseData(currentProfile);
+        return;
+      }
+
+      setData((prev) => ({
+        ...prev,
+        projects: prev.projects.map((p) => (p.id === projectId ? normalizeProject({ ...p, ...projectUpdates }) : p)),
+        notifications: [notification, ...prev.notifications],
+        stageHistory: [historyEntry, ...(prev.stageHistory || [])],
+      }));
+    },
+    [currentProfile, data.profiles, data.projects, loadSupabaseData, mode, updateProject],
+  );
+
+  const requestStageSkip = useCallback(
+    async (projectId: string, stage: OfficialTimelineStage, reason: string) => {
+      if (!currentProfile) throw new Error('No signed-in profile found.');
+      const project = data.projects.find((p) => p.id === projectId);
+      if (!project) throw new Error('Project not found.');
+      if (!reason.trim()) throw new Error('Please provide a reason for skipping this stage.');
+
+      const now = new Date().toISOString();
+      const skipRequest: StageSkipRequest = {
+        id: createId('skip-request'),
+        project_id: projectId,
+        stage,
+        requested_by: currentProfile.id,
+        requested_at: now,
+        reason: reason.trim(),
+        status: 'PENDING',
+      };
+
+      const notification: NotificationItem = {
+        id: createId('notification'),
+        recipient_id: data.profiles.find((p) => p.email === project.client_email)?.id || currentProfile.id,
+        project_id: projectId,
+        type: 'skip_requested',
+        title: `Stage Skip Requested: ${project.project_title}`,
+        message: `Request to skip ${stage}. Reason: ${reason.trim()}`,
+        is_read: false,
+        created_at: now,
+      };
+
+      const historyEntry = createStageHistoryEntry(
+        project,
+        `Requested skip for stage ${stage}`,
+        currentProfile.id,
+        `Reason: ${reason.trim()}`,
+      );
+
+      if (supabase && mode === 'supabase') {
+        await supabase.from('project_stage_skips').insert(skipRequest);
+        await supabase.from('notifications').insert(notification);
+        await loadSupabaseData(currentProfile);
+        return skipRequest;
+      }
+
+      const updatedSkips = [skipRequest, ...(project.stage_skip_requests || [])];
+      setData((prev) => ({
+        ...prev,
+        projects: prev.projects.map((p) => (p.id === projectId ? { ...p, stage_skip_requests: updatedSkips } : p)),
+        stageSkipRequests: [skipRequest, ...(prev.stageSkipRequests || [])],
+        notifications: [notification, ...prev.notifications],
+        stageHistory: [historyEntry, ...(prev.stageHistory || [])],
+      }));
+
+      return skipRequest;
+    },
+    [currentProfile, data.profiles, data.projects, loadSupabaseData, mode],
+  );
+
+  const respondToStageSkip = useCallback(
+    async (requestId: string, approved: boolean, clientNotes?: string) => {
+      if (!currentProfile) throw new Error('No signed-in profile found.');
+      const now = new Date().toISOString();
+      const today = now.slice(0, 10);
+
+      const skipReq =
+        (data.stageSkipRequests || []).find((r) => r.id === requestId) ||
+        data.projects.flatMap((p) => p.stage_skip_requests || []).find((r) => r.id === requestId);
+
+      if (!skipReq) throw new Error('Skip request not found.');
+      const project = data.projects.find((p) => p.id === skipReq.project_id);
+      if (!project) throw new Error('Project not found.');
+
+      const newStatus: StageSkipStatus = approved ? 'APPROVED' : 'REJECTED';
+      const updatedSkipReq: StageSkipRequest = {
+        ...skipReq,
+        status: newStatus,
+        client_response_at: now,
+        client_notes: clientNotes || null,
+      };
+
+      let projectUpdates: Partial<Project> = { updated_at: now };
+      let historyEntry: StageHistoryEntry;
+
+      if (approved) {
+        const approvalStage = approvalStageForProductionStage(skipReq.stage);
+        const stageStates = { ...(project.stage_states || {}) };
+        stageStates[skipReq.stage] = {
+          stage: skipReq.stage,
+          status: 'SKIPPED',
+          started_at: now,
+          paused_at: null,
+          resumed_at: null,
+          completed_at: now,
+          due_at: null,
+          active_seconds: 0,
+          client_wait_seconds: 0,
+          pause_reason: null,
+          revision_count: 0,
+          skip_reason: skipReq.reason,
+        };
+        if (approvalStage) {
+          stageStates[approvalStage] = {
+            stage: approvalStage,
+            status: 'SKIPPED',
+            started_at: now,
+            paused_at: null,
+            resumed_at: null,
+            completed_at: now,
+            due_at: null,
+            active_seconds: 0,
+            client_wait_seconds: 0,
+            pause_reason: null,
+            revision_count: 0,
+            skip_reason: skipReq.reason,
+          };
+        }
+
+        const nextStage = nextStageAfterApproval(skipReq.stage, { ...project, stage_states: stageStates });
+        const settings = getWorkflowSettings(project);
+        const days = nextStage === 'Completed' ? 0 : getStageDurationDays(nextStage, settings, false);
+        const due = nextStage === 'Completed' ? null : calculateStageDueDate(today, days, settings);
+
+        projectUpdates = {
+          stage_states: stageStates,
+          current_stage: nextStage as TimelineStage,
+          stage_status: isClientApprovalStage(nextStage)
+            ? 'PAUSED_CLIENT_REVIEW'
+            : nextStage === 'Completed'
+              ? 'COMPLETED'
+              : 'ACTIVE',
+          waiting_on: isClientApprovalStage(nextStage)
+            ? 'Client'
+            : nextStage === 'Completed'
+              ? 'None'
+              : 'Manuscript Heaven',
+          timeline_status: isClientApprovalStage(nextStage)
+            ? 'Paused'
+            : nextStage === 'Completed'
+              ? 'Completed'
+              : 'Active',
+          stage_started_at: now,
+          stage_due_at: isClientApprovalStage(nextStage) || nextStage === 'Completed' ? null : due,
+          client_action_required: isClientApprovalStage(nextStage) ? `Review and approve ${nextStage}` : '',
+          updated_at: now,
+        };
+
+        if (nextStage === 'Completed') {
+          projectUpdates.status = 'Completed';
+          projectUpdates.stage_completed_at = now;
+          projectUpdates.final_delivery_date = today;
+        }
+
+        historyEntry = createStageHistoryEntry(
+          project,
+          `Client approved skipping stage ${skipReq.stage}`,
+          currentProfile.id,
+          `Advanced to ${nextStage}`,
+        );
+      } else {
+        historyEntry = createStageHistoryEntry(
+          project,
+          `Client rejected skipping stage ${skipReq.stage}`,
+          currentProfile.id,
+          clientNotes,
+        );
+      }
+
+      const teamRecipient = project.assigned_to || project.project_manager || currentProfile.id;
+      const notification: NotificationItem = {
+        id: createId('notification'),
+        recipient_id: teamRecipient,
+        project_id: project.id,
+        type: 'skip_response',
+        title: `Stage Skip ${approved ? 'Approved' : 'Rejected'}: ${project.project_title}`,
+        message: `Client ${approved ? 'approved' : 'rejected'} the request to skip ${skipReq.stage}.`,
+        is_read: false,
+        created_at: now,
+      };
+
+      if (supabase && mode === 'supabase') {
+        await supabase.from('project_stage_skips').update(updatedSkipReq).eq('id', requestId);
+        if (approved) {
+          await supabase.from('projects').update(projectUpdates).eq('id', project.id);
+        }
+        await supabase.from('notifications').insert(notification);
+        await loadSupabaseData(currentProfile);
+        return;
+      }
+
+      setData((prev) => ({
+        ...prev,
+        projects: prev.projects.map((p) => {
+          if (p.id !== project.id) return p;
+          const skips = (p.stage_skip_requests || []).map((r) => (r.id === requestId ? updatedSkipReq : r));
+          return normalizeProject({ ...p, ...projectUpdates, stage_skip_requests: skips });
+        }),
+        stageSkipRequests: (prev.stageSkipRequests || []).map((r) => (r.id === requestId ? updatedSkipReq : r)),
+        notifications: [notification, ...prev.notifications],
+        stageHistory: [historyEntry, ...(prev.stageHistory || [])],
+      }));
+    },
+    [currentProfile, data.projects, data.stageSkipRequests, loadSupabaseData, mode],
+  );
+
+  const adminWorkflowOverride = useCallback(
+    async (projectId: string, newStage: TimelineStage, reason: string, explanation: string) => {
+      if (!currentProfile || currentProfile.role !== 'admin') {
+        throw new Error('Administrative Workflow Override is strictly restricted to Admin users.');
+      }
+      const project = data.projects.find((p) => p.id === projectId);
+      if (!project) throw new Error('Project not found.');
+
+      if (!reason.trim() || !explanation.trim()) {
+        throw new Error('Please provide both a reason and explanation for the administrative override.');
+      }
+
+      const now = new Date().toISOString();
+      const overrideLog: AdminWorkflowOverrideLog = {
+        id: createId('override'),
+        project_id: projectId,
+        actor_id: currentProfile.id,
+        previous_stage: project.current_stage || 'Files Received',
+        new_stage: newStage,
+        reason: reason.trim(),
+        explanation: explanation.trim(),
+        created_at: now,
+      };
+
+      const settings = getWorkflowSettings(project);
+      const days = newStage === 'Completed' ? 0 : getStageDurationDays(newStage, settings, false);
+      const due = newStage === 'Completed' ? null : calculateStageDueDate(now, days, settings);
+      const isApproval = isClientApprovalStage(newStage);
+
+      const projectUpdates: Partial<Project> = {
+        current_stage: newStage,
+        stage_status: isApproval ? 'PAUSED_CLIENT_REVIEW' : newStage === 'Completed' ? 'COMPLETED' : 'ACTIVE',
+        waiting_on: isApproval ? 'Client' : newStage === 'Completed' ? 'None' : 'Manuscript Heaven',
+        timeline_status: isApproval ? 'Paused' : newStage === 'Completed' ? 'Completed' : 'Active',
+        stage_started_at: now,
+        stage_due_at: isApproval || newStage === 'Completed' ? null : due,
+        updated_at: now,
+      };
+
+      if (newStage === 'Completed') {
+        projectUpdates.status = 'Completed';
+        projectUpdates.stage_completed_at = now;
+        projectUpdates.final_delivery_date = now.slice(0, 10);
+      }
+
+      const historyEntry = createStageHistoryEntry(
+        project,
+        `ADMIN OVERRIDE: ${project.current_stage || 'Files Received'} -> ${newStage}`,
+        currentProfile.id,
+        `Reason: ${reason}. Explanation: ${explanation}`,
+      );
+
+      if (supabase && mode === 'supabase') {
+        await supabase.from('admin_workflow_overrides').insert(overrideLog);
+        await supabase.from('projects').update(projectUpdates).eq('id', projectId);
+        await loadSupabaseData(currentProfile);
+        return overrideLog;
+      }
+
+      setData((prev) => ({
+        ...prev,
+        projects: prev.projects.map((p) => {
+          if (p.id !== projectId) return p;
+          const logs = [overrideLog, ...(p.admin_workflow_overrides || [])];
+          return normalizeProject({ ...p, ...projectUpdates, admin_workflow_overrides: logs });
+        }),
+        adminWorkflowOverrides: [overrideLog, ...(prev.adminWorkflowOverrides || [])],
+        stageHistory: [historyEntry, ...(prev.stageHistory || [])],
+      }));
+
+      return overrideLog;
     },
     [currentProfile, data.projects, loadSupabaseData, mode],
   );
@@ -3633,6 +4038,10 @@ export function useTracker() {
     uploadRevisedProof,
     respondToRevisionRequest,
     approveProjectMilestone,
+    submitStageForApproval,
+    requestStageSkip,
+    respondToStageSkip,
+    adminWorkflowOverride,
     createTask,
     updateTask,
     inviteClient,

@@ -12,7 +12,7 @@ import type {
   TimelineWaitingOn,
   WorkflowSettings,
 } from './types';
-
+export type { OfficialTimelineStage };
 export const PRINT_VERSION_CALENDAR_DAYS = 5;
 export const DESIGN_CONCEPT_CALENDAR_DAYS = 3;
 export const EBOOK_VERSION_CALENDAR_DAYS = 5;
@@ -231,9 +231,68 @@ export interface TimelineMilestone {
   label: string;
   stageName: OfficialTimelineStage;
   date: string | null;
-  state: 'completed' | 'current' | 'future' | 'paused' | 'revision' | 'overdue';
+  state: 'completed' | 'current' | 'future' | 'paused' | 'revision' | 'overdue' | 'skipped';
   isApproval: boolean;
   durationDays: number;
+  skipLabel?: string;
+}
+
+export function getTimelineMilestones(project: TimelineProject): TimelineMilestone[] {
+  const summary = getTimelineSummary(project);
+  const settings = getWorkflowSettings(project);
+  const currentNorm = normalizeStage(summary.stage);
+  const currentIdx = officialTimelineStages.indexOf(currentNorm as OfficialTimelineStage);
+  const autoSkipped = getAutoSkippedStagesForServiceType(project.service_type);
+
+  const stageDateMap: Record<OfficialTimelineStage, string | null> = {
+    'Files Received': project.files_received_date || null,
+    'Design Concept': project.design_concept_submitted_date || null,
+    'Concept Approval': project.design_concept_approval_date || null,
+    'Print Version': project.print_version_submitted_date || null,
+    'Print Approval': project.print_version_approval_date || null,
+    'Ebook Version': project.ebook_submitted_date || null,
+    'Ebook Approval': project.ebook_approval_date || null,
+    'Final Delivery': project.final_delivery_date || null,
+  };
+
+  return officialTimelineStages.map((stageName, index) => {
+    const isApproval = isClientApprovalStage(stageName);
+    const durationDays = getStageDurationDays(stageName, settings, false);
+    const date = stageDateMap[stageName];
+
+    let state: TimelineMilestone['state'] = 'future';
+    let skipLabel: string | undefined;
+
+    if (isStageSkipped(project, stageName)) {
+      state = 'skipped';
+      skipLabel = autoSkipped.includes(stageName)
+        ? `Skipped — Service Type (${project.service_type || 'Preset'})`
+        : 'Skipped — Client Approved';
+    } else if (summary.officialStage === 'Completed' || (currentIdx >= 0 && index < currentIdx)) {
+      state = 'completed';
+    } else if (index === currentIdx) {
+      if (summary.health === 'Overdue') {
+        state = 'overdue';
+      } else if (summary.stageStatus === 'REVISION_ACTIVE') {
+        state = 'revision';
+      } else if (summary.waitingOn === 'Client' || summary.stageStatus === 'PAUSED_CLIENT_REVIEW') {
+        state = 'paused';
+      } else {
+        state = 'current';
+      }
+    }
+
+    return {
+      key: `stage-${index + 1}-${stageName.toLowerCase().replace(/\s+/g, '-')}`,
+      label: stageName,
+      stageName,
+      date,
+      state,
+      isApproval,
+      durationDays,
+      skipLabel,
+    };
+  });
 }
 
 export function normalizeStage(stage?: string | null): OfficialTimelineStage | 'Completed' | 'On Hold' | 'Cancelled' {
@@ -346,6 +405,56 @@ export function calculateStageDueDate(
   return addWorkingDays(startDate, days, settings.exclude_weekends ?? true);
 }
 
+export function getAutoSkippedStagesForServiceType(serviceType?: string | null): OfficialTimelineStage[] {
+  if (!serviceType) return [];
+  const lower = serviceType.toLowerCase();
+
+  // Print-Only packages (e.g. Print Formatting, Print Cover Design, Print Only)
+  if (
+    (lower.includes('print') || lower.includes('formatting')) &&
+    !lower.includes('ebook') &&
+    !lower.includes('e-book') &&
+    !lower.includes('+')
+  ) {
+    return ['Ebook Version', 'Ebook Approval'];
+  }
+
+  // eBook-Only packages (e.g. eBook Formatting, eBook Cover Design, eBook Only)
+  if (
+    (lower.includes('ebook') || lower.includes('e-book')) &&
+    !lower.includes('print') &&
+    !lower.includes('+')
+  ) {
+    return ['Print Version', 'Print Approval'];
+  }
+
+  return [];
+}
+
+export function isStageSkipped(project: TimelineProject, stage: OfficialTimelineStage): boolean {
+  if (project.stage_states?.[stage]?.status === 'SKIPPED') {
+    return true;
+  }
+
+  const autoSkipped = getAutoSkippedStagesForServiceType(project.service_type);
+  if (autoSkipped.includes(stage)) {
+    return true;
+  }
+
+  if (project.stage_skip_requests) {
+    const approvedSkips = project.stage_skip_requests.filter(
+      (r) => r.status === 'APPROVED' || r.status === 'SERVICE_TYPE_PRESET',
+    );
+    for (const req of approvedSkips) {
+      if (req.stage === stage) return true;
+      const approvalStage = approvalStageForProductionStage(req.stage);
+      if (approvalStage && approvalStage === stage) return true;
+    }
+  }
+
+  return false;
+}
+
 export function approvalStageForProductionStage(stage: OfficialTimelineStage): OfficialTimelineStage | null {
   switch (stage) {
     case 'Design Concept':
@@ -359,24 +468,82 @@ export function approvalStageForProductionStage(stage: OfficialTimelineStage): O
   }
 }
 
-export function nextStageAfterApproval(stage: OfficialTimelineStage): OfficialTimelineStage | 'Completed' {
+export function nextStageAfterApproval(
+  stage: OfficialTimelineStage,
+  project?: TimelineProject,
+): OfficialTimelineStage | 'Completed' {
+  let candidate: OfficialTimelineStage | 'Completed' = 'Completed';
+
   switch (stage) {
     case 'Files Received':
-      return 'Design Concept';
+      candidate = 'Design Concept';
+      break;
     case 'Design Concept':
     case 'Concept Approval':
-      return 'Print Version';
+      candidate = 'Print Version';
+      break;
     case 'Print Version':
     case 'Print Approval':
-      return 'Ebook Version';
+      candidate = 'Ebook Version';
+      break;
     case 'Ebook Version':
     case 'Ebook Approval':
-      return 'Final Delivery';
+      candidate = 'Final Delivery';
+      break;
     case 'Final Delivery':
       return 'Completed';
     default:
       return 'Completed';
   }
+
+  const nextCandidate: string = candidate;
+  if (project && nextCandidate !== 'Completed' && isStageSkipped(project, nextCandidate as OfficialTimelineStage)) {
+    return nextStageAfterApproval(nextCandidate as OfficialTimelineStage, project);
+  }
+
+  return candidate;
+}
+
+export function validateWorkflowTransition(
+  project: TimelineProject,
+  targetStage: OfficialTimelineStage | 'Completed',
+  options: {
+    actorRole?: string;
+    isClientApproved?: boolean;
+    isSkip?: boolean;
+    isAdminOverride?: boolean;
+  } = {},
+): { valid: boolean; reason?: string } {
+  if (options.isAdminOverride && options.actorRole === 'admin') {
+    return { valid: true };
+  }
+
+  const currentNorm = normalizeStage(project.current_stage || project.status);
+
+  if (targetStage === 'Completed') {
+    if (currentNorm === 'Final Delivery' || (currentNorm === 'Ebook Approval' && isStageSkipped(project, 'Final Delivery'))) {
+      return { valid: true };
+    }
+    return { valid: false, reason: 'Project can only be completed after Final Delivery or valid client approval.' };
+  }
+
+  const allowedNext = nextStageAfterApproval(currentNorm as OfficialTimelineStage, project);
+
+  if (targetStage === allowedNext) {
+    if (isClientApprovalStage(currentNorm) && !options.isClientApproved && !options.isSkip) {
+      return { valid: false, reason: `${currentNorm} requires explicit client approval to advance.` };
+    }
+    return { valid: true };
+  }
+
+  if (options.isSkip && isStageSkipped(project, targetStage)) {
+    return { valid: true };
+  }
+
+  return {
+    valid: false,
+    reason: `Invalid workflow transition from "${currentNorm}" to "${targetStage}". Progression must follow the client-controlled timeline.`,
+  };
 }
 
 export function milestoneForApprovalStage(stage: TimelineStage): ApprovalMilestone | null {
@@ -637,56 +804,6 @@ export function getTimelineSummary(project: TimelineProject): TimelineSummary {
     isOverdue,
     revisionCount: Number(derived.revision_count || 0),
   };
-}
-
-export function getTimelineMilestones(project: TimelineProject): TimelineMilestone[] {
-  const summary = getTimelineSummary(project);
-  const settings = getWorkflowSettings(project);
-  const currentNorm = normalizeStage(summary.stage);
-  const currentIdx = officialTimelineStages.indexOf(currentNorm as OfficialTimelineStage);
-
-  const stageDateMap: Record<OfficialTimelineStage, string | null> = {
-    'Files Received': project.files_received_date || null,
-    'Design Concept': project.design_concept_submitted_date || null,
-    'Concept Approval': project.design_concept_approval_date || null,
-    'Print Version': project.print_version_submitted_date || null,
-    'Print Approval': project.print_version_approval_date || null,
-    'Ebook Version': project.ebook_submitted_date || null,
-    'Ebook Approval': project.ebook_approval_date || null,
-    'Final Delivery': project.final_delivery_date || null,
-  };
-
-  return officialTimelineStages.map((stageName, index) => {
-    const isApproval = isClientApprovalStage(stageName);
-    const durationDays = getStageDurationDays(stageName, settings, false);
-    const date = stageDateMap[stageName];
-
-    let state: TimelineMilestone['state'] = 'future';
-
-    if (summary.officialStage === 'Completed' || (currentIdx >= 0 && index < currentIdx)) {
-      state = 'completed';
-    } else if (index === currentIdx) {
-      if (summary.health === 'Overdue') {
-        state = 'overdue';
-      } else if (summary.stageStatus === 'REVISION_ACTIVE') {
-        state = 'revision';
-      } else if (summary.waitingOn === 'Client' || summary.stageStatus === 'PAUSED_CLIENT_REVIEW') {
-        state = 'paused';
-      } else {
-        state = 'current';
-      }
-    }
-
-    return {
-      key: `stage-${index + 1}-${stageName.toLowerCase().replace(/\s+/g, '-')}`,
-      label: stageName,
-      stageName,
-      date,
-      state,
-      isApproval,
-      durationDays,
-    };
-  });
 }
 
 export function timelineDueText(project: TimelineProject): string {

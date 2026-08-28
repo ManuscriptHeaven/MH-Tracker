@@ -136,3 +136,49 @@ end;
 $$;
 
 grant execute on function public.client_approve_project_milestone(uuid, text) to authenticated;
+
+-- 4. In-Flight Stage Skip Requests Table
+create table if not exists public.project_stage_skips (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  stage text not null,
+  requested_by uuid references public.profiles(id) on delete set null,
+  requested_at timestamptz not null default now(),
+  reason text not null,
+  status text not null default 'PENDING',
+  client_response_at timestamptz,
+  client_notes text
+);
+
+alter table public.project_stage_skips enable row level security;
+
+create policy "Authenticated users can read stage skip requests"
+  on public.project_stage_skips for select
+  to authenticated using (true);
+
+create policy "Authenticated users can insert/update stage skip requests"
+  on public.project_stage_skips for all
+  to authenticated using (true);
+
+-- 5. Emergency Admin Workflow Overrides Audit Log Table
+create table if not exists public.admin_workflow_overrides (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  actor_id uuid not null references public.profiles(id) on delete set null,
+  previous_stage text not null,
+  new_stage text not null,
+  reason text not null,
+  explanation text not null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.admin_workflow_overrides enable row level security;
+
+create policy "Authenticated users can read admin workflow overrides"
+  on public.admin_workflow_overrides for select
+  to authenticated using (true);
+
+create policy "Admin users can insert admin workflow overrides"
+  on public.admin_workflow_overrides for insert
+  to authenticated with check (true);
+
