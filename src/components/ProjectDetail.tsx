@@ -151,7 +151,7 @@ export function ProjectDetail({
   ) => Promise<ChatMessage>;
   onGetOrCreateProjectConversation?: (projectId: string, isInternal: boolean) => Promise<Conversation>;
   onMarkRead?: (conversationId: string) => void;
-  onSubmitStageForApproval?: () => Promise<void>;
+  onSubmitStageForApproval?: (submissionNote?: string, fileUrl?: string) => Promise<void>;
   onRequestStageSkip?: (stage: OfficialTimelineStage, reason: string) => Promise<any>;
   onAdminWorkflowOverride?: (newStage: TimelineStage, reason: string, explanation: string) => Promise<any>;
 }) {
@@ -166,6 +166,9 @@ export function ProjectDetail({
   const [commSubTab, setCommSubTab] = useState<'internal' | 'client'>('internal');
   const [showSkipModal, setShowSkipModal] = useState(false);
   const [showAdminOverrideModal, setShowAdminOverrideModal] = useState(false);
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [submissionNote, setSubmissionNote] = useState('');
+  const [submissionFileUrl, setSubmissionFileUrl] = useState('');
   const [skipTargetStage, setSkipTargetStage] = useState<OfficialTimelineStage>('Ebook Version');
   const [skipReason, setSkipReason] = useState('');
   const [overrideTargetStage, setOverrideTargetStage] = useState<TimelineStage>('Print Version');
@@ -175,6 +178,20 @@ export function ProjectDetail({
   const [quickMsg, setQuickMsg] = useState('');
   const [activityFilter, setActivityFilter] = useState<'all' | 'client' | 'team' | 'files' | 'status' | 'revisions' | 'system'>('all');
   const [taskFilter, setTaskFilter] = useState<'all' | 'open' | 'in_progress' | 'done'>('all');
+
+  const openSubmitModal = () => {
+    const initialUrl =
+      project.current_stage === 'Design Concept'
+        ? project.cover_file_link || project.proof_pdf_link || ''
+        : project.current_stage === 'Print Version'
+          ? project.proof_pdf_link || project.final_print_pdf_link || ''
+          : project.current_stage === 'Ebook Version'
+            ? project.final_ebook_link || ''
+            : project.final_print_pdf_link || project.other_links || '';
+    setSubmissionFileUrl(initialUrl);
+    setSubmissionNote('');
+    setShowSubmitModal(true);
+  };
 
   // File links editing modal state
   const [isEditingFiles, setIsEditingFiles] = useState(false);
@@ -394,14 +411,7 @@ export function ProjectDetail({
               {/* Stage Submission Workflow Buttons */}
               {project.current_stage === 'Design Concept' && project.stage_status !== 'PAUSED_CLIENT_REVIEW' && (
                 <Button
-                  onClick={async () => {
-                    setIsSubmittingWorkflow(true);
-                    try {
-                      if (onSubmitStageForApproval) await onSubmitStageForApproval();
-                    } finally {
-                      setIsSubmittingWorkflow(false);
-                    }
-                  }}
+                  onClick={openSubmitModal}
                   disabled={isSubmittingWorkflow}
                   className="text-xs py-2 px-3 bg-gold text-white font-semibold hover:bg-gold/90 shadow-xs"
                 >
@@ -412,14 +422,7 @@ export function ProjectDetail({
 
               {project.current_stage === 'Print Version' && project.stage_status !== 'PAUSED_CLIENT_REVIEW' && (
                 <Button
-                  onClick={async () => {
-                    setIsSubmittingWorkflow(true);
-                    try {
-                      if (onSubmitStageForApproval) await onSubmitStageForApproval();
-                    } finally {
-                      setIsSubmittingWorkflow(false);
-                    }
-                  }}
+                  onClick={openSubmitModal}
                   disabled={isSubmittingWorkflow}
                   className="text-xs py-2 px-3 bg-gold text-white font-semibold hover:bg-gold/90 shadow-xs"
                 >
@@ -430,14 +433,7 @@ export function ProjectDetail({
 
               {project.current_stage === 'Ebook Version' && project.stage_status !== 'PAUSED_CLIENT_REVIEW' && (
                 <Button
-                  onClick={async () => {
-                    setIsSubmittingWorkflow(true);
-                    try {
-                      if (onSubmitStageForApproval) await onSubmitStageForApproval();
-                    } finally {
-                      setIsSubmittingWorkflow(false);
-                    }
-                  }}
+                  onClick={openSubmitModal}
                   disabled={isSubmittingWorkflow}
                   className="text-xs py-2 px-3 bg-gold text-white font-semibold hover:bg-gold/90 shadow-xs"
                 >
@@ -448,14 +444,7 @@ export function ProjectDetail({
 
               {project.current_stage === 'Final Delivery' && project.status !== 'Completed' && (
                 <Button
-                  onClick={async () => {
-                    setIsSubmittingWorkflow(true);
-                    try {
-                      if (onSubmitStageForApproval) await onSubmitStageForApproval();
-                    } finally {
-                      setIsSubmittingWorkflow(false);
-                    }
-                  }}
+                  onClick={openSubmitModal}
                   disabled={isSubmittingWorkflow}
                   className="text-xs py-2 px-3 bg-success hover:bg-green-700 text-white font-semibold shadow-xs"
                 >
@@ -697,14 +686,7 @@ export function ProjectDetail({
                     <div className="flex flex-col gap-2">
                       {project.current_stage === 'Design Concept' && project.stage_status !== 'PAUSED_CLIENT_REVIEW' && (
                         <Button
-                          onClick={async () => {
-                            setIsSubmittingWorkflow(true);
-                            try {
-                              if (onSubmitStageForApproval) await onSubmitStageForApproval();
-                            } finally {
-                              setIsSubmittingWorkflow(false);
-                            }
-                          }}
+                          onClick={openSubmitModal}
                           disabled={isSubmittingWorkflow}
                           className="w-full text-xs py-2"
                         >
@@ -715,14 +697,7 @@ export function ProjectDetail({
 
                       {project.current_stage === 'Print Version' && project.stage_status !== 'PAUSED_CLIENT_REVIEW' && (
                         <Button
-                          onClick={async () => {
-                            setIsSubmittingWorkflow(true);
-                            try {
-                              if (onSubmitStageForApproval) await onSubmitStageForApproval();
-                            } finally {
-                              setIsSubmittingWorkflow(false);
-                            }
-                          }}
+                          onClick={openSubmitModal}
                           disabled={isSubmittingWorkflow}
                           className="w-full text-xs py-2"
                         >
@@ -733,14 +708,7 @@ export function ProjectDetail({
 
                       {project.current_stage === 'Ebook Version' && project.stage_status !== 'PAUSED_CLIENT_REVIEW' && (
                         <Button
-                          onClick={async () => {
-                            setIsSubmittingWorkflow(true);
-                            try {
-                              if (onSubmitStageForApproval) await onSubmitStageForApproval();
-                            } finally {
-                              setIsSubmittingWorkflow(false);
-                            }
-                          }}
+                          onClick={openSubmitModal}
                           disabled={isSubmittingWorkflow}
                           className="w-full text-xs py-2"
                         >
@@ -751,14 +719,7 @@ export function ProjectDetail({
 
                       {project.current_stage === 'Final Delivery' && project.status !== 'Completed' && (
                         <Button
-                          onClick={async () => {
-                            setIsSubmittingWorkflow(true);
-                            try {
-                              if (onSubmitStageForApproval) await onSubmitStageForApproval();
-                            } finally {
-                              setIsSubmittingWorkflow(false);
-                            }
-                          }}
+                          onClick={openSubmitModal}
                           disabled={isSubmittingWorkflow}
                           className="w-full text-xs py-2"
                         >
@@ -1442,6 +1403,64 @@ export function ProjectDetail({
           )}
         </div>
       </div>
+
+      {/* Submit Stage Modal with Explanatory Notes & File Attachment */}
+      {showSubmitModal && (
+        <Modal title={`Submit ${project.current_stage || 'Deliverable'} for Client Review`} onClose={() => setShowSubmitModal(false)} width="max-w-lg">
+          <div className="space-y-4 text-xs">
+            <div className="rounded-lg border border-gold/30 bg-ivory/60 p-3 text-ink font-medium flex items-start gap-2">
+              <Clock3 className="h-4 w-4 shrink-0 text-gold mt-0.5" />
+              <div>
+                <strong>Client Submission & Approval Request</strong>
+                <p className="mt-0.5 text-muted">
+                  Submitting this proof will pause the internal production clock, set status to <strong>Awaiting Client Approval</strong>, and send a notification with your attached file & review notes to the client.
+                </p>
+              </div>
+            </div>
+
+            <TextareaField
+              label="Explanatory Note / Instructions for Client"
+              placeholder="e.g. We have completed the formatting and cover proof. Please review pages 1-250 and let us know if any revisions are needed..."
+              value={submissionNote}
+              onChange={(e) => setSubmissionNote(e.target.value)}
+              rows={4}
+            />
+
+            <Field
+              label="Deliverable / Proof File Link (URL or Google Drive)"
+              placeholder="https://drive.google.com/file/d/example-proof.pdf"
+              value={submissionFileUrl}
+              onChange={(e) => setSubmissionFileUrl(e.target.value)}
+            />
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-border">
+              <Button type="button" variant="secondary" onClick={() => setShowSubmitModal(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={async () => {
+                  setIsSubmittingWorkflow(true);
+                  try {
+                    if (onSubmitStageForApproval) {
+                      await onSubmitStageForApproval(submissionNote, submissionFileUrl);
+                    }
+                    setShowSubmitModal(false);
+                    setSubmissionNote('');
+                  } finally {
+                    setIsSubmittingWorkflow(false);
+                  }
+                }}
+                disabled={isSubmittingWorkflow}
+                className="bg-gold text-white font-semibold hover:bg-gold/90"
+              >
+                <Send className="h-3.5 w-3.5" />
+                Submit & Notify Client
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Request Stage Skip Modal */}
       {showSkipModal && (

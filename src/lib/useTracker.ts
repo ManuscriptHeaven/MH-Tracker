@@ -2563,7 +2563,7 @@ export function useTracker() {
   );
 
   const submitStageForApproval = useCallback(
-    async (projectId: string) => {
+    async (projectId: string, submissionNote?: string, fileUrl?: string) => {
       if (!currentProfile) throw new Error('No signed-in profile found.');
       const project = data.projects.find((p) => p.id === projectId);
       if (!project) throw new Error('Project not found.');
@@ -2574,19 +2574,23 @@ export function useTracker() {
 
       let targetApprovalStage: OfficialTimelineStage = 'Concept Approval';
       let submissionField: keyof Project = 'design_concept_submitted_date';
+      let fileField: keyof Project = 'proof_pdf_link';
       let label = 'Design Concept';
 
       if (currentStage === 'Design Concept') {
         targetApprovalStage = 'Concept Approval';
         submissionField = 'design_concept_submitted_date';
+        fileField = project.cover_file_link ? 'proof_pdf_link' : 'cover_file_link';
         label = 'Design Concept';
       } else if (currentStage === 'Print Version') {
         targetApprovalStage = 'Print Approval';
         submissionField = 'print_version_submitted_date';
+        fileField = 'proof_pdf_link';
         label = 'Print Version';
       } else if (currentStage === 'Ebook Version') {
         targetApprovalStage = 'Ebook Approval';
         submissionField = 'ebook_submitted_date';
+        fileField = 'final_ebook_link';
         label = 'eBook Version';
       } else if (currentStage === 'Final Delivery') {
         const updates: Partial<Project> = {
@@ -2601,7 +2605,16 @@ export function useTracker() {
           client_action_required: '',
           updated_at: now,
         };
+        if (submissionNote?.trim()) {
+          updates.delivery_notes = submissionNote.trim();
+        }
+        if (fileUrl?.trim()) {
+          updates.final_print_pdf_link = fileUrl.trim();
+        }
         await updateProject(projectId, updates);
+        if (submissionNote?.trim()) {
+          await addNote(projectId, 'delivery', submissionNote.trim());
+        }
         return;
       } else {
         throw new Error(`Cannot submit ${currentStage} for approval.`);
@@ -2620,6 +2633,17 @@ export function useTracker() {
         updated_at: now,
       };
 
+      if (submissionNote?.trim()) {
+        projectUpdates.delivery_notes = submissionNote.trim();
+      }
+
+      if (fileUrl?.trim()) {
+        projectUpdates[fileField] = fileUrl.trim();
+      }
+
+      const noteText = submissionNote?.trim() ? ` Notes: ${submissionNote.trim()}` : '';
+      const fileText = fileUrl?.trim() ? ` File Link: ${fileUrl.trim()}` : '';
+
       const notification: NotificationItem = {
         id: createId('notification'),
         recipient_id: project.client_email
@@ -2628,7 +2652,7 @@ export function useTracker() {
         project_id: projectId,
         type: 'milestone_submitted',
         title: `${label} Ready for Review: ${project.project_title}`,
-        message: `${label} has been completed and submitted for your approval.`,
+        message: `${label} has been completed and submitted for your approval.${noteText}${fileText}`,
         is_read: false,
         created_at: now,
       };
@@ -2637,10 +2661,14 @@ export function useTracker() {
         project,
         `${label} submitted for client review`,
         currentProfile.id,
-        'Production clock paused. Waiting on client.',
+        `Production clock paused. Waiting on client.${noteText}`,
       );
 
       await updateProject(projectId, projectUpdates);
+
+      if (submissionNote?.trim()) {
+        await addNote(projectId, 'delivery', submissionNote.trim());
+      }
 
       if (supabase && mode === 'supabase') {
         await supabase.from('notifications').insert(notification);
@@ -2653,7 +2681,7 @@ export function useTracker() {
         }));
       }
     },
-    [currentProfile, data.profiles, data.projects, loadSupabaseData, mode, updateProject],
+    [addNote, currentProfile, data.profiles, data.projects, loadSupabaseData, mode, updateProject],
   );
 
   const requestStageSkip = useCallback(

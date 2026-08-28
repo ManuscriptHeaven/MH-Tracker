@@ -277,10 +277,10 @@ export default function App() {
         onSendMessage={tracker.sendMessage}
         onGetOrCreateProjectConversation={tracker.getOrCreateProjectConversation}
         onMarkRead={tracker.markConversationRead}
-        onSubmitStageForApproval={async () => {
+        onSubmitStageForApproval={async (submissionNote, fileUrl) => {
           try {
-            await tracker.submitStageForApproval(selectedProjectFresh.id);
-            setToast({ message: 'Submitted stage for client approval.', tone: 'success' });
+            await tracker.submitStageForApproval(selectedProjectFresh.id, submissionNote, fileUrl);
+            setToast({ message: 'Submitted stage for client approval & notified client.', tone: 'success' });
           } catch (err) {
             setToast({ message: errorMessage(err, 'Failed to submit stage for approval.'), tone: 'error' });
           }
