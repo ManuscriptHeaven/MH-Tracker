@@ -584,7 +584,7 @@ function profileMatchesLoginName(profile: Profile, loginName: string) {
 }
 
 function loginErrorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : 'Login failed.';
+  const message = error instanceof Error ? error.message : typeof error === 'object' && error && 'message' in error ? String((error as any).message) : 'Login failed.';
 
   if (message.toLowerCase().includes('invalid login credentials')) {
     return 'Name or password is incorrect.';
@@ -592,6 +592,25 @@ function loginErrorMessage(error: unknown) {
 
   if (message.includes('find_login_email')) {
     return 'Name login is not set up in Supabase yet. Please run the latest database update.';
+  }
+
+  return message;
+}
+
+function signupErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : typeof error === 'object' && error && 'message' in error ? String((error as any).message) : 'Sign up failed.';
+  const lower = message.toLowerCase();
+
+  if (lower.includes('user already registered') || lower.includes('already registered') || lower.includes('user_already_exists')) {
+    return 'An account with this email already exists. Please sign in instead.';
+  }
+
+  if (lower.includes('password should be') || lower.includes('weak_password') || lower.includes('at least 6 characters')) {
+    return 'Password is too weak. Please use at least 6 characters.';
+  }
+
+  if (lower.includes('rate limit') || lower.includes('over_email_send_rate_limit')) {
+    return 'Email rate limit reached. Please wait a few minutes before trying again.';
   }
 
   return message;
@@ -1376,24 +1395,24 @@ export function useTracker() {
           created_at: new Date().toISOString(),
         };
 
-        const { error: profileUpsertError } = await supabase.from('profiles').upsert(profileObj, { onConflict: 'id' });
-        if (profileUpsertError) {
-          console.warn('Profile upsert warning:', profileUpsertError.message);
-        }
-
-        await supabase.from('team_members').upsert(
-          {
-            full_name: cleanFullName,
-            email: cleanEmail,
-            role,
-            status: 'active',
-          },
-          { onConflict: 'email' },
-        );
-
-        const fetchedProfile = (await fetchProfile(userId)) || profileObj;
-
+        // If a session exists, try updating profile and team_members client-side (otherwise Postgres trigger handles it server-side)
         if (authData.session) {
+          try {
+            await supabase.from('profiles').upsert(profileObj, { onConflict: 'id' });
+            await supabase.from('team_members').upsert(
+              {
+                full_name: cleanFullName,
+                email: cleanEmail,
+                role,
+                status: 'active',
+              },
+              { onConflict: 'email' },
+            );
+          } catch (upsertErr) {
+            console.warn('Post-signup table upsert warning:', upsertErr);
+          }
+
+          const fetchedProfile = (await fetchProfile(userId)) || profileObj;
           setStoredProfile(fetchedProfile);
           setStoredMode('supabase');
           setMode('supabase');
@@ -1402,9 +1421,9 @@ export function useTracker() {
           return { profile: fetchedProfile, requiresConfirmation: false };
         }
 
-        return { profile: fetchedProfile, requiresConfirmation: true };
+        return { profile: profileObj, requiresConfirmation: true };
       } catch (err: any) {
-        const msg = loginErrorMessage(err);
+        const msg = signupErrorMessage(err);
         setError(msg);
         throw new Error(msg);
       } finally {

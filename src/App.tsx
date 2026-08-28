@@ -180,6 +180,7 @@ export default function App() {
         onMarkRead={tracker.markConversationRead}
         onGetOrCreateDM={tracker.getOrCreateDM}
         onGetOrCreateProjectConversation={tracker.getOrCreateProjectConversation}
+        onOpenProject={openProjectById}
       />
     )}
     {activeView === 'calendar' && <CalendarPage projects={visibleProjects} onSelectProject={setSelectedProject} />}

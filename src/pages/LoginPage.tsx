@@ -297,8 +297,8 @@ export function LoginPage({
                   </div>
                 )}
 
-                {formError || error ? (
-                  <p className="rounded-md bg-red-50 p-3 text-sm text-danger">{formError || error}</p>
+                {formError ? (
+                  <p className="rounded-md bg-red-50 p-3 text-sm text-danger">{formError}</p>
                 ) : null}
 
                 <Button type="submit" className="w-full" disabled={isLoading}>
