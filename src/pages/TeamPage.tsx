@@ -15,11 +15,14 @@ import {
   Users,
   UserPlus,
   Wallet,
+  Sparkles,
+  KeyRound,
 } from 'lucide-react';
 import { PayrollStatusBadge, RoleBadge } from '../components/Badges';
 import { Button, Card, Field, SelectField } from '../components/ui';
 import { UserAvatar } from '../components/UserAvatar';
 import { AvatarUploadModal } from '../components/AvatarUploadModal';
+import { ShareableInviteModal } from '../components/ShareableInviteModal';
 import { closedStatuses } from '../lib/constants';
 import { useCurrency } from '../lib/currency';
 import { isOverdue } from '../lib/date';
@@ -112,6 +115,21 @@ export function TeamPage({
   const [newEmployeeRole, setNewEmployeeRole] = useState<Role>('employee');
   const [addEmployeeLoading, setAddEmployeeLoading] = useState(false);
   const [addEmployeeError, setAddEmployeeError] = useState<string | null>(null);
+  const [createdInviteModalData, setCreatedInviteModalData] = useState<{
+    name: string;
+    email: string;
+    role: Role;
+    password?: string;
+  } | null>(null);
+
+  function generatePassword() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$';
+    let pass = 'MH@';
+    for (let i = 0; i < 6; i++) {
+      pass += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    setNewEmployeePassword(pass);
+  }
 
   const team = useMemo(() => profiles.filter((p) => !isClientRole(p.role)), [profiles]);
   const isEmployeeRole = currentProfile?.role === 'employee';
@@ -695,12 +713,26 @@ export function TeamPage({
                 if (!onAddEmployee) return;
                 setAddEmployeeLoading(true);
                 setAddEmployeeError(null);
+                let assignedPassword = newEmployeePassword;
+                if (!assignedPassword) {
+                  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$';
+                  assignedPassword = 'MH@';
+                  for (let i = 0; i < 6; i++) {
+                    assignedPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+                  }
+                }
                 try {
                   await onAddEmployee({
                     fullName: newEmployeeName,
                     email: newEmployeeEmail,
-                    password: newEmployeePassword,
+                    password: assignedPassword,
                     role: newEmployeeRole,
+                  });
+                  setCreatedInviteModalData({
+                    name: newEmployeeName,
+                    email: newEmployeeEmail,
+                    role: newEmployeeRole,
+                    password: assignedPassword,
                   });
                   setNewEmployeeName('');
                   setNewEmployeeEmail('');
@@ -739,14 +771,29 @@ export function TeamPage({
                 <option value="junior_assistant">Junior Assistant</option>
                 <option value="admin">Administrator</option>
               </SelectField>
-              <Field
-                label="Password"
-                type="password"
-                value={newEmployeePassword}
-                onChange={(e) => setNewEmployeePassword(e.target.value)}
-                placeholder="Initial password for employee"
-                required
-              />
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-semibold text-charcoal">
+                    Initial Password
+                  </label>
+                  <button
+                    type="button"
+                    onClick={generatePassword}
+                    className="text-xs font-bold text-gold hover:underline flex items-center gap-1"
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    Auto-Generate Password
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={newEmployeePassword}
+                  onChange={(e) => setNewEmployeePassword(e.target.value)}
+                  placeholder="e.g. MH@Temp123 or click Auto-Generate"
+                  className="w-full rounded-md border border-border bg-white p-2.5 text-sm font-mono text-charcoal shadow-soft focus:border-gold focus:outline-hidden"
+                  required
+                />
+              </div>
 
               {addEmployeeError && (
                 <p className="rounded-md bg-red-50 p-2.5 text-xs text-danger">{addEmployeeError}</p>
@@ -761,12 +808,23 @@ export function TeamPage({
                   Cancel
                 </Button>
                 <Button type="submit" disabled={addEmployeeLoading}>
-                  {addEmployeeLoading ? 'Creating...' : 'Create Employee'}
+                  {addEmployeeLoading ? 'Creating in Supabase...' : 'Create & Generate Invite'}
                 </Button>
               </div>
             </form>
           </Card>
         </div>
+      )}
+
+      {createdInviteModalData && (
+        <ShareableInviteModal
+          isOpen={!!createdInviteModalData}
+          onClose={() => setCreatedInviteModalData(null)}
+          recipientName={createdInviteModalData.name}
+          recipientEmail={createdInviteModalData.email}
+          role={createdInviteModalData.role}
+          temporaryPassword={createdInviteModalData.password}
+        />
       )}
     </div>
   );

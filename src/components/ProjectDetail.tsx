@@ -389,8 +389,105 @@ export function ProjectDetail({
               </p>
             </div>
 
-            {/* Quick action buttons */}
-            <div className="flex flex-wrap gap-2 shrink-0">
+            {/* Top Workflow & Quick Action Buttons */}
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {/* Stage Submission Workflow Buttons */}
+              {project.current_stage === 'Design Concept' && project.stage_status !== 'PAUSED_CLIENT_REVIEW' && (
+                <Button
+                  onClick={async () => {
+                    setIsSubmittingWorkflow(true);
+                    try {
+                      if (onSubmitStageForApproval) await onSubmitStageForApproval();
+                    } finally {
+                      setIsSubmittingWorkflow(false);
+                    }
+                  }}
+                  disabled={isSubmittingWorkflow}
+                  className="text-xs py-2 px-3 bg-gold text-white font-semibold hover:bg-gold/90 shadow-xs"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  Submit Design Concept
+                </Button>
+              )}
+
+              {project.current_stage === 'Print Version' && project.stage_status !== 'PAUSED_CLIENT_REVIEW' && (
+                <Button
+                  onClick={async () => {
+                    setIsSubmittingWorkflow(true);
+                    try {
+                      if (onSubmitStageForApproval) await onSubmitStageForApproval();
+                    } finally {
+                      setIsSubmittingWorkflow(false);
+                    }
+                  }}
+                  disabled={isSubmittingWorkflow}
+                  className="text-xs py-2 px-3 bg-gold text-white font-semibold hover:bg-gold/90 shadow-xs"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  Submit Print Version
+                </Button>
+              )}
+
+              {project.current_stage === 'Ebook Version' && project.stage_status !== 'PAUSED_CLIENT_REVIEW' && (
+                <Button
+                  onClick={async () => {
+                    setIsSubmittingWorkflow(true);
+                    try {
+                      if (onSubmitStageForApproval) await onSubmitStageForApproval();
+                    } finally {
+                      setIsSubmittingWorkflow(false);
+                    }
+                  }}
+                  disabled={isSubmittingWorkflow}
+                  className="text-xs py-2 px-3 bg-gold text-white font-semibold hover:bg-gold/90 shadow-xs"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  Submit eBook Version
+                </Button>
+              )}
+
+              {project.current_stage === 'Final Delivery' && project.status !== 'Completed' && (
+                <Button
+                  onClick={async () => {
+                    setIsSubmittingWorkflow(true);
+                    try {
+                      if (onSubmitStageForApproval) await onSubmitStageForApproval();
+                    } finally {
+                      setIsSubmittingWorkflow(false);
+                    }
+                  }}
+                  disabled={isSubmittingWorkflow}
+                  className="text-xs py-2 px-3 bg-success hover:bg-green-700 text-white font-semibold shadow-xs"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Complete Final Delivery
+                </Button>
+              )}
+
+              {/* Request Stage Skip Button */}
+              {project.status !== 'Completed' && (
+                <Button
+                  variant="secondary"
+                  onClick={() => setShowSkipModal(true)}
+                  className="text-xs py-2 px-3"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Request Stage Skip
+                </Button>
+              )}
+
+              {/* Administrative Emergency Workflow Override (ADMIN ONLY) */}
+              {currentProfile.role === 'admin' && (
+                <Button
+                  variant="secondary"
+                  onClick={() => setShowAdminOverrideModal(true)}
+                  className="text-xs py-2 px-2.5 border-red-200 text-danger hover:bg-red-50"
+                >
+                  <ShieldAlert className="h-3.5 w-3.5" />
+                  Admin Override
+                </Button>
+              )}
+
               <Button variant="secondary" onClick={() => window.print()} className="text-xs">
                 <Printer className="h-4 w-4" />
                 Print
@@ -399,16 +496,6 @@ export function ProjectDetail({
                 <Button variant="secondary" onClick={onEdit} className="text-xs">
                   <Edit className="h-4 w-4" />
                   Edit Project
-                </Button>
-              ) : null}
-              <Button onClick={markDelivered} className="text-xs">
-                <CheckCircle2 className="h-4 w-4" />
-                Mark Delivered
-              </Button>
-              {currentProfile.role === 'admin' ? (
-                <Button variant="danger" onClick={onDelete} className="text-xs">
-                  <Trash2 className="h-4 w-4" />
-                  Delete
                 </Button>
               ) : null}
             </div>

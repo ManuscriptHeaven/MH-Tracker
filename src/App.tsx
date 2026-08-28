@@ -205,7 +205,17 @@ export default function App() {
         }}
       />
     )}
-    {activeView === 'clients' && tracker.currentProfile.role === 'admin' && <ClientAccessPage profiles={tracker.data.profiles} projects={tracker.data.projects} clientProjectAccess={tracker.data.clientProjectAccess} onInviteClient={tracker.inviteClient} />}
+    {activeView === 'clients' && tracker.currentProfile.role === 'admin' && (
+      <ClientAccessPage
+        profiles={tracker.data.profiles}
+        projects={tracker.data.projects}
+        clientProjectAccess={tracker.data.clientProjectAccess}
+        onInviteClient={tracker.inviteClient}
+        onAddClient={async (data) => {
+          await tracker.signUp(data);
+        }}
+      />
+    )}
     {activeView === 'delivered' && <ProjectsPage {...pageProps} title="Delivered Projects" projects={deliveredProjects} />}
     {activeView === 'payments' && tracker.canManageAll && (
       <ErrorBoundary>

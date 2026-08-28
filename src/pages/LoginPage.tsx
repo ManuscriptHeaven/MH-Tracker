@@ -1,6 +1,6 @@
-import { BookOpen, CheckCircle2, LockKeyhole, UserPlus, UserRound, Users, Briefcase } from 'lucide-react';
-import { type FormEvent, useState } from 'react';
-import { Button, Card, Field, SelectField } from '../components/ui';
+import { BookOpen, CheckCircle2, KeyRound, LockKeyhole, ShieldCheck, UserRound } from 'lucide-react';
+import { type FormEvent, useEffect, useState } from 'react';
+import { Button, Card, Field } from '../components/ui';
 import { roleLabels } from '../lib/constants';
 import { isSupabaseConfigured } from '../lib/supabase';
 import type { Profile, Role } from '../lib/types';
@@ -23,19 +23,31 @@ export function LoginPage({
   error: string | null;
   isLoading: boolean;
 }) {
-  const [tab, setTab] = useState<'signin' | 'signup'>('signin');
-  const [loginName, setLoginName] = useState(isSupabaseConfigured ? '' : 'Tahir');
-  const [password, setPassword] = useState('');
+  // Read query params from URL (e.g. ?email=... or ?invite=... or ?setup=...)
+  const [initialEmail, setInitialEmail] = useState('');
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
 
-  // Sign Up form state
-  const [signUpFullName, setSignUpFullName] = useState('');
-  const [signUpEmail, setSignUpEmail] = useState('');
-  const [signUpPassword, setSignUpPassword] = useState('');
-  const [signUpConfirmPassword, setSignUpConfirmPassword] = useState('');
-  const [accountType, setAccountType] = useState<'employee' | 'client'>('employee');
-  const [employeeRole, setEmployeeRole] = useState<Role>('employee');
-  const [signUpSuccessMsg, setSignUpSuccessMsg] = useState<string | null>(null);
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const emailParam = params.get('email');
+      const tokenParam = params.get('invite') || params.get('setup');
+      if (emailParam) {
+        setInitialEmail(emailParam);
+        setLoginName(emailParam);
+      }
+      if (tokenParam) {
+        setInviteToken(tokenParam);
+      }
+    }
+  }, []);
+
+  const [loginName, setLoginName] = useState(() => (isSupabaseConfigured ? '' : 'Tahir'));
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [setupFullName, setSetupFullName] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
+  const [activationSuccess, setActivationSuccess] = useState(false);
 
   async function handleLoginSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -43,57 +55,43 @@ export function LoginPage({
     try {
       await onLogin(loginName, password);
     } catch {
-      // Error handles in hook
+      // Error is handled in hook
     }
   }
 
-  async function handleSignUpSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleActivateSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
-    setSignUpSuccessMsg(null);
 
-    if (!signUpFullName.trim()) {
-      setFormError('Please enter your full name.');
-      return;
-    }
-    if (!signUpEmail.trim() || !signUpEmail.includes('@')) {
-      setFormError('Please enter a valid email address.');
-      return;
-    }
-    if (signUpPassword.length < 6) {
+    if (password.length < 6) {
       setFormError('Password must be at least 6 characters long.');
       return;
     }
-    if (signUpPassword !== signUpConfirmPassword) {
+    if (password !== confirmPassword) {
       setFormError('Passwords do not match.');
       return;
     }
 
-    const roleToAssign: Role = accountType === 'client' ? 'client' : employeeRole;
-
     try {
-      if (!onSignUp) {
-        throw new Error('Sign up service is unavailable.');
-      }
-      const result = await onSignUp({
-        fullName: signUpFullName,
-        email: signUpEmail,
-        password: signUpPassword,
-        role: roleToAssign,
-      });
-
-      if (result.requiresConfirmation) {
-        setSignUpSuccessMsg('Account created successfully! Please check your email to verify your account.');
+      if (onSignUp) {
+        await onSignUp({
+          fullName: setupFullName || loginName.split('@')[0] || 'Team Member',
+          email: loginName,
+          password,
+          role: 'employee',
+        });
+        setActivationSuccess(true);
       } else {
-        setSignUpSuccessMsg('Account created! Logging you in...');
+        await onLogin(loginName, password);
       }
     } catch (err: any) {
-      setFormError(err.message || 'Sign up failed. Please try again.');
+      setFormError(err.message || 'Activation failed. Please contact your manager.');
     }
   }
 
   return (
     <main className="grid min-h-screen bg-linen p-4 lg:grid-cols-[0.9fr_1.1fr] lg:p-0">
+      {/* Left Hero Sidebar */}
       <section className="hidden bg-ink p-10 text-white lg:flex lg:flex-col lg:justify-between">
         <div className="flex items-center gap-3">
           <div className="grid h-12 w-12 place-items-center rounded-md bg-gold text-ink font-display text-xl font-bold">
@@ -113,50 +111,91 @@ export function LoginPage({
             Keep every manuscript, proof, revision, and delivery on track.
           </h1>
           <p className="mt-5 max-w-lg text-base leading-7 text-white/70">
-            A complete internal tracker & portal for assigning book projects, tracking deadlines, and managing team & client workflows seamless in Supabase.
+            A secure, internal operations dashboard for assigning book projects, tracking deadlines, and managing team & client workflows.
           </p>
         </div>
 
-        <p className="text-sm text-white/50">Free-hosting friendly: React, Vite, Supabase, and Cloudflare Pages.</p>
+        <div className="flex items-center justify-between text-xs text-white/50">
+          <p>Free-hosting friendly: React, Vite, Supabase, and Cloudflare Pages.</p>
+          <span className="flex items-center gap-1 text-gold/80">
+            <ShieldCheck className="h-4 w-4" />
+            Invite-Only Access
+          </span>
+        </div>
       </section>
 
+      {/* Right Login / Activation Box */}
       <section className="grid place-items-center py-8">
-        <Card className="w-full max-w-md">
-          {/* Tab Switcher */}
-          <div className="mb-6 flex border-b border-border">
-            <button
-              type="button"
-              onClick={() => {
-                setTab('signin');
-                setFormError(null);
-                setSignUpSuccessMsg(null);
-              }}
-              className={`flex-1 pb-3 text-center text-sm font-semibold transition border-b-2 ${
-                tab === 'signin'
-                  ? 'border-gold text-ink font-bold'
-                  : 'border-transparent text-muted hover:text-ink'
-              }`}
-            >
-              Sign In
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setTab('signup');
-                setFormError(null);
-                setSignUpSuccessMsg(null);
-              }}
-              className={`flex-1 pb-3 text-center text-sm font-semibold transition border-b-2 ${
-                tab === 'signup'
-                  ? 'border-gold text-ink font-bold'
-                  : 'border-transparent text-muted hover:text-ink'
-              }`}
-            >
-              New User Sign Up
-            </button>
-          </div>
+        <Card className="w-full max-w-md shadow-lg border border-border">
+          {inviteToken ? (
+            /* Invite / Activation Mode */
+            <>
+              <div className="mb-6 text-center">
+                <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-lg bg-emerald-100 text-emerald-700">
+                  <KeyRound className="h-7 w-7" />
+                </div>
+                <h2 className="font-display text-3xl font-semibold">Activate Account</h2>
+                <p className="mt-2 text-sm text-muted">
+                  You’ve been invited to Manuscript Heaven. Set your password to activate your account.
+                </p>
+              </div>
 
-          {tab === 'signin' ? (
+              {activationSuccess ? (
+                <div className="space-y-4 text-center">
+                  <div className="flex items-center justify-center gap-2 rounded-md bg-emerald-50 p-4 text-sm text-emerald-800 border border-emerald-200">
+                    <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+                    <span>Account activated! Logging you into the dashboard...</span>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handleActivateSubmit} className="space-y-4">
+                  <Field
+                    label="Email Address"
+                    type="email"
+                    value={loginName}
+                    onChange={(event) => setLoginName(event.target.value)}
+                    required
+                    readOnly={Boolean(initialEmail)}
+                    className={initialEmail ? 'bg-ivory cursor-not-allowed text-muted' : ''}
+                  />
+                  <Field
+                    label="Your Name"
+                    type="text"
+                    placeholder="Enter your full name"
+                    value={setupFullName}
+                    onChange={(event) => setSetupFullName(event.target.value)}
+                    required
+                  />
+                  <Field
+                    label="Create Password"
+                    type="password"
+                    placeholder="At least 6 characters"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    required
+                  />
+                  <Field
+                    label="Confirm Password"
+                    type="password"
+                    placeholder="Re-enter password"
+                    value={confirmPassword}
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                    required
+                  />
+
+                  {formError ? (
+                    <p className="rounded-md bg-red-50 p-3 text-sm text-danger">{formError}</p>
+                  ) : null}
+
+                  <Button type="submit" className="w-full" disabled={isLoading}>
+                    <KeyRound className="h-4 w-4" />
+                    {isLoading ? 'Activating...' : 'Activate & Enter Dashboard'}
+                  </Button>
+                </form>
+              )}
+            </>
+          ) : (
+            /* Standard Secure Sign In Mode */
             <>
               <div className="mb-6 text-center">
                 <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-lg bg-gold/20 text-gold">
@@ -165,14 +204,23 @@ export function LoginPage({
                 <h2 className="font-display text-3xl font-semibold">Sign In</h2>
                 <p className="mt-2 text-sm text-muted">
                   {isSupabaseConfigured
-                    ? 'Enter your registered email or first name and password.'
+                    ? 'Sign in with your registered email or first name and password.'
                     : 'Supabase keys are not set yet, so you can preview with demo users.'}
                 </p>
               </div>
 
+              {initialEmail && (
+                <div className="mb-4 rounded-md bg-gold/10 p-2.5 text-xs text-ink flex items-center gap-2 border border-gold/30">
+                  <ShieldCheck className="h-4 w-4 text-gold shrink-0" />
+                  <span>
+                    Signing in as <strong>{initialEmail}</strong>
+                  </span>
+                </div>
+              )}
+
               <form onSubmit={handleLoginSubmit} className="space-y-4">
                 <Field
-                  label="Name or Email"
+                  label="Email or First Name"
                   type="text"
                   placeholder="e.g., Tahir or tahir@example.com"
                   value={loginName}
@@ -188,128 +236,23 @@ export function LoginPage({
                   autoComplete="current-password"
                   required={isSupabaseConfigured}
                 />
+
                 {error || formError ? (
                   <p className="rounded-md bg-red-50 p-3 text-sm text-danger">{error || formError}</p>
                 ) : null}
+
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   <UserRound className="h-4 w-4" />
                   {isLoading ? 'Signing in...' : 'Sign In'}
                 </Button>
               </form>
-            </>
-          ) : (
-            <>
-              <div className="mb-6 text-center">
-                <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-lg bg-gold/20 text-gold">
-                  <UserPlus className="h-7 w-7" />
-                </div>
-                <h2 className="font-display text-3xl font-semibold">Create Account</h2>
-                <p className="mt-2 text-sm text-muted">
-                  Register a new account in Supabase for Employees or Clients.
+
+              <div className="mt-6 border-t border-border pt-4 text-center">
+                <p className="text-xs text-muted">
+                  🔒 New accounts can only be added by an <strong>Administrator</strong> or{' '}
+                  <strong>Project Manager</strong>.
                 </p>
               </div>
-
-              {/* Account Type Selection */}
-              <div className="mb-5">
-                <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-muted">
-                  Account Type
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setAccountType('employee')}
-                    className={`flex items-center justify-center gap-2 rounded-md border p-3 text-sm font-semibold transition ${
-                      accountType === 'employee'
-                        ? 'border-gold bg-gold/10 text-ink'
-                        : 'border-border bg-white text-muted hover:border-gray-400'
-                    }`}
-                  >
-                    <Users className="h-4 w-4 text-gold" />
-                    Employee / Staff
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setAccountType('client')}
-                    className={`flex items-center justify-center gap-2 rounded-md border p-3 text-sm font-semibold transition ${
-                      accountType === 'client'
-                        ? 'border-gold bg-gold/10 text-ink'
-                        : 'border-border bg-white text-muted hover:border-gray-400'
-                    }`}
-                  >
-                    <Briefcase className="h-4 w-4 text-gold" />
-                    Client / Author
-                  </button>
-                </div>
-              </div>
-
-              <form onSubmit={handleSignUpSubmit} className="space-y-4">
-                <Field
-                  label="Full Name"
-                  type="text"
-                  placeholder="e.g., Ali Khan"
-                  value={signUpFullName}
-                  onChange={(event) => setSignUpFullName(event.target.value)}
-                  required
-                />
-                <Field
-                  label="Email Address"
-                  type="email"
-                  placeholder="e.g., ali@example.com"
-                  value={signUpEmail}
-                  onChange={(event) => setSignUpEmail(event.target.value)}
-                  required
-                />
-
-                {accountType === 'employee' && (
-                  <SelectField
-                    label="Employee Role"
-                    value={employeeRole}
-                    onChange={(e) => setEmployeeRole(e.target.value as Role)}
-                  >
-                    <option value="employee">Employee / Team Member</option>
-                    <option value="project_manager">Project Manager</option>
-                    <option value="junior_assistant">Junior Assistant</option>
-                  </SelectField>
-                )}
-
-                <Field
-                  label="Password"
-                  type="password"
-                  placeholder="At least 6 characters"
-                  value={signUpPassword}
-                  onChange={(event) => setSignUpPassword(event.target.value)}
-                  required
-                />
-                <Field
-                  label="Confirm Password"
-                  type="password"
-                  placeholder="Re-enter password"
-                  value={signUpConfirmPassword}
-                  onChange={(event) => setSignUpConfirmPassword(event.target.value)}
-                  required
-                />
-
-                {signUpSuccessMsg && (
-                  <div className="flex items-start gap-2 rounded-md bg-emerald-50 p-3 text-sm text-emerald-800 border border-emerald-200">
-                    <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600 mt-0.5" />
-                    <span>{signUpSuccessMsg}</span>
-                  </div>
-                )}
-
-                {formError ? (
-                  <p className="rounded-md bg-red-50 p-3 text-sm text-danger">{formError}</p>
-                ) : null}
-
-                <Button type="submit" className="w-full" disabled={isLoading}>
-                  <UserPlus className="h-4 w-4" />
-                  {isLoading
-                    ? 'Creating Account...'
-                    : accountType === 'employee'
-                    ? 'Create Employee Account'
-                    : 'Create Client Account'}
-                </Button>
-              </form>
             </>
           )}
 

@@ -2640,19 +2640,18 @@ export function useTracker() {
         'Production clock paused. Waiting on client.',
       );
 
+      await updateProject(projectId, projectUpdates);
+
       if (supabase && mode === 'supabase') {
-        await supabase.from('projects').update(projectUpdates).eq('id', projectId);
         await supabase.from('notifications').insert(notification);
         await loadSupabaseData(currentProfile);
-        return;
+      } else {
+        setData((prev) => ({
+          ...prev,
+          notifications: [notification, ...prev.notifications],
+          stageHistory: [historyEntry, ...(prev.stageHistory || [])],
+        }));
       }
-
-      setData((prev) => ({
-        ...prev,
-        projects: prev.projects.map((p) => (p.id === projectId ? normalizeProject({ ...p, ...projectUpdates }) : p)),
-        notifications: [notification, ...prev.notifications],
-        stageHistory: [historyEntry, ...(prev.stageHistory || [])],
-      }));
     },
     [currentProfile, data.profiles, data.projects, loadSupabaseData, mode, updateProject],
   );
@@ -2838,11 +2837,15 @@ export function useTracker() {
       if (supabase && mode === 'supabase') {
         await supabase.from('project_stage_skips').update(updatedSkipReq).eq('id', requestId);
         if (approved) {
-          await supabase.from('projects').update(projectUpdates).eq('id', project.id);
+          await updateProject(project.id, projectUpdates);
         }
         await supabase.from('notifications').insert(notification);
         await loadSupabaseData(currentProfile);
         return;
+      }
+
+      if (approved) {
+        await updateProject(project.id, projectUpdates);
       }
 
       setData((prev) => ({
@@ -2857,7 +2860,7 @@ export function useTracker() {
         stageHistory: [historyEntry, ...(prev.stageHistory || [])],
       }));
     },
-    [currentProfile, data.projects, data.stageSkipRequests, loadSupabaseData, mode],
+    [currentProfile, data.projects, data.stageSkipRequests, loadSupabaseData, mode, updateProject],
   );
 
   const adminWorkflowOverride = useCallback(
@@ -2912,9 +2915,10 @@ export function useTracker() {
         `Reason: ${reason}. Explanation: ${explanation}`,
       );
 
+      await updateProject(projectId, projectUpdates);
+
       if (supabase && mode === 'supabase') {
         await supabase.from('admin_workflow_overrides').insert(overrideLog);
-        await supabase.from('projects').update(projectUpdates).eq('id', projectId);
         await loadSupabaseData(currentProfile);
         return overrideLog;
       }
@@ -2932,7 +2936,7 @@ export function useTracker() {
 
       return overrideLog;
     },
-    [currentProfile, data.projects, loadSupabaseData, mode],
+    [currentProfile, data.projects, loadSupabaseData, mode, updateProject],
   );
 
   const createTask = useCallback(
