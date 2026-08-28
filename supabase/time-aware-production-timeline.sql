@@ -37,10 +37,12 @@ create table if not exists public.project_stage_history (
 -- RLS policies for stage history
 alter table public.project_stage_history enable row level security;
 
+drop policy if exists "Authenticated users can read stage history" on public.project_stage_history;
 create policy "Authenticated users can read stage history"
   on public.project_stage_history for select
   to authenticated using (true);
 
+drop policy if exists "Authenticated users can insert stage history" on public.project_stage_history;
 create policy "Authenticated users can insert stage history"
   on public.project_stage_history for insert
   to authenticated with check (true);
@@ -152,10 +154,12 @@ create table if not exists public.project_stage_skips (
 
 alter table public.project_stage_skips enable row level security;
 
+drop policy if exists "Authenticated users can read stage skip requests" on public.project_stage_skips;
 create policy "Authenticated users can read stage skip requests"
   on public.project_stage_skips for select
   to authenticated using (true);
 
+drop policy if exists "Authenticated users can insert/update stage skip requests" on public.project_stage_skips;
 create policy "Authenticated users can insert/update stage skip requests"
   on public.project_stage_skips for all
   to authenticated using (true);
@@ -174,10 +178,12 @@ create table if not exists public.admin_workflow_overrides (
 
 alter table public.admin_workflow_overrides enable row level security;
 
+drop policy if exists "Authenticated users can read admin workflow overrides" on public.admin_workflow_overrides;
 create policy "Authenticated users can read admin workflow overrides"
   on public.admin_workflow_overrides for select
   to authenticated using (true);
 
+drop policy if exists "Admin users can insert admin workflow overrides" on public.admin_workflow_overrides;
 create policy "Admin users can insert admin workflow overrides"
   on public.admin_workflow_overrides for insert
   to authenticated with check (true);
