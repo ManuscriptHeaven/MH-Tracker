@@ -1,5 +1,5 @@
 import React from 'react';
-import { Brain, Mic, Volume2, VolumeX, Languages, Upload, Trash2, Play } from 'lucide-react';
+import { Brain, Mic, Volume2, VolumeX, Languages, Upload, Trash2, Play, Sparkles } from 'lucide-react';
 import type { AIUserSettings } from '../../lib/ai/aiTypes';
 import { Card, Button } from '../ui';
 
@@ -66,6 +66,36 @@ export function AISettingsSection({ settings, onUpdate }: AISettingsSectionProps
                   <div className="w-11 h-6 bg-border dark:bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-gold"></div>
                 </label>
               </div>
+
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Sparkles className="w-5 h-5 text-gold" />
+                  <div>
+                    <div className="font-medium text-ink dark:text-white">Hands-Free Wake Word ("Hey James")</div>
+                    <div className="text-sm text-muted">Listen in background and activate assistant automatically when you say "Hey James"</div>
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" className="sr-only peer" checked={currentSettings.wakeWordEnabled !== false} onChange={() => handleToggle('wakeWordEnabled')} />
+                  <div className="w-11 h-6 bg-border dark:bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-gold"></div>
+                </label>
+              </div>
+
+              {currentSettings.wakeWordEnabled !== false && (
+                <div className="flex items-center justify-between pl-8 border-l-2 border-gold/30 my-2">
+                  <div>
+                    <div className="text-sm font-medium text-ink dark:text-white">Assistant Name / Wake Word</div>
+                    <div className="text-xs text-muted">Custom trigger name for hands-free activation</div>
+                  </div>
+                  <input
+                    type="text"
+                    value={currentSettings.assistantName || 'James'}
+                    onChange={(e) => onUpdate({ assistantName: e.target.value, wakeWord: `hey ${e.target.value.toLowerCase()}` })}
+                    className="bg-white dark:bg-ink border border-border dark:border-white/10 rounded-md px-3 py-1 text-sm text-ink dark:text-white w-32 focus:ring-gold focus:border-gold outline-none font-semibold"
+                    placeholder="James"
+                  />
+                </div>
+              )}
 
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">

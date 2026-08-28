@@ -13,6 +13,7 @@ import type {
 import { aiService } from './aiService';
 import { voiceService } from './voiceService';
 import { voiceQueryEngine } from './voiceQueryEngine';
+import { wakeWordService, playWakeChime } from './wakeWordService';
 import { useCurrency } from '../currency';
 
 interface AIContextType {
@@ -27,6 +28,7 @@ interface AIContextType {
   isListening: boolean;
   isSpeaking: boolean;
   isMuted: boolean;
+  isWakeWordListening: boolean;
   liveTranscript: string;
   voiceError: string | null;
   dailySummary: DailySummary | null;
@@ -51,6 +53,8 @@ interface AIContextType {
   startVoice: () => void;
   stopVoice: () => void;
   toggleMute: () => void;
+  toggleWakeWordListener: () => void;
+  triggerWakeUpGreeting: () => Promise<void>;
   speakText: (text: string) => Promise<void>;
   stopSpeaking: () => void;
   clearVoiceError: () => void;
@@ -90,12 +94,17 @@ export function AIProvider({ children, tracker }: { children: ReactNode; tracker
   const [dailySummary, setDailySummary] = useState<DailySummary | null>(null);
   const [showDailyPopup, setShowDailyPopup] = useState(false);
 
+  const [isWakeWordListening, setIsWakeWordListening] = useState(false);
+
   const [settings, setSettings] = useState<AIUserSettings>({
     voiceEnabled: true,
     voiceLanguage: 'en-US',
     ttsEnabled: true,
     autoSpeak: true,
     isMuted: false,
+    wakeWordEnabled: true,
+    wakeWord: 'hey james',
+    assistantName: 'James',
   });
 
   // Keep a ref to activeConversationId & settings to avoid stale closures in voice callbacks
@@ -244,9 +253,61 @@ export function AIProvider({ children, tracker }: { children: ReactNode; tracker
     voiceService.stopListening();
   }, []);
 
+  const toggleWakeWordListener = useCallback(() => {
+    setSettings((prev) => {
+      const next = !prev.wakeWordEnabled;
+      if (!next) {
+        wakeWordService.stopListening();
+      }
+      return { ...prev, wakeWordEnabled: next };
+    });
+  }, []);
+
   const clearVoiceError = useCallback(() => {
     setVoiceError(null);
   }, []);
+
+  const triggerWakeUpGreeting = useCallback(async () => {
+    setIsOpen(true);
+    const userName = trackerRef.current?.currentProfile?.full_name?.split(' ')[0] || 'there';
+    const assistantName = settingsRef.current?.assistantName || 'James';
+    const welcomeText = `Hello ${userName}! I'm ${assistantName}, your AI Assistant. How can I assist you today?`;
+
+    const welcomeMsg: AIMessage = {
+      id: `msg-${Date.now()}`,
+      conversationId: activeConversationId || 'default',
+      role: 'assistant',
+      content: welcomeText,
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, welcomeMsg]);
+
+    if (settingsRef.current.ttsEnabled && !settingsRef.current.isMuted) {
+      await voiceService.speak(welcomeText, settingsRef.current.voiceLanguage);
+    }
+    
+    startVoice();
+  }, [startVoice]);
+
+  // Synchronize Wake Word Service Event Listeners
+  useEffect(() => {
+    wakeWordService.onListeningStateChange = (active) => {
+      setIsWakeWordListening(active);
+    };
+
+    wakeWordService.onWakeWordDetected = () => {
+      triggerWakeUpGreeting();
+    };
+  }, [triggerWakeUpGreeting]);
+
+  // Manage background Wake Word listener loop
+  useEffect(() => {
+    if (settings.wakeWordEnabled && !isListening && !isSpeaking) {
+      wakeWordService.startListening(settings.wakeWord || 'hey james', settings.assistantName || 'James');
+    } else {
+      wakeWordService.stopListening();
+    }
+  }, [settings.wakeWordEnabled, settings.wakeWord, settings.assistantName, isListening, isSpeaking]);
 
   // Voice Event Handlers
   useEffect(() => {
@@ -486,6 +547,7 @@ export function AIProvider({ children, tracker }: { children: ReactNode; tracker
     isListening,
     isSpeaking,
     isMuted: Boolean(settings.isMuted),
+    isWakeWordListening,
     liveTranscript,
     voiceError,
     dailySummary,
@@ -509,6 +571,8 @@ export function AIProvider({ children, tracker }: { children: ReactNode; tracker
     startVoice,
     stopVoice,
     toggleMute,
+    toggleWakeWordListener,
+    triggerWakeUpGreeting,
     speakText,
     stopSpeaking,
     clearVoiceError,

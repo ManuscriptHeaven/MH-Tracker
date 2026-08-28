@@ -118,6 +118,7 @@ export default function App() {
         <OfflineBanner />
         <LoginPage
           onLogin={tracker.login}
+          onSignUp={tracker.signUp}
           onDemoLogin={tracker.loginDemo}
           error={tracker.error}
           isLoading={tracker.isSubmittingLogin}
@@ -195,6 +196,9 @@ export default function App() {
         onSaveCompensation={tracker.saveEmployeeCompensation}
         onDeleteLedgerEntry={tracker.deleteEmployeeLedgerEntry}
         onUpdateProfile={tracker.updateProfile}
+        onAddEmployee={async (data) => {
+          await tracker.signUp(data);
+        }}
       />
     )}
     {activeView === 'clients' && tracker.currentProfile.role === 'admin' && <ClientAccessPage profiles={tracker.data.profiles} projects={tracker.data.projects} clientProjectAccess={tracker.data.clientProjectAccess} onInviteClient={tracker.inviteClient} />}

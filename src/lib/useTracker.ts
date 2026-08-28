@@ -1284,6 +1284,138 @@ export function useTracker() {
     setIsInitializing(false);
   }, []);
 
+  const signUp = useCallback(
+    async ({
+      fullName,
+      email,
+      password,
+      role = 'employee',
+    }: {
+      fullName: string;
+      email: string;
+      password: string;
+      role: Role;
+    }): Promise<{ profile: Profile | null; requiresConfirmation: boolean }> => {
+      setError(null);
+      const cleanFullName = fullName.trim();
+      const cleanEmail = email.trim().toLowerCase();
+
+      if (!cleanFullName) {
+        const msg = 'Please enter full name.';
+        setError(msg);
+        throw new Error(msg);
+      }
+
+      if (!cleanEmail || !cleanEmail.includes('@')) {
+        const msg = 'Please enter a valid email address.';
+        setError(msg);
+        throw new Error(msg);
+      }
+
+      if (!password || password.length < 6) {
+        const msg = 'Password must be at least 6 characters.';
+        setError(msg);
+        throw new Error(msg);
+      }
+
+      if (!supabase) {
+        const newId = createUuid();
+        const newProfile: Profile = {
+          id: newId,
+          full_name: cleanFullName,
+          email: cleanEmail,
+          role,
+          status: 'active',
+          created_at: new Date().toISOString(),
+        };
+
+        sampleProfiles.push(newProfile);
+        setData((prev) => ({
+          ...prev,
+          profiles: [...prev.profiles.filter((p) => p.email !== cleanEmail), newProfile],
+        }));
+
+        setStoredProfile(newProfile);
+        setStoredMode('demo');
+        setMode('demo');
+        setCurrentProfile(newProfile);
+        setIsLoading(false);
+        setIsInitializing(false);
+        return { profile: newProfile, requiresConfirmation: false };
+      }
+
+      setIsSubmittingLogin(true);
+      setIsLoading(true);
+      try {
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email: cleanEmail,
+          password,
+          options: {
+            data: {
+              full_name: cleanFullName,
+              role,
+            },
+          },
+        });
+
+        if (authError) {
+          throw authError;
+        }
+
+        if (!authData.user) {
+          throw new Error('User creation failed in Supabase Auth.');
+        }
+
+        const userId = authData.user.id;
+        const profileObj: Profile = {
+          id: userId,
+          full_name: cleanFullName,
+          email: cleanEmail,
+          role,
+          status: 'active',
+          created_at: new Date().toISOString(),
+        };
+
+        const { error: profileUpsertError } = await supabase.from('profiles').upsert(profileObj, { onConflict: 'id' });
+        if (profileUpsertError) {
+          console.warn('Profile upsert warning:', profileUpsertError.message);
+        }
+
+        await supabase.from('team_members').upsert(
+          {
+            full_name: cleanFullName,
+            email: cleanEmail,
+            role,
+            status: 'active',
+          },
+          { onConflict: 'email' },
+        );
+
+        const fetchedProfile = (await fetchProfile(userId)) || profileObj;
+
+        if (authData.session) {
+          setStoredProfile(fetchedProfile);
+          setStoredMode('supabase');
+          setMode('supabase');
+          setCurrentProfile(fetchedProfile);
+          await loadSupabaseData(fetchedProfile);
+          return { profile: fetchedProfile, requiresConfirmation: false };
+        }
+
+        return { profile: fetchedProfile, requiresConfirmation: true };
+      } catch (err: any) {
+        const msg = loginErrorMessage(err);
+        setError(msg);
+        throw new Error(msg);
+      } finally {
+        setIsSubmittingLogin(false);
+        setIsLoading(false);
+      }
+    },
+    [fetchProfile, loadSupabaseData],
+  );
+
+
   const signOut = useCallback(async () => {
     try {
       if (supabase && mode === 'supabase') {
@@ -3465,6 +3597,7 @@ export function useTracker() {
     teamTasks,
     visibleNotifications,
     login,
+    signUp,
     loginDemo,
     signOut,
     loadSupabaseData,

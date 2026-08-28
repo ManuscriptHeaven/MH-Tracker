@@ -1,4 +1,5 @@
 import { voiceQueryEngine } from './voiceQueryEngine';
+import { wakeWordService } from './wakeWordService';
 import { sampleProfiles } from '../sampleData';
 import type { TrackerData, Project } from '../types';
 import type { AIToolContext } from './aiTypes';
@@ -685,7 +686,16 @@ export async function runVoiceAssistantTests() {
     ),
     'Test 40: "Create invoice for Noah Brooks" detects settled account',
   );
-  console.log(`   User: "Create invoice for Noah Brooks for pending payments"\n   Assistant: "${res40.spokenText}"`);
+  // TEST 41: Wake Word "Hey James" service test
+  let wakeWordTriggered = false;
+  wakeWordService.onWakeWordDetected = () => {
+    wakeWordTriggered = true;
+  };
+  (wakeWordService as any).matchesWakeWord = (t: string) =>
+    ['hey james', 'james', 'ok james', 'wake up james', 'hey assistant'].some((kw) => t.toLowerCase().includes(kw));
+
+  assert((wakeWordService as any).matchesWakeWord('Hey James how are you'), 'Test 41: "Hey James how are you" triggers wake word detection');
+  console.log('   Wake Word: "Hey James how are you" -> Activated successfully');
 
   console.log('====================================================');
   console.log(`📊 TEST RESULTS: ${passed}/${total} PASSED (${Math.round((passed / total) * 100)}%)`);

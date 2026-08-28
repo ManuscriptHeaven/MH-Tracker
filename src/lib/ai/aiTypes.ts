@@ -297,6 +297,9 @@ export interface AIUserSettings {
   ttsEnabled: boolean;
   autoSpeak: boolean;
   isMuted?: boolean;
+  wakeWordEnabled?: boolean;
+  wakeWord?: string;
+  assistantName?: string;
 }
 
 export interface KnowledgeBaseDocument {

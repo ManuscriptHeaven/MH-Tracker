@@ -40,6 +40,9 @@ export function AIAssistantPage({ projects = [] }: AIAssistantPageProps) {
     isListening,
     isSpeaking,
     isMuted,
+    isWakeWordListening,
+    toggleWakeWordListener,
+    settings,
     liveTranscript,
     voiceError,
     startVoice,
@@ -130,6 +133,31 @@ export function AIAssistantPage({ projects = [] }: AIAssistantPageProps) {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Hands-Free Wake Word "Hey James" Pill Button */}
+          <button
+            onClick={toggleWakeWordListener}
+            className={cn(
+              'flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold border transition shadow-xs',
+              settings.wakeWordEnabled
+                ? 'bg-amber-950/10 border-gold/50 text-amber-900 dark:text-gold hover:bg-gold/15'
+                : 'bg-white border-border text-muted hover:text-ink',
+            )}
+            title="Say 'Hey James' anytime to wake up the assistant hands-free"
+          >
+            <span className="relative flex h-2 w-2">
+              {settings.wakeWordEnabled && isWakeWordListening && (
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-gold opacity-75" />
+              )}
+              <span
+                className={cn(
+                  'relative inline-flex rounded-full h-2 w-2',
+                  settings.wakeWordEnabled ? 'bg-gold' : 'bg-muted-foreground',
+                )}
+              />
+            </span>
+            <span>{settings.wakeWordEnabled ? 'Hands-Free "Hey James"' : 'Enable "Hey James"'}</span>
+          </button>
+
           {/* Assistant Console vs Activity Log */}
           <div className="flex rounded-xl bg-ink/90 p-1 shadow-sm border border-gold/20">
             <button

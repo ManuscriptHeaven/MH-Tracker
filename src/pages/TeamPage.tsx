@@ -13,10 +13,11 @@ import {
   Search,
   TrendingUp,
   Users,
+  UserPlus,
   Wallet,
 } from 'lucide-react';
 import { PayrollStatusBadge, RoleBadge } from '../components/Badges';
-import { Button, Card, SelectField } from '../components/ui';
+import { Button, Card, Field, SelectField } from '../components/ui';
 import { UserAvatar } from '../components/UserAvatar';
 import { AvatarUploadModal } from '../components/AvatarUploadModal';
 import { closedStatuses } from '../lib/constants';
@@ -29,7 +30,7 @@ import {
   getPreviousMonth,
   normalizeMonth,
 } from '../lib/payrollUtils';
-import type { EmployeeCompensation, EmployeeLedgerEntry, Profile, Project, Task } from '../lib/types';
+import type { EmployeeCompensation, EmployeeLedgerEntry, Profile, Project, Role, Task } from '../lib/types';
 import { firstName, initials, isClientRole } from '../lib/utils';
 import { AddPayrollEntryModal } from '../components/payroll/AddPayrollEntryModal';
 import { RecordPayrollPaymentModal } from '../components/payroll/RecordPayrollPaymentModal';
@@ -65,6 +66,7 @@ export function TeamPage({
   onSaveCompensation,
   onDeleteLedgerEntry,
   onUpdateProfile,
+  onAddEmployee,
 }: {
   currentProfile?: Profile;
   profiles: Profile[];
@@ -80,6 +82,7 @@ export function TeamPage({
     profileId: string,
     updates: { full_name?: string; avatar_url?: string | null; phone?: string | null }
   ) => Promise<string | void>;
+  onAddEmployee?: (employeeData: { fullName: string; email: string; password: string; role: Role }) => Promise<void>;
 }) {
   const { formatMoney, convertMoney, displayCurrency } = useCurrency();
   const [tab, setTab] = useState<Tab>('payroll');
@@ -102,6 +105,13 @@ export function TeamPage({
 
   const [salaryModalProfile, setSalaryModalProfile] = useState<Profile | null>(null);
   const [detailModalProfileId, setDetailModalProfileId] = useState<string | null>(null);
+  const [showAddEmployeeModal, setShowAddEmployeeModal] = useState(false);
+  const [newEmployeeName, setNewEmployeeName] = useState('');
+  const [newEmployeeEmail, setNewEmployeeEmail] = useState('');
+  const [newEmployeePassword, setNewEmployeePassword] = useState('');
+  const [newEmployeeRole, setNewEmployeeRole] = useState<Role>('employee');
+  const [addEmployeeLoading, setAddEmployeeLoading] = useState(false);
+  const [addEmployeeError, setAddEmployeeError] = useState<string | null>(null);
 
   const team = useMemo(() => profiles.filter((p) => !isClientRole(p.role)), [profiles]);
   const isEmployeeRole = currentProfile?.role === 'employee';
@@ -201,16 +211,30 @@ export function TeamPage({
           </button>
         </div>
 
-        {/* Global Action Button */}
+        {/* Global Action Buttons */}
         {canManagePayroll ? (
-          <Button
-            type="button"
-            onClick={() => openAddEntry()}
-            className="text-xs py-2 px-3.5 shadow-sm"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            + Add Entry / Bonus / Advance
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setAddEmployeeError(null);
+                setShowAddEmployeeModal(true);
+              }}
+              className="text-xs py-2 px-3.5 shadow-sm"
+            >
+              <UserPlus className="h-3.5 w-3.5" />
+              + Add New Employee
+            </Button>
+            <Button
+              type="button"
+              onClick={() => openAddEntry()}
+              className="text-xs py-2 px-3.5 shadow-sm"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              + Add Entry / Bonus / Advance
+            </Button>
+          </div>
         ) : null}
       </div>
 
@@ -644,6 +668,105 @@ export function TeamPage({
           profile={avatarTargetProfile}
           onSaveProfile={onUpdateProfile || (async () => {})}
         />
+      )}
+
+      {showAddEmployeeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <Card className="w-full max-w-md bg-white p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-display text-xl font-semibold flex items-center gap-2">
+                <UserPlus className="h-5 w-5 text-gold" />
+                Add New Employee
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowAddEmployeeModal(false)}
+                className="text-muted hover:text-ink text-sm font-bold px-2 py-1"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="text-xs text-muted mb-4">
+              Create a new employee account. This will create their profile in Supabase so they can log in.
+            </p>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!onAddEmployee) return;
+                setAddEmployeeLoading(true);
+                setAddEmployeeError(null);
+                try {
+                  await onAddEmployee({
+                    fullName: newEmployeeName,
+                    email: newEmployeeEmail,
+                    password: newEmployeePassword,
+                    role: newEmployeeRole,
+                  });
+                  setNewEmployeeName('');
+                  setNewEmployeeEmail('');
+                  setNewEmployeePassword('');
+                  setShowAddEmployeeModal(false);
+                } catch (err: any) {
+                  setAddEmployeeError(err.message || 'Failed to add employee.');
+                } finally {
+                  setAddEmployeeLoading(false);
+                }
+              }}
+              className="space-y-4"
+            >
+              <Field
+                label="Full Name"
+                value={newEmployeeName}
+                onChange={(e) => setNewEmployeeName(e.target.value)}
+                placeholder="e.g. Usman Ali"
+                required
+              />
+              <Field
+                label="Email Address"
+                type="email"
+                value={newEmployeeEmail}
+                onChange={(e) => setNewEmployeeEmail(e.target.value)}
+                placeholder="e.g. usman@example.com"
+                required
+              />
+              <SelectField
+                label="Role"
+                value={newEmployeeRole}
+                onChange={(e) => setNewEmployeeRole(e.target.value as Role)}
+              >
+                <option value="employee">Employee / Staff Member</option>
+                <option value="project_manager">Project Manager</option>
+                <option value="junior_assistant">Junior Assistant</option>
+                <option value="admin">Administrator</option>
+              </SelectField>
+              <Field
+                label="Password"
+                type="password"
+                value={newEmployeePassword}
+                onChange={(e) => setNewEmployeePassword(e.target.value)}
+                placeholder="Initial password for employee"
+                required
+              />
+
+              {addEmployeeError && (
+                <p className="rounded-md bg-red-50 p-2.5 text-xs text-danger">{addEmployeeError}</p>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setShowAddEmployeeModal(false)}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={addEmployeeLoading}>
+                  {addEmployeeLoading ? 'Creating...' : 'Create Employee'}
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
       )}
     </div>
   );
