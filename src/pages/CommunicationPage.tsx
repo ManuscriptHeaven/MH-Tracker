@@ -1400,7 +1400,7 @@ export function CommunicationPage({
         <div className="flex items-center justify-between gap-3 border-b border-border bg-linen/40 px-4 py-3 shrink-0">
           <div className="flex items-center gap-2">
             <MessageSquare className="h-4 w-4 text-gold shrink-0" />
-            <h2 className="font-display text-base font-bold text-ink hidden sm:block">Communication</h2>
+            <h2 className="font-display text-base font-bold text-ink hidden sm:block">Messages</h2>
           </div>
 
           {/* Search */}

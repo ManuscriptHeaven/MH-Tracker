@@ -555,7 +555,7 @@ export function ProjectDetail({
             },
             {
               id: 'communication',
-              label: 'Communication',
+              label: 'Messages',
               icon: MessageSquare,
             },
             {

@@ -61,7 +61,7 @@ const viewHeaderTitles: Record<ViewKey, string> = {
   calendar: 'Calendar & Deadlines',
   my_tasks: 'My Tasks',
   team_tasks: 'Team Tasks',
-  communication: 'Communication',
+  communication: 'Messages',
   notifications: 'Notifications',
   team: 'Team Management',
   clients: 'Client Access',
@@ -123,7 +123,7 @@ const navStructure: NavEntry[] = [
       { id: 'team_tasks', label: 'Team Tasks', icon: Users, managersOnly: true },
     ],
   },
-  { id: 'communication', label: 'Communication', icon: MessageSquare, type: 'single' },
+  { id: 'communication', label: 'Messages', icon: MessageSquare, type: 'single' },
   { id: 'notifications', label: 'Notifications', icon: Bell, type: 'single' },
   {
     id: 'finance_group',
@@ -228,7 +228,7 @@ export function Layout({
       return [
         { id: 'dashboard' as ViewKey, label: 'Dashboard', icon: Home, type: 'single' as const },
         { id: 'projects' as ViewKey, label: 'Projects', icon: FolderKanban, type: 'single' as const },
-        { id: 'communication' as ViewKey, label: 'Communication', icon: MessageSquare, type: 'single' as const },
+        { id: 'communication' as ViewKey, label: 'Messages', icon: MessageSquare, type: 'single' as const },
         { id: 'notifications' as ViewKey, label: 'Notifications', icon: Bell, type: 'single' as const },
       ];
     }

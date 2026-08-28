@@ -96,12 +96,12 @@ export function MobileMoreMenu({
       ],
     },
     {
-      title: 'Communication & Alerts',
+      title: 'Messages & Alerts',
       show: true,
       items: [
         {
           id: 'communication',
-          label: 'Communication',
+          label: 'Messages',
           icon: MessageSquare,
           show: true,
           badge: unreadMessagesInfo.totalUnreadCount > 0 ? unreadMessagesInfo.totalUnreadCount : null,

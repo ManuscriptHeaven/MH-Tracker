@@ -240,7 +240,7 @@ export function MessageNotificationBell({
                 setIsOpen(false);
               }}
             >
-              Open Communication Hub
+              Open Messages
             </Button>
           </div>
         </div>
