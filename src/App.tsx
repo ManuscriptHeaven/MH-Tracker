@@ -182,6 +182,7 @@ export default function App() {
         onGetOrCreateDM={tracker.getOrCreateDM}
         onGetOrCreateProjectConversation={tracker.getOrCreateProjectConversation}
         onOpenProject={openProjectById}
+        onCreateTask={async (draft) => { await tracker.createTask(draft); }}
         jumpToConversationId={jumpToConversationId}
         onJumpHandled={() => setJumpToConversationId(null)}
       />
