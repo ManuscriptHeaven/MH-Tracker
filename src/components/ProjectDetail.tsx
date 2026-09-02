@@ -34,7 +34,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { RevisionRequestsPage } from '../pages/RevisionRequestsPage';
 import { revisionStatuses, timelineStages } from '../lib/constants';
 import { deadlineClass, deadlineLabel, formatDate, todayInput } from '../lib/date';
-import { getTimelineSummary, timelineUpdateForStage, type OfficialTimelineStage } from '../lib/timeline';
+import { getTimelineSummary, normalizeStage, timelineUpdateForStage, type OfficialTimelineStage } from '../lib/timeline';
 import { firstName, initials } from '../lib/utils';
 import { useCurrency } from '../lib/currency';
 import type {
@@ -180,12 +180,13 @@ export function ProjectDetail({
   const [taskFilter, setTaskFilter] = useState<'all' | 'open' | 'in_progress' | 'done'>('all');
 
   const openSubmitModal = () => {
+    const norm = normalizeStage(project.current_stage || project.status);
     const initialUrl =
-      project.current_stage === 'Design Concept'
+      norm === 'Design Concept' || norm === 'Concept Approval'
         ? project.cover_file_link || project.proof_pdf_link || ''
-        : project.current_stage === 'Print Version'
+        : norm === 'Print Version' || norm === 'Print Approval'
           ? project.proof_pdf_link || project.final_print_pdf_link || ''
-          : project.current_stage === 'Ebook Version'
+          : norm === 'Ebook Version' || norm === 'Ebook Approval'
             ? project.final_ebook_link || ''
             : project.final_print_pdf_link || project.other_links || '';
     setSubmissionFileUrl(initialUrl);
@@ -217,6 +218,9 @@ export function ProjectDetail({
   });
 
   const summary = useMemo(() => getTimelineSummary(project), [project]);
+  const normStage = normalizeStage(project.current_stage || project.status);
+  const isRevisionActive = project.stage_status === 'REVISION_ACTIVE' || project.status === 'In Revision' || summary.stageStatus === 'REVISION_ACTIVE';
+  const isAwaitingClientReview = (project.stage_status === 'PAUSED_CLIENT_REVIEW' || project.status === 'Awaiting Client Approval') && !isRevisionActive;
 
   const projectNotes = useMemo(
     () => notes.filter((item) => item.project_id === project.id),
@@ -408,8 +412,42 @@ export function ProjectDetail({
 
             {/* Top Workflow & Quick Action Buttons */}
             <div className="flex flex-wrap items-center gap-2 shrink-0">
-              {/* Stage Submission Workflow Buttons */}
-              {project.current_stage === 'Design Concept' && project.stage_status !== 'PAUSED_CLIENT_REVIEW' && (
+              {/* Revision Submission Workflow Buttons */}
+              {isRevisionActive && (normStage === 'Concept Approval' || normStage === 'Design Concept') && (
+                <Button
+                  onClick={openSubmitModal}
+                  disabled={isSubmittingWorkflow}
+                  className="text-xs py-2 px-3 bg-gold text-white font-semibold hover:bg-gold/90 shadow-xs"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  Submit Concept Revision
+                </Button>
+              )}
+
+              {isRevisionActive && (normStage === 'Print Approval' || normStage === 'Print Version') && (
+                <Button
+                  onClick={openSubmitModal}
+                  disabled={isSubmittingWorkflow}
+                  className="text-xs py-2 px-3 bg-gold text-white font-semibold hover:bg-gold/90 shadow-xs"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  Submit Print Revision
+                </Button>
+              )}
+
+              {isRevisionActive && (normStage === 'Ebook Approval' || normStage === 'Ebook Version') && (
+                <Button
+                  onClick={openSubmitModal}
+                  disabled={isSubmittingWorkflow}
+                  className="text-xs py-2 px-3 bg-gold text-white font-semibold hover:bg-gold/90 shadow-xs"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  Submit eBook Revision
+                </Button>
+              )}
+
+              {/* Standard Stage Submission Workflow Buttons */}
+              {!isRevisionActive && !isAwaitingClientReview && normStage === 'Design Concept' && (
                 <Button
                   onClick={openSubmitModal}
                   disabled={isSubmittingWorkflow}
@@ -420,7 +458,7 @@ export function ProjectDetail({
                 </Button>
               )}
 
-              {project.current_stage === 'Print Version' && project.stage_status !== 'PAUSED_CLIENT_REVIEW' && (
+              {!isRevisionActive && !isAwaitingClientReview && normStage === 'Print Version' && (
                 <Button
                   onClick={openSubmitModal}
                   disabled={isSubmittingWorkflow}
@@ -431,7 +469,7 @@ export function ProjectDetail({
                 </Button>
               )}
 
-              {project.current_stage === 'Ebook Version' && project.stage_status !== 'PAUSED_CLIENT_REVIEW' && (
+              {!isRevisionActive && !isAwaitingClientReview && normStage === 'Ebook Version' && (
                 <Button
                   onClick={openSubmitModal}
                   disabled={isSubmittingWorkflow}
@@ -442,7 +480,7 @@ export function ProjectDetail({
                 </Button>
               )}
 
-              {project.current_stage === 'Final Delivery' && project.status !== 'Completed' && (
+              {normStage === 'Final Delivery' && project.status !== 'Completed' && (
                 <Button
                   onClick={openSubmitModal}
                   disabled={isSubmittingWorkflow}
@@ -684,7 +722,42 @@ export function ProjectDetail({
                     </p>
 
                     <div className="flex flex-col gap-2">
-                      {project.current_stage === 'Design Concept' && project.stage_status !== 'PAUSED_CLIENT_REVIEW' && (
+                      {/* Revision Submission Workflow Buttons */}
+                      {isRevisionActive && (normStage === 'Concept Approval' || normStage === 'Design Concept') && (
+                        <Button
+                          onClick={openSubmitModal}
+                          disabled={isSubmittingWorkflow}
+                          className="w-full text-xs py-2 bg-gold text-white font-semibold hover:bg-gold/90"
+                        >
+                          <Send className="h-3.5 w-3.5" />
+                          Submit Concept Revision
+                        </Button>
+                      )}
+
+                      {isRevisionActive && (normStage === 'Print Approval' || normStage === 'Print Version') && (
+                        <Button
+                          onClick={openSubmitModal}
+                          disabled={isSubmittingWorkflow}
+                          className="w-full text-xs py-2 bg-gold text-white font-semibold hover:bg-gold/90"
+                        >
+                          <Send className="h-3.5 w-3.5" />
+                          Submit Print Revision
+                        </Button>
+                      )}
+
+                      {isRevisionActive && (normStage === 'Ebook Approval' || normStage === 'Ebook Version') && (
+                        <Button
+                          onClick={openSubmitModal}
+                          disabled={isSubmittingWorkflow}
+                          className="w-full text-xs py-2 bg-gold text-white font-semibold hover:bg-gold/90"
+                        >
+                          <Send className="h-3.5 w-3.5" />
+                          Submit eBook Revision
+                        </Button>
+                      )}
+
+                      {/* Standard Stage Submission Workflow Buttons */}
+                      {!isRevisionActive && !isAwaitingClientReview && normStage === 'Design Concept' && (
                         <Button
                           onClick={openSubmitModal}
                           disabled={isSubmittingWorkflow}
@@ -695,7 +768,7 @@ export function ProjectDetail({
                         </Button>
                       )}
 
-                      {project.current_stage === 'Print Version' && project.stage_status !== 'PAUSED_CLIENT_REVIEW' && (
+                      {!isRevisionActive && !isAwaitingClientReview && normStage === 'Print Version' && (
                         <Button
                           onClick={openSubmitModal}
                           disabled={isSubmittingWorkflow}
@@ -706,7 +779,7 @@ export function ProjectDetail({
                         </Button>
                       )}
 
-                      {project.current_stage === 'Ebook Version' && project.stage_status !== 'PAUSED_CLIENT_REVIEW' && (
+                      {!isRevisionActive && !isAwaitingClientReview && normStage === 'Ebook Version' && (
                         <Button
                           onClick={openSubmitModal}
                           disabled={isSubmittingWorkflow}
@@ -717,11 +790,11 @@ export function ProjectDetail({
                         </Button>
                       )}
 
-                      {project.current_stage === 'Final Delivery' && project.status !== 'Completed' && (
+                      {normStage === 'Final Delivery' && project.status !== 'Completed' && (
                         <Button
                           onClick={openSubmitModal}
                           disabled={isSubmittingWorkflow}
-                          className="w-full text-xs py-2"
+                          className="w-full text-xs py-2 bg-success hover:bg-green-700 text-white font-semibold"
                         >
                           <CheckCircle2 className="h-3.5 w-3.5" />
                           Complete Final Delivery
@@ -1406,21 +1479,41 @@ export function ProjectDetail({
 
       {/* Submit Stage Modal with Explanatory Notes & File Attachment */}
       {showSubmitModal && (
-        <Modal title={`Submit ${project.current_stage || 'Deliverable'} for Client Review`} onClose={() => setShowSubmitModal(false)} width="max-w-lg">
+        <Modal
+          title={
+            isRevisionActive
+              ? `Submit ${
+                  normStage === 'Print Approval' || normStage === 'Print Version'
+                    ? 'Print Revision'
+                    : normStage === 'Concept Approval' || normStage === 'Design Concept'
+                      ? 'Concept Revision'
+                      : 'eBook Revision'
+                } for Client Review`
+              : `Submit ${project.current_stage || 'Deliverable'} for Client Review`
+          }
+          onClose={() => setShowSubmitModal(false)}
+          width="max-w-lg"
+        >
           <div className="space-y-4 text-xs">
             <div className="rounded-lg border border-gold/30 bg-ivory/60 p-3 text-ink font-medium flex items-start gap-2">
               <Clock3 className="h-4 w-4 shrink-0 text-gold mt-0.5" />
               <div>
-                <strong>Client Submission & Approval Request</strong>
+                <strong>{isRevisionActive ? 'Revision Submission & Approval Request' : 'Client Submission & Approval Request'}</strong>
                 <p className="mt-0.5 text-muted">
-                  Submitting this proof will pause the internal production clock, set status to <strong>Awaiting Client Approval</strong>, and send a notification with your attached file & review notes to the client.
+                  {isRevisionActive
+                    ? 'Submitting this revised proof will pause the internal production clock, set status to Awaiting Client Approval, and send a notification with your attached revised file & notes to the client.'
+                    : 'Submitting this proof will pause the internal production clock, set status to Awaiting Client Approval, and send a notification with your attached file & review notes to the client.'}
                 </p>
               </div>
             </div>
 
             <TextareaField
               label="Explanatory Note / Instructions for Client"
-              placeholder="e.g. We have completed the formatting and cover proof. Please review pages 1-250 and let us know if any revisions are needed..."
+              placeholder={
+                isRevisionActive
+                  ? "e.g. We have updated the proof according to your revision requests. Please review the updated layout/files..."
+                  : "e.g. We have completed the formatting and cover proof. Please review pages 1-250 and let us know if any revisions are needed..."
+              }
               value={submissionNote}
               onChange={(e) => setSubmissionNote(e.target.value)}
               rows={4}
@@ -1455,7 +1548,7 @@ export function ProjectDetail({
                 className="bg-gold text-white font-semibold hover:bg-gold/90"
               >
                 <Send className="h-3.5 w-3.5" />
-                Submit & Notify Client
+                {isRevisionActive ? 'Submit Revision & Notify Client' : 'Submit & Notify Client'}
               </Button>
             </div>
           </div>

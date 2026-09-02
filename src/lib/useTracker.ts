@@ -2571,27 +2571,28 @@ export function useTracker() {
       const currentStage = normalizeStage(project.current_stage || project.status);
       const now = new Date().toISOString();
       const today = now.slice(0, 10);
+      const isRevision = project.status === 'In Revision' || project.stage_status === 'REVISION_ACTIVE';
 
       let targetApprovalStage: OfficialTimelineStage = 'Concept Approval';
       let submissionField: keyof Project = 'design_concept_submitted_date';
       let fileField: keyof Project = 'proof_pdf_link';
       let label = 'Design Concept';
 
-      if (currentStage === 'Design Concept') {
+      if (currentStage === 'Design Concept' || currentStage === 'Concept Approval') {
         targetApprovalStage = 'Concept Approval';
         submissionField = 'design_concept_submitted_date';
         fileField = project.cover_file_link ? 'proof_pdf_link' : 'cover_file_link';
-        label = 'Design Concept';
-      } else if (currentStage === 'Print Version') {
+        label = isRevision ? 'Design Concept Revision' : 'Design Concept';
+      } else if (currentStage === 'Print Version' || currentStage === 'Print Approval') {
         targetApprovalStage = 'Print Approval';
         submissionField = 'print_version_submitted_date';
         fileField = 'proof_pdf_link';
-        label = 'Print Version';
-      } else if (currentStage === 'Ebook Version') {
+        label = isRevision ? 'Print Revision' : 'Print Version';
+      } else if (currentStage === 'Ebook Version' || currentStage === 'Ebook Approval') {
         targetApprovalStage = 'Ebook Approval';
         submissionField = 'ebook_submitted_date';
         fileField = 'final_ebook_link';
-        label = 'eBook Version';
+        label = isRevision ? 'eBook Revision' : 'eBook Version';
       } else if (currentStage === 'Final Delivery') {
         const updates: Partial<Project> = {
           status: 'Completed',
@@ -2650,7 +2651,7 @@ export function useTracker() {
           ? data.profiles.find((p) => p.email === project.client_email)?.id || currentProfile.id
           : currentProfile.id,
         project_id: projectId,
-        type: 'milestone_submitted',
+        type: isRevision ? 'revision_submitted' : 'milestone_submitted',
         title: `${label} Ready for Review: ${project.project_title}`,
         message: `${label} has been completed and submitted for your approval.${noteText}${fileText}`,
         is_read: false,
@@ -2671,11 +2672,21 @@ export function useTracker() {
       }
 
       if (supabase && mode === 'supabase') {
+        await supabase
+          .from('revision_requests')
+          .update({ status: 'Ready for Client Review', updated_at: now })
+          .eq('project_id', projectId)
+          .in('status', ['Pending', 'In Progress', 'Assigned', 'In Revision']);
         await supabase.from('notifications').insert(notification);
         await loadSupabaseData(currentProfile);
       } else {
         setData((prev) => ({
           ...prev,
+          revisionRequests: prev.revisionRequests.map((item) =>
+            item.project_id === projectId && ['Pending', 'In Progress', 'Assigned', 'In Revision'].includes(item.status)
+              ? { ...item, status: 'Ready for Client Review', updated_at: now }
+              : item,
+          ),
           notifications: [notification, ...prev.notifications],
           stageHistory: [historyEntry, ...(prev.stageHistory || [])],
         }));
