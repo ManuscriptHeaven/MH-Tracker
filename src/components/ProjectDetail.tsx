@@ -1116,6 +1116,7 @@ export function ProjectDetail({
                   onUpdateRequest={onUpdateRevisionRequest}
                   onUpdateItem={onUpdateRevisionItem}
                   onUploadRevisedProof={onUploadRevisedProof}
+                  onSubmitStageForApproval={onSubmitStageForApproval}
                 />
               </div>
 
