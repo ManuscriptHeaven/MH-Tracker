@@ -2578,11 +2578,11 @@ export function useTracker() {
       let fileField: keyof Project = 'proof_pdf_link';
       let label = 'Design Concept';
 
-      if (currentStage === 'Design Concept' || currentStage === 'Concept Approval') {
+      if (currentStage === 'Files Received' || currentStage === 'Design Concept' || currentStage === 'Concept Approval') {
         targetApprovalStage = 'Concept Approval';
         submissionField = 'design_concept_submitted_date';
         fileField = project.cover_file_link ? 'proof_pdf_link' : 'cover_file_link';
-        label = isRevision ? 'Design Concept Revision' : 'Design Concept';
+        label = isRevision ? 'Design Concept Revision' : (currentStage === 'Files Received' ? 'Files Received' : 'Design Concept');
       } else if (currentStage === 'Print Version' || currentStage === 'Print Approval') {
         targetApprovalStage = 'Print Approval';
         submissionField = 'print_version_submitted_date';
@@ -2623,6 +2623,7 @@ export function useTracker() {
 
       const projectUpdates: Partial<Project> = {
         [submissionField]: today,
+        files_received_date: project.files_received_date || today,
         current_stage: targetApprovalStage,
         stage_status: 'PAUSED_CLIENT_REVIEW',
         waiting_on: 'Client',

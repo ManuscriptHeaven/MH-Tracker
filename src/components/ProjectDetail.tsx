@@ -182,7 +182,7 @@ export function ProjectDetail({
   const openSubmitModal = () => {
     const norm = normalizeStage(project.current_stage || project.status);
     const initialUrl =
-      norm === 'Design Concept' || norm === 'Concept Approval'
+      norm === 'Files Received' || norm === 'Design Concept' || norm === 'Concept Approval'
         ? project.cover_file_link || project.proof_pdf_link || ''
         : norm === 'Print Version' || norm === 'Print Approval'
           ? project.proof_pdf_link || project.final_print_pdf_link || ''
@@ -447,6 +447,17 @@ export function ProjectDetail({
               )}
 
               {/* Standard Stage Submission Workflow Buttons */}
+              {!isRevisionActive && !isAwaitingClientReview && normStage === 'Files Received' && (
+                <Button
+                  onClick={openSubmitModal}
+                  disabled={isSubmittingWorkflow}
+                  className="text-xs py-2 px-3 bg-gold text-white font-semibold hover:bg-gold/90 shadow-xs"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  Submit Files Received
+                </Button>
+              )}
+
               {!isRevisionActive && !isAwaitingClientReview && normStage === 'Design Concept' && (
                 <Button
                   onClick={openSubmitModal}
@@ -757,6 +768,17 @@ export function ProjectDetail({
                       )}
 
                       {/* Standard Stage Submission Workflow Buttons */}
+                      {!isRevisionActive && !isAwaitingClientReview && normStage === 'Files Received' && (
+                        <Button
+                          onClick={openSubmitModal}
+                          disabled={isSubmittingWorkflow}
+                          className="w-full text-xs py-2 bg-gold text-white font-semibold hover:bg-gold/90"
+                        >
+                          <Send className="h-3.5 w-3.5" />
+                          Submit Files Received
+                        </Button>
+                      )}
+
                       {!isRevisionActive && !isAwaitingClientReview && normStage === 'Design Concept' && (
                         <Button
                           onClick={openSubmitModal}
