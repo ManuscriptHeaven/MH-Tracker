@@ -44,7 +44,7 @@ export const INTENT_TAXONOMY: IntentDefinition[] = [
       urdu: ['تفویض', 'دے دو', 'ٹاسک دو'],
     },
     patterns: [
-      /\b(actually\s+)?(reassign|assign)\s+.*?\s*(to|instead)?\b/i,
+      /\b(actually\s+)?(reassign|assign|promote)\s+.*?\s*(to|instead)?\b/i,
       /\b(give|put)\s+.*?\s*(task|to|list|on)\b/i,
       /\bput\s+this\s+on\s+.*?'s\s+list\b/i,
       /\b(ko|to)\s+.*?\s*(assign|reassign|de do|den|do|krdo|kardo)\b/i,
@@ -194,7 +194,7 @@ export const INTENT_TAXONOMY: IntentDefinition[] = [
     patterns: [
       /\bhow\s+much\s+does\s+.*?\s*owe\b/i,
       /\b(show\s+)?payroll\s+summary\b/i,
-      /\b.*?\s+(dues|owe|balance|salary)\b/i,
+      /\b(employee|payroll|salary)\s+.*?\s*(dues|owe|balance)\b/i,
       /\b(ke|ki)\s+dues\b/i,
       /\bkitne\s+dues\b/i,
       /کے\s+کتنے\s+بقایا\s+جات/u,
@@ -412,9 +412,10 @@ export const INTENT_TAXONOMY: IntentDefinition[] = [
       urdu: ['پروجیکٹ کی ڈیڈ لائن'],
     },
     patterns: [
-      /\b(change|update|extend|rename)\s+.*?\s*project\b/i,
+      /\b(change|update|extend|rename|adjust|mark)\s+.*?\s*(project|amount|outstanding|invoice|balance)\b/i,
       /\bproject\s+.*?\s*(deadline|date)\s+.*?\s*(kar\s+do|krdo|change|extend)\b/i,
       /\b(project|marketing)\s+ki\s+deadline\b/i,
+      /\b(adjust|mark)\s+.*?\s*(financial|invoice|balance|amount)\b/i,
     ],
     recommendedTool: 'update_project',
   },
@@ -456,14 +457,14 @@ export const INTENT_TAXONOMY: IntentDefinition[] = [
   {
     name: 'add_note',
     category: 'create',
-    description: 'Add a note to a project, task, or client',
+    description: 'Add a note or send a message to a recipient',
     keywords: {
-      english: ['add note', 'note down', 'attach note', 'write note'],
-      romanUrdu: ['note add karo', 'note likho', 'note add krdo', 'note dalo'],
+      english: ['add note', 'note down', 'attach note', 'write note', 'send message'],
+      romanUrdu: ['note add karo', 'note likho', 'note add krdo', 'note dalo', 'message bhejo'],
       urdu: ['نوٹ شامل کریں', 'نوٹ لکھیں'],
     },
     patterns: [
-      /\b(add|write|put)\s+.*?\s*note\b/i,
+      /\b(add|write|put|send)\s+.*?\s*(note|message)\b/i,
       /\bnote\s+add\s*(karo|krdo|kar do|likho)\b/i,
       /\bis\s+.*?\s*pe\s+note\b/i,
       /نوٹ\s+(شامل|لکھیں)/u,

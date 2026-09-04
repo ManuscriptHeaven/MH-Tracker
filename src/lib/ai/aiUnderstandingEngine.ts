@@ -15,10 +15,12 @@ import { evaluateClarification } from './aiClarificationEngine';
 import { buildReadQueryPlan } from './aiQueryPlanner';
 import { isWriteOperation } from './aiSecurityBoundary';
 import { buildActionPlan } from './aiActionPlanner';
+import { ApprovalEngine } from './aiApprovalEngine';
 
 export class AIUnderstandingEngine {
   private static instance: AIUnderstandingEngine;
   private memoryManager = ConversationMemoryManager.getInstance();
+  private approvalEngine = ApprovalEngine.getInstance();
 
   public static getInstance(): AIUnderstandingEngine {
     if (!AIUnderstandingEngine.instance) {
@@ -89,7 +91,59 @@ export class AIUnderstandingEngine {
     if (convoState.lastIntent) contextUsed.push('conversation_history');
     if (finalResolvedEntities.length > 0) contextUsed.push('app_data');
 
-    // 12. Phase 3 Action AI Planning
+    // 12. Phase 4 Server-Side Approval Request & Rejection Interception
+    const pendingApproval = this.approvalEngine.getPendingApprovalForUser(toolCtx.currentProfile.id);
+    if (pendingApproval) {
+      if (this.approvalEngine.isApprovalRequest(userMessage)) {
+        const execRes = this.approvalEngine.approveProposal(pendingApproval.approvalId, toolCtx.currentProfile.id, toolCtx);
+        return {
+          requestId,
+          timestamp,
+          originalInput: userMessage,
+          normalizedInput,
+          language,
+          intent,
+          extractedEntities,
+          resolvedEntities: finalResolvedEntities,
+          resolvedDates,
+          references: entityRes.references,
+          contextUsed,
+          ambiguities: [],
+          needsClarification: false,
+          clarificationQuestion: null,
+          confidence: 1.0,
+          responseLanguage: language.primary === 'roman_urdu' ? 'roman_urdu' : language.primary === 'urdu' ? 'urdu' : 'english',
+          actionResult: execRes,
+          approvalRecord: pendingApproval,
+        };
+      }
+
+      if (this.approvalEngine.isRejectionRequest(userMessage)) {
+        const rejRes = this.approvalEngine.rejectProposal(pendingApproval.approvalId, toolCtx.currentProfile.id, 'User rejected in chat');
+        return {
+          requestId,
+          timestamp,
+          originalInput: userMessage,
+          normalizedInput,
+          language,
+          intent,
+          extractedEntities,
+          resolvedEntities: finalResolvedEntities,
+          resolvedDates,
+          references: entityRes.references,
+          contextUsed,
+          ambiguities: [],
+          needsClarification: false,
+          clarificationQuestion: null,
+          confidence: 1.0,
+          responseLanguage: language.primary === 'roman_urdu' ? 'roman_urdu' : language.primary === 'urdu' ? 'urdu' : 'english',
+          actionResult: rejRes,
+          approvalRecord: pendingApproval,
+        };
+      }
+    }
+
+    // 13. Phase 3 & Phase 4 Action & Proposal Planning
     const actionPlanRes = buildActionPlan(
       userMessage,
       intent,
@@ -99,7 +153,23 @@ export class AIUnderstandingEngine {
       pageCtx,
     );
 
-    // 13. Phase 2 Read Query Planning & Security Boundary Guard
+    let proposalObj: any = undefined;
+    let approvalRecObj: any = undefined;
+
+    if (actionPlanRes.isAction && actionPlanRes.actionPlan) {
+      const propResult = this.approvalEngine.createProposal(
+        actionPlanRes.actionPlan.actionTool,
+        actionPlanRes.actionPlan.targetResource,
+        actionPlanRes.actionPlan.proposedChanges,
+        actionPlanRes.actionPlan.parameters,
+        toolCtx,
+        actionPlanRes.actionPlan.reason,
+      );
+      proposalObj = propResult.proposal;
+      approvalRecObj = propResult.approvalRecord;
+    }
+
+    // 14. Phase 2 Read Query Planning & Security Boundary Guard
     const isWrite = actionPlanRes.isAction || isWriteOperation(intent.name, userMessage);
     const queryPlan = buildReadQueryPlan(
       {
@@ -203,6 +273,8 @@ export class AIUnderstandingEngine {
       writeBlocked: isWrite,
       actionPlan: actionPlanRes.actionPlan,
       confirmationToken: actionPlanRes.confirmationToken,
+      proposal: proposalObj,
+      approvalRecord: approvalRecObj,
     };
   }
 

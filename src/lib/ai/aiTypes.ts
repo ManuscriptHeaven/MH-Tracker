@@ -558,6 +558,8 @@ export interface AIUnderstandingOutput {
   actionPlan?: any;
   confirmationToken?: any;
   actionResult?: any;
+  proposal?: any;
+  approvalRecord?: any;
 }
 
 // ==========================================
