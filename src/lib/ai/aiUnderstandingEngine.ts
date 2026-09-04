@@ -245,6 +245,47 @@ export class AIUnderstandingEngine {
       toolPayload.dueDate = resolvedDates[0].resolvedDate;
     }
 
+    // 15. Phase 5 Cross-Module Intelligence & Multi-Write Proposals
+    let crossModulePlan: any = undefined;
+    let crossModuleResult: any = undefined;
+    let multiWriteProposal: any = undefined;
+
+    const crossPlanner = CrossModulePlanner.getInstance();
+    const aggregator = CrossModuleAggregator.getInstance();
+    const cache = CrossModuleCache.getInstance();
+    const telemetry = CrossModuleTelemetry.getInstance();
+
+    if (crossPlanner.isCrossModuleQuery(userMessage, intent)) {
+      crossModulePlan = crossPlanner.buildQueryPlan(userMessage, intent);
+      const cacheKey = JSON.stringify(crossModulePlan.steps);
+      const cachedRes = cache.get(toolCtx.currentProfile.id, crossModulePlan.planId, cacheKey);
+
+      if (cachedRes) {
+        crossModuleResult = cachedRes;
+      } else {
+        crossModuleResult = aggregator.executePlan(crossModulePlan, toolCtx);
+        cache.set(toolCtx.currentProfile.id, crossModulePlan.planId, cacheKey, crossModuleResult);
+      }
+
+      telemetry.recordEvent({
+        userId: toolCtx.currentProfile.id,
+        userRole: toolCtx.currentProfile.role || 'employee',
+        intentName: intent.name,
+        planId: crossModulePlan.planId,
+        executedTools: crossModulePlan.steps.map((s: any) => s.tool),
+        latencyMs: crossModuleResult.latencyMs,
+        permissionChecksPassed: crossModuleResult.permissionMaskedCount === 0,
+        blockedWriteAttempt: false,
+        promptInjectionDetected: false,
+        cacheHit: !!cachedRes,
+      });
+    }
+
+    const multiWriteProp = crossPlanner.buildMultiStepWriteProposal(userMessage, toolCtx);
+    if (multiWriteProp) {
+      multiWriteProposal = multiWriteProp;
+    }
+
     return {
       requestId,
       timestamp,
@@ -275,6 +316,9 @@ export class AIUnderstandingEngine {
       confirmationToken: actionPlanRes.confirmationToken,
       proposal: proposalObj,
       approvalRecord: approvalRecObj,
+      crossModulePlan,
+      crossModuleResult,
+      multiWriteProposal,
     };
   }
 
@@ -282,5 +326,11 @@ export class AIUnderstandingEngine {
     this.memoryManager.clear();
   }
 }
+
+// Add imports for Phase 5 at the top of file
+import { CrossModulePlanner } from './aiCrossModulePlanner';
+import { CrossModuleAggregator } from './aiCrossModuleAggregator';
+import { CrossModuleCache } from './aiCrossModuleCache';
+import { CrossModuleTelemetry } from './aiCrossModuleTelemetry';
 
 export const aiUnderstandingEngine = AIUnderstandingEngine.getInstance();

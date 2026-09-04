@@ -560,6 +560,9 @@ export interface AIUnderstandingOutput {
   actionResult?: any;
   proposal?: any;
   approvalRecord?: any;
+  crossModulePlan?: any;
+  crossModuleResult?: any;
+  multiWriteProposal?: any;
 }
 
 // ==========================================

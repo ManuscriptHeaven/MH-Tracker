@@ -77,3 +77,16 @@ export function checkActionPermission(
     errorCode: 'PERMISSION_DENIED',
   };
 }
+
+export function checkModuleAccess(moduleName: string, role: string): boolean {
+  if (role === 'admin' || role === 'manager') return true;
+  if (role === 'employee') {
+    if (moduleName === 'finance') return false;
+    return true;
+  }
+  if (role === 'client') {
+    if (moduleName === 'messages' || moduleName === 'employees') return false;
+    return true;
+  }
+  return false;
+}
