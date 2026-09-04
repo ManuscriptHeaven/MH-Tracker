@@ -150,16 +150,25 @@ export function extractAndResolveDates(text: string): ResolvedDate[] {
     }
   }
 
-  // Weekdays: "Friday", "next Friday", "coming Monday"
-  const weekdayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-  weekdayNames.forEach((dayName, targetDayIndex) => {
-    if (lower.includes(dayName)) {
+  // Weekdays: "Friday", "next Friday", "coming Monday", Urdu script "جمعہ", "پیر"
+  const weekdayMap: Array<{ names: string[]; dayIndex: number }> = [
+    { names: ['sunday', 'itwar', 'اتوار'], dayIndex: 0 },
+    { names: ['monday', 'peer', 'پیر'], dayIndex: 1 },
+    { names: ['tuesday', 'mangal', 'منگل'], dayIndex: 2 },
+    { names: ['wednesday', 'budh', 'بدھ'], dayIndex: 3 },
+    { names: ['thursday', 'jumaeyrat', 'جمعرات'], dayIndex: 4 },
+    { names: ['friday', 'jumma', 'جمعہ'], dayIndex: 5 },
+    { names: ['saturday', 'hafta', 'ہفتہ'], dayIndex: 6 },
+  ];
+
+  weekdayMap.forEach(({ names, dayIndex: targetDayIndex }) => {
+    if (names.some((n) => lower.includes(n))) {
       const currentDayIndex = new Date().getDay();
       let daysAhead = targetDayIndex - currentDayIndex;
       if (daysAhead <= 0) daysAhead += 7;
 
       dates.push({
-        originalExpression: dayName,
+        originalExpression: names[0],
         resolvedDate: addDays(daysAhead),
         isRange: false,
         confidence: 0.95,

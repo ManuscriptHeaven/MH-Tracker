@@ -407,6 +407,9 @@ export type DomainIntent =
   | 'view_calendar'
   | 'compare_employees'
   | 'cross_module_query'
+  | 'create_reminder'
+  | 'update_calendar'
+  | 'add_note'
   | 'navigate_page'
   | 'greeting'
   | 'help'
@@ -552,6 +555,9 @@ export interface AIUnderstandingOutput {
   toolPayload?: Record<string, any>;
   queryPlan?: ReadQueryPlan;
   writeBlocked?: boolean;
+  actionPlan?: any;
+  confirmationToken?: any;
+  actionResult?: any;
 }
 
 // ==========================================

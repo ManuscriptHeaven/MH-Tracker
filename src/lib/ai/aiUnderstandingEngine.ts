@@ -14,6 +14,7 @@ import { buildPageContext, applyContextHierarchy } from './aiPageContext';
 import { evaluateClarification } from './aiClarificationEngine';
 import { buildReadQueryPlan } from './aiQueryPlanner';
 import { isWriteOperation } from './aiSecurityBoundary';
+import { buildActionPlan } from './aiActionPlanner';
 
 export class AIUnderstandingEngine {
   private static instance: AIUnderstandingEngine;
@@ -88,8 +89,18 @@ export class AIUnderstandingEngine {
     if (convoState.lastIntent) contextUsed.push('conversation_history');
     if (finalResolvedEntities.length > 0) contextUsed.push('app_data');
 
-    // 12. Phase 2 Read Query Planning & Security Boundary Guard
-    const isWrite = isWriteOperation(intent.name, userMessage);
+    // 12. Phase 3 Action AI Planning
+    const actionPlanRes = buildActionPlan(
+      userMessage,
+      intent,
+      finalResolvedEntities,
+      resolvedDates,
+      toolCtx,
+      pageCtx,
+    );
+
+    // 13. Phase 2 Read Query Planning & Security Boundary Guard
+    const isWrite = actionPlanRes.isAction || isWriteOperation(intent.name, userMessage);
     const queryPlan = buildReadQueryPlan(
       {
         requestId,
@@ -190,6 +201,8 @@ export class AIUnderstandingEngine {
       toolPayload,
       queryPlan,
       writeBlocked: isWrite,
+      actionPlan: actionPlanRes.actionPlan,
+      confirmationToken: actionPlanRes.confirmationToken,
     };
   }
 
