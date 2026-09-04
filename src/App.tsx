@@ -26,11 +26,12 @@ import { AIChatPanel } from './components/ai/AIChatPanel';
 import { AIDailyPopup } from './components/ai/AIDailyPopup';
 import { useTracker } from './lib/useTracker';
 import { errorMessage, isClientRole } from './lib/utils';
-import type { Project, ProjectDraft } from './lib/types';
+import type { Project, ProjectDraft, Role } from './lib/types';
 
 import { RevisionRequestModal } from './components/RevisionRequestModal';
 import { Toast, type ToastData } from './components/Toast';
 import { OfflineBanner } from './components/OfflineBanner';
+import { DemoRoleSwitcher } from './components/DemoRoleSwitcher';
 
 export default function App() {
   const tracker = useTracker();
@@ -93,6 +94,15 @@ export default function App() {
     if (selectedProjectFresh) await tracker.updateProject(selectedProjectFresh.id, updates);
   }
 
+  function handleSwitchRole(role: Role) {
+    tracker.loginDemo(role);
+    setActiveView('dashboard');
+    setSelectedProject(null);
+    setEditingProject(null);
+    setShowProjectForm(false);
+    setShowRevisionModal(false);
+  }
+
   if (tracker.isInitializing && !tracker.currentProfile) {
     return (
       <main className="grid min-h-screen place-items-center bg-linen p-4">
@@ -134,7 +144,7 @@ export default function App() {
 
   return (
     <CurrencyProvider>
-      <AIProvider tracker={tracker}>
+      <AIProvider tracker={tracker} activeView={activeView} selectedProject={selectedProjectFresh}>
         <OfflineBanner />
         <Layout activeView={activeView} setActiveView={setActiveView} currentProfile={tracker.currentProfile} data={tracker.data} notifications={tracker.visibleNotifications} searchTerm={searchTerm} setSearchTerm={setSearchTerm} onAddProject={openAddProject} onMarkNotificationRead={tracker.markNotificationRead} onMarkAllNotificationsRead={tracker.markAllNotificationsRead} onMarkConversationRead={tracker.markConversationRead} onViewNotifications={() => setActiveView('notifications')} onOpenNotificationProject={openProjectById} onSignOut={tracker.signOut} onUpdateProfile={tracker.updateProfile} onOpenConversation={(conversationId) => { setJumpToConversationId(conversationId); setActiveView('communication'); }}>
     {activeView === 'dashboard' && isClient && (
@@ -371,6 +381,11 @@ export default function App() {
       <AIChatPanel />
     </>
   )}
+  <DemoRoleSwitcher
+    currentRole={tracker.currentProfile.role}
+    currentProfile={tracker.currentProfile}
+    onSwitchRole={handleSwitchRole}
+  />
   </AIProvider>
   </CurrencyProvider>
   );

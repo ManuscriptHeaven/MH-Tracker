@@ -62,7 +62,17 @@ interface AIContextType {
 
 const AIContext = createContext<AIContextType | undefined>(undefined);
 
-export function AIProvider({ children, tracker }: { children: ReactNode; tracker: any }) {
+export function AIProvider({
+  children,
+  tracker,
+  activeView = 'dashboard',
+  selectedProject = null,
+}: {
+  children: ReactNode;
+  tracker: any;
+  activeView?: string;
+  selectedProject?: any;
+}) {
   const currencyCtx = useCurrency();
   const [isOpen, setIsOpen] = useState(false);
   const [isChatMinimized, setIsChatMinimized] = useState(false);
@@ -117,6 +127,11 @@ export function AIProvider({ children, tracker }: { children: ReactNode; tracker
   const currencyRef = useRef<any>(currencyCtx);
   currencyRef.current = currencyCtx;
 
+  const activeViewRef = useRef<string>(activeView);
+  activeViewRef.current = activeView;
+  const selectedProjectRef = useRef<any>(selectedProject);
+  selectedProjectRef.current = selectedProject;
+
   // Persist audit logs
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -159,6 +174,8 @@ export function AIProvider({ children, tracker }: { children: ReactNode; tracker
       exchangeRate: c.exchangeRate || 277.5,
       formatMoney: c.formatMoney,
       convertMoney: c.convertMoney,
+      activeView: activeViewRef.current,
+      selectedProject: selectedProjectRef.current,
       trackerMutations: {
         createProject: t.createProject,
         duplicateProject: t.duplicateProject,
@@ -183,7 +200,7 @@ export function AIProvider({ children, tracker }: { children: ReactNode; tracker
         getOrCreateProjectConversation: t.getOrCreateProjectConversation,
         getOrCreateTaskConversation: t.getOrCreateTaskConversation,
       },
-    };
+    } as any;
   }, []);
 
   const openChat = useCallback(() => setIsOpen(true), []);

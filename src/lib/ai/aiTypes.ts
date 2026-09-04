@@ -312,3 +312,227 @@ export interface KnowledgeBaseDocument {
   uploadedBy: string;
   createdAt: string;
 }
+
+// ============================================================================
+// PHASE 1: AI FOUNDATION & UNDERSTANDING ENGINE TYPES
+// ============================================================================
+
+export type LanguageCode = 'english' | 'roman_urdu' | 'urdu' | 'mixed' | 'unknown';
+export type ScriptType = 'latin' | 'arabic' | 'mixed' | 'unknown';
+
+export interface LanguageAnalysis {
+  primary: LanguageCode;
+  secondary: LanguageCode[];
+  script: ScriptType;
+  codeSwitching: boolean;
+  confidence: number;
+}
+
+export interface NormalizedInput {
+  originalInput: string;
+  normalizedInput: string;
+  tokens: string[];
+  normalizedTokens: string[];
+  phoneticTokens: string[];
+  detectedScript: ScriptType;
+  replacements: Array<{ original: string; normalized: string; type: string }>;
+}
+
+export type BroadIntentCategory =
+  | 'view_data'
+  | 'search'
+  | 'create'
+  | 'update'
+  | 'delete'
+  | 'assign'
+  | 'unassign'
+  | 'complete'
+  | 'reopen'
+  | 'move'
+  | 'filter'
+  | 'sort'
+  | 'summarize'
+  | 'report'
+  | 'navigate'
+  | 'open'
+  | 'compare'
+  | 'calculate'
+  | 'explain'
+  | 'ask_question'
+  | 'follow_up'
+  | 'confirm'
+  | 'cancel'
+  | 'undo'
+  | 'clarification'
+  | 'unknown';
+
+export type DomainIntent =
+  | 'create_task'
+  | 'assign_task'
+  | 'update_task'
+  | 'complete_task'
+  | 'delete_task'
+  | 'view_tasks'
+  | 'search_tasks'
+  | 'create_project'
+  | 'update_project'
+  | 'view_project'
+  | 'project_summary'
+  | 'view_employee'
+  | 'employee_performance'
+  | 'employee_dues'
+  | 'create_invoice'
+  | 'view_invoice'
+  | 'invoice_status'
+  | 'invoice_summary'
+  | 'finance_add_expense'
+  | 'finance_view_expenses'
+  | 'finance_summary'
+  | 'payroll_summary'
+  | 'view_revisions'
+  | 'create_revision'
+  | 'navigate_page'
+  | 'greeting'
+  | 'help'
+  | 'general_query';
+
+export interface IntentResult {
+  name: DomainIntent | string;
+  category: BroadIntentCategory;
+  confidence: number;
+  secondaryIntents?: IntentResult[];
+}
+
+export type EntityType =
+  | 'person'
+  | 'employee'
+  | 'client'
+  | 'project'
+  | 'task'
+  | 'invoice'
+  | 'expense'
+  | 'amount'
+  | 'currency'
+  | 'date'
+  | 'time'
+  | 'deadline'
+  | 'status'
+  | 'priority'
+  | 'category'
+  | 'location'
+  | 'document'
+  | 'message'
+  | 'team'
+  | 'department';
+
+export interface ExtractedEntity {
+  type: EntityType;
+  rawText: string;
+  normalizedText: string;
+  confidence: number;
+  startIndex?: number;
+  endIndex?: number;
+}
+
+export interface ResolvedEntity {
+  type: EntityType;
+  id: string;
+  name: string;
+  matchScore: number;
+  matchedField: string;
+  originalValue: string;
+  objectData?: any;
+}
+
+export interface ResolvedDate {
+  originalExpression: string;
+  resolvedDate: string; // ISO date or datetime string
+  isRange: boolean;
+  startDate?: string;
+  endDate?: string;
+  confidence: number;
+}
+
+export interface PageContext {
+  route: string;
+  module:
+    | 'dashboard'
+    | 'projects'
+    | 'tasks'
+    | 'calendar'
+    | 'notifications'
+    | 'team'
+    | 'clients'
+    | 'delivered'
+    | 'payments'
+    | 'finance'
+    | 'settings'
+    | 'general';
+  view?: string;
+  selectedEntity?: {
+    type: 'project' | 'task' | 'employee' | 'client';
+    id: string;
+    name: string;
+    data?: any;
+  };
+  visibleEntities?: {
+    projectIds?: string[];
+    taskIds?: string[];
+    employeeIds?: string[];
+  };
+  activeFilters?: Record<string, any>;
+  userPermissions?: {
+    canManageAll: boolean;
+    role: string;
+    isAdmin: boolean;
+    isManager: boolean;
+    isClient: boolean;
+  };
+}
+
+export interface StructuredConversationState {
+  activeModule?: string;
+  activeProject?: { id: string; name: string };
+  activeEmployee?: { id: string; name: string };
+  activeTask?: { id: string; name: string };
+  lastIntent?: string;
+  recentEntities: Record<string, any>;
+  pendingQuestion?: string | null;
+  pendingAction?: AIActionPreview | null;
+  pendingDisambiguation?: DisambiguationOption[] | null;
+  conversationHistory?: Array<{
+    role: 'user' | 'assistant';
+    text: string;
+    intent?: string;
+    timestamp: string;
+  }>;
+}
+
+export interface AIUnderstandingOutput {
+  requestId: string;
+  timestamp: string;
+  originalInput: string;
+  normalizedInput: NormalizedInput;
+  language: LanguageAnalysis;
+  intent: IntentResult;
+  extractedEntities: ExtractedEntity[];
+  resolvedEntities: ResolvedEntity[];
+  resolvedDates: ResolvedDate[];
+  references: Array<{
+    raw: string;
+    resolvedTo: { type: string; id: string; name: string };
+  }>;
+  contextUsed: Array<'explicit' | 'page_context' | 'selected_entity' | 'conversation_history' | 'app_data'>;
+  ambiguities: Array<{
+    field: string;
+    options: DisambiguationOption[];
+    description: string;
+  }>;
+  needsClarification: boolean;
+  clarificationQuestion: string | null;
+  confidence: number;
+  responseLanguage: 'english' | 'roman_urdu' | 'urdu';
+  recommendedTool?: AIToolName;
+  toolPayload?: Record<string, any>;
+}
+

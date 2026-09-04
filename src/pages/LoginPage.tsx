@@ -1,4 +1,4 @@
-import { BookOpen, CheckCircle2, KeyRound, LockKeyhole, ShieldCheck, UserRound } from 'lucide-react';
+import { BookOpen, Briefcase, CheckCircle2, Crown, KeyRound, LockKeyhole, Palette, ShieldCheck, Sparkles, User, UserRound } from 'lucide-react';
 import { type FormEvent, useEffect, useState } from 'react';
 import { Button, Card, Field } from '../components/ui';
 import { roleLabels } from '../lib/constants';
@@ -256,23 +256,46 @@ export function LoginPage({
             </>
           )}
 
-          {!isSupabaseConfigured ? (
-            <div className="mt-6 border-t border-border pt-5">
-              <p className="mb-3 text-sm font-semibold text-muted">Preview Demo Users</p>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {(['admin', 'project_manager', 'employee', 'junior_assistant', 'client'] as Role[]).map((role) => (
-                  <button
-                    key={role}
-                    type="button"
-                    onClick={() => onDemoLogin(role)}
-                    className="rounded-md border border-border bg-white px-3 py-2 text-sm font-semibold transition hover:border-gold hover:bg-ivory"
-                  >
-                    {roleLabels[role]}
-                  </button>
-                ))}
-              </div>
+          <div className="mt-6 border-t border-border pt-5">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted">
+                <Sparkles className="h-3.5 w-3.5 text-gold" />
+                1-Click Demo Showcase
+              </span>
+              <span className="rounded bg-gold/15 px-2 py-0.5 text-[10px] font-semibold text-gold">
+                Presentation Mode
+              </span>
             </div>
-          ) : null}
+            <div className="grid gap-2 sm:grid-cols-2">
+              {[
+                { role: 'admin' as Role, name: 'Tahir', desc: 'Admin & Finance', icon: Crown },
+                { role: 'project_manager' as Role, name: 'Atia', desc: 'Operations & Timeline', icon: Briefcase },
+                { role: 'employee' as Role, name: 'Zain', desc: 'Designer / Tasks', icon: Palette },
+                { role: 'client' as Role, name: 'Amelia', desc: 'Client Portal', icon: User },
+              ].map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.role}
+                    type="button"
+                    onClick={() => onDemoLogin(item.role)}
+                    className="flex items-center gap-2.5 rounded-lg border border-border bg-white p-2.5 text-left transition hover:border-gold hover:bg-gold/5 hover:shadow-xs group"
+                  >
+                    <div className="grid h-8 w-8 place-items-center rounded-md bg-linen text-gold group-hover:bg-gold group-hover:text-ink transition-colors">
+                      <Icon className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-ink flex items-center justify-between">
+                        {item.name}
+                        <span className="text-[10px] font-normal text-muted">{item.desc}</span>
+                      </p>
+                      <p className="text-[10px] text-muted truncate">Enter as {roleLabels[item.role]}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </Card>
       </section>
     </main>

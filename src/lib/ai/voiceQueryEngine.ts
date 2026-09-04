@@ -12,6 +12,8 @@ import * as safeActions from './safeActionTools';
 import type { ProjectStatus } from '../types';
 import { isClientRole, isManagerRole, firstName } from '../utils';
 import { formatDate, parseNaturalDate, todayInput, addDays } from '../date';
+import { aiUnderstandingEngine } from './aiUnderstandingEngine';
+import { buildPageContext } from './aiPageContext';
 
 export class VoiceQueryEngine {
   private static instance: VoiceQueryEngine;
@@ -114,6 +116,31 @@ export class VoiceQueryEngine {
           return resolvedResult;
         }
       }
+    }
+
+    // ==========================================
+    // PHASE 1: AI UNDERSTANDING ENGINE PIPELINE
+    // ==========================================
+    const pageCtx = buildPageContext(
+      typeof window !== 'undefined' ? window.location.pathname : '/',
+      (ctx as any).activeView || 'dashboard',
+      (ctx as any).selectedProject || null,
+      ctx,
+    );
+
+    const understanding = aiUnderstandingEngine.processMessage(q, ctx, pageCtx);
+
+    // Smart Clarification Check
+    if (understanding.needsClarification && understanding.clarificationQuestion) {
+      const result: AIToolResult = {
+        success: true,
+        toolName: 'get_tasks_summary',
+        spokenText: understanding.clarificationQuestion,
+        displayText: understanding.clarificationQuestion,
+        disambiguation: understanding.ambiguities[0]?.options || [],
+      };
+      this.logExecution(ctx, q, 'get_tasks_summary', true);
+      return result;
     }
 
     // ==========================================
