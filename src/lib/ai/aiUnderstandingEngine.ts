@@ -12,6 +12,8 @@ import { resolveEntities } from './aiEntityResolver';
 import { ConversationMemoryManager } from './aiConversationMemory';
 import { buildPageContext, applyContextHierarchy } from './aiPageContext';
 import { evaluateClarification } from './aiClarificationEngine';
+import { buildReadQueryPlan } from './aiQueryPlanner';
+import { isWriteOperation } from './aiSecurityBoundary';
 
 export class AIUnderstandingEngine {
   private static instance: AIUnderstandingEngine;
@@ -86,29 +88,60 @@ export class AIUnderstandingEngine {
     if (convoState.lastIntent) contextUsed.push('conversation_history');
     if (finalResolvedEntities.length > 0) contextUsed.push('app_data');
 
-    // 12. Recommend tool & payload mapping
-    let recommendedTool: AIToolName | undefined = undefined;
+    // 12. Phase 2 Read Query Planning & Security Boundary Guard
+    const isWrite = isWriteOperation(intent.name, userMessage);
+    const queryPlan = buildReadQueryPlan(
+      {
+        requestId,
+        timestamp,
+        originalInput: userMessage,
+        normalizedInput,
+        language,
+        intent,
+        extractedEntities,
+        resolvedEntities: finalResolvedEntities,
+        resolvedDates,
+        references: entityRes.references,
+        contextUsed,
+        ambiguities: entityRes.ambiguities,
+        needsClarification: clarification.needsClarification,
+        clarificationQuestion: clarification.question,
+        confidence: clarification.confidence,
+        responseLanguage:
+          language.primary === 'roman_urdu'
+            ? 'roman_urdu'
+            : language.primary === 'urdu'
+            ? 'urdu'
+            : 'english',
+      },
+      pageCtx,
+    );
+
+    let recommendedTool: AIToolName | undefined = queryPlan.targetTool;
     const toolPayload: Record<string, any> = {};
 
-    if (intent.name === 'view_tasks') {
-      recommendedTool = 'get_tasks_summary';
-    } else if (intent.name === 'assign_task') {
-      recommendedTool = 'assign_task';
-    } else if (intent.name === 'complete_task') {
-      recommendedTool = 'update_task_status';
-      toolPayload.status = 'Completed';
-    } else if (intent.name === 'create_task') {
-      recommendedTool = 'create_task';
-    } else if (intent.name === 'view_project' || intent.name === 'project_summary') {
-      recommendedTool = 'get_project_summary';
-    } else if (intent.name === 'employee_performance') {
-      recommendedTool = 'get_employee_workload';
-    } else if (intent.name === 'employee_dues') {
-      recommendedTool = 'get_payroll_summary';
-    } else if (intent.name === 'invoice_summary') {
-      recommendedTool = 'get_client_receivables';
-    } else if (intent.name === 'finance_summary') {
-      recommendedTool = 'get_finance_summary';
+    if (!recommendedTool) {
+      if (intent.name === 'view_tasks') {
+        recommendedTool = 'get_tasks_summary';
+      } else if (intent.name === 'view_project' || intent.name === 'project_summary') {
+        recommendedTool = 'get_project_summary';
+      } else if (intent.name === 'employee_performance') {
+        recommendedTool = 'get_employee_workload';
+      } else if (intent.name === 'employee_dues') {
+        recommendedTool = 'get_payroll_summary';
+      } else if (intent.name === 'invoice_summary') {
+        recommendedTool = 'get_client_receivables';
+      } else if (intent.name === 'finance_summary') {
+        recommendedTool = 'get_finance_summary';
+      } else if (intent.name === 'search_messages') {
+        recommendedTool = 'get_messages';
+      } else if (intent.name === 'view_calendar') {
+        recommendedTool = 'get_calendar_events';
+      } else if (intent.name === 'compare_employees') {
+        recommendedTool = 'compare_employees';
+      } else if (intent.name === 'cross_module_query') {
+        recommendedTool = 'run_cross_module_query';
+      }
     }
 
     // Populate payload from resolved entities
@@ -155,6 +188,8 @@ export class AIUnderstandingEngine {
           : 'english',
       recommendedTool,
       toolPayload,
+      queryPlan,
+      writeBlocked: isWrite,
     };
   }
 

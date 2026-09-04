@@ -255,6 +255,85 @@ export const INTENT_TAXONOMY: IntentDefinition[] = [
     recommendedTool: 'get_finance_summary',
   },
 
+  // --- MESSAGES & COMMUNICATION ---
+  {
+    name: 'search_messages',
+    category: 'view_data',
+    description: 'Search or view recent messages and discussions',
+    keywords: {
+      english: ['messages', 'show messages', 'find messages', 'what did client say', 'unread messages'],
+      romanUrdu: ['messages dikhao', 'kya message bheja', 'latest messages', 'unread messages'],
+      urdu: ['پیغامات', 'پیغام', 'غیر پڑھے ہوئے پیغامات'],
+    },
+    patterns: [
+      /\b(show|find|search|get)\s+.*?\s*(messages|message|chat|text)\b/i,
+      /\bwhat\s+did\s+.*?\s*(say|message|send|write)\b/i,
+      /\b(unread|latest|new)\s+messages\b/i,
+      /پیغامات|پیغام/u,
+    ],
+    recommendedTool: 'get_messages',
+  },
+
+  // --- CALENDAR & SCHEDULE ---
+  {
+    name: 'view_calendar',
+    category: 'view_data',
+    description: 'View calendar events, meetings, and upcoming deadlines',
+    keywords: {
+      english: ['calendar', 'meetings', 'schedule', 'appointments', 'events'],
+      romanUrdu: ['calendar dikhao', 'meetings', 'kal koi meeting hai', 'aaj kya hai'],
+      urdu: ['کیلنڈر', 'میٹنگ', 'ملاقاتیں'],
+    },
+    patterns: [
+      /\bwhat's\s+on\s+my\s+calendar\b/i,
+      /\bdo\s+i\s+have\s+any\s+meetings\b/i,
+      /\b(client\s+)?meetings\s+(scheduled|this\s+week|tomorrow|today)?\b/i,
+      /\b(calendar|schedule|appointments)\b/i,
+      /\b(aaj|kal|is\s+week)\s+.*?calendar\b/i,
+      /کیلنڈر|میٹنگ/u,
+    ],
+    recommendedTool: 'get_calendar_events',
+  },
+
+  // --- EMPLOYEE COMPARISON ---
+  {
+    name: 'compare_employees',
+    category: 'report',
+    description: 'Compare performance, workload, or task counts between employees',
+    keywords: {
+      english: ['compare', 'versus', 'vs', 'who completed more', 'highest overdue'],
+      romanUrdu: ['compare karo', 'kis ke paas zyada', 'kis ne zyada kiya'],
+      urdu: ['موازنہ کریں'],
+    },
+    patterns: [
+      /\bcompare\s+.*?\s*(and|with|to|versus|vs)\b/i,
+      /\bwho\s+completed\s+more\b/i,
+      /\bwho\s+has\s+(the\s+)?(highest|most)\b/i,
+      /\bcompare\s+their\s+workload\b/i,
+    ],
+    recommendedTool: 'compare_employees',
+  },
+
+  // --- CROSS MODULE QUERY ---
+  {
+    name: 'cross_module_query',
+    category: 'summarize',
+    description: 'Multi-resource cross-module query combining projects, tasks, finance, or calendar',
+    keywords: {
+      english: ['clients with overdue invoices', 'employees with overdue tasks', 'today meetings and projects'],
+      romanUrdu: ['clients jin ki invoices overdue hain'],
+      urdu: ['ملٹی ماڈیول'],
+    },
+    patterns: [
+      /\bwhich\s+clients\s+have\s+overdue\s+invoices\b/i,
+      /\bwhich\s+employees\s+have\s+overdue\s+tasks\b/i,
+      /\btoday's\s+client\s+meetings\s+and\b/i,
+      /\boverdue\s+invoices\s+for\s+active\s+clients\b/i,
+      /\bprojects\s+have\s+no\s+completed\s+tasks\b/i,
+    ],
+    recommendedTool: 'run_cross_module_query',
+  },
+
   // --- GENERAL CONVERSATIONAL ---
   {
     name: 'greeting',

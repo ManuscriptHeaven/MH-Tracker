@@ -13,8 +13,10 @@ import type {
   Invoice,
 } from '../types';
 
+export type { Profile } from '../types';
+
 export type AIToolName =
-  // Read Tools (Phase 1)
+  // Read Tools (Phase 1 & Phase 2 Read Intelligence)
   | 'get_project_summary'
   | 'get_overdue_projects'
   | 'get_due_today_projects'
@@ -30,12 +32,22 @@ export type AIToolName =
   | 'get_project_revisions'
   | 'get_tasks_summary'
   | 'get_employee_workload'
+  | 'get_employee_performance'
+  | 'compare_employees'
   | 'get_client_summary'
   | 'get_client_receivables'
   | 'get_finance_summary'
+  | 'get_outstanding_amounts'
+  | 'get_invoices_summary'
   | 'get_payroll_summary'
   | 'get_project_activity'
-  // Write & Action Tools (Phase 2)
+  | 'get_messages'
+  | 'search_messages'
+  | 'get_calendar_events'
+  | 'get_upcoming_events'
+  | 'run_cross_module_query'
+  | 'read_only_boundary_guard'
+  // Write & Action Tools (Phase 3 Write Capabilities)
   | 'create_project'
   | 'duplicate_project'
   | 'create_task'
@@ -391,6 +403,10 @@ export type DomainIntent =
   | 'payroll_summary'
   | 'view_revisions'
   | 'create_revision'
+  | 'search_messages'
+  | 'view_calendar'
+  | 'compare_employees'
+  | 'cross_module_query'
   | 'navigate_page'
   | 'greeting'
   | 'help'
@@ -534,5 +550,76 @@ export interface AIUnderstandingOutput {
   responseLanguage: 'english' | 'roman_urdu' | 'urdu';
   recommendedTool?: AIToolName;
   toolPayload?: Record<string, any>;
+  queryPlan?: ReadQueryPlan;
+  writeBlocked?: boolean;
+}
+
+// ==========================================
+// Phase 2: Read-Only Intelligence Types
+// ==========================================
+
+export type ReadResource =
+  | 'projects'
+  | 'tasks'
+  | 'employees'
+  | 'clients'
+  | 'finance'
+  | 'messages'
+  | 'calendar'
+  | 'cross_module';
+
+export interface DateRangeBoundary {
+  start: string; // ISO timestamp e.g. "2026-09-04T00:00:00.000Z"
+  end: string;   // ISO timestamp e.g. "2026-09-04T23:59:59.999Z"
+  label: string; // "today", "tomorrow", "this_week", "next_week", "custom"
+}
+
+export interface ReadQueryFilter {
+  status?: string;
+  employeeId?: string;
+  employeeName?: string;
+  clientId?: string;
+  clientName?: string;
+  projectId?: string;
+  projectName?: string;
+  priority?: string;
+  keyword?: string;
+  dateRange?: DateRangeBoundary;
+  isOverdue?: boolean;
+  isPending?: boolean;
+  isCompleted?: boolean;
+  unreadOnly?: boolean;
+  currency?: string;
+}
+
+export interface ReadQueryPlan {
+  planId: string;
+  intent: string;
+  primaryResource: ReadResource;
+  secondaryResources: ReadResource[];
+  filters: ReadQueryFilter;
+  sort?: { field: string; direction: 'asc' | 'desc' };
+  limit: number;
+  groupBy?: string;
+  operation: 'list' | 'search' | 'details' | 'count' | 'aggregate' | 'compare';
+  requiresPermissionCheck: boolean;
+  requiresClarification: boolean;
+  targetTool?: AIToolName;
+}
+
+export interface Phase2AuditLogEntry {
+  id: string;
+  requestId: string;
+  userId: string;
+  userName: string;
+  userRole: string;
+  timestamp: string;
+  intent: string;
+  primaryResource: ReadResource;
+  toolName: string;
+  parameters: Record<string, any>;
+  permissionGranted: boolean;
+  resultCount: number;
+  latencyMs: number;
 }
 
