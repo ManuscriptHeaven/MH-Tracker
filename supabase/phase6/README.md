@@ -1,8 +1,8 @@
 # Phase 6 canonical workflow migration bundle
 
-This branch captures the Phase 6 SQL that was rehearsed and cut over on the dedicated staging Supabase project on 2026-09-13. Production has not been modified.
+This branch captures the Phase 6 SQL that was rehearsed and cut over on the dedicated staging Supabase project on 2026-09-13. **Production has not been modified.**
 
-## Authoritative order
+## Staging-validated source order
 
 | Order | Staging source key | Target file | Characters | SHA-256 |
 |---:|---|---|---:|---|
@@ -13,6 +13,27 @@ This branch captures the Phase 6 SQL that was rehearsed and cut over on the dedi
 | 5 | `corr_00450` | `migrations/00450_core_application_security.sql` | 35843 | `fcffa593f087308a87c5d58e974cfbb81f13c2335429da82c24bfe8c11c980ee` |
 | 6 | `00460` | `migrations/00460_finance_payroll_security.sql` | 13609 | `927032d087c2f1cd9faaa59ba10a9dbf76afb8a47b074dff029d7ced19b76add` |
 | 7 | `test_00500_v3_exact` | `migrations/00500_final_cutover_v3.sql` | 27102 | `8439ce1388eccc8bf1090a8cd3effd5c6f0e0ec6c991e1b3d84cc0d278f0038f` |
+
+## Production-specific reconciliation
+
+Production preflight found an important legacy semantic difference: the old `apply_project_timeline()` and `client_approve_project_milestone()` logic advanced projects through Print -> eBook regardless of `service_type`. Therefore the original 00200 rule that treats a Print/eBook service-label mismatch with historical submitted/approved milestones as an error is too strict for production history.
+
+An additive migration is therefore inserted **after 00200 and before 00300**:
+
+`migrations/00250_production_legacy_reconciliation.sql`
+
+Its rules are intentionally narrow:
+
+- actual Print submitted/approved evidence may only widen `requires_print` to `true`;
+- actual eBook submitted/approved evidence may only widen `requires_ebook` to `true`;
+- no capability is ever turned off;
+- unknown service types are not automatically marked resolved;
+- only the exact 00200 error records caused by those evidence-backed legacy mismatches are marked resolved;
+- evidence-less `on_hold` / `cancelled` / `archived` rows receive an inert `files_received + paused + none` canonical anchor so the canonical tuple remains valid without restarting workflow.
+
+Read-only production simulation on 2026-09-13 found: 6 eBook widenings, 2 Print widenings, 1 neutral Cancelled-stage anchor, 0 remaining active capability ambiguities after this rule.
+
+**Status:** this 00250 source is production-specific and has not yet had a fresh full-chain rehearsal. It must be rehearsed before any production write.
 
 ## Validation sources
 
@@ -31,6 +52,14 @@ The final workflow V6 suite passed in a rollback-only transaction. Migration 005
 
 The staging-only workflow V6 test differs from the older V4 source only in test harness corrections: it avoids direct guarded canonical updates when constructing fixtures, uses an Admin claim for client-profile fixture mutation, and widens the pause/resume timing window from one second to five seconds. No workflow production logic was changed for those test corrections.
 
-## Production rule
+## Production gate
 
-Do not apply any Phase 6 migration to production until every file listed above exists on this branch and its SHA-256 matches this manifest. Run a production preflight separately; do not reuse staging fixture data or staging helper schemas as production dependencies.
+Do **not** apply Phase 6 to production until all of the following are true:
+
+1. every staging-validated migration/test payload is exported into this branch and matches its SHA-256 above;
+2. the new 00250 reconciliation is included in a fresh rehearsal chain;
+3. the full workflow/core/finance/security/cutover tests pass against that fresh chain;
+4. production preflight reports no unresolved error-level backfill issues and no invalid canonical tuples;
+5. a final production execution plan identifies the exact project ref and explicitly excludes Tahir-Tracker.
+
+Staging helper schemas and synthetic fixture data are never production dependencies.
