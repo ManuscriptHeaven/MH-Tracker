@@ -15,14 +15,11 @@ import {
   Users,
   UserPlus,
   Wallet,
-  Sparkles,
-  KeyRound,
 } from 'lucide-react';
 import { PayrollStatusBadge, RoleBadge } from '../components/Badges';
 import { Button, Card, Field, SelectField } from '../components/ui';
 import { UserAvatar } from '../components/UserAvatar';
 import { AvatarUploadModal } from '../components/AvatarUploadModal';
-import { ShareableInviteModal } from '../components/ShareableInviteModal';
 import { closedStatuses } from '../lib/constants';
 import { useCurrency } from '../lib/currency';
 import { isOverdue } from '../lib/date';
@@ -85,7 +82,7 @@ export function TeamPage({
     profileId: string,
     updates: { full_name?: string; avatar_url?: string | null; phone?: string | null }
   ) => Promise<string | void>;
-  onAddEmployee?: (employeeData: { fullName: string; email: string; password: string; role: Role }) => Promise<void>;
+  onAddEmployee?: (employeeData: { fullName: string; email: string; phone?: string; role: Role }) => Promise<string>;
 }) {
   const { formatMoney, convertMoney, displayCurrency } = useCurrency();
   const [tab, setTab] = useState<Tab>('payroll');
@@ -111,25 +108,11 @@ export function TeamPage({
   const [showAddEmployeeModal, setShowAddEmployeeModal] = useState(false);
   const [newEmployeeName, setNewEmployeeName] = useState('');
   const [newEmployeeEmail, setNewEmployeeEmail] = useState('');
-  const [newEmployeePassword, setNewEmployeePassword] = useState('');
+  const [newEmployeePhone, setNewEmployeePhone] = useState('');
   const [newEmployeeRole, setNewEmployeeRole] = useState<Role>('employee');
   const [addEmployeeLoading, setAddEmployeeLoading] = useState(false);
   const [addEmployeeError, setAddEmployeeError] = useState<string | null>(null);
-  const [createdInviteModalData, setCreatedInviteModalData] = useState<{
-    name: string;
-    email: string;
-    role: Role;
-    password?: string;
-  } | null>(null);
-
-  function generatePassword() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$';
-    let pass = 'MH@';
-    for (let i = 0; i < 6; i++) {
-      pass += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    setNewEmployeePassword(pass);
-  }
+  const [provisionSuccess, setProvisionSuccess] = useState<string | null>(null);
 
   const team = useMemo(() => profiles.filter((p) => !isClientRole(p.role)), [profiles]);
   const isEmployeeRole = currentProfile?.role === 'employee';
@@ -237,6 +220,7 @@ export function TeamPage({
               variant="secondary"
               onClick={() => {
                 setAddEmployeeError(null);
+                setProvisionSuccess(null);
                 setShowAddEmployeeModal(true);
               }}
               className="text-xs py-2 px-3.5 shadow-sm"
@@ -255,6 +239,12 @@ export function TeamPage({
           </div>
         ) : null}
       </div>
+
+      {provisionSuccess && (
+        <p className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-800">
+          {provisionSuccess}
+        </p>
+      )}
 
       {/* ========================================================================= */}
       {/* TAB 1: PAYROLL & DUES (EASY TO USE) */}
@@ -705,7 +695,7 @@ export function TeamPage({
               </button>
             </div>
             <p className="text-xs text-muted mb-4">
-              Create a new employee account. This will create their profile in Supabase so they can log in.
+              Pre-provision the team member's role. Ask them to sign up normally with this exact email and choose their own password.
             </p>
             <form
               onSubmit={async (e) => {
@@ -713,30 +703,17 @@ export function TeamPage({
                 if (!onAddEmployee) return;
                 setAddEmployeeLoading(true);
                 setAddEmployeeError(null);
-                let assignedPassword = newEmployeePassword;
-                if (!assignedPassword) {
-                  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$';
-                  assignedPassword = 'MH@';
-                  for (let i = 0; i < 6; i++) {
-                    assignedPassword += chars.charAt(Math.floor(Math.random() * chars.length));
-                  }
-                }
                 try {
-                  await onAddEmployee({
+                  const message = await onAddEmployee({
                     fullName: newEmployeeName,
                     email: newEmployeeEmail,
-                    password: assignedPassword,
+                    phone: newEmployeePhone,
                     role: newEmployeeRole,
                   });
-                  setCreatedInviteModalData({
-                    name: newEmployeeName,
-                    email: newEmployeeEmail,
-                    role: newEmployeeRole,
-                    password: assignedPassword,
-                  });
+                  setProvisionSuccess(message || 'Team member pre-provisioned. Ask them to sign up using this email.');
                   setNewEmployeeName('');
                   setNewEmployeeEmail('');
-                  setNewEmployeePassword('');
+                  setNewEmployeePhone('');
                   setShowAddEmployeeModal(false);
                 } catch (err: any) {
                   setAddEmployeeError(err.message || 'Failed to add employee.');
@@ -769,31 +746,14 @@ export function TeamPage({
                 <option value="employee">Employee / Staff Member</option>
                 <option value="project_manager">Project Manager</option>
                 <option value="junior_assistant">Junior Assistant</option>
-                <option value="admin">Administrator</option>
               </SelectField>
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-semibold text-charcoal">
-                    Initial Password
-                  </label>
-                  <button
-                    type="button"
-                    onClick={generatePassword}
-                    className="text-xs font-bold text-gold hover:underline flex items-center gap-1"
-                  >
-                    <Sparkles className="h-3 w-3" />
-                    Auto-Generate Password
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  value={newEmployeePassword}
-                  onChange={(e) => setNewEmployeePassword(e.target.value)}
-                  placeholder="e.g. MH@Temp123 or click Auto-Generate"
-                  className="w-full rounded-md border border-border bg-white p-2.5 text-sm font-mono text-charcoal shadow-soft focus:border-gold focus:outline-hidden"
-                  required
-                />
-              </div>
+              <Field
+                label="Phone (optional)"
+                type="tel"
+                value={newEmployeePhone}
+                onChange={(e) => setNewEmployeePhone(e.target.value)}
+                placeholder="e.g. +92 300 1234567"
+              />
 
               {addEmployeeError && (
                 <p className="rounded-md bg-red-50 p-2.5 text-xs text-danger">{addEmployeeError}</p>
@@ -808,7 +768,7 @@ export function TeamPage({
                   Cancel
                 </Button>
                 <Button type="submit" disabled={addEmployeeLoading}>
-                  {addEmployeeLoading ? 'Creating in Supabase...' : 'Create & Generate Invite'}
+                  {addEmployeeLoading ? 'Pre-provisioning...' : 'Pre-provision Team Member'}
                 </Button>
               </div>
             </form>
@@ -816,16 +776,6 @@ export function TeamPage({
         </div>
       )}
 
-      {createdInviteModalData && (
-        <ShareableInviteModal
-          isOpen={!!createdInviteModalData}
-          onClose={() => setCreatedInviteModalData(null)}
-          recipientName={createdInviteModalData.name}
-          recipientEmail={createdInviteModalData.email}
-          role={createdInviteModalData.role}
-          temporaryPassword={createdInviteModalData.password}
-        />
-      )}
     </div>
   );
 }

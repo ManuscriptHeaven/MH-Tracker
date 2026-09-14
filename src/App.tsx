@@ -26,7 +26,7 @@ import { AIChatPanel } from './components/ai/AIChatPanel';
 import { AIDailyPopup } from './components/ai/AIDailyPopup';
 import { useTracker } from './lib/useTracker';
 import { errorMessage, isClientRole } from './lib/utils';
-import type { Project, ProjectDraft, Role } from './lib/types';
+import type { Project, ProjectDraft, ProjectMetadataUpdate, Role } from './lib/types';
 
 import { RevisionRequestModal } from './components/RevisionRequestModal';
 import { Toast, type ToastData } from './components/Toast';
@@ -66,7 +66,7 @@ export default function App() {
   async function handleSaveProject(draft: ProjectDraft) {
     try {
       if (editingProject) {
-        await tracker.updateProject(editingProject.id, draft);
+        await tracker.updateProjectFromDraft(editingProject.id, draft);
         setEditingProject(null);
         setToast({ message: 'Project updated successfully.', tone: 'success' });
         return;
@@ -90,7 +90,7 @@ export default function App() {
     if (!window.confirm(`Delete "${project.project_title}"? This cannot be undone.`)) return;
     await tracker.deleteProject(project.id); setSelectedProject(null);
   }
-  async function updateSelectedProject(updates: Partial<Project>) {
+  async function updateSelectedProject(updates: ProjectMetadataUpdate) {
     if (selectedProjectFresh) await tracker.updateProject(selectedProjectFresh.id, updates);
   }
 
@@ -140,7 +140,32 @@ export default function App() {
 
   /* ---------- AI Assistant Integration ---------- */
 
-  const pageProps = { projects: visibleProjects, profiles: tracker.data.profiles, searchTerm, canManageAll: tracker.canManageAll, currentProfile: tracker.currentProfile, onSelectProject: setSelectedProject, onEditProject: openEditProject, onDeleteProject: deleteProject, onDuplicateProject: tracker.duplicateProject, onUpdateProject: tracker.updateProject, onAddProject: openAddProject };
+  const pageProps = { projects: visibleProjects, profiles: tracker.data.profiles, searchTerm, canManageAll: tracker.canManageAll, currentProfile: tracker.currentProfile, onSelectProject: setSelectedProject, onEditProject: openEditProject, onDeleteProject: deleteProject, onDuplicateProject: tracker.duplicateProject, onSetProjectLifecycle: tracker.setProjectLifecycle, onAddProject: openAddProject };
+  const taskPageProps = {
+    projects: tracker.data.projects,
+    profiles: tracker.data.profiles,
+    currentProfile: tracker.currentProfile,
+    searchTerm,
+    taskAssignees: tracker.data.taskAssignees,
+    taskComments: tracker.data.taskComments,
+    taskChecklistItems: tracker.data.taskChecklistItems,
+    taskDependencies: tracker.data.taskDependencies,
+    onCreateTask: async (draft: Parameters<typeof tracker.createTask>[0]) => { await tracker.createTask(draft); },
+    onUpdateTask: async (taskId: string, updates: Parameters<typeof tracker.updateTask>[1]) => { await tracker.updateTask(taskId, updates); },
+    onArchiveTask: async (taskId: string) => { await tracker.archiveTask(taskId); },
+    onAssignCollaborator: async (taskId: string, profileId: string) => { await tracker.assignTaskCollaborator(taskId, profileId); },
+    onRemoveCollaborator: tracker.removeTaskCollaborator,
+    onAddComment: async (taskId: string, comment: string) => { await tracker.addTaskComment(taskId, comment); },
+    onUpdateComment: async (commentId: string, comment: string) => { await tracker.updateTaskComment(commentId, comment); },
+    onDeleteComment: tracker.deleteTaskComment,
+    onAddChecklistItem: async (taskId: string, title: string) => { await tracker.addTaskChecklistItem(taskId, title); },
+    onToggleChecklistItem: async (itemId: string, completed: boolean) => { await tracker.toggleTaskChecklistItem(itemId, completed); },
+    onDeleteChecklistItem: tracker.deleteTaskChecklistItem,
+    onAddDependency: async (taskId: string, dependsOnTaskId: string) => { await tracker.addTaskDependency(taskId, dependsOnTaskId); },
+    onRemoveDependency: tracker.removeTaskDependency,
+    onCreateSubtask: async (parentTaskId: string, draft: Parameters<typeof tracker.createTask>[0]) => { await tracker.createSubtask(parentTaskId, draft); },
+    onSelectProject: setSelectedProject,
+  };
 
   return (
     <CurrencyProvider>
@@ -177,8 +202,8 @@ export default function App() {
     )}
     {activeView === 'projects' && isClient && <ClientProjectsPage projects={visibleProjects} searchTerm={searchTerm} onSelectProject={setSelectedProject} />}
     {activeView === 'projects' && !isClient && <ProjectsPage {...pageProps} />}
-    {activeView === 'my_tasks' && <TasksPage mode="personal" tasks={tracker.visibleTasks} projects={tracker.data.projects} profiles={tracker.data.profiles} currentProfile={tracker.currentProfile} searchTerm={searchTerm} onCreateTask={async (draft) => { await tracker.createTask(draft); }} onUpdateTask={async (taskId, updates) => { await tracker.updateTask(taskId, updates); }} onSelectProject={setSelectedProject} />}
-    {activeView === 'team_tasks' && tracker.canManageAll && <TasksPage mode="team" tasks={tracker.teamTasks} projects={tracker.data.projects} profiles={tracker.data.profiles} currentProfile={tracker.currentProfile} searchTerm={searchTerm} onCreateTask={async (draft) => { await tracker.createTask(draft); }} onUpdateTask={async (taskId, updates) => { await tracker.updateTask(taskId, updates); }} onSelectProject={setSelectedProject} />}
+    {activeView === 'my_tasks' && <TasksPage {...taskPageProps} mode="personal" tasks={tracker.visibleTasks} />}
+    {activeView === 'team_tasks' && tracker.canManageAll && <TasksPage {...taskPageProps} mode="team" tasks={tracker.teamTasks} />}
     {activeView === 'communication' && (
       <CommunicationPage
         currentProfile={tracker.currentProfile}
@@ -211,9 +236,7 @@ export default function App() {
         onSaveCompensation={tracker.saveEmployeeCompensation}
         onDeleteLedgerEntry={tracker.deleteEmployeeLedgerEntry}
         onUpdateProfile={tracker.updateProfile}
-        onAddEmployee={async (data) => {
-          await tracker.signUp(data);
-        }}
+        onAddEmployee={tracker.provisionTeamMember}
       />
     )}
     {activeView === 'clients' && tracker.currentProfile.role === 'admin' && (
@@ -259,7 +282,7 @@ export default function App() {
         onUpdateProfile={tracker.updateProfile}
       />
     )}
-    {showProjectForm && <ProjectFormModal currentProfile={tracker.currentProfile} profiles={tracker.data.profiles} projects={tracker.data.projects} project={editingProject} onClose={() => { setShowProjectForm(false); setEditingProject(null); }} onSubmit={handleSaveProject} />}
+    {showProjectForm && <ProjectFormModal currentProfile={tracker.currentProfile} profiles={tracker.data.profiles} projects={tracker.data.projects} project={editingProject} canonical={tracker.mode === 'supabase'} onClose={() => { setShowProjectForm(false); setEditingProject(null); }} onSubmit={handleSaveProject} />}
     {selectedProjectFresh && !isClient && (
       <ProjectDetail
         project={selectedProjectFresh}
@@ -278,6 +301,8 @@ export default function App() {
         onEdit={() => openEditProject(selectedProjectFresh)}
         onDelete={() => deleteProject(selectedProjectFresh)}
         onUpdateProject={updateSelectedProject}
+        onAdvanceWorkflowStage={() => tracker.advanceWorkflowStage(selectedProjectFresh.id)}
+        onCompleteFinalDelivery={(note) => tracker.completeFinalDelivery(selectedProjectFresh.id, note)}
         onAddNote={async (noteType, note) => { await tracker.addNote(selectedProjectFresh.id, noteType, note); }}
         onAddRevision={async (note, status) => { await tracker.addRevision(selectedProjectFresh.id, note, status); }}
         onUpdateRevisionRequest={tracker.updateRevisionRequest}

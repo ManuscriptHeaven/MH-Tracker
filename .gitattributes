@@ -1,0 +1,4 @@
+# Phase 6 review artifacts are immutable and include accepted trailing-space bytes.
+# Keep git diff --check strict everywhere else without rewriting their pinned hashes.
+docs/PHASE6_*.md whitespace=-blank-at-eol
+supabase/phase6/migrations/00[1-5]*_phase6_*.sql whitespace=-blank-at-eol

@@ -1,74 +1,43 @@
 import { Copy, Download, Edit, Eye, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { PaymentBadge, PriorityBadge, StatusBadge } from '../components/Badges';
 import { ProjectTimelineCompact } from '../components/ProjectTimeline';
 import { Button, Card, EmptyState, IconButton, SelectField } from '../components/ui';
 import {
-  isProjectStatus,
   paymentStatuses,
   priorityOptions,
-  projectStatusChoices,
   serviceTypes,
   statusOptions,
 } from '../lib/constants';
 import { deadlineClass, deadlineLabel, formatDate } from '../lib/date';
 import { downloadTextFile, firstName, isClientRole, projectCsv } from '../lib/utils';
 import { useCurrency } from '../lib/currency';
-import type { PaymentStatus, Priority, Profile, Project, ProjectStatus } from '../lib/types';
+import type { PaymentStatus, Priority, Profile, Project, ProjectLifecycleStatus, ProjectStatus } from '../lib/types';
 
 function profileName(profiles: Profile[], id?: string | null) {
   const profile = profiles.find((item) => item.id === id);
   return profile ? firstName(profile.full_name) : 'Unassigned';
 }
 
-function QuickStatusInput({
+function QuickLifecycleInput({
   project,
-  onUpdateProject,
+  onSetProjectLifecycle,
 }: {
   project: Project;
-  onUpdateProject: (projectId: string, updates: Partial<Project>) => void;
+  onSetProjectLifecycle: (projectId: string, lifecycle: ProjectLifecycleStatus) => void;
 }) {
-  const [value, setValue] = useState(project.status);
-  const listId = `project-status-options-${project.id}`;
-
-  useEffect(() => {
-    setValue(project.status);
-  }, [project.status]);
-
-  function commitStatus() {
-    if (value === project.status) {
-      return;
-    }
-
-    if (!isProjectStatus(value)) {
-      setValue(project.status);
-      return;
-    }
-
-    onUpdateProject(project.id, { status: value });
-  }
-
   return (
-    <>
-      <input
-        list={listId}
-        value={value}
-        onChange={(event) => setValue(event.target.value as ProjectStatus)}
-        onBlur={commitStatus}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') {
-            event.currentTarget.blur();
-          }
-        }}
-        className="h-10 w-40 rounded-md border border-border bg-white px-2 text-xs"
-        title="Type or choose a status, then press Enter."
-      />
-      <datalist id={listId}>
-        {projectStatusChoices(project.status).map((status) => (
-          <option key={status} value={status} />
-        ))}
-      </datalist>
-    </>
+    <select
+      value={project.project_status || 'active'}
+      onChange={(event) => onSetProjectLifecycle(project.id, event.target.value as ProjectLifecycleStatus)}
+      className="h-10 w-40 rounded-md border border-border bg-white px-2 text-xs"
+      title="Change project lifecycle"
+    >
+      <option value="active">Active</option>
+      <option value="on_hold">On Hold</option>
+      <option value="cancelled">Cancelled</option>
+      <option value="archived">Archived</option>
+    </select>
   );
 }
 
@@ -83,7 +52,7 @@ export function ProjectsPage({
   onEditProject,
   onDeleteProject,
   onDuplicateProject,
-  onUpdateProject,
+  onSetProjectLifecycle,
   onAddProject,
   emptyTitle = 'No projects yet',
   emptyMessage = 'Create the first project to begin tracking deadlines, assignments, revisions, and payments.',
@@ -98,7 +67,7 @@ export function ProjectsPage({
   onEditProject: (project: Project) => void;
   onDeleteProject: (project: Project) => void;
   onDuplicateProject: (project: Project) => void;
-  onUpdateProject: (projectId: string, updates: Partial<Project>) => void;
+  onSetProjectLifecycle: (projectId: string, lifecycle: ProjectLifecycleStatus) => void;
   onAddProject: () => void;
   emptyTitle?: string;
   emptyMessage?: string;
@@ -255,7 +224,7 @@ export function ProjectsPage({
                     </td>
                   ) : null}
                   <td className="border-t border-border px-4 py-3">
-                    <QuickStatusInput project={project} onUpdateProject={onUpdateProject} />
+                    <QuickLifecycleInput project={project} onSetProjectLifecycle={onSetProjectLifecycle} />
                   </td>
                   <td className="border-t border-border px-4 py-3">
                     <div className="flex justify-end gap-2">

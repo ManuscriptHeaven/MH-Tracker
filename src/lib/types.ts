@@ -39,6 +39,20 @@ export type LegacyProjectStatus =
 
 export type ProjectStatus = StandardProjectStatus | LegacyProjectStatus;
 
+export type ProjectLifecycleStatus = 'active' | 'on_hold' | 'completed' | 'cancelled' | 'archived';
+export type WorkflowStage =
+  | 'files_received'
+  | 'design_concept'
+  | 'concept_approval'
+  | 'print_version'
+  | 'print_approval'
+  | 'ebook_version'
+  | 'ebook_approval'
+  | 'final_delivery';
+export type WorkflowStageStatus = 'pending' | 'active' | 'awaiting_client' | 'revision_active' | 'paused' | 'completed' | 'skipped';
+export type WorkflowWaitingOn = 'team' | 'client' | 'none';
+export type ServiceCapabilityStatus = 'needs_review' | 'inferred' | 'confirmed';
+
 export type OfficialTimelineStage =
   | 'Files Received'
   | 'Design Concept'
@@ -97,15 +111,19 @@ export interface AdminWorkflowOverrideLog {
 }
 
 export interface WorkflowSettings {
+  exclude_weekends?: boolean;
   files_received_days: number;
   design_concept_days: number;
-  design_concept_revision_days: number;
   print_version_days: number;
-  print_version_revision_days: number;
   ebook_version_days: number;
-  ebook_version_revision_days: number;
   final_delivery_days: number;
-  exclude_weekends?: boolean;
+  revision_days: number;
+  /** @deprecated UI-preview compatibility only; never persisted by canonical mutations. */
+  design_concept_revision_days?: number;
+  /** @deprecated UI-preview compatibility only; never persisted by canonical mutations. */
+  print_version_revision_days?: number;
+  /** @deprecated UI-preview compatibility only; never persisted by canonical mutations. */
+  ebook_version_revision_days?: number;
 }
 
 export interface StageData {
@@ -172,7 +190,10 @@ export type RevisionItemStatus = 'Open' | 'Under Review' | 'In Progress' | 'Comp
 
 export type NoteType = 'general' | 'internal' | 'client_instruction' | 'qa' | 'delivery' | 'work';
 
-export type TaskStatus = 'To Do' | 'In Progress' | 'Done';
+export type TaskStatus = 'To Do' | 'In Progress' | 'Blocked' | 'Done';
+export type TaskVisibility = 'team' | 'private';
+export type TaskAssignmentRole = 'primary' | 'collaborator' | 'reviewer';
+export type TaskDependencyType = 'blocks';
 
 export interface Profile {
   id: string;
@@ -242,6 +263,19 @@ export interface Project {
   internal_deadline: string;
   delivery_date: string | null;
   status: ProjectStatus;
+  project_status?: ProjectLifecycleStatus | null;
+  workflow_stage_key?: WorkflowStage | null;
+  workflow_stage_status_key?: WorkflowStageStatus | null;
+  workflow_waiting_on_key?: WorkflowWaitingOn | null;
+  workflow_version?: number;
+  requires_print?: boolean | null;
+  requires_ebook?: boolean | null;
+  service_capability_status?: ServiceCapabilityStatus;
+  capabilities_resolved_by?: string | null;
+  capabilities_resolved_at?: string | null;
+  production_seconds_total?: number;
+  client_wait_seconds_total?: number;
+  delivered_at?: string | null;
   general_notes: string;
   internal_notes: string;
   client_instructions: string;
@@ -361,6 +395,22 @@ export type ProjectDraft = Omit<
   created_by?: string | null;
 };
 
+export type ProjectMetadataUpdate = Partial<Pick<Project,
+  | 'client_name' | 'client_email' | 'client_profile_id' | 'project_title' | 'service_type'
+  | 'genre' | 'trim_size' | 'page_count' | 'word_count' | 'image_count' | 'platform'
+  | 'assigned_to' | 'project_manager' | 'priority'
+  | 'general_notes' | 'internal_notes' | 'client_instructions'
+  | 'qa_notes' | 'delivery_notes' | 'source_file_link' | 'drive_folder_link'
+  | 'client_brief_link' | 'proof_pdf_link' | 'final_print_pdf_link' | 'final_ebook_link'
+  | 'cover_file_link' | 'other_links' | 'invoiced' | 'invoice_id' | 'invoiced_at'
+  | 'total_price' | 'advance_paid' | 'payment_status' | 'payment_notes'
+>> & {
+  start_date?: string | null;
+  due_date?: string | null;
+  internal_deadline?: string | null;
+  payment_date?: string | null;
+};
+
 export interface RevisionNote {
   id: string;
   project_id: string;
@@ -384,6 +434,7 @@ export interface ProjectNote {
 export interface ActivityLog {
   id: string;
   project_id?: string | null;
+  task_id?: string | null;
   action: string;
   activity_type?: string | null;
   description?: string | null;
@@ -423,13 +474,64 @@ export interface Task {
   created_by: string;
   status: TaskStatus;
   priority: Priority;
+  start_date: string | null;
   due_date: string | null;
+  parent_task_id: string | null;
+  estimated_minutes: number | null;
+  actual_minutes: number | null;
+  blocked_reason: string | null;
+  sort_order: number;
+  task_type: string;
+  visibility: TaskVisibility;
+  archived_at: string | null;
   completed_at: string | null;
   created_at: string;
   updated_at: string;
 }
 
-export type TaskDraft = Omit<Task, 'id' | 'created_by' | 'completed_at' | 'created_at' | 'updated_at'>;
+export type TaskDraft = Pick<Task,
+  'title' | 'description' | 'project_id' | 'assigned_to' | 'status' | 'priority' | 'due_date'
+> & Partial<Pick<Task,
+  'start_date' | 'parent_task_id' | 'estimated_minutes' | 'actual_minutes' |
+  'blocked_reason' | 'sort_order' | 'task_type' | 'visibility'
+>>;
+
+export interface TaskAssignee {
+  id: string;
+  task_id: string;
+  profile_id: string;
+  assignment_role: TaskAssignmentRole;
+  assigned_by: string | null;
+  assigned_at: string;
+}
+
+export interface TaskComment {
+  id: string;
+  task_id: string;
+  user_id: string;
+  comment: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskChecklistItem {
+  id: string;
+  task_id: string;
+  title: string;
+  completed: boolean;
+  completed_by: string | null;
+  completed_at: string | null;
+  position: number;
+  created_at: string;
+}
+
+export interface TaskDependency {
+  id: string;
+  task_id: string;
+  depends_on_task_id: string;
+  dependency_type: TaskDependencyType;
+  created_at: string;
+}
 
 export interface RevisionRequest {
   id: string;
@@ -516,6 +618,10 @@ export interface TrackerData {
   notifications: NotificationItem[];
   clientProjectAccess: ClientProjectAccess[];
   tasks: Task[];
+  taskAssignees: TaskAssignee[];
+  taskComments: TaskComment[];
+  taskChecklistItems: TaskChecklistItem[];
+  taskDependencies: TaskDependency[];
   revisionRequests: RevisionRequest[];
   revisionItems: RevisionItem[];
   revisionAttachments: RevisionAttachment[];
@@ -609,6 +715,11 @@ export interface FinanceTransaction {
   updated_by?: string | null;
   updated_at?: string;
 }
+
+export type FinanceTransactionUpdate = Partial<Omit<FinanceTransaction,
+  'id' | 'created_by' | 'created_at' | 'updated_by' | 'updated_at' |
+  'amount_pkr' | 'base_amount_pkr' | 'original_amount'
+>>;
 
 export type FinanceTransactionDraft = Omit<
   FinanceTransaction,

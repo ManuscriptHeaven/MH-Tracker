@@ -1,11 +1,12 @@
 import { CheckCircle2, Clock3, ExternalLink, ListChecks, Plus, X } from 'lucide-react';
 import { type FormEvent, useMemo, useState } from 'react';
 import { PriorityBadge, TaskStatusBadge } from '../components/Badges';
+import { TaskDetailModal } from '../components/tasks/TaskDetailModal';
 import { Button, Card, EmptyState, Field, SelectField, TextareaField } from '../components/ui';
 import { priorityOptions, taskStatuses } from '../lib/constants';
 import { deadlineClass, formatDate, todayInput } from '../lib/date';
 import { firstName, isClientRole } from '../lib/utils';
-import type { Profile, Project, Task, TaskDraft, TaskStatus } from '../lib/types';
+import type { Profile, Project, Task, TaskAssignee, TaskChecklistItem, TaskComment, TaskDependency, TaskDraft, TaskStatus } from '../lib/types';
 
 function defaultDraft(currentProfile: Profile): TaskDraft {
   return {
@@ -15,7 +16,12 @@ function defaultDraft(currentProfile: Profile): TaskDraft {
     assigned_to: currentProfile.id,
     status: 'To Do',
     priority: 'Normal',
+    start_date: todayInput(),
     due_date: todayInput(),
+    estimated_minutes: null,
+    actual_minutes: null,
+    blocked_reason: null,
+    visibility: 'team',
   };
 }
 
@@ -77,6 +83,10 @@ function SummaryCard({ label, value, colorClass }: { label: string; value: numbe
 
 export function TasksPage({
   tasks,
+  taskAssignees,
+  taskComments,
+  taskChecklistItems,
+  taskDependencies,
   projects,
   profiles,
   currentProfile,
@@ -84,9 +94,25 @@ export function TasksPage({
   searchTerm,
   onCreateTask,
   onUpdateTask,
+  onArchiveTask,
+  onAssignCollaborator,
+  onRemoveCollaborator,
+  onAddComment,
+  onUpdateComment,
+  onDeleteComment,
+  onAddChecklistItem,
+  onToggleChecklistItem,
+  onDeleteChecklistItem,
+  onAddDependency,
+  onRemoveDependency,
+  onCreateSubtask,
   onSelectProject,
 }: {
   tasks: Task[];
+  taskAssignees: TaskAssignee[];
+  taskComments: TaskComment[];
+  taskChecklistItems: TaskChecklistItem[];
+  taskDependencies: TaskDependency[];
   projects: Project[];
   profiles: Profile[];
   currentProfile: Profile;
@@ -94,17 +120,31 @@ export function TasksPage({
   searchTerm: string;
   onCreateTask: (draft: TaskDraft) => Promise<void>;
   onUpdateTask: (taskId: string, updates: Partial<Task>) => Promise<void>;
+  onArchiveTask: (taskId: string) => Promise<void>;
+  onAssignCollaborator: (taskId: string, profileId: string) => Promise<void>;
+  onRemoveCollaborator: (taskId: string, profileId: string) => Promise<void>;
+  onAddComment: (taskId: string, comment: string) => Promise<void>;
+  onUpdateComment: (commentId: string, comment: string) => Promise<void>;
+  onDeleteComment: (commentId: string) => Promise<void>;
+  onAddChecklistItem: (taskId: string, title: string) => Promise<void>;
+  onToggleChecklistItem: (itemId: string, completed: boolean) => Promise<void>;
+  onDeleteChecklistItem: (itemId: string) => Promise<void>;
+  onAddDependency: (taskId: string, dependsOnTaskId: string) => Promise<void>;
+  onRemoveDependency: (dependencyId: string) => Promise<void>;
+  onCreateSubtask: (parentTaskId: string, draft: TaskDraft) => Promise<void>;
   onSelectProject?: (project: Project) => void;
 }) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [draft, setDraft] = useState<TaskDraft>(() => defaultDraft(currentProfile));
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   
-  const [quickFilter, setQuickFilter] = useState<'all' | 'todo' | 'progress' | 'urgent' | 'overdue' | 'done'>('all');
+  const [quickFilter, setQuickFilter] = useState<'all' | 'mine' | 'due_today' | 'overdue' | 'blocked' | 'done'>('all');
   const [sortBy, setSortBy] = useState<'due' | 'priority' | 'recent' | 'project' | 'status'>('due');
   const [employeeFilter, setEmployeeFilter] = useState<string>('all');
   const [projectFilter, setProjectFilter] = useState<string>('all');
+  const [priorityFilter, setPriorityFilter] = useState<string>('all');
 
   const teamProfiles = profiles.filter((profile) => !isClientRole(profile.role));
   const normalizedSearch = searchTerm.trim().toLowerCase();
@@ -112,18 +152,21 @@ export function TasksPage({
   // Mode restriction check:
   // In personal mode, strictly filter tasks assigned to current user.
   const personalTasks = useMemo(() => {
-    return tasks.filter((task) => mode === 'team' || task.assigned_to === currentProfile.id);
-  }, [tasks, mode, currentProfile.id]);
+    const mine = new Set(taskAssignees.filter((item) => item.profile_id === currentProfile.id).map((item) => item.task_id));
+    return tasks.filter((task) => !task.archived_at && (mode === 'team' || task.assigned_to === currentProfile.id || mine.has(task.id)));
+  }, [tasks, taskAssignees, mode, currentProfile.id]);
 
   const filteredTasks = useMemo(() => {
     return personalTasks
       .filter((task) => {
         if (mode === 'team' && employeeFilter !== 'all') {
-          if (task.assigned_to !== employeeFilter) return false;
+          const hasAssignment = task.assigned_to === employeeFilter || taskAssignees.some((item) => item.task_id === task.id && item.profile_id === employeeFilter);
+          if (!hasAssignment) return false;
         }
         if (projectFilter !== 'all') {
           if (task.project_id !== projectFilter) return false;
         }
+        if (priorityFilter !== 'all' && task.priority !== priorityFilter) return false;
         return true;
       })
       .filter((task) => {
@@ -146,12 +189,12 @@ export function TasksPage({
       })
       .filter((task) => {
         if (quickFilter === 'all') return true;
-        if (quickFilter === 'todo') return task.status === 'To Do';
-        if (quickFilter === 'progress') return task.status === 'In Progress';
-        if (quickFilter === 'urgent') return task.priority === 'Urgent';
+        if (quickFilter === 'mine') return task.assigned_to === currentProfile.id || taskAssignees.some((item) => item.task_id === task.id && item.profile_id === currentProfile.id);
+        if (quickFilter === 'due_today') return task.status !== 'Done' && task.due_date === new Date().toISOString().slice(0, 10);
         if (quickFilter === 'overdue') {
           return task.status !== 'Done' && task.due_date !== null && new Date(`${task.due_date}T23:59:59`) < new Date();
         }
+        if (quickFilter === 'blocked') return task.status === 'Blocked';
         if (quickFilter === 'done') return task.status === 'Done';
         return true;
       })
@@ -175,7 +218,7 @@ export function TasksPage({
         const bDate = b.due_date ? new Date(b.due_date).getTime() : Number.MAX_SAFE_INTEGER;
         return aDate - bDate || new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
-  }, [personalTasks, mode, employeeFilter, projectFilter, projects, profiles, normalizedSearch, quickFilter, sortBy]);
+  }, [personalTasks, mode, employeeFilter, projectFilter, priorityFilter, projects, profiles, normalizedSearch, quickFilter, sortBy, taskAssignees, currentProfile.id]);
 
   function update<K extends keyof TaskDraft>(key: K, value: TaskDraft[K]) {
     setDraft((previous) => ({ ...previous, [key]: value }));
@@ -211,10 +254,10 @@ export function TasksPage({
     const list = personalTasks;
     return {
       all: list.length,
-      todo: list.filter((t) => t.status === 'To Do').length,
-      progress: list.filter((t) => t.status === 'In Progress').length,
-      urgent: list.filter((t) => t.priority === 'Urgent').length,
+      open: list.filter((t) => t.status !== 'Done').length,
+      dueToday: list.filter((t) => t.status !== 'Done' && t.due_date === new Date().toISOString().slice(0, 10)).length,
       overdue: list.filter((t) => t.status !== 'Done' && t.due_date && new Date(`${t.due_date}T23:59:59`) < new Date()).length,
+      blocked: list.filter((t) => t.status === 'Blocked').length,
       done: list.filter((t) => t.status === 'Done').length,
     };
   }, [personalTasks]);
@@ -251,11 +294,12 @@ export function TasksPage({
       </div>
 
       {/* Summary Metrics Row */}
-      <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-        <SummaryCard label="Total Tasks" value={counts.all} />
-        <SummaryCard label="To Do" value={counts.todo} colorClass="text-amber-600" />
-        <SummaryCard label="In Progress" value={counts.progress} colorClass="text-blue-600" />
+      <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-5">
+        <SummaryCard label="Open" value={counts.open} />
+        <SummaryCard label="Due Today" value={counts.dueToday} colorClass="text-orange-600" />
         <SummaryCard label="Overdue" value={counts.overdue} colorClass="text-rose-600" />
+        <SummaryCard label="Blocked" value={counts.blocked} colorClass="text-red-700" />
+        <SummaryCard label="Completed" value={counts.done} colorClass="text-emerald-700" />
       </section>
 
       {/* Filter and Control Bar */}
@@ -264,10 +308,10 @@ export function TasksPage({
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
           {([
             ['all', 'All', counts.all],
-            ['todo', 'To Do', counts.todo],
-            ['progress', 'In Progress', counts.progress],
-            ['urgent', 'Urgent', counts.urgent],
+            ['mine', 'My Tasks', personalTasks.filter((task) => task.assigned_to === currentProfile.id || taskAssignees.some((item) => item.task_id === task.id && item.profile_id === currentProfile.id)).length],
+            ['due_today', 'Due Today', counts.dueToday],
             ['overdue', 'Overdue', counts.overdue],
+            ['blocked', 'Blocked', counts.blocked],
             ['done', 'Completed', counts.done],
           ] as const).map(([id, label, count]) => {
             const active = quickFilter === id;
@@ -298,7 +342,6 @@ export function TasksPage({
         {/* Filters & Sorting Controls */}
         <div className="flex flex-wrap items-center gap-3">
           {mode === 'team' ? (
-            <>
               <SelectField
                 value={employeeFilter}
                 onChange={(event) => setEmployeeFilter(event.target.value)}
@@ -311,21 +354,16 @@ export function TasksPage({
                   </option>
                 ))}
               </SelectField>
-
-              <SelectField
-                value={projectFilter}
-                onChange={(event) => setProjectFilter(event.target.value)}
-                className="w-full sm:w-44 text-xs"
-              >
-                <option value="all">All Projects</option>
-                {projects.map((proj) => (
-                  <option key={proj.id} value={proj.id}>
-                    {proj.project_number}
-                  </option>
-                ))}
-              </SelectField>
-            </>
           ) : null}
+
+          <SelectField value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)} className="w-full sm:w-44 text-xs">
+            <option value="all">All Projects</option>
+            {projects.map((proj) => <option key={proj.id} value={proj.id}>{proj.project_number}</option>)}
+          </SelectField>
+          <SelectField value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)} className="w-full sm:w-36 text-xs">
+            <option value="all">All Priorities</option>
+            {priorityOptions.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
+          </SelectField>
 
           <div className="flex items-center gap-2 min-w-44">
             <span className="text-xs font-medium text-muted">Sort:</span>
@@ -396,6 +434,11 @@ export function TasksPage({
                           {task.description}
                         </p>
                       ) : null}
+                      {task.status === 'Blocked' && task.blocked_reason ? (
+                        <p className="mt-2 rounded-md border border-red-200 bg-red-50 p-2 text-xs font-medium text-red-700">
+                          Blocked: {task.blocked_reason}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
 
@@ -423,6 +466,9 @@ export function TasksPage({
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
+                    <Button type="button" variant="secondary" onClick={() => setSelectedTaskId(task.id)} className="h-8 px-2.5 text-xs gap-1">
+                      <ListChecks className="h-3.5 w-3.5" />Details
+                    </Button>
                     {/* Status Dropdown */}
                     <div className="flex items-center gap-1.5">
                       <span className="text-muted font-medium">Status:</span>
@@ -533,6 +579,13 @@ export function TasksPage({
                 </SelectField>
 
                 <Field
+                  label="Start Date"
+                  type="date"
+                  value={draft.start_date || ''}
+                  onChange={(e) => update('start_date', e.target.value || null)}
+                />
+
+                <Field
                   label="Due Date"
                   type="date"
                   value={draft.due_date || ''}
@@ -575,6 +628,20 @@ export function TasksPage({
                 )}
               </div>
 
+              <div className="grid gap-4 sm:grid-cols-3">
+                <SelectField label="Status" value={draft.status} onChange={(e) => update('status', e.target.value as TaskStatus)}>
+                  {taskStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+                </SelectField>
+                <Field label="Estimated Minutes" type="number" min="0" value={draft.estimated_minutes ?? ''} onChange={(e) => update('estimated_minutes', e.target.value === '' ? null : Number(e.target.value))} />
+                <SelectField label="Visibility" value={draft.visibility || 'team'} onChange={(e) => update('visibility', e.target.value as TaskDraft['visibility'])}>
+                  <option value="team">Team</option><option value="private">Private</option>
+                </SelectField>
+              </div>
+
+              {draft.status === 'Blocked' ? (
+                <TextareaField label="Blocked Reason" value={draft.blocked_reason || ''} onChange={(e) => update('blocked_reason', e.target.value || null)} placeholder="What is preventing progress?" />
+              ) : null}
+
               <TextareaField
                 label="Details"
                 placeholder="Add task instructions or notes..."
@@ -596,6 +663,34 @@ export function TasksPage({
             </form>
           </div>
         </div>
+      ) : null}
+
+      {selectedTaskId && tasks.find((task) => task.id === selectedTaskId) ? (
+        <TaskDetailModal
+          task={tasks.find((task) => task.id === selectedTaskId)!}
+          tasks={tasks}
+          projects={projects}
+          profiles={profiles}
+          currentProfile={currentProfile}
+          assignees={taskAssignees}
+          comments={taskComments}
+          checklistItems={taskChecklistItems}
+          dependencies={taskDependencies}
+          onClose={() => setSelectedTaskId(null)}
+          onUpdateTask={onUpdateTask}
+          onArchiveTask={onArchiveTask}
+          onAssignCollaborator={onAssignCollaborator}
+          onRemoveCollaborator={onRemoveCollaborator}
+          onAddComment={onAddComment}
+          onUpdateComment={onUpdateComment}
+          onDeleteComment={onDeleteComment}
+          onAddChecklistItem={onAddChecklistItem}
+          onToggleChecklistItem={onToggleChecklistItem}
+          onDeleteChecklistItem={onDeleteChecklistItem}
+          onAddDependency={onAddDependency}
+          onRemoveDependency={onRemoveDependency}
+          onCreateSubtask={onCreateSubtask}
+        />
       ) : null}
     </div>
   );

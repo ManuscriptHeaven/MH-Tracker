@@ -1,0 +1,23 @@
+PHASE 6 SQL TEST V6 MANIFEST
+
+SQL test files:
+supabase/tests/database/phase6_business_days.test.sql
+SHA-256: 891541e11719ebbc7a6e8403fb1372e3e2fbfd48fcdac93521f45c24e1addb44
+
+supabase/tests/database/phase6_engine.test.sql
+SHA-256: 3f65bfb662cc27e9699fe2d288593925d5e1b322f7083c7c2d79bec1d579ec30
+
+supabase/tests/database/phase6_workflow_rpcs.test.sql
+SHA-256: 421076d7bcb1a75c016cf181c726e163cab48425d95cca3f524288cc950e23f8
+
+supabase/tests/database/phase6_security.test.sql
+SHA-256: 995701c590bfe7368b0ba556e57551e29e7e358cfd32096d8ad9a7a94a2c103c
+
+supabase/tests/database/phase6_core_security.test.sql
+SHA-256: 3b194f36dd6a2236371983fb550496f9722b30a6acfce5af55993493fd4c2a1a
+
+supabase/tests/database/phase6_finance_security.test.sql
+SHA-256: dcd71be15dab01405ccbf7a66ecc3a5373d2c972915b8b98bc5bcf688098166e
+
+Total SQL test files: 6
+No SQL test bytes were normalized during packaging.

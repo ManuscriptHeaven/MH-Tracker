@@ -303,7 +303,6 @@ interface RevisionCardProps {
   onUpdateRequest: (requestId: string, updates: Partial<RevisionRequest>) => Promise<void>;
   onUpdateItem: (itemId: string, updates: Partial<RevisionItem>) => Promise<void>;
   onUploadRevisedProof: (requestId: string, file: File) => Promise<void>;
-  onSubmitStageForApproval?: (submissionNote?: string, fileUrl?: string) => Promise<void>;
 }
 
 function SingleRevisionRequestCard({
@@ -319,7 +318,6 @@ function SingleRevisionRequestCard({
   onUpdateRequest,
   onUpdateItem,
   onUploadRevisedProof,
-  onSubmitStageForApproval,
 }: RevisionCardProps) {
   const project = projects.find((p) => p.id === request.project_id);
   const teamMembers = useMemo(
@@ -571,16 +569,9 @@ function SingleRevisionRequestCard({
         await onUploadRevisedProof(request.id, deliveryProofFile);
       }
 
-      // 2. Call parent approval / delivery submission
-      if (onSubmitStageForApproval) {
-        await onSubmitStageForApproval(teamResponse, deliveryFileUrl);
-      }
-
-      // 3. Mark request as ready for client review / completed
+      // The canonical revised-proof RPC owns status and workflow changes.
       await onUpdateRequest(request.id, {
-        status: 'Ready for Client Review',
         team_response: teamResponse,
-        completed_at: new Date().toISOString(),
       });
 
       setShowDeliveryModal(false);
@@ -1410,7 +1401,6 @@ export function RevisionRequestsPage({
   onUpdateRequest,
   onUpdateItem,
   onUploadRevisedProof,
-  onSubmitStageForApproval,
 }: {
   revisionRequests: RevisionRequest[];
   revisionItems: RevisionItem[];
@@ -1423,7 +1413,6 @@ export function RevisionRequestsPage({
   onUpdateRequest: (requestId: string, updates: Partial<RevisionRequest>) => Promise<void>;
   onUpdateItem: (itemId: string, updates: Partial<RevisionItem>) => Promise<void>;
   onUploadRevisedProof: (requestId: string, file: File) => Promise<void>;
-  onSubmitStageForApproval?: (submissionNote?: string, fileUrl?: string) => Promise<void>;
 }) {
   const visibleRequests = canManageAll
     ? revisionRequests
@@ -1476,7 +1465,6 @@ export function RevisionRequestsPage({
             onUpdateRequest={onUpdateRequest}
             onUpdateItem={onUpdateItem}
             onUploadRevisedProof={onUploadRevisedProof}
-            onSubmitStageForApproval={onSubmitStageForApproval}
           />
         );
       })}

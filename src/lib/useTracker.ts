@@ -10,19 +10,10 @@ import {
 } from './notifications';
 import { notifyWithSoundAndVoice } from './sound';
 import {
-  approvalStageForProductionStage,
-  calculateStageDueDate,
-  createStageHistoryEntry,
   deriveProjectTimeline,
   getAutoSkippedStagesForServiceType,
-  getStageDurationDays,
-  getWorkflowSettings,
-  isClientApprovalStage,
-  isStageSkipped,
-  nextStageAfterApproval,
   normalizeStage,
   validateTimelineDates,
-  validateWorkflowTransition,
   type ApprovalMilestone,
   type OfficialTimelineStage,
 } from './timeline';
@@ -40,27 +31,32 @@ import type {
   Profile,
   Project,
   ProjectDraft,
+  ProjectLifecycleStatus,
+  ProjectMetadataUpdate,
   ProjectPayment,
   ProjectNote,
   RevisionActivity,
   RevisionAttachment,
   RevisionItem,
-  ProjectStatus,
   RevisionNote,
   RevisionRequest,
   RevisionRequestDraft,
   RevisionStatus,
   Role,
   StageData,
-  StageHistoryEntry,
   StageSkipRequest,
-  StageSkipStatus,
   Task,
+  TaskAssignee,
+  TaskAssignmentRole,
+  TaskChecklistItem,
+  TaskComment,
+  TaskDependency,
   TaskDraft,
   TrackerData,
   FinanceBudget,
   FinanceTransaction,
   FinanceTransactionDraft,
+  FinanceTransactionUpdate,
   Conversation,
   ConversationMember,
   ChatMessage,
@@ -68,8 +64,11 @@ import type {
   MessageReaction,
   MessageMention,
   TimelineStage,
+  WorkflowStage,
+  WorkflowSettings,
 } from './types';
 import { DEFAULT_EXCHANGE_RATES } from './financeUtils';
+import { CanonicalWorkflowClient } from './workflowClient';
 
 type AuthMode = 'demo' | 'supabase';
 
@@ -114,27 +113,6 @@ function isMissingSchemaError(error: unknown) {
   );
 }
 
-function isEnumStatusError(error: unknown) {
-  const message = errorMessage(error, '').toLowerCase();
-  return (
-    message.includes('enum') ||
-    message.includes('project_status') ||
-    message.includes('22p02') ||
-    message.includes('invalid input value for enum')
-  );
-}
-
-const LEGACY_STATUS_FALLBACK_MAP: Record<string, string> = {
-  Active: 'In Progress',
-  'Awaiting Client Approval': 'Client Review',
-  'Final Delivery': 'Ready for Delivery',
-  'In Revision': 'In Revision',
-  'In Progress': 'In Progress',
-  Completed: 'Completed',
-  'On Hold': 'On Hold',
-  Cancelled: 'Cancelled',
-};
-
 async function safeSelect<T>(
   query: PromiseLike<{ data: T[] | null; error: unknown }>,
 ): Promise<{ data: T[]; error: null }> {
@@ -142,7 +120,7 @@ async function safeSelect<T>(
 
   if (error) {
     if (isMissingSchemaError(error)) {
-      return { data: [], error: null };
+      throw new Error('Phase 6 database configuration is incomplete: a required application table or column is unavailable.');
     }
 
     throw error;
@@ -173,7 +151,7 @@ function normalizeProject(project: Project): Project {
   const totalPrice = Number(project.total_price || 0);
   const advancePaid = Number(project.advance_paid || 0);
 
-  return deriveProjectTimeline({
+  return {
     ...project,
     total_price: totalPrice,
     advance_paid: advancePaid,
@@ -200,7 +178,7 @@ function normalizeProject(project: Project): Project {
     delay_reason: cleanText(project.delay_reason),
     client_action_required: cleanText(project.client_action_required),
     print_timeline_days: project.print_timeline_days || 5,
-  });
+  };
 }
 
 function normalizeClientProject(project: Partial<Project>): Project {
@@ -225,6 +203,17 @@ function normalizeClientProject(project: Partial<Project>): Project {
     internal_deadline: '',
     delivery_date: null,
     status: project.status || 'New',
+    project_status: project.project_status || null,
+    workflow_stage_key: project.workflow_stage_key || null,
+    workflow_stage_status_key: project.workflow_stage_status_key || null,
+    workflow_waiting_on_key: project.workflow_waiting_on_key || null,
+    workflow_version: Number(project.workflow_version || 0),
+    requires_print: project.requires_print ?? null,
+    requires_ebook: project.requires_ebook ?? null,
+    service_capability_status: project.service_capability_status || 'needs_review',
+    production_seconds_total: Number(project.production_seconds_total || 0),
+    client_wait_seconds_total: Number(project.client_wait_seconds_total || 0),
+    delivered_at: project.delivered_at || null,
     general_notes: project.general_notes || '',
     internal_notes: '',
     client_instructions: project.client_instructions || '',
@@ -355,7 +344,16 @@ function normalizeTask(task: Partial<Task>): Task {
     created_by: task.created_by || '',
     status: task.status || 'To Do',
     priority: task.priority || 'Normal',
+    start_date: cleanDate(task.start_date),
     due_date: cleanDate(task.due_date),
+    parent_task_id: task.parent_task_id || null,
+    estimated_minutes: task.estimated_minutes == null ? null : Math.max(0, Number(task.estimated_minutes)),
+    actual_minutes: task.actual_minutes == null ? null : Math.max(0, Number(task.actual_minutes)),
+    blocked_reason: cleanText(task.blocked_reason) || null,
+    sort_order: Number(task.sort_order || 0),
+    task_type: task.task_type?.trim() || 'task',
+    visibility: task.visibility === 'private' ? 'private' : 'team',
+    archived_at: task.archived_at || null,
     completed_at: task.completed_at || null,
     created_at: task.created_at || now,
     updated_at: task.updated_at || now,
@@ -372,75 +370,141 @@ function taskPayload(task: TaskDraft | Partial<Task>, createdBy?: string) {
     assigned_to: task.assigned_to || null,
     status: task.status || 'To Do',
     priority: task.priority || 'Normal',
+    start_date: cleanDate(task.start_date),
     due_date: cleanDate(task.due_date),
+    parent_task_id: task.parent_task_id || null,
+    estimated_minutes: task.estimated_minutes == null ? null : Math.max(0, Number(task.estimated_minutes)),
+    actual_minutes: task.actual_minutes == null ? null : Math.max(0, Number(task.actual_minutes)),
+    blocked_reason: task.status === 'Blocked' ? cleanText(task.blocked_reason) || null : null,
+    sort_order: Number(task.sort_order || 0),
+    task_type: task.task_type?.trim() || 'task',
+    visibility: task.visibility === 'private' ? 'private' : 'team',
+    archived_at: (task as Partial<Task>).archived_at || null,
     completed_at: task.status === 'Done' ? existingCompletedAt || new Date().toISOString() : null,
     ...(createdBy ? { created_by: createdBy } : {}),
   };
 }
 
-function supabaseProjectPayload(project: ProjectDraft | Partial<Project>) {
-  const {
-    id,
-    project_number,
-    total_price,
-    advance_paid,
-    remaining_balance,
-    payment_status,
-    payment_date,
-    payment_notes,
-    created_by,
-    created_at,
-    updated_at,
-    invoiced,
-    invoice_id,
-    invoiced_at,
-    client_profile_id,
-    ...payload
-  } = project as Partial<Project>;
-
-  void id;
-  void project_number;
-  void total_price;
-  void advance_paid;
-  void remaining_balance;
-  void payment_status;
-  void payment_date;
-  void payment_notes;
-  void created_by;
-  void created_at;
-  void updated_at;
-  void invoiced;
-  void invoice_id;
-  void invoiced_at;
-  void client_profile_id;
-
+function projectMetadataPayload(project: ProjectMetadataUpdate | ProjectDraft) {
   return {
-    ...payload,
-    assigned_to: payload.assigned_to || null,
-    project_manager: payload.project_manager || null,
-    start_date: cleanDate(payload.start_date),
-    due_date: cleanDate(payload.due_date),
-    internal_deadline: cleanDate(payload.internal_deadline),
-    delivery_date: cleanDate(payload.delivery_date),
-    files_received_date: cleanDate(payload.files_received_date),
-    design_concept_due_date: cleanDate(payload.design_concept_due_date),
-    design_concept_submitted_date: cleanDate(payload.design_concept_submitted_date),
-    design_concept_approval_date: cleanDate(payload.design_concept_approval_date),
-    concept_revision_due_date: cleanDate(payload.concept_revision_due_date),
-    print_version_due_date: cleanDate(payload.print_version_due_date),
-    print_version_submitted_date: cleanDate(payload.print_version_submitted_date),
-    print_version_approval_date: cleanDate(payload.print_version_approval_date),
-    print_revision_due_date: cleanDate(payload.print_revision_due_date),
-    ebook_due_date: cleanDate(payload.ebook_due_date),
-    ebook_submitted_date: cleanDate(payload.ebook_submitted_date),
-    ebook_approval_date: cleanDate(payload.ebook_approval_date),
-    final_delivery_date: cleanDate(payload.final_delivery_date),
-    print_timeline_days: payload.print_timeline_days || 5,
-    progress_percentage: Number(payload.progress_percentage || 0),
-    production_days_used: Number(payload.production_days_used || 0),
-    client_action_required: cleanText(payload.client_action_required),
-    delay_reason: cleanText(payload.delay_reason),
+    client_name: project.client_name,
+    client_email: project.client_email,
+    client_profile_id: project.client_profile_id,
+    project_title: project.project_title,
+    service_type: project.service_type,
+    genre: project.genre,
+    trim_size: project.trim_size,
+    page_count: project.page_count,
+    word_count: project.word_count,
+    image_count: project.image_count,
+    platform: project.platform,
+    assigned_to: project.assigned_to,
+    project_manager: project.project_manager,
+    priority: project.priority,
+    start_date: cleanDate(project.start_date),
+    due_date: cleanDate(project.due_date),
+    internal_deadline: cleanDate(project.internal_deadline),
+    general_notes: project.general_notes,
+    internal_notes: project.internal_notes,
+    client_instructions: project.client_instructions,
+    qa_notes: project.qa_notes,
+    delivery_notes: project.delivery_notes,
+    source_file_link: project.source_file_link,
+    drive_folder_link: project.drive_folder_link,
+    client_brief_link: project.client_brief_link,
+    proof_pdf_link: project.proof_pdf_link,
+    final_print_pdf_link: project.final_print_pdf_link,
+    final_ebook_link: project.final_ebook_link,
+    cover_file_link: project.cover_file_link,
+    other_links: project.other_links,
+    invoiced: project.invoiced,
+    invoice_id: project.invoice_id,
+    invoiced_at: project.invoiced_at,
   };
+}
+
+function legacyTaskPayload(task: TaskDraft | Partial<Task>, createdBy?: string) {
+  const payload = taskPayload(task, createdBy);
+  return {
+    title: payload.title,
+    description: payload.description,
+    project_id: payload.project_id,
+    assigned_to: payload.assigned_to,
+    status: payload.status === 'Blocked' ? 'In Progress' : payload.status,
+    priority: payload.priority,
+    due_date: payload.due_date,
+    completed_at: payload.completed_at,
+    ...(createdBy ? { created_by: createdBy } : {}),
+  };
+}
+
+async function requiredSelect<T>(
+  query: PromiseLike<{ data: T[] | null; error: unknown }>,
+  label: string,
+): Promise<{ data: T[]; error: null }> {
+  const { data, error } = await query;
+  if (error) {
+    if (isMissingSchemaError(error)) {
+      const missing = new Error(`Phase 6 database configuration is incomplete: ${label} is unavailable.`);
+      (missing as Error & { cause?: unknown }).cause = error;
+      throw missing;
+    }
+    throw error;
+  }
+  return { data: data || [], error: null };
+}
+
+async function optionalV2Select<T>(
+  query: PromiseLike<{ data: T[] | null; error: unknown }>,
+): Promise<{ data: T[]; error: null }> {
+  const { data, error } = await query;
+  if (error) {
+    if (isMissingSchemaError(error)) return { data: [], error: null };
+    throw error;
+  }
+  return { data: data || [], error: null };
+}
+
+function definedValues<T extends Record<string, unknown>>(value: T): Partial<T> {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as Partial<T>;
+}
+
+function canonicalSettings(settings?: WorkflowSettings): WorkflowSettings {
+  return {
+    exclude_weekends: settings?.exclude_weekends ?? true,
+    files_received_days: settings?.files_received_days ?? 2,
+    design_concept_days: settings?.design_concept_days ?? 3,
+    print_version_days: settings?.print_version_days ?? 5,
+    ebook_version_days: settings?.ebook_version_days ?? 5,
+    final_delivery_days: settings?.final_delivery_days ?? 2,
+    revision_days: settings?.revision_days ?? settings?.design_concept_revision_days ?? 2,
+  };
+}
+
+const CANONICAL_STAGE_BY_LABEL: Record<OfficialTimelineStage, WorkflowStage> = {
+  'Files Received': 'files_received',
+  'Design Concept': 'design_concept',
+  'Concept Approval': 'concept_approval',
+  'Print Version': 'print_version',
+  'Print Approval': 'print_approval',
+  'Ebook Version': 'ebook_version',
+  'Ebook Approval': 'ebook_approval',
+  'Final Delivery': 'final_delivery',
+};
+
+function toWorkflowStage(stage: TimelineStage): WorkflowStage {
+  const normalized = normalizeStage(stage);
+  if (normalized === 'Completed' || normalized === 'On Hold' || normalized === 'Cancelled') {
+    throw new Error(`${stage} is not a canonical workflow stage.`);
+  }
+  return CANONICAL_STAGE_BY_LABEL[normalized];
+}
+
+function requireWorkflowVersion(project: Project) {
+  if (!Number.isSafeInteger(project.workflow_version) || Number(project.workflow_version) < 0) {
+    throw new Error('Phase 6 database configuration is incomplete: project workflow_version is unavailable.');
+  }
+  return Number(project.workflow_version);
 }
 
 function paymentPayload(project: ProjectDraft | Partial<Project>) {
@@ -454,63 +518,25 @@ function paymentPayload(project: ProjectDraft | Partial<Project>) {
   };
 }
 
-function basePaymentPayload(project: ProjectDraft | Partial<Project>) {
-  return {
-    total_price: Number(project.total_price || 0),
-    advance_paid: Number(project.advance_paid || 0),
-    payment_status: project.payment_status || 'Not Started',
-  };
-}
-
-function isMissingPaymentMetadataColumn(error: unknown) {
-  const message = error instanceof Error ? error.message : String((error as { message?: string })?.message || '');
-  return (
-    message.includes('payment_date') ||
-    message.includes('payment_month') ||
-    message.includes('payment_year') ||
-    message.includes('due_date') ||
-    message.includes('notes')
-  );
-}
-
 async function upsertProjectPayment(
   projectId: string,
   project: ProjectDraft | Partial<Project>,
-  updatedBy: string,
 ) {
   if (!supabase) {
     return;
   }
 
-  const { error } = await supabase.from('project_payments').upsert(
-    {
-      project_id: projectId,
-      ...paymentPayload(project),
-      updated_by: updatedBy,
-    },
-    { onConflict: 'project_id' },
-  );
+  const payload = paymentPayload(project);
+  const updated = await supabase
+    .from('project_payments')
+    .update(payload)
+    .eq('project_id', projectId)
+    .select('id');
+  if (updated.error) throw updated.error;
+  if ((updated.data || []).length > 0) return;
 
-  if (!error) {
-    return;
-  }
-
-  if (!isMissingPaymentMetadataColumn(error)) {
-    throw error;
-  }
-
-  const { error: fallbackError } = await supabase.from('project_payments').upsert(
-    {
-      project_id: projectId,
-      ...basePaymentPayload(project),
-      updated_by: updatedBy,
-    },
-    { onConflict: 'project_id' },
-  );
-
-  if (fallbackError) {
-    throw fallbackError;
-  }
+  const inserted = await supabase.from('project_payments').insert({ project_id: projectId, ...payload });
+  if (inserted.error) throw inserted.error;
 }
 
 function mergePayments(projects: Project[], payments: ProjectPayment[]) {
@@ -545,12 +571,14 @@ async function uploadRevisionFile({
   requestId,
   file,
   itemId,
+  objectId,
 }: {
   clientId: string;
   projectId: string;
   requestId: string;
   file: File;
   itemId?: string | null;
+  objectId?: string;
 }) {
   if (!supabase) {
     return '';
@@ -558,16 +586,65 @@ async function uploadRevisionFile({
 
   const safeName = cleanStorageName(file.name);
   const itemPath = itemId ? `${itemId}/` : '';
-  const path = `${clientId}/${projectId}/${requestId}/${itemPath}${Date.now()}-${safeName}`;
+  const path = `${clientId}/${projectId}/${requestId}/${itemPath}${objectId || Date.now()}-${safeName}`;
   const { error } = await supabase.storage.from('revision-files').upload(path, file, {
     upsert: false,
   });
 
   if (error) {
-    throw error;
+    const message=errorMessage(error,'').toLowerCase();
+    if (!objectId || (!message.includes('already exists') && !message.includes('duplicate') && !message.includes('409'))) throw error;
   }
 
   return path;
+}
+
+async function operationFingerprint(value: unknown) {
+  if (typeof crypto === 'undefined' || !crypto.subtle) {
+    throw new Error('This browser does not support the secure hashing required for safe action retries.');
+  }
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function fileFingerprint(file: File, index = 0) {
+  return `${index}:${file.name}:${file.size}:${file.type}:${file.lastModified}`;
+}
+
+type AttachmentRetryProgress = {
+  attachmentId: string;
+  storagePath?: string;
+  uploaded: boolean;
+  insertAttempted: boolean;
+  inserted: boolean;
+};
+type RevisionSubmissionRetry = {
+  requestId?: string;
+  attachments: Map<string, AttachmentRetryProgress>;
+  complete: boolean;
+};
+type RevisedProofRetry = {
+  attachment: AttachmentRetryProgress;
+  rpcComplete: boolean;
+};
+
+async function ensureRevisionAttachment(
+  progress: AttachmentRetryProgress,
+  payload: Omit<RevisionAttachment,'created_at'>,
+) {
+  if (!supabase || progress.inserted) return;
+  if (progress.insertAttempted) {
+    const existing=await supabase.from('revision_attachments').select('id').eq('id',progress.attachmentId).maybeSingle();
+    if(existing.error) throw existing.error;
+    if(existing.data){progress.inserted=true;return;}
+  }
+  progress.insertAttempted=true;
+  const inserted=await supabase.from('revision_attachments').insert(payload);
+  if(!inserted.error){progress.inserted=true;return;}
+  const confirmed=await supabase.from('revision_attachments').select('id').eq('id',progress.attachmentId).maybeSingle();
+  if(!confirmed.error&&confirmed.data){progress.inserted=true;return;}
+  throw inserted.error;
 }
 
 function paymentFieldsChanged(previous: Project, next: Project) {
@@ -723,6 +800,8 @@ export function useTracker() {
   const [notificationToast, setNotificationToast] = useState<NotificationItem | null>(null);
 
   const isRestoringRef = useRef<boolean>(false);
+  const revisionSubmissionRetriesRef = useRef(new Map<string, RevisionSubmissionRetry>());
+  const revisedProofRetriesRef = useRef(new Map<string, RevisedProofRetry>());
 
   const loadSupabaseData = useCallback(async (profile: Profile) => {
     if (!supabase) {
@@ -736,22 +815,15 @@ export function useTracker() {
     const canManage = canManageEverything(profile);
     const emptyResult = Promise.resolve({ data: [], error: null });
 
-    if (canManage) {
-      const { error: timelineNotificationError } = await supabase.rpc('create_timeline_deadline_notifications');
-      if (timelineNotificationError && !isMissingSchemaError(timelineNotificationError)) {
-        console.warn('Timeline notification check failed:', timelineNotificationError);
-      }
-    }
-
     const profilesPromise = profileIsClient
-      ? safeSelect<Profile>(supabase.from('profiles').select('*').eq('id', profile.id))
-      : safeSelect<Profile>(supabase.from('profiles').select('*').order('full_name'));
+      ? requiredSelect<Profile>(supabase.from('profiles').select('*').eq('id', profile.id), 'self profile access')
+      : profile.role === 'admin'
+        ? requiredSelect<Profile>(supabase.from('profiles').select('*').order('full_name'), 'Admin profile access')
+        : requiredSelect<Profile>(supabase.rpc('get_collaboration_directory'), 'get_collaboration_directory()');
 
     const projectsPromise = profileIsClient
-      ? safeSelect<Partial<Project>>(
-          supabase.from('client_project_summaries').select('*'),
-        )
-      : safeSelect<Project>(supabase.from('projects').select('*').order('created_at', { ascending: false }));
+      ? requiredSelect<Partial<Project>>(supabase.rpc('get_client_project_summaries'), 'get_client_project_summaries()')
+      : requiredSelect<Project>(supabase.from('projects').select('*').order('created_at', { ascending: false }), 'canonical projects');
 
     const paymentsPromise = canManage
       ? safeSelect<ProjectPayment>(supabase.from('project_payments').select('*'))
@@ -771,61 +843,64 @@ export function useTracker() {
 
     const tasksPromise = profileIsClient
       ? emptyResult
-      : canManage
-        ? safeSelect<Task>(
-            supabase
-              .from('tasks')
-              .select('*')
-              .order('status', { ascending: true })
-              .order('due_date', { ascending: true, nullsFirst: false })
-              .order('created_at', { ascending: false }),
-          )
-        : safeSelect<Task>(
-            supabase
-              .from('tasks')
-              .select('*')
-              .eq('assigned_to', profile.id)
-              .order('status', { ascending: true })
-              .order('due_date', { ascending: true, nullsFirst: false })
-              .order('created_at', { ascending: false }),
-          );
+      : safeSelect<Task>(
+          supabase
+            .from('tasks')
+            .select('*')
+            .order('status', { ascending: true })
+            .order('due_date', { ascending: true, nullsFirst: false })
+            .order('created_at', { ascending: false }),
+        );
+    const taskAssigneesPromise = profileIsClient
+      ? emptyResult
+      : optionalV2Select<TaskAssignee>(supabase.from('task_assignees').select('*').order('assigned_at'));
+    const taskCommentsPromise = profileIsClient
+      ? emptyResult
+      : optionalV2Select<TaskComment>(supabase.from('task_comments').select('*').order('created_at'));
+    const taskChecklistPromise = profileIsClient
+      ? emptyResult
+      : optionalV2Select<TaskChecklistItem>(supabase.from('task_checklist_items').select('*').order('position'));
+    const taskDependenciesPromise = profileIsClient
+      ? emptyResult
+      : optionalV2Select<TaskDependency>(supabase.from('task_dependencies').select('*').order('created_at'));
 
-    const clientAccessPromise = canManage || profileIsClient
+    const clientAccessPromise = profile.role === 'admin'
       ? safeSelect<ClientProjectAccess>(supabase.from('client_project_access').select('*').order('created_at'))
       : emptyResult;
 
     const revisionRequestsPromise = profileIsClient
-      ? safeSelect<Partial<RevisionRequest>>(
-          supabase.from('client_revision_requests').select('*').order('created_at', { ascending: false }),
-        )
+      ? requiredSelect<Partial<RevisionRequest>>(supabase.rpc('get_client_revision_requests'), 'get_client_revision_requests()')
       : safeSelect<RevisionRequest>(supabase.from('revision_requests').select('*').order('created_at', { ascending: false }));
 
     const revisionItemsPromise = profileIsClient
-      ? safeSelect<Partial<RevisionItem>>(
-          supabase.from('client_revision_items').select('*').order('sort_order', { ascending: true }),
-        )
+      ? requiredSelect<Partial<RevisionItem>>(supabase.rpc('get_client_revision_items'), 'get_client_revision_items()')
       : safeSelect<RevisionItem>(supabase.from('revision_items').select('*').order('sort_order', { ascending: true }));
 
     const revisionAttachmentsPromise = profileIsClient
-      ? safeSelect<Partial<RevisionAttachment>>(
-          supabase.from('client_revision_attachments').select('*').order('created_at', { ascending: false }),
-        )
+      ? requiredSelect<Partial<RevisionAttachment>>(supabase.rpc('get_client_revision_attachments'), 'get_client_revision_attachments()')
       : safeSelect<RevisionAttachment>(
           supabase.from('revision_attachments').select('*').order('created_at', { ascending: false }),
         );
 
     const revisionActivityPromise = profileIsClient
-      ? safeSelect<Partial<RevisionActivity>>(
-          supabase.from('client_revision_activity').select('*').order('created_at', { ascending: false }),
-        )
+      ? requiredSelect<Partial<RevisionActivity>>(supabase.rpc('get_client_revision_activity'), 'get_client_revision_activity()')
       : safeSelect<RevisionActivity>(supabase.from('revision_activity').select('*').order('created_at', { ascending: false }));
 
-    const employeeCompensationPromise = profile.role === 'admin' || profile.role === 'manager'
+    const stageSkipsPromise = profileIsClient
+      ? requiredSelect<Partial<StageSkipRequest>>(supabase.rpc('get_client_stage_skips'), 'get_client_stage_skips()')
+      : safeSelect<StageSkipRequest>(supabase.from('project_stage_skips').select('*').order('requested_at', { ascending: false }));
+
+    const isEmployee = profile.role === 'employee' || profile.role === 'junior_assistant';
+    const employeeCompensationPromise = profile.role === 'admin'
       ? safeSelect<EmployeeCompensation>(supabase.from('employee_compensation').select('*'))
-      : emptyResult;
-    const employeeLedgerPromise = profile.role === 'admin' || profile.role === 'manager'
+      : isEmployee
+        ? safeSelect<EmployeeCompensation>(supabase.from('employee_compensation').select('*').eq('employee_id', profile.id))
+        : emptyResult;
+    const employeeLedgerPromise = profile.role === 'admin'
       ? safeSelect<EmployeeLedgerEntry>(supabase.from('employee_ledger').select('*').order('paid_at', { ascending: false }))
-      : emptyResult;
+      : isEmployee
+        ? safeSelect<EmployeeLedgerEntry>(supabase.from('employee_ledger').select('*').eq('employee_id', profile.id).order('paid_at', { ascending: false }))
+        : emptyResult;
     const financeTransactionsPromise = canManage
       ? safeSelect<FinanceTransaction>(supabase.from('finance_transactions').select('*').order('transaction_date', { ascending: false }))
       : emptyResult;
@@ -850,11 +925,16 @@ export function useTracker() {
       notesRes,
       activityRes,
       tasksRes,
+      taskAssigneesRes,
+      taskCommentsRes,
+      taskChecklistRes,
+      taskDependenciesRes,
       clientAccessRes,
       revisionRequestsRes,
       revisionItemsRes,
       revisionAttachmentsRes,
       revisionActivityRes,
+      stageSkipsRes,
       employeeCompensationRes,
       employeeLedgerRes,
       financeTransactionsRes,
@@ -874,11 +954,16 @@ export function useTracker() {
       projectNotesPromise,
       activityPromise,
       tasksPromise,
+      taskAssigneesPromise,
+      taskCommentsPromise,
+      taskChecklistPromise,
+      taskDependenciesPromise,
       clientAccessPromise,
       revisionRequestsPromise,
       revisionItemsPromise,
       revisionAttachmentsPromise,
       revisionActivityPromise,
+      stageSkipsPromise,
       employeeCompensationPromise,
       employeeLedgerPromise,
       financeTransactionsPromise,
@@ -908,18 +993,33 @@ export function useTracker() {
       : rawConvs;
 
     const nextData: TrackerData = {
-      profiles: profilesRes.data as Profile[],
+      profiles: (profilesRes.data as Partial<Profile>[]).map((item) => ({
+        id: item.id || '', full_name: item.full_name || 'Team member', email: item.email || '',
+        role: item.role || 'employee', avatar_url: item.avatar_url || null, phone: item.phone || null,
+        status: item.status || 'active', created_at: item.created_at || '',
+      })),
       projects: mergePayments(projects, payments),
       revisionNotes: revisionsRes.data as RevisionNote[],
       projectNotes: notesRes.data as ProjectNote[],
       activityLogs: activityRes.data as ActivityLog[],
       tasks: (tasksRes.data as Partial<Task>[]).map(normalizeTask),
+      taskAssignees: taskAssigneesRes.data as TaskAssignee[],
+      taskComments: taskCommentsRes.data as TaskComment[],
+      taskChecklistItems: taskChecklistRes.data as TaskChecklistItem[],
+      taskDependencies: taskDependenciesRes.data as TaskDependency[],
       notifications,
       clientProjectAccess: clientAccessRes.data as ClientProjectAccess[],
       revisionRequests: (revisionRequestsRes.data as Partial<RevisionRequest>[]).map(normalizeRevisionRequest),
       revisionItems: (revisionItemsRes.data as Partial<RevisionItem>[]).map(normalizeRevisionItem),
       revisionAttachments: (revisionAttachmentsRes.data as Partial<RevisionAttachment>[]).map(normalizeRevisionAttachment),
       revisionActivity: (revisionActivityRes.data as Partial<RevisionActivity>[]).map(normalizeRevisionActivity),
+      stageSkipRequests: (stageSkipsRes.data as Array<Partial<StageSkipRequest> & { created_at?: string; response_note?: string }>).map((item) => ({
+        id: item.id || '', project_id: item.project_id || '', stage: item.stage || 'Files Received',
+        requested_by: item.requested_by || '', requested_at: item.requested_at || item.created_at || '',
+        reason: item.reason || '', status: item.status || 'PENDING',
+        client_response_at: item.client_response_at || null,
+        client_notes: item.client_notes || item.response_note || null,
+      })),
       employeeCompensation: employeeCompensationRes.data as EmployeeCompensation[],
       employeeLedger: employeeLedgerRes.data as EmployeeLedgerEntry[],
       financeTransactions: financeTransactionsRes.data as FinanceTransaction[],
@@ -936,6 +1036,13 @@ export function useTracker() {
     setStoredTrackerData(nextData);
     setIsLoading(false);
   }, []);
+
+  const workflowClient = useMemo(
+    () => supabase && currentProfile
+      ? new CanonicalWorkflowClient(supabase, () => loadSupabaseData(currentProfile))
+      : null,
+    [currentProfile, loadSupabaseData],
+  );
 
   const fetchProfile = useCallback(async (userId: string) => {
     if (!supabase) {
@@ -1252,23 +1359,8 @@ export function useTracker() {
       setIsSubmittingLogin(true);
       setIsLoading(true);
       try {
-        let email = cleanLoginName;
-
-        if (!cleanLoginName.includes('@')) {
-          const { data: loginEmail, error: lookupError } = await supabase.rpc('find_login_email', {
-            login_name: cleanLoginName,
-          });
-
-          if (lookupError) {
-            throw lookupError;
-          }
-
-          if (!loginEmail) {
-            throw new Error('No active user found with that name. Ask admin to check the Supabase profile.');
-          }
-
-          email = String(loginEmail);
-        }
+        if (!cleanLoginName.includes('@')) throw new Error('Enter your account email address.');
+        const email = cleanLoginName;
 
         const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
           email,
@@ -1382,7 +1474,6 @@ export function useTracker() {
           options: {
             data: {
               full_name: cleanFullName,
-              role,
             },
           },
         });
@@ -1400,28 +1491,14 @@ export function useTracker() {
           id: userId,
           full_name: cleanFullName,
           email: cleanEmail,
-          role,
+          role: 'client',
           status: 'active',
           created_at: new Date().toISOString(),
         };
 
-        // If a session exists, try updating profile and team_members client-side (otherwise Postgres trigger handles it server-side)
+        // The trusted Auth trigger creates the profile and applies any exact
+        // pre-provisioned team role. Signup metadata never assigns a role.
         if (authData.session) {
-          try {
-            await supabase.from('profiles').upsert(profileObj, { onConflict: 'id' });
-            await supabase.from('team_members').upsert(
-              {
-                full_name: cleanFullName,
-                email: cleanEmail,
-                role,
-                status: 'active',
-              },
-              { onConflict: 'email' },
-            );
-          } catch (upsertErr) {
-            console.warn('Post-signup table upsert warning:', upsertErr);
-          }
-
           const fetchedProfile = (await fetchProfile(userId)) || profileObj;
           setStoredProfile(fetchedProfile);
           setStoredMode('supabase');
@@ -1463,29 +1540,32 @@ export function useTracker() {
   }, [mode]);
 
   const addActivity = useCallback(
-    async (entry: Omit<ActivityLog, 'id' | 'created_at'>) => {
+    async (entry: Omit<ActivityLog, 'id' | 'created_at' | 'user_id'>) => {
+      if (!currentProfile) throw new Error('No signed-in profile found for activity logging.');
       const activity: ActivityLog = {
         ...entry,
         id: createId('activity'),
+        user_id: currentProfile.id,
         created_at: new Date().toISOString(),
       };
+
+      if (supabase && mode === 'supabase') {
+        const { error: activityError } = await supabase.from('activity_logs').insert({
+          project_id: activity.project_id || null,
+          action: activity.action,
+          old_value: activity.old_value || null,
+          new_value: activity.new_value || null,
+          user_id: currentProfile.id,
+        });
+        if (activityError) throw activityError;
+      }
 
       setData((previous) => ({
         ...previous,
         activityLogs: [activity, ...previous.activityLogs],
       }));
-
-      if (supabase && mode === 'supabase') {
-        await supabase.from('activity_logs').insert({
-          project_id: activity.project_id || null,
-          action: activity.action,
-          old_value: activity.old_value || null,
-          new_value: activity.new_value || null,
-          user_id: activity.user_id,
-        });
-      }
     },
-    [mode],
+    [currentProfile, mode],
   );
 
   const createProject = useCallback(
@@ -1494,13 +1574,25 @@ export function useTracker() {
         return null;
       }
 
+      const isCanonicalCreation = Boolean(supabase && mode === 'supabase');
+      if (isCanonicalCreation && !canManageEverything(currentProfile)) {
+        throw new Error('Only Admin or Project Manager users can create a canonical project.');
+      }
+      if (isCanonicalCreation &&
+          (typeof draft.requires_print !== 'boolean' || typeof draft.requires_ebook !== 'boolean')) {
+        throw new Error('Confirm both Print and eBook capabilities before creating the project.');
+      }
+      if (isCanonicalCreation && !draft.requires_print && !draft.requires_ebook) {
+        throw new Error('A project must require Print, eBook, or both.');
+      }
+
       const now = new Date().toISOString();
       const timelineErrors = validateTimelineDates(draft);
       if (timelineErrors.length) {
         throw new Error(timelineErrors[0]);
       }
 
-      const autoSkipped = getAutoSkippedStagesForServiceType(draft.service_type);
+      const autoSkipped = isCanonicalCreation ? [] : getAutoSkippedStagesForServiceType(draft.service_type);
       const stageStates: Record<string, StageData> = { ...(draft.stage_states || {}) };
       autoSkipped.forEach((stg) => {
         stageStates[stg] = {
@@ -1519,7 +1611,9 @@ export function useTracker() {
         };
       });
 
-      const timelineDraft = deriveProjectTimeline({ ...draft, stage_states: stageStates }, { syncStatus: true });
+      const timelineDraft = isCanonicalCreation
+        ? draft
+        : deriveProjectTimeline({ ...draft, stage_states: stageStates }, { syncStatus: true });
       const localProject: Project = normalizeProject({
         ...timelineDraft,
         stage_states: stageStates,
@@ -1532,47 +1626,57 @@ export function useTracker() {
       });
 
       if (supabase && mode === 'supabase') {
-        const payload = supabaseProjectPayload(localProject);
-        let insertedProject: Project | null = null;
+        const requiresPrint = draft.requires_print as boolean;
+        const requiresEbook = draft.requires_ebook as boolean;
+        const payload = definedValues(projectMetadataPayload(localProject));
 
         const { data: inserted, error: insertError } = await supabase
           .from('projects')
           .insert({
             ...payload,
             created_by: currentProfile.id,
+            project_status: 'active',
+            workflow_stage_key: 'files_received',
+            workflow_stage_status_key: 'pending',
+            workflow_waiting_on_key: 'none',
+            workflow_version: 0,
+            requires_print: requiresPrint,
+            requires_ebook: requiresEbook,
+            service_capability_status: 'confirmed',
+            capabilities_resolved_by: currentProfile.id,
+            capabilities_resolved_at: now,
+            workflow_settings: canonicalSettings(draft.workflow_settings),
+            production_seconds_total: 0,
+            client_wait_seconds_total: 0,
+            revision_count: 0,
+            stage_started_at: null,
+            stage_due_at: null,
+            stage_completed_at: null,
+            final_due_at: null,
+            delivered_at: null,
+            status: 'New',
+            current_stage: 'Files Received',
+            stage_status: 'PENDING',
+            waiting_on: 'None',
+            timeline_status: 'Paused',
+            progress_percentage: 0,
+            client_action_required: '',
+            production_days_used: 0,
+            production_time_used: 0,
+            client_wait_time: 0,
           })
           .select()
           .single();
 
-        if (insertError) {
-          if (isEnumStatusError(insertError)) {
-            console.warn('Enum status error during project insert, retrying with compatible fallback status:', insertError);
-            const fallbackStatus = LEGACY_STATUS_FALLBACK_MAP[localProject.status] || 'In Progress';
-            const { data: retryData, error: retryError } = await supabase
-              .from('projects')
-              .insert({
-                ...payload,
-                status: fallbackStatus,
-                created_by: currentProfile.id,
-              })
-              .select()
-              .single();
-
-            if (retryError) throw retryError;
-            insertedProject = retryData as Project;
-          } else {
-            throw insertError;
-          }
-        } else {
-          insertedProject = inserted as Project;
-        }
+        if (insertError) throw insertError;
+        const insertedProject = inserted as Project;
 
         const projectPayment = paymentPayload(localProject);
-        await upsertProjectPayment(insertedProject.id, localProject, currentProfile.id);
+        await upsertProjectPayment(insertedProject.id, localProject);
 
         const project = normalizeProject({
-          ...insertedProject,
           ...localProject,
+          ...insertedProject,
           total_price: projectPayment.total_price,
           advance_paid: projectPayment.advance_paid,
           payment_status: projectPayment.payment_status,
@@ -1580,35 +1684,18 @@ export function useTracker() {
           payment_notes: projectPayment.notes,
         });
 
-        // Auto-link to client_project_access if a client profile with matching email exists
-        if (localProject.client_email) {
-          const matchingClient = data.profiles.find(
-            (p) => isClientRole(p.role) && p.email && p.email.trim().toLowerCase() === localProject.client_email.trim().toLowerCase(),
-          );
-          if (matchingClient) {
-            await supabase
-              .from('client_project_access')
-              .upsert(
-                { client_id: matchingClient.id, project_id: project.id },
-                { onConflict: 'client_id,project_id' },
-              );
-          }
-        }
-
         setData((previous) => ({ ...previous, projects: [project, ...previous.projects] }));
         await addActivity({
           project_id: project.id,
           action: 'Project created',
           old_value: null,
           new_value: project.project_title,
-          user_id: currentProfile.id,
         });
         await addActivity({
           project_id: project.id,
           action: 'Timeline started',
           old_value: null,
           new_value: project.current_stage || project.status,
-          user_id: currentProfile.id,
         });
         return project;
       }
@@ -1619,14 +1706,12 @@ export function useTracker() {
         action: 'Project created',
         old_value: null,
         new_value: localProject.project_title,
-        user_id: currentProfile.id,
       });
       await addActivity({
         project_id: localProject.id,
         action: 'Timeline started',
         old_value: null,
         new_value: localProject.current_stage || localProject.status,
-        user_id: currentProfile.id,
       });
       return localProject;
     },
@@ -1634,7 +1719,7 @@ export function useTracker() {
   );
 
   const updateProject = useCallback(
-    async (projectId: string, updates: Partial<Project>) => {
+    async (projectId: string, updates: ProjectMetadataUpdate) => {
       if (!currentProfile) {
         throw new Error('No signed-in profile found.');
       }
@@ -1644,83 +1729,31 @@ export function useTracker() {
         throw new Error('Project not found in the current project list.');
       }
 
-      const timelineErrors = validateTimelineDates({ ...existing, ...updates });
-      if (timelineErrors.length) {
-        throw new Error(timelineErrors[0]);
-      }
-
       const nextProject = normalizeProject({
-        ...deriveProjectTimeline({ ...existing, ...updates }, { syncStatus: true }),
+        ...existing,
+        ...updates,
+        start_date: updates.start_date ?? existing.start_date,
+        due_date: updates.due_date ?? existing.due_date,
+        internal_deadline: updates.internal_deadline ?? existing.internal_deadline,
         updated_at: new Date().toISOString(),
       });
 
       if (supabase && mode === 'supabase') {
-        let updated: Project | null = null;
-        try {
-          const payload = supabaseProjectPayload(nextProject);
-          let { data: updatedData, error: updateError } = await supabase
-            .from('projects')
-            .update({
-              ...payload,
-              updated_at: nextProject.updated_at,
-            })
-            .eq('id', projectId)
-            .select()
-            .maybeSingle();
-
-          if (updateError && isEnumStatusError(updateError)) {
-            console.warn('Enum status error during project update, retrying with compatible fallback status:', updateError);
-            const fallbackStatus = LEGACY_STATUS_FALLBACK_MAP[nextProject.status] || 'In Progress';
-            const { data: retryData, error: retryError } = await supabase
-              .from('projects')
-              .update({
-                ...payload,
-                status: fallbackStatus,
-                updated_at: nextProject.updated_at,
-              })
-              .eq('id', projectId)
-              .select()
-              .maybeSingle();
-
-            if (retryError) {
-              if (isMissingSchemaError(retryError)) {
-                console.warn('Supabase project update schema warning:', retryError);
-              } else {
-                throw retryError;
-              }
-            } else {
-              updatedData = retryData;
-              updateError = null;
-            }
-          }
-
-          if (updateError) {
-            if (isMissingSchemaError(updateError)) {
-              console.warn('Supabase project update schema warning:', updateError);
-            } else {
-              throw updateError;
-            }
-          }
-          if (updatedData) {
-            updated = updatedData as Project;
-          }
-        } catch (err) {
-          if (isMissingSchemaError(err)) {
-            console.warn('Supabase project update warning:', err);
-          } else {
-            throw err;
-          }
-        }
+        const payload = definedValues(projectMetadataPayload(updates));
+        const { data: updatedData, error: updateError } = await supabase
+          .from('projects').update(payload).eq('id', projectId).select().maybeSingle();
+        if (updateError) throw updateError;
+        if (!updatedData) throw new Error('No project metadata row was updated. Check project permissions.');
 
         const hasPaymentUpdate = paymentFieldsChanged(existing, nextProject);
 
         if (hasPaymentUpdate && canManageEverything(currentProfile)) {
-          await upsertProjectPayment(projectId, nextProject, currentProfile.id);
+          await upsertProjectPayment(projectId, nextProject);
         }
 
         const project = normalizeProject({
-          ...(updated as Project || nextProject),
           ...nextProject,
+          ...(updatedData as Project),
         });
         setData((previous) => ({
           ...previous,
@@ -1733,33 +1766,12 @@ export function useTracker() {
         }));
       }
 
-      if (updates.status && updates.status !== existing.status) {
-        await addActivity({
-          project_id: projectId,
-          action: 'Status changed',
-          old_value: existing.status,
-          new_value: updates.status,
-          user_id: currentProfile.id,
-        });
-      }
-
-      if (nextProject.current_stage && nextProject.current_stage !== existing.current_stage) {
-        await addActivity({
-          project_id: projectId,
-          action: 'Timeline stage changed',
-          old_value: existing.current_stage || existing.status,
-          new_value: nextProject.current_stage,
-          user_id: currentProfile.id,
-        });
-      }
-
       if (updates.assigned_to && updates.assigned_to !== existing.assigned_to) {
         await addActivity({
           project_id: projectId,
           action: 'Assigned to employee',
           old_value: existing.assigned_to,
           new_value: updates.assigned_to,
-          user_id: currentProfile.id,
         });
       }
 
@@ -1886,27 +1898,8 @@ export function useTracker() {
           throw insertError;
         }
 
-        await supabase
-          .from('projects')
-          .update({
-            status: 'In Revision',
-            waiting_on: 'Manuscript Heaven',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', projectId);
-
         setData((previous) => ({
           ...previous,
-          projects: previous.projects.map((p) =>
-            p.id === projectId
-              ? normalizeProject({
-                  ...p,
-                  status: 'In Revision',
-                  waiting_on: 'Manuscript Heaven',
-                  updated_at: new Date().toISOString(),
-                })
-              : p,
-          ),
           revisionNotes: [inserted as RevisionNote, ...previous.revisionNotes],
         }));
       } else {
@@ -1931,7 +1924,6 @@ export function useTracker() {
         action: 'Revision added',
         old_value: null,
         new_value: `Revision ${revisionNumber}`,
-        user_id: currentProfile.id,
       });
 
       return revision;
@@ -1986,7 +1978,6 @@ export function useTracker() {
         action: 'Notes added',
         old_value: null,
         new_value: noteType,
-        user_id: currentProfile.id,
       });
 
       return projectNote;
@@ -1996,272 +1987,74 @@ export function useTracker() {
 
   const createRevisionRequest = useCallback(
     async (draft: RevisionRequestDraft) => {
-      if (!currentProfile) {
-        throw new Error('No signed-in profile found.');
-      }
-
-      if (!isClientRole(currentProfile.role)) {
-        throw new Error('Only client users can submit client revision requests.');
-      }
-
+      if (!currentProfile || !isClientRole(currentProfile.role)) throw new Error('Only client users can submit client revision requests.');
       const project = data.projects.find((item) => item.id === draft.project_id);
-      if (!project) {
-        throw new Error('Project not found for this client.');
-      }
-
+      if (!project) throw new Error('Project not found for this client.');
       const instructions = draft.instructions?.trim() || draft.description?.trim() || '';
-
-      if (!instructions) {
-        throw new Error('Please add revision instructions before submitting.');
-      }
-
-      const settings = getWorkflowSettings(project);
-      const today = new Date().toISOString().slice(0, 10);
-      const now = new Date().toISOString();
-      const currentStage = project.current_stage || 'Concept Approval';
-      const revisionDays = getStageDurationDays(currentStage, settings, true) || 2;
-      const stageDueDate = calculateStageDueDate(today, revisionDays, settings);
-      const revCount = (project.revision_count || 0) + 1;
-
-      const projectUpdates: Partial<Project> = {
-        status: 'In Revision' as ProjectStatus,
-        current_stage: currentStage,
-        stage_status: 'REVISION_ACTIVE',
-        waiting_on: 'Manuscript Heaven',
-        timeline_status: 'Revision Required',
-        stage_started_at: now,
-        stage_due_at: stageDueDate,
-        revision_count: revCount,
-        client_action_required: '',
-        updated_at: now,
+      if (!instructions) throw new Error('Please add revision instructions before submitting.');
+      if (!workflowClient || mode !== 'supabase') throw new Error('Canonical workflow mutations require Supabase mode.');
+      const rpcInput = {
+        title: draft.title?.trim() || '', instructions,
+        description: draft.description?.trim() || '', priority: draft.priority || 'Normal',
       };
-
-      // Build notifications for every relevant team member
-      const notificationTitle = `Revision Requested: ${project.project_title}`;
-      const notificationMessage = `Client requested ${currentStage} revision #${revCount}. ${revisionDays} production day${revisionDays === 1 ? '' : 's'} allocated.`;
-
-      const notificationRecipients = [
-        project.assigned_to,
-        project.project_manager,
-        ...data.profiles.filter(p => p.role === 'admin').map(p => p.id)
-      ].filter((id): id is string => Boolean(id) && id !== currentProfile.id);
-
-      const buildNotification = (recipientId: string): NotificationItem => ({
-        id: createId('notification'),
-        recipient_id: recipientId,
-        project_id: project.id,
-        type: 'revision_requested',
-        title: notificationTitle,
-        message: notificationMessage,
-        is_read: false,
-        created_at: now,
+      const operationKey = await operationFingerprint({
+        projectId: project.id, rpcInput,
+        attachments: (draft.attachments || []).map((file,index)=>fileFingerprint(file,index)),
       });
-
-      const historyEntry = createStageHistoryEntry(
-        project,
-        `Client requested revision #${revCount} for ${currentStage}`,
-        currentProfile.id,
-        instructions,
-      );
-
-      // -------------------------------------------------------
-      // SUPABASE PATH: Call the atomic security-definer RPC.
-      // This bypasses client-role RLS restrictions on the projects
-      // table and performs all steps in a single transaction:
-      //   1. Insert revision_request
-      //   2. Update project workflow state (stage_status, waiting_on, etc.)
-      //   3. Create stage history entry
-      //   4. Create notifications for all team members
-      // -------------------------------------------------------
-      if (supabase && mode === 'supabase') {
-        const supabaseClient = supabase;
-        // ---- Optimistic local state update ----
-        // Update the UI immediately so the client sees 'In Revision' right away
-        // without waiting for loadSupabaseData to complete.
-        setData((previous) => ({
-          ...previous,
-          projects: previous.projects.map((item) =>
-            item.id === draft.project_id
-              ? normalizeProject({ ...item, ...projectUpdates })
-              : item,
-          ),
-        }));
-
-        try {
-          const { data: rpcData, error: rpcError } = await supabaseClient.rpc('submit_client_revision', {
-            p_project_id:   draft.project_id,
-            p_client_id:    currentProfile.id,
-            p_title:        draft.title?.trim() || '',
-            p_description:  instructions,
-            p_instructions: instructions,
-            p_priority:     draft.priority || 'Normal',
+      let operation = revisionSubmissionRetriesRef.current.get(operationKey);
+      if (!operation) {
+        operation = { attachments: new Map(), complete: false };
+        revisionSubmissionRetriesRef.current.set(operationKey, operation);
+      }
+      if (!operation.requestId) {
+        const result = await workflowClient.submitClientRevision(project.id, requireWorkflowVersion(project), rpcInput);
+        const returnedId = String(result.affected_entity_ids.revision_request_id || '');
+        if (!returnedId) throw new Error('Canonical revision submission returned no revision request ID.');
+        operation.requestId = returnedId;
+      }
+      const requestId = operation.requestId;
+      for (const [index,file] of (draft.attachments || []).entries()) {
+        const attachmentKey=fileFingerprint(file,index);
+        const progress=operation.attachments.get(attachmentKey) || {
+          attachmentId:createUuid(),uploaded:false,insertAttempted:false,inserted:false,
+        };
+        operation.attachments.set(attachmentKey,progress);
+        if (!progress.uploaded) {
+          progress.storagePath=await uploadRevisionFile({
+            clientId:currentProfile.id,projectId:project.id,requestId,file,objectId:progress.attachmentId,
           });
-
-          if (rpcError) {
-            // Roll back optimistic update on failure
-            setData((previous) => ({
-              ...previous,
-              projects: previous.projects.map((item) =>
-                item.id === draft.project_id
-                  ? normalizeProject({ ...item, stage_status: project.stage_status, waiting_on: project.waiting_on, status: project.status })
-                  : item,
-              ),
-            }));
-            throw rpcError;
-          }
-
-          const requestId = rpcData as string;
-
-          // Upload attachments after the revision is created
-          await Promise.all(
-            (draft.attachments || []).map(async (file) => {
-              const fileUrl = await uploadRevisionFile({
-                clientId: currentProfile.id,
-                projectId: draft.project_id,
-                requestId,
-                file,
-              });
-              await supabaseClient.from('revision_attachments').insert({
-                revision_request_id: requestId,
-                revision_item_id: null,
-                file_name: file.name,
-                file_url: fileUrl,
-                file_type: 'client_attachment',
-                uploaded_by: currentProfile.id,
-              });
-            }),
-          );
-
-          // Reload all data to sync the new state from the database
-          await loadSupabaseData(currentProfile);
-
-          const builtRequest = normalizeRevisionRequest({
-            id: requestId,
-            project_id: draft.project_id,
-            client_id: currentProfile.id,
-            title: draft.title?.trim() || `Revision request for ${project.project_title}`,
-            description: instructions,
-            instructions,
-            team_response: null,
-            priority: draft.priority || 'Normal',
-            status: 'Submitted',
-            submitted_at: now,
-            created_at: now,
-            updated_at: now,
+          progress.uploaded=true;
+        }
+        if (!progress.inserted) {
+          await ensureRevisionAttachment(progress,{
+            id:progress.attachmentId,revision_request_id:requestId,revision_item_id:null,
+            file_name:file.name,file_url:progress.storagePath!,file_type:'client_attachment',uploaded_by:currentProfile.id,
           });
-
-          return builtRequest;
-        } catch (revisionError) {
-          console.error('Revision submission failed:', revisionError);
-          throw new Error(errorMessage(revisionError, 'Revision request could not be submitted. Please try again.'));
         }
       }
-
-      const request = normalizeRevisionRequest({
-        id: createId('client-revision'),
-        project_id: draft.project_id,
-        client_id: currentProfile.id,
-        title: draft.title?.trim() || `Revision request for ${project.project_title}`,
-        description: instructions,
-        instructions,
-        team_response: null,
-        priority: draft.priority || 'Normal',
-        status: 'Submitted',
-        submitted_at: now,
-        created_at: now,
-        updated_at: now,
-      });
-      const attachments = (draft.attachments || []).map((file) =>
-        normalizeRevisionAttachment({
-          id: createId('revision-attachment'),
-          revision_request_id: request.id,
-          revision_item_id: null,
-          file_name: file.name,
-          file_url: file.name,
-          file_type: 'client_attachment',
-          uploaded_by: currentProfile.id,
-          created_at: now,
-        }),
-      );
-
-      setData((previous) => ({
-        ...previous,
-        projects: previous.projects.map((item) =>
-          item.id === draft.project_id
-            ? normalizeProject({
-                ...item,
-                ...projectUpdates,
-              })
-            : item,
-        ),
-        revisionRequests: [request, ...previous.revisionRequests],
-        revisionAttachments: [...attachments, ...previous.revisionAttachments],
-        // Add a notification for each unique team member (deduplicated)
-        notifications: [
-          ...[...new Set(notificationRecipients)].map((recipientId) => buildNotification(recipientId)),
-          ...previous.notifications,
-        ],
-        stageHistory: [historyEntry, ...(previous.stageHistory || [])],
-        revisionActivity: [
-          normalizeRevisionActivity({
-            id: createId('revision-activity'),
-            revision_request_id: request.id,
-            user_id: currentProfile.id,
-            action: 'Revision submitted',
-            previous_value: null,
-            new_value: request.instructions,
-            created_at: now,
-          }),
-          ...previous.revisionActivity,
-        ],
-      }));
-
-      return request;
+      operation.complete=true;
+      await loadSupabaseData(currentProfile);
+      revisionSubmissionRetriesRef.current.delete(operationKey);
+      return normalizeRevisionRequest({id:requestId,project_id:project.id,client_id:currentProfile.id,
+        title:draft.title?.trim() || ('Revision request for '+project.project_title),description:instructions,
+        instructions,priority:draft.priority || 'Normal',status:'Submitted'});
     },
-    [currentProfile, data.profiles, data.projects, loadSupabaseData, mode],
+    [currentProfile, data.projects, loadSupabaseData, mode, workflowClient],
   );
 
   const updateRevisionRequest = useCallback(
-    async (requestId: string, updates: Partial<RevisionRequest>) => {
-      if (!currentProfile) {
-        throw new Error('No signed-in profile found.');
-      }
-
+    async (requestId: string, updates: Partial<Pick<RevisionRequest, 'assigned_to' | 'priority' | 'team_response'>>) => {
+      if (!currentProfile) throw new Error('No signed-in profile found.');
       if (supabase && mode === 'supabase') {
-        const payload = {
-          assigned_to: updates.assigned_to,
-          status: updates.status,
-          priority: updates.priority,
-          team_response: updates.team_response,
-          completed_at:
-            updates.status === 'Approved' || updates.status === 'Completed' ? new Date().toISOString() : updates.completed_at,
-        };
-
-        const { error } = await supabase.from('revision_requests').update(payload).eq('id', requestId);
-        if (error) {
-          throw error;
-        }
-
+        const {error}=await supabase.from('revision_requests').update(definedValues({
+          assigned_to:updates.assigned_to,priority:updates.priority,team_response:updates.team_response,
+        })).eq('id',requestId);
+        if(error) throw error;
         await loadSupabaseData(currentProfile);
         return;
       }
-
-      setData((previous) => ({
-        ...previous,
-        revisionRequests: previous.revisionRequests.map((request) =>
-          request.id === requestId
-            ? normalizeRevisionRequest({
-                ...request,
-                ...updates,
-                completed_at:
-                  updates.status === 'Approved' || updates.status === 'Completed'
-                    ? new Date().toISOString()
-                    : request.completed_at,
-                updated_at: new Date().toISOString(),
-              })
-            : request,
-        ),
-      }));
+      setData((previous)=>({...previous,revisionRequests:previous.revisionRequests.map((request)=>
+        request.id===requestId?{...request,...updates,updated_at:new Date().toISOString()}:request)}));
     },
     [currentProfile, loadSupabaseData, mode],
   );
@@ -2307,677 +2100,180 @@ export function useTracker() {
   );
 
   const uploadRevisedProof = useCallback(
-    async (requestId: string, file: File) => {
-      if (!currentProfile) {
-        throw new Error('No signed-in profile found.');
+    async (requestId: string, file: File, teamResponse?: string) => {
+      if (!currentProfile) throw new Error('No signed-in profile found.');
+      const request=data.revisionRequests.find((item)=>item.id===requestId);
+      const project=request && data.projects.find((item)=>item.id===request.project_id);
+      if(!request||!project) throw new Error('Revision request or project not found.');
+      if (!workflowClient || mode !== 'supabase') throw new Error('Canonical workflow mutations require Supabase mode.');
+      const response=teamResponse?.trim()||null;
+      const operationKey=await operationFingerprint({requestId,file:fileFingerprint(file),teamResponse:response});
+      let operation=revisedProofRetriesRef.current.get(operationKey);
+      if(!operation){
+        operation={attachment:{attachmentId:createUuid(),uploaded:false,insertAttempted:false,inserted:false},rpcComplete:false};
+        revisedProofRetriesRef.current.set(operationKey,operation);
       }
-
-      const request = data.revisionRequests.find((item) => item.id === requestId);
-      if (!request) {
-        throw new Error('Revision request not found.');
+      if(!operation.attachment.uploaded){
+        operation.attachment.storagePath=await uploadRevisionFile({
+          clientId:request.client_id,projectId:project.id,requestId,file,objectId:operation.attachment.attachmentId,
+        });
+        operation.attachment.uploaded=true;
       }
-
-      const project = data.projects.find((p) => p.id === request.project_id);
-      const now = new Date().toISOString();
-
-      const stage = project?.current_stage || 'Print Approval';
-      const approvalStatus: ProjectStatus = 'Awaiting Client Approval';
-
-      const projectUpdates: Partial<Project> = {
-        status: approvalStatus,
-        stage_status: 'PAUSED_CLIENT_REVIEW',
-        waiting_on: 'Client',
-        timeline_status: 'Paused',
-        client_action_required:
-          stage === 'Concept Approval'
-            ? 'Review and approve the updated design concept'
-            : stage === 'Print Approval'
-              ? 'Review and approve the updated print version'
-              : 'Review and approve the updated eBook version',
-        updated_at: now,
-      };
-
-      const notification: NotificationItem = {
-        id: createId('notification'),
-        recipient_id: request.client_id,
-        project_id: request.project_id,
-        type: 'revision_submitted',
-        title: `Revision Completed: ${project?.project_title || 'Project'}`,
-        message: 'Your requested revision has been completed and is ready for review.',
-        is_read: false,
-        created_at: now,
-      };
-
-      const historyEntry = project
-        ? createStageHistoryEntry(
-            project,
-            `Revision completed for ${project.current_stage || 'Approval stage'} and submitted for client review`,
-            currentProfile.id,
-          )
-        : null;
-
-      if (supabase && mode === 'supabase') {
-        const fileUrl = await uploadRevisionFile({
-          clientId: request.client_id,
-          projectId: request.project_id,
-          requestId: request.id,
-          file,
+      if(!operation.attachment.inserted){
+        await ensureRevisionAttachment(operation.attachment,{
+          id:operation.attachment.attachmentId,revision_request_id:requestId,revision_item_id:null,
+          file_name:file.name,file_url:operation.attachment.storagePath!,file_type:'revised_proof',uploaded_by:currentProfile.id,
         });
-
-        const { error } = await supabase.from('revision_attachments').insert({
-          revision_request_id: request.id,
-          revision_item_id: null,
-          file_name: file.name,
-          file_url: fileUrl,
-          file_type: 'revised_proof',
-          uploaded_by: currentProfile.id,
-        });
-
-        if (error) {
-          throw error;
-        }
-
-        await supabase
-          .from('revision_requests')
-          .update({ status: 'Ready for Client Review', updated_at: now })
-          .eq('id', request.id);
-
-        await supabase.from('projects').update(projectUpdates).eq('id', request.project_id);
-        await supabase.from('notifications').insert({
-          id: notification.id,
-          recipient_id: notification.recipient_id,
-          project_id: notification.project_id,
-          type: notification.type,
-          title: notification.title,
-          message: notification.message,
-          is_read: false,
-        });
-
-        await loadSupabaseData(currentProfile);
-        return;
       }
-
-      const newAttachment = normalizeRevisionAttachment({
-        id: createId('revision-attachment'),
-        revision_request_id: request.id,
-        file_name: file.name,
-        file_url: file.name,
-        file_type: 'revised_proof',
-        uploaded_by: currentProfile.id,
-        created_at: now,
-      });
-
-      setData((previous) => ({
-        ...previous,
-        projects: previous.projects.map((item) =>
-          item.id === request.project_id ? normalizeProject({ ...item, ...projectUpdates }) : item,
-        ),
-        revisionRequests: previous.revisionRequests.map((item) =>
-          item.id === request.id ? { ...item, status: 'Ready for Client Review', updated_at: now } : item,
-        ),
-        revisionAttachments: [newAttachment, ...previous.revisionAttachments],
-        notifications: [notification, ...previous.notifications],
-        stageHistory: historyEntry ? [historyEntry, ...(previous.stageHistory || [])] : previous.stageHistory,
-      }));
+      if(!operation.rpcComplete){
+        await workflowClient.submitRevisedProof(project.id,requireWorkflowVersion(project),requestId,response);
+        operation.rpcComplete=true;
+      }
+      await loadSupabaseData(currentProfile);
+      revisedProofRetriesRef.current.delete(operationKey);
     },
-    [currentProfile, data.projects, data.revisionRequests, loadSupabaseData, mode],
+    [currentProfile, data.projects, data.revisionRequests, loadSupabaseData, mode, workflowClient],
   );
 
   const respondToRevisionRequest = useCallback(
     async (requestId: string, decision: Extract<ClientRevisionStatus, 'Approved'>) => {
-      if (!currentProfile) {
-        throw new Error('No signed-in profile found.');
-      }
-
-      if (supabase && mode === 'supabase') {
-        const { error } = await supabase.rpc('client_respond_revision', {
-          request_id: requestId,
-          decision,
-        });
-
-        if (error) {
-          throw error;
-        }
-
-        await loadSupabaseData(currentProfile);
-        return;
-      }
-
-      await updateRevisionRequest(requestId, { status: decision });
+      if(!currentProfile||decision!=='Approved') throw new Error('Only canonical approval is supported here.');
+      const request=data.revisionRequests.find((item)=>item.id===requestId);
+      const project=request && data.projects.find((item)=>item.id===request.project_id);
+      if(!project) throw new Error('Revision project not found.');
+      if(!workflowClient||mode!=='supabase') throw new Error('Canonical workflow mutations require Supabase mode.');
+      await workflowClient.approveStage(project.id,requireWorkflowVersion(project),'Client approved revised proof');
+      await loadSupabaseData(currentProfile);
     },
-    [currentProfile, loadSupabaseData, mode, updateRevisionRequest],
+    [currentProfile,data.projects,data.revisionRequests,loadSupabaseData,mode,workflowClient],
   );
 
   const approveProjectMilestone = useCallback(
     async (projectId: string, milestone: ApprovalMilestone) => {
-      if (!currentProfile) {
-        throw new Error('No signed-in profile found.');
-      }
-
-      const project = data.projects.find((item) => item.id === projectId);
-      if (!project) {
-        throw new Error('Project not found.');
-      }
-
-      const today = new Date().toISOString().slice(0, 10);
-      const now = new Date().toISOString();
-      const settings = getWorkflowSettings(project);
-
-      let currentApprovalStage: OfficialTimelineStage = 'Concept Approval';
-      let approvalField: keyof Project = 'design_concept_approval_date';
-      let label = 'Design Concept';
-
-      if (milestone === 'concept') {
-        currentApprovalStage = 'Concept Approval';
-        approvalField = 'design_concept_approval_date';
-        label = 'Design Concept';
-      } else if (milestone === 'print') {
-        currentApprovalStage = 'Print Approval';
-        approvalField = 'print_version_approval_date';
-        label = 'Print Version';
-      } else if (milestone === 'ebook') {
-        currentApprovalStage = 'Ebook Approval';
-        approvalField = 'ebook_approval_date';
-        label = 'eBook Version';
-      }
-
-      const nextStage = nextStageAfterApproval(currentApprovalStage, project);
-      const daysAllocated = nextStage === 'Completed' ? 0 : getStageDurationDays(nextStage, settings, false);
-      const stageDueDate = nextStage === 'Completed' ? null : calculateStageDueDate(today, daysAllocated, settings);
-
-      const historyEntry = createStageHistoryEntry(
-        project,
-        `Client approved ${label}. Activated ${nextStage}.`,
-        currentProfile.id,
-        `Allocated ${daysAllocated} production days.`,
-      );
-
-      const projectUpdates: Partial<Project> = {
-        [approvalField]: today,
-        current_stage: nextStage,
-        stage_status: nextStage === 'Completed' ? 'COMPLETED' : 'ACTIVE',
-        waiting_on: nextStage === 'Completed' ? 'None' : 'Manuscript Heaven',
-        timeline_status: nextStage === 'Completed' ? 'Completed' : 'Active',
-        stage_started_at: now,
-        stage_due_at: stageDueDate,
-        stage_completed_at: nextStage === 'Completed' ? now : null,
-        client_action_required: '',
-        updated_at: now,
-      };
-
-      if (nextStage === 'Completed') {
-        projectUpdates.status = 'Completed';
-        projectUpdates.final_delivery_date = today;
-      } else if (nextStage === 'Final Delivery') {
-        projectUpdates.status = 'Final Delivery';
-      } else {
-        projectUpdates.status = 'In Progress';
-      }
-
-      const recipientId = project.assigned_to || project.project_manager || currentProfile.id;
-      const notification: NotificationItem = {
-        id: createId('notification'),
-        recipient_id: recipientId,
-        project_id: projectId,
-        type: 'milestone_approval',
-        title: `Milestone Approved: ${project.project_title}`,
-        message: `${label} approved. ${nextStage} is now active (${daysAllocated} production days allocated).`,
-        is_read: false,
-        created_at: now,
-      };
-
-      if (supabase && mode === 'supabase') {
-        const { error: rpcErr } = await supabase.rpc('client_approve_project_milestone', {
-          project_id: projectId,
-          milestone,
-        });
-
-        if (rpcErr) {
-          console.warn('client_approve_project_milestone RPC fallback:', rpcErr);
-          const { error: updateErr } = await supabase.from('projects').update(projectUpdates).eq('id', projectId);
-          if (updateErr) console.warn('Supabase project milestone approval error:', updateErr);
-
-          await supabase.from('notifications').insert({
-            id: notification.id,
-            recipient_id: notification.recipient_id,
-            project_id: notification.project_id,
-            type: notification.type,
-            title: notification.title,
-            message: notification.message,
-            is_read: false,
-          });
-        }
-
-        await loadSupabaseData(currentProfile);
-        return;
-      }
-
-      setData((previous) => ({
-        ...previous,
-        projects: previous.projects.map((p) => (p.id === projectId ? normalizeProject({ ...p, ...projectUpdates }) : p)),
-        notifications: [notification, ...previous.notifications],
-        stageHistory: [historyEntry, ...(previous.stageHistory || [])],
-      }));
+      if(!currentProfile) throw new Error('No signed-in profile found.');
+      const project=data.projects.find((item)=>item.id===projectId);
+      if(!project) throw new Error('Project not found.');
+      if(!workflowClient||mode!=='supabase') throw new Error('Canonical workflow mutations require Supabase mode.');
+      await workflowClient.approveStage(projectId,requireWorkflowVersion(project),'Client approved '+milestone);
+      await loadSupabaseData(currentProfile);
     },
-    [currentProfile, data.projects, loadSupabaseData, mode],
+    [currentProfile,data.projects,loadSupabaseData,mode,workflowClient],
   );
 
   const submitStageForApproval = useCallback(
     async (projectId: string, submissionNote?: string, fileUrl?: string) => {
-      if (!currentProfile) throw new Error('No signed-in profile found.');
-      const project = data.projects.find((p) => p.id === projectId);
-      if (!project) throw new Error('Project not found.');
-
-      const currentStage = normalizeStage(project.current_stage || project.status);
-      const now = new Date().toISOString();
-      const today = now.slice(0, 10);
-      const isRevision = project.status === 'In Revision' || project.stage_status === 'REVISION_ACTIVE';
-
-      let targetApprovalStage: OfficialTimelineStage = 'Concept Approval';
-      let submissionField: keyof Project = 'design_concept_submitted_date';
-      let fileField: keyof Project = 'proof_pdf_link';
-      let label = 'Design Concept';
-
-      if (currentStage === 'Files Received' || currentStage === 'Design Concept' || currentStage === 'Concept Approval') {
-        targetApprovalStage = 'Concept Approval';
-        submissionField = 'design_concept_submitted_date';
-        fileField = project.cover_file_link ? 'proof_pdf_link' : 'cover_file_link';
-        label = isRevision ? 'Design Concept Revision' : (currentStage === 'Files Received' ? 'Files Received' : 'Design Concept');
-      } else if (currentStage === 'Print Version' || currentStage === 'Print Approval') {
-        targetApprovalStage = 'Print Approval';
-        submissionField = 'print_version_submitted_date';
-        fileField = 'proof_pdf_link';
-        label = isRevision ? 'Print Revision' : 'Print Version';
-      } else if (currentStage === 'Ebook Version' || currentStage === 'Ebook Approval') {
-        targetApprovalStage = 'Ebook Approval';
-        submissionField = 'ebook_submitted_date';
-        fileField = 'final_ebook_link';
-        label = isRevision ? 'eBook Revision' : 'eBook Version';
-      } else if (currentStage === 'Final Delivery') {
-        const updates: Partial<Project> = {
-          status: 'Completed',
-          current_stage: 'Completed',
-          stage_status: 'COMPLETED',
-          timeline_status: 'Completed',
-          waiting_on: 'None',
-          stage_completed_at: now,
-          final_delivery_date: today,
-          delivery_date: today,
-          client_action_required: '',
-          updated_at: now,
-        };
-        if (submissionNote?.trim()) {
-          updates.delivery_notes = submissionNote.trim();
-        }
-        if (fileUrl?.trim()) {
-          updates.final_print_pdf_link = fileUrl.trim();
-        }
-        await updateProject(projectId, updates);
-        if (submissionNote?.trim()) {
-          await addNote(projectId, 'delivery', submissionNote.trim());
-        }
-        return;
-      } else {
-        throw new Error(`Cannot submit ${currentStage} for approval.`);
+      if(!currentProfile) throw new Error('No signed-in profile found.');
+      const project=data.projects.find((item)=>item.id===projectId);
+      if(!project) throw new Error('Project not found.');
+      if(!workflowClient||mode!=='supabase') throw new Error('Canonical workflow mutations require Supabase mode.');
+      if(fileUrl?.trim()) {
+        const stage=project.workflow_stage_key;
+        const field:keyof ProjectMetadataUpdate= stage==='ebook_version'?'final_ebook_link':stage==='final_delivery'?'final_print_pdf_link':stage==='design_concept'?'cover_file_link':'proof_pdf_link';
+        await updateProject(projectId,{[field]:fileUrl.trim(),...(submissionNote?.trim()?{delivery_notes:submissionNote.trim()}:{})});
       }
-
-      const projectUpdates: Partial<Project> = {
-        [submissionField]: today,
-        files_received_date: project.files_received_date || today,
-        current_stage: targetApprovalStage,
-        stage_status: 'PAUSED_CLIENT_REVIEW',
-        waiting_on: 'Client',
-        timeline_status: 'Paused',
-        status: 'Awaiting Client Approval',
-        stage_started_at: now,
-        stage_due_at: null,
-        client_action_required: `Review and approve ${label}`,
-        updated_at: now,
-      };
-
-      if (submissionNote?.trim()) {
-        projectUpdates.delivery_notes = submissionNote.trim();
-      }
-
-      if (fileUrl?.trim()) {
-        projectUpdates[fileField] = fileUrl.trim();
-      }
-
-      const noteText = submissionNote?.trim() ? ` Notes: ${submissionNote.trim()}` : '';
-      const fileText = fileUrl?.trim() ? ` File Link: ${fileUrl.trim()}` : '';
-
-      const notification: NotificationItem = {
-        id: createId('notification'),
-        recipient_id: project.client_email
-          ? data.profiles.find((p) => p.email === project.client_email)?.id || currentProfile.id
-          : currentProfile.id,
-        project_id: projectId,
-        type: isRevision ? 'revision_submitted' : 'milestone_submitted',
-        title: `${label} Ready for Review: ${project.project_title}`,
-        message: `${label} has been completed and submitted for your approval.${noteText}${fileText}`,
-        is_read: false,
-        created_at: now,
-      };
-
-      const historyEntry = createStageHistoryEntry(
-        project,
-        `${label} submitted for client review`,
-        currentProfile.id,
-        `Production clock paused. Waiting on client.${noteText}`,
-      );
-
-      await updateProject(projectId, projectUpdates);
-
-      if (submissionNote?.trim()) {
-        await addNote(projectId, 'delivery', submissionNote.trim());
-      }
-
-      if (supabase && mode === 'supabase') {
-        await supabase
-          .from('revision_requests')
-          .update({ status: 'Ready for Client Review', updated_at: now })
-          .eq('project_id', projectId)
-          .in('status', ['Pending', 'In Progress', 'Assigned', 'In Revision']);
-        await supabase.from('notifications').insert(notification);
-        await loadSupabaseData(currentProfile);
-      } else {
-        setData((prev) => ({
-          ...prev,
-          revisionRequests: prev.revisionRequests.map((item) =>
-            item.project_id === projectId && ['Pending', 'In Progress', 'Assigned', 'In Revision'].includes(item.status)
-              ? { ...item, status: 'Ready for Client Review', updated_at: now }
-              : item,
-          ),
-          notifications: [notification, ...prev.notifications],
-          stageHistory: [historyEntry, ...(prev.stageHistory || [])],
-        }));
-      }
+      if(project.workflow_stage_key==='final_delivery')
+        await workflowClient.completeFinalDelivery(projectId,requireWorkflowVersion(project),submissionNote?.trim()||null);
+      else
+        await workflowClient.submitStageForApproval(projectId,requireWorkflowVersion(project),submissionNote?.trim()||null);
+      await loadSupabaseData(currentProfile);
     },
-    [addNote, currentProfile, data.profiles, data.projects, loadSupabaseData, mode, updateProject],
+    [currentProfile,data.projects,loadSupabaseData,mode,updateProject,workflowClient],
   );
 
   const requestStageSkip = useCallback(
     async (projectId: string, stage: OfficialTimelineStage, reason: string) => {
-      if (!currentProfile) throw new Error('No signed-in profile found.');
-      const project = data.projects.find((p) => p.id === projectId);
-      if (!project) throw new Error('Project not found.');
-      if (!reason.trim()) throw new Error('Please provide a reason for skipping this stage.');
-
-      const now = new Date().toISOString();
-      const skipRequest: StageSkipRequest = {
-        id: createId('skip-request'),
-        project_id: projectId,
-        stage,
-        requested_by: currentProfile.id,
-        requested_at: now,
-        reason: reason.trim(),
-        status: 'PENDING',
-      };
-
-      const notification: NotificationItem = {
-        id: createId('notification'),
-        recipient_id: data.profiles.find((p) => p.email === project.client_email)?.id || currentProfile.id,
-        project_id: projectId,
-        type: 'skip_requested',
-        title: `Stage Skip Requested: ${project.project_title}`,
-        message: `Request to skip ${stage}. Reason: ${reason.trim()}`,
-        is_read: false,
-        created_at: now,
-      };
-
-      const historyEntry = createStageHistoryEntry(
-        project,
-        `Requested skip for stage ${stage}`,
-        currentProfile.id,
-        `Reason: ${reason.trim()}`,
-      );
-
-      if (supabase && mode === 'supabase') {
-        await supabase.from('project_stage_skips').insert(skipRequest);
-        await supabase.from('notifications').insert(notification);
-        await loadSupabaseData(currentProfile);
-        return skipRequest;
-      }
-
-      const updatedSkips = [skipRequest, ...(project.stage_skip_requests || [])];
-      setData((prev) => ({
-        ...prev,
-        projects: prev.projects.map((p) => (p.id === projectId ? { ...p, stage_skip_requests: updatedSkips } : p)),
-        stageSkipRequests: [skipRequest, ...(prev.stageSkipRequests || [])],
-        notifications: [notification, ...prev.notifications],
-        stageHistory: [historyEntry, ...(prev.stageHistory || [])],
-      }));
-
-      return skipRequest;
+      if(!currentProfile||!reason.trim()) throw new Error('Please provide a reason for skipping this stage.');
+      const project=data.projects.find((item)=>item.id===projectId);
+      if(!project) throw new Error('Project not found.');
+      if(!workflowClient||mode!=='supabase') throw new Error('Canonical workflow mutations require Supabase mode.');
+      const result=await workflowClient.requestStageSkip(projectId,requireWorkflowVersion(project),toWorkflowStage(stage),reason.trim());
+      await loadSupabaseData(currentProfile);
+      return result;
     },
-    [currentProfile, data.profiles, data.projects, loadSupabaseData, mode],
+    [currentProfile,data.projects,loadSupabaseData,mode,workflowClient],
   );
 
   const respondToStageSkip = useCallback(
     async (requestId: string, approved: boolean, clientNotes?: string) => {
-      if (!currentProfile) throw new Error('No signed-in profile found.');
-      const now = new Date().toISOString();
-      const today = now.slice(0, 10);
-
-      const skipReq =
-        (data.stageSkipRequests || []).find((r) => r.id === requestId) ||
-        data.projects.flatMap((p) => p.stage_skip_requests || []).find((r) => r.id === requestId);
-
-      if (!skipReq) throw new Error('Skip request not found.');
-      const project = data.projects.find((p) => p.id === skipReq.project_id);
-      if (!project) throw new Error('Project not found.');
-
-      const newStatus: StageSkipStatus = approved ? 'APPROVED' : 'REJECTED';
-      const updatedSkipReq: StageSkipRequest = {
-        ...skipReq,
-        status: newStatus,
-        client_response_at: now,
-        client_notes: clientNotes || null,
-      };
-
-      let projectUpdates: Partial<Project> = { updated_at: now };
-      let historyEntry: StageHistoryEntry;
-
-      if (approved) {
-        const approvalStage = approvalStageForProductionStage(skipReq.stage);
-        const stageStates = { ...(project.stage_states || {}) };
-        stageStates[skipReq.stage] = {
-          stage: skipReq.stage,
-          status: 'SKIPPED',
-          started_at: now,
-          paused_at: null,
-          resumed_at: null,
-          completed_at: now,
-          due_at: null,
-          active_seconds: 0,
-          client_wait_seconds: 0,
-          pause_reason: null,
-          revision_count: 0,
-          skip_reason: skipReq.reason,
-        };
-        if (approvalStage) {
-          stageStates[approvalStage] = {
-            stage: approvalStage,
-            status: 'SKIPPED',
-            started_at: now,
-            paused_at: null,
-            resumed_at: null,
-            completed_at: now,
-            due_at: null,
-            active_seconds: 0,
-            client_wait_seconds: 0,
-            pause_reason: null,
-            revision_count: 0,
-            skip_reason: skipReq.reason,
-          };
-        }
-
-        const nextStage = nextStageAfterApproval(skipReq.stage, { ...project, stage_states: stageStates });
-        const settings = getWorkflowSettings(project);
-        const days = nextStage === 'Completed' ? 0 : getStageDurationDays(nextStage, settings, false);
-        const due = nextStage === 'Completed' ? null : calculateStageDueDate(today, days, settings);
-
-        projectUpdates = {
-          stage_states: stageStates,
-          current_stage: nextStage as TimelineStage,
-          stage_status: isClientApprovalStage(nextStage)
-            ? 'PAUSED_CLIENT_REVIEW'
-            : nextStage === 'Completed'
-              ? 'COMPLETED'
-              : 'ACTIVE',
-          waiting_on: isClientApprovalStage(nextStage)
-            ? 'Client'
-            : nextStage === 'Completed'
-              ? 'None'
-              : 'Manuscript Heaven',
-          timeline_status: isClientApprovalStage(nextStage)
-            ? 'Paused'
-            : nextStage === 'Completed'
-              ? 'Completed'
-              : 'Active',
-          stage_started_at: now,
-          stage_due_at: isClientApprovalStage(nextStage) || nextStage === 'Completed' ? null : due,
-          client_action_required: isClientApprovalStage(nextStage) ? `Review and approve ${nextStage}` : '',
-          updated_at: now,
-        };
-
-        if (nextStage === 'Completed') {
-          projectUpdates.status = 'Completed';
-          projectUpdates.stage_completed_at = now;
-          projectUpdates.final_delivery_date = today;
-        }
-
-        historyEntry = createStageHistoryEntry(
-          project,
-          `Client approved skipping stage ${skipReq.stage}`,
-          currentProfile.id,
-          `Advanced to ${nextStage}`,
-        );
-      } else {
-        historyEntry = createStageHistoryEntry(
-          project,
-          `Client rejected skipping stage ${skipReq.stage}`,
-          currentProfile.id,
-          clientNotes,
-        );
-      }
-
-      const teamRecipient = project.assigned_to || project.project_manager || currentProfile.id;
-      const notification: NotificationItem = {
-        id: createId('notification'),
-        recipient_id: teamRecipient,
-        project_id: project.id,
-        type: 'skip_response',
-        title: `Stage Skip ${approved ? 'Approved' : 'Rejected'}: ${project.project_title}`,
-        message: `Client ${approved ? 'approved' : 'rejected'} the request to skip ${skipReq.stage}.`,
-        is_read: false,
-        created_at: now,
-      };
-
-      if (supabase && mode === 'supabase') {
-        await supabase.from('project_stage_skips').update(updatedSkipReq).eq('id', requestId);
-        if (approved) {
-          await updateProject(project.id, projectUpdates);
-        }
-        await supabase.from('notifications').insert(notification);
-        await loadSupabaseData(currentProfile);
-        return;
-      }
-
-      if (approved) {
-        await updateProject(project.id, projectUpdates);
-      }
-
-      setData((prev) => ({
-        ...prev,
-        projects: prev.projects.map((p) => {
-          if (p.id !== project.id) return p;
-          const skips = (p.stage_skip_requests || []).map((r) => (r.id === requestId ? updatedSkipReq : r));
-          return normalizeProject({ ...p, ...projectUpdates, stage_skip_requests: skips });
-        }),
-        stageSkipRequests: (prev.stageSkipRequests || []).map((r) => (r.id === requestId ? updatedSkipReq : r)),
-        notifications: [notification, ...prev.notifications],
-        stageHistory: [historyEntry, ...(prev.stageHistory || [])],
-      }));
+      if(!currentProfile) throw new Error('No signed-in profile found.');
+      const skip=(data.stageSkipRequests||[]).find((item)=>item.id===requestId);
+      const project=skip && data.projects.find((item)=>item.id===skip.project_id);
+      if(!skip||!project) throw new Error('Skip request or project not found.');
+      if(!workflowClient||mode!=='supabase') throw new Error('Canonical workflow mutations require Supabase mode.');
+      await workflowClient.respondStageSkip(project.id,requireWorkflowVersion(project),requestId,approved?'approved':'rejected',clientNotes?.trim()||null);
+      await loadSupabaseData(currentProfile);
     },
-    [currentProfile, data.projects, data.stageSkipRequests, loadSupabaseData, mode, updateProject],
+    [currentProfile,data.projects,data.stageSkipRequests,loadSupabaseData,mode,workflowClient],
   );
 
   const adminWorkflowOverride = useCallback(
     async (projectId: string, newStage: TimelineStage, reason: string, explanation: string) => {
-      if (!currentProfile || currentProfile.role !== 'admin') {
-        throw new Error('Administrative Workflow Override is strictly restricted to Admin users.');
-      }
-      const project = data.projects.find((p) => p.id === projectId);
-      if (!project) throw new Error('Project not found.');
-
-      if (!reason.trim() || !explanation.trim()) {
-        throw new Error('Please provide both a reason and explanation for the administrative override.');
-      }
-
-      const now = new Date().toISOString();
-      const overrideLog: AdminWorkflowOverrideLog = {
-        id: createId('override'),
-        project_id: projectId,
-        actor_id: currentProfile.id,
-        previous_stage: project.current_stage || 'Files Received',
-        new_stage: newStage,
-        reason: reason.trim(),
-        explanation: explanation.trim(),
-        created_at: now,
-      };
-
-      const settings = getWorkflowSettings(project);
-      const days = newStage === 'Completed' ? 0 : getStageDurationDays(newStage, settings, false);
-      const due = newStage === 'Completed' ? null : calculateStageDueDate(now, days, settings);
-      const isApproval = isClientApprovalStage(newStage);
-
-      const projectUpdates: Partial<Project> = {
-        current_stage: newStage,
-        stage_status: isApproval ? 'PAUSED_CLIENT_REVIEW' : newStage === 'Completed' ? 'COMPLETED' : 'ACTIVE',
-        waiting_on: isApproval ? 'Client' : newStage === 'Completed' ? 'None' : 'Manuscript Heaven',
-        timeline_status: isApproval ? 'Paused' : newStage === 'Completed' ? 'Completed' : 'Active',
-        stage_started_at: now,
-        stage_due_at: isApproval || newStage === 'Completed' ? null : due,
-        updated_at: now,
-      };
-
-      if (newStage === 'Completed') {
-        projectUpdates.status = 'Completed';
-        projectUpdates.stage_completed_at = now;
-        projectUpdates.final_delivery_date = now.slice(0, 10);
-      }
-
-      const historyEntry = createStageHistoryEntry(
-        project,
-        `ADMIN OVERRIDE: ${project.current_stage || 'Files Received'} -> ${newStage}`,
-        currentProfile.id,
-        `Reason: ${reason}. Explanation: ${explanation}`,
-      );
-
-      await updateProject(projectId, projectUpdates);
-
-      if (supabase && mode === 'supabase') {
-        await supabase.from('admin_workflow_overrides').insert(overrideLog);
-        await loadSupabaseData(currentProfile);
-        return overrideLog;
-      }
-
-      setData((prev) => ({
-        ...prev,
-        projects: prev.projects.map((p) => {
-          if (p.id !== projectId) return p;
-          const logs = [overrideLog, ...(p.admin_workflow_overrides || [])];
-          return normalizeProject({ ...p, ...projectUpdates, admin_workflow_overrides: logs });
-        }),
-        adminWorkflowOverrides: [overrideLog, ...(prev.adminWorkflowOverrides || [])],
-        stageHistory: [historyEntry, ...(prev.stageHistory || [])],
-      }));
-
-      return overrideLog;
+      if(!currentProfile||currentProfile.role!=='admin') throw new Error('Administrative Workflow Override is strictly restricted to Admin users.');
+      if(!reason.trim()||!explanation.trim()) throw new Error('Please provide both a reason and explanation for the administrative override.');
+      const project=data.projects.find((item)=>item.id===projectId);
+      if(!project) throw new Error('Project not found.');
+      if(newStage==='Completed') throw new Error('Use final delivery completion instead of an administrative Completed override.');
+      if(!workflowClient||mode!=='supabase') throw new Error('Canonical workflow mutations require Supabase mode.');
+      const stage=toWorkflowStage(newStage);
+      const approval=stage==='concept_approval'||stage==='print_approval'||stage==='ebook_approval';
+      await workflowClient.adminOverride(projectId,requireWorkflowVersion(project),{
+        lifecycle:'active',stage,stageStatus:approval?'awaiting_client':'active',waitingOn:approval?'client':'team',
+        reason:reason.trim(),explanation:explanation.trim(),
+      });
+      await loadSupabaseData(currentProfile);
     },
-    [currentProfile, data.projects, loadSupabaseData, mode, updateProject],
+    [currentProfile,data.projects,loadSupabaseData,mode,workflowClient],
   );
+
+  const advanceWorkflowStage = useCallback(async (projectId: string, note?: string) => {
+    if(!currentProfile||!workflowClient||mode!=='supabase') throw new Error('Canonical workflow mutations require Supabase mode.');
+    const project=data.projects.find((item)=>item.id===projectId);
+    if(!project) throw new Error('Project not found.');
+    await workflowClient.advanceStage(projectId,requireWorkflowVersion(project),note?.trim()||null);
+    await loadSupabaseData(currentProfile);
+  },[currentProfile,data.projects,loadSupabaseData,mode,workflowClient]);
+
+  const completeFinalDelivery = useCallback(async (projectId: string, note?: string) => {
+    if(!currentProfile||!workflowClient||mode!=='supabase') throw new Error('Canonical workflow mutations require Supabase mode.');
+    const project=data.projects.find((item)=>item.id===projectId);
+    if(!project) throw new Error('Project not found.');
+    await workflowClient.completeFinalDelivery(projectId,requireWorkflowVersion(project),note?.trim()||null);
+    await loadSupabaseData(currentProfile);
+  },[currentProfile,data.projects,loadSupabaseData,mode,workflowClient]);
+
+  const setProjectLifecycle = useCallback(async (projectId: string, lifecycle: ProjectLifecycleStatus, reason?: string) => {
+    if(!currentProfile||!workflowClient||mode!=='supabase') throw new Error('Canonical workflow mutations require Supabase mode.');
+    const project=data.projects.find((item)=>item.id===projectId);
+    if(!project) throw new Error('Project not found.');
+    if(lifecycle==='completed') throw new Error('Use final delivery completion to complete a project.');
+    await workflowClient.setLifecycle(projectId,requireWorkflowVersion(project),lifecycle,reason?.trim()||null);
+    await loadSupabaseData(currentProfile);
+  },[currentProfile,data.projects,loadSupabaseData,mode,workflowClient]);
+
+  const updateWorkflowConfiguration = useCallback(async (
+    projectId:string,requiresPrint:boolean,requiresEbook:boolean,settings:WorkflowSettings,
+  )=>{
+    if(!currentProfile||!workflowClient||mode!=='supabase') throw new Error('Canonical workflow mutations require Supabase mode.');
+    const project=data.projects.find((item)=>item.id===projectId);
+    if(!project) throw new Error('Project not found.');
+    await workflowClient.updateConfiguration(projectId,requireWorkflowVersion(project),requiresPrint,requiresEbook,canonicalSettings(settings));
+    await loadSupabaseData(currentProfile);
+  },[currentProfile,data.projects,loadSupabaseData,mode,workflowClient]);
+
+  const updateProjectFromDraft = useCallback(async (projectId:string,draft:ProjectDraft)=>{
+    const existing=data.projects.find((item)=>item.id===projectId);
+    if(!existing) throw new Error('Project not found.');
+    await updateProject(projectId,{
+      ...definedValues(projectMetadataPayload(draft)),total_price:draft.total_price,advance_paid:draft.advance_paid,
+      payment_status:draft.payment_status,payment_date:draft.payment_date,payment_notes:draft.payment_notes,
+    });
+    const requiresPrint=draft.requires_print ?? existing.requires_print;
+    const requiresEbook=draft.requires_ebook ?? existing.requires_ebook;
+    if(typeof requiresPrint==='boolean'&&typeof requiresEbook==='boolean'&&(
+      requiresPrint!==existing.requires_print||requiresEbook!==existing.requires_ebook||
+      JSON.stringify(canonicalSettings(draft.workflow_settings))!==JSON.stringify(canonicalSettings(existing.workflow_settings))
+    )) await updateWorkflowConfiguration(projectId,requiresPrint,requiresEbook,canonicalSettings(draft.workflow_settings));
+  },[data.projects,updateProject,updateWorkflowConfiguration]);
 
   const createTask = useCallback(
     async (draft: TaskDraft) => {
@@ -2998,12 +2294,21 @@ export function useTracker() {
       });
 
       if (supabase && mode === 'supabase') {
-        const { data: inserted, error: insertError } = await supabase
+        let { data: inserted, error: insertError } = await supabase
           .from('tasks')
           .insert(taskPayload(fullDraft, currentProfile.id))
           .select()
           .single();
 
+        if (insertError && isMissingSchemaError(insertError)) {
+          const legacyInsert = await supabase
+            .from('tasks')
+            .insert(legacyTaskPayload(fullDraft, currentProfile.id))
+            .select()
+            .single();
+          inserted = legacyInsert.data;
+          insertError = legacyInsert.error;
+        }
         if (insertError) {
           throw insertError;
         }
@@ -3049,13 +2354,43 @@ export function useTracker() {
       });
 
       if (supabase && mode === 'supabase') {
-        const { data: updated, error: updateError } = await supabase
+        const isEmployeeActor = currentProfile.role === 'employee' || currentProfile.role === 'junior_assistant';
+        const updatePayload = isEmployeeActor
+          ? {
+              title: nextTask.title,
+              description: nextTask.description,
+              status: nextTask.status,
+              priority: nextTask.priority,
+              start_date: nextTask.start_date,
+              due_date: nextTask.due_date,
+              parent_task_id: nextTask.parent_task_id,
+              estimated_minutes: nextTask.estimated_minutes,
+              actual_minutes: nextTask.actual_minutes,
+              blocked_reason: nextTask.blocked_reason,
+              sort_order: nextTask.sort_order,
+              task_type: nextTask.task_type,
+              visibility: nextTask.visibility,
+              archived_at: nextTask.archived_at,
+              completed_at: nextTask.completed_at,
+            }
+          : taskPayload(nextTask);
+        let { data: updated, error: updateError } = await supabase
           .from('tasks')
-          .update(taskPayload(nextTask))
+          .update(updatePayload)
           .eq('id', taskId)
           .select()
           .maybeSingle();
 
+        if (updateError && isMissingSchemaError(updateError)) {
+          const legacyUpdate = await supabase
+            .from('tasks')
+            .update(legacyTaskPayload(nextTask))
+            .eq('id', taskId)
+            .select()
+            .maybeSingle();
+          updated = legacyUpdate.data;
+          updateError = legacyUpdate.error;
+        }
         if (updateError) {
           throw updateError;
         }
@@ -3080,6 +2415,184 @@ export function useTracker() {
     },
     [currentProfile, data.tasks, mode],
   );
+
+  const archiveTask = useCallback(async (taskId: string) => {
+    return updateTask(taskId, { archived_at: new Date().toISOString() });
+  }, [updateTask]);
+
+  const assignTaskCollaborator = useCallback(async (
+    taskId: string,
+    profileId: string,
+    assignmentRole: Exclude<TaskAssignmentRole, 'primary'> = 'collaborator',
+  ) => {
+    if (!currentProfile || isClientRole(currentProfile.role)) throw new Error('Only team members can assign collaborators.');
+    const existing = data.taskAssignees.find((item) => item.task_id === taskId && item.profile_id === profileId);
+    if (existing) return existing;
+    const local: TaskAssignee = {
+      id: createUuid(), task_id: taskId, profile_id: profileId, assignment_role: assignmentRole,
+      assigned_by: currentProfile.id, assigned_at: new Date().toISOString(),
+    };
+    if (supabase && mode === 'supabase') {
+      const { data: inserted, error } = await supabase.from('task_assignees').insert({
+        task_id: taskId, profile_id: profileId, assignment_role: assignmentRole, assigned_by: currentProfile.id,
+      }).select().single();
+      if (error) throw error;
+      const result = inserted as TaskAssignee;
+      setData((previous) => ({ ...previous, taskAssignees: [...previous.taskAssignees, result] }));
+      return result;
+    }
+    setData((previous) => ({ ...previous, taskAssignees: [...previous.taskAssignees, local] }));
+    return local;
+  }, [currentProfile, data.taskAssignees, mode]);
+
+  const removeTaskCollaborator = useCallback(async (taskId: string, profileId: string) => {
+    if (!currentProfile || isClientRole(currentProfile.role)) throw new Error('Only team members can remove collaborators.');
+    const existing = data.taskAssignees.find((item) =>
+      item.task_id === taskId && item.profile_id === profileId && item.assignment_role !== 'primary');
+    if (!existing) return;
+    if (supabase && mode === 'supabase') {
+      const { data: deleted, error } = await supabase.from('task_assignees').delete().eq('id', existing.id).select('id').maybeSingle();
+      if (error) throw error;
+      if (!deleted) throw new Error('No collaborator assignment was removed. Check task permissions.');
+    }
+    setData((previous) => ({
+      ...previous,
+      taskAssignees: previous.taskAssignees.filter((item) => item.id !== existing.id),
+    }));
+  }, [currentProfile, data.taskAssignees, mode]);
+
+  const addTaskComment = useCallback(async (taskId: string, comment: string) => {
+    if (!currentProfile || isClientRole(currentProfile.role)) throw new Error('Only team members can comment on tasks.');
+    const cleanComment = comment.trim();
+    if (!cleanComment) throw new Error('Comment cannot be blank.');
+    const now = new Date().toISOString();
+    const local: TaskComment = { id: createUuid(), task_id: taskId, user_id: currentProfile.id, comment: cleanComment, created_at: now, updated_at: now };
+    if (supabase && mode === 'supabase') {
+      const { data: inserted, error } = await supabase.from('task_comments')
+        .insert({ task_id: taskId, user_id: currentProfile.id, comment: cleanComment }).select().single();
+      if (error) throw error;
+      const result = inserted as TaskComment;
+      setData((previous) => ({ ...previous, taskComments: [...previous.taskComments, result] }));
+      return result;
+    }
+    setData((previous) => ({ ...previous, taskComments: [...previous.taskComments, local] }));
+    return local;
+  }, [currentProfile, mode]);
+
+  const updateTaskComment = useCallback(async (commentId: string, comment: string) => {
+    const cleanComment = comment.trim();
+    if (!cleanComment) throw new Error('Comment cannot be blank.');
+    if (supabase && mode === 'supabase') {
+      const { data: updated, error } = await supabase.from('task_comments').update({ comment: cleanComment })
+        .eq('id', commentId).select().maybeSingle();
+      if (error) throw error;
+      if (!updated) throw new Error('No comment was updated.');
+      setData((previous) => ({
+        ...previous, taskComments: previous.taskComments.map((item) => item.id === commentId ? updated as TaskComment : item),
+      }));
+      return updated as TaskComment;
+    }
+    const updatedAt = new Date().toISOString();
+    setData((previous) => ({
+      ...previous,
+      taskComments: previous.taskComments.map((item) => item.id === commentId ? { ...item, comment: cleanComment, updated_at: updatedAt } : item),
+    }));
+  }, [mode]);
+
+  const deleteTaskComment = useCallback(async (commentId: string) => {
+    if (supabase && mode === 'supabase') {
+      const { data: deleted, error } = await supabase.from('task_comments').delete().eq('id', commentId).select('id').maybeSingle();
+      if (error) throw error;
+      if (!deleted) throw new Error('No comment was deleted. Check comment permissions.');
+    }
+    setData((previous) => ({ ...previous, taskComments: previous.taskComments.filter((item) => item.id !== commentId) }));
+  }, [mode]);
+
+  const addTaskChecklistItem = useCallback(async (taskId: string, title: string) => {
+    const cleanTitle = title.trim();
+    if (!cleanTitle) throw new Error('Checklist item title is required.');
+    const position = data.taskChecklistItems.filter((item) => item.task_id === taskId)
+      .reduce((maximum, item) => Math.max(maximum, item.position), -1) + 1;
+    const local: TaskChecklistItem = {
+      id: createUuid(), task_id: taskId, title: cleanTitle, completed: false,
+      completed_by: null, completed_at: null, position, created_at: new Date().toISOString(),
+    };
+    if (supabase && mode === 'supabase') {
+      const { data: inserted, error } = await supabase.from('task_checklist_items')
+        .insert({ task_id: taskId, title: cleanTitle, position }).select().single();
+      if (error) throw error;
+      const result = inserted as TaskChecklistItem;
+      setData((previous) => ({ ...previous, taskChecklistItems: [...previous.taskChecklistItems, result] }));
+      return result;
+    }
+    setData((previous) => ({ ...previous, taskChecklistItems: [...previous.taskChecklistItems, local] }));
+    return local;
+  }, [data.taskChecklistItems, mode]);
+
+  const toggleTaskChecklistItem = useCallback(async (itemId: string, completed: boolean) => {
+    const now = new Date().toISOString();
+    if (supabase && mode === 'supabase') {
+      const { data: updated, error } = await supabase.from('task_checklist_items').update({ completed })
+        .eq('id', itemId).select().maybeSingle();
+      if (error) throw error;
+      if (!updated) throw new Error('No checklist item was updated.');
+      setData((previous) => ({
+        ...previous, taskChecklistItems: previous.taskChecklistItems.map((item) => item.id === itemId ? updated as TaskChecklistItem : item),
+      }));
+      return updated as TaskChecklistItem;
+    }
+    setData((previous) => ({
+      ...previous,
+      taskChecklistItems: previous.taskChecklistItems.map((item) => item.id === itemId ? {
+        ...item, completed, completed_by: completed ? currentProfile?.id || null : null, completed_at: completed ? now : null,
+      } : item),
+    }));
+  }, [currentProfile, mode]);
+
+  const deleteTaskChecklistItem = useCallback(async (itemId: string) => {
+    if (supabase && mode === 'supabase') {
+      const { data: deleted, error } = await supabase.from('task_checklist_items').delete().eq('id', itemId).select('id').maybeSingle();
+      if (error) throw error;
+      if (!deleted) throw new Error('No checklist item was deleted. Check task permissions.');
+    }
+    setData((previous) => ({
+      ...previous, taskChecklistItems: previous.taskChecklistItems.filter((item) => item.id !== itemId),
+    }));
+  }, [mode]);
+
+  const addTaskDependency = useCallback(async (taskId: string, dependsOnTaskId: string) => {
+    if (taskId === dependsOnTaskId) throw new Error('A task cannot depend on itself.');
+    const existing = data.taskDependencies.find((item) => item.task_id === taskId && item.depends_on_task_id === dependsOnTaskId);
+    if (existing) return existing;
+    const local: TaskDependency = { id: createUuid(), task_id: taskId, depends_on_task_id: dependsOnTaskId, dependency_type: 'blocks', created_at: new Date().toISOString() };
+    if (supabase && mode === 'supabase') {
+      const { data: inserted, error } = await supabase.from('task_dependencies')
+        .insert({ task_id: taskId, depends_on_task_id: dependsOnTaskId, dependency_type: 'blocks' }).select().single();
+      if (error) throw error;
+      const result = inserted as TaskDependency;
+      setData((previous) => ({ ...previous, taskDependencies: [...previous.taskDependencies, result] }));
+      return result;
+    }
+    setData((previous) => ({ ...previous, taskDependencies: [...previous.taskDependencies, local] }));
+    return local;
+  }, [data.taskDependencies, mode]);
+
+  const removeTaskDependency = useCallback(async (dependencyId: string) => {
+    if (supabase && mode === 'supabase') {
+      const { data: deleted, error } = await supabase.from('task_dependencies').delete().eq('id', dependencyId).select('id').maybeSingle();
+      if (error) throw error;
+      if (!deleted) throw new Error('No dependency was removed. Check task permissions.');
+    }
+    setData((previous) => ({
+      ...previous, taskDependencies: previous.taskDependencies.filter((item) => item.id !== dependencyId),
+    }));
+  }, [mode]);
+
+  const createSubtask = useCallback(async (parentTaskId: string, draft: TaskDraft) => {
+    const parent = data.tasks.find((item) => item.id === parentTaskId);
+    if (!parent) throw new Error('Parent task not found.');
+    return createTask({ ...draft, project_id: draft.project_id ?? parent.project_id, parent_task_id: parentTaskId });
+  }, [createTask, data.tasks]);
 
   const inviteClient = useCallback(
     async (draft: ClientInviteDraft) => {
@@ -3121,20 +2634,25 @@ export function useTracker() {
         const clientProfile = (profiles || [])[0] as Profile | undefined;
 
         if (clientProfile) {
-          const { error: updateProfileError } = await supabase
+          const { data: updatedProfile, error: updateProfileError } = await supabase
             .from('profiles')
             .update({
               full_name: cleanName,
               role: 'client',
               status: draft.status || 'active',
             })
-            .eq('id', clientProfile.id);
+            .eq('id', clientProfile.id)
+            .select('id')
+            .maybeSingle();
 
           if (updateProfileError) {
             throw updateProfileError;
           }
+          if (!updatedProfile) throw new Error('No client profile row was updated.');
 
-          await supabase.from('client_project_access').delete().eq('client_id', clientProfile.id);
+          const { error: accessDeleteError } = await supabase
+            .from('client_project_access').delete().eq('client_id', clientProfile.id);
+          if (accessDeleteError) throw accessDeleteError;
 
           if (draft.project_ids.length) {
             const { error: accessError } = await supabase.from('client_project_access').insert(
@@ -3150,9 +2668,10 @@ export function useTracker() {
           }
         }
 
-        await supabase.auth.resetPasswordForEmail(cleanEmail, {
+        const { error: resetError } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
           redirectTo: window.location.origin,
         });
+        if (resetError) throw resetError;
 
         await loadSupabaseData(currentProfile);
 
@@ -3198,20 +2717,82 @@ export function useTracker() {
     [currentProfile, data.profiles, loadSupabaseData, mode],
   );
 
+  const provisionTeamMember = useCallback(
+    async ({ fullName, email, role, phone }: {
+      fullName: string;
+      email: string;
+      role: Role;
+      phone?: string;
+    }) => {
+      if (!currentProfile || currentProfile.role !== 'admin') {
+        throw new Error('Only admins can pre-provision team members.');
+      }
+      if (!['employee', 'junior_assistant', 'project_manager'].includes(role)) {
+        throw new Error('Choose Employee, Junior Assistant, or Project Manager.');
+      }
+
+      const cleanName = fullName.trim();
+      const cleanEmail = email.trim().toLowerCase();
+      const cleanPhone = phone?.trim() || null;
+      if (!cleanName || !cleanEmail || !cleanEmail.includes('@')) {
+        throw new Error('A valid team member name and email are required.');
+      }
+
+      if (supabase && mode === 'supabase') {
+        const { data: teamMember, error: teamError } = await supabase
+          .from('team_members')
+          .upsert({
+            full_name: cleanName,
+            email: cleanEmail,
+            role,
+            phone: cleanPhone,
+            status: 'active',
+          }, { onConflict: 'email' })
+          .select()
+          .single();
+        if (teamError) throw teamError;
+        if (!teamMember) throw new Error('Team member pre-provisioning returned no row.');
+        await loadSupabaseData(currentProfile);
+      } else {
+        const existing = data.profiles.find((profile) => profile.email.toLowerCase() === cleanEmail);
+        const profile: Profile = {
+          ...(existing || { id: createId('team'), created_at: new Date().toISOString() }),
+          full_name: cleanName,
+          email: cleanEmail,
+          role,
+          phone: cleanPhone,
+          status: 'active',
+        };
+        setData((previous) => ({
+          ...previous,
+          profiles: [...previous.profiles.filter((item) => item.email.toLowerCase() !== cleanEmail), profile],
+        }));
+      }
+
+      return 'Team member pre-provisioned. Ask them to sign up using this email.';
+    },
+    [currentProfile, data.profiles, loadSupabaseData, mode],
+  );
+
   const updateProfile = useCallback(
     async (
       profileId: string,
       updates: Partial<Pick<Profile, 'full_name' | 'avatar_url' | 'phone'>>,
     ) => {
       if (supabase && mode === 'supabase') {
-        const { error: updateErr } = await supabase
+        if (!currentProfile) throw new Error('No signed-in profile found.');
+        if (currentProfile.role !== 'admin' && profileId !== currentProfile.id) {
+          throw new Error('You can update only your own profile.');
+        }
+        const { data: updatedRow, error: updateErr } = await supabase
           .from('profiles')
           .update(updates)
-          .eq('id', profileId);
+          .eq('id', profileId)
+          .select('id')
+          .maybeSingle();
 
-        if (updateErr) {
-          throw updateErr;
-        }
+        if (updateErr) throw updateErr;
+        if (!updatedRow) throw new Error('No profile row was updated. Check profile permissions or refresh stale data.');
       }
 
       setData((previous) => ({
@@ -3279,53 +2860,27 @@ export function useTracker() {
     }
 
     if (isClientRole(currentProfile.role)) {
-      const clientProjectIds = new Set(
-        data.clientProjectAccess
-          .filter((access) => access.client_id === currentProfile.id)
-          .map((access) => access.project_id),
-      );
-
-      const clientNameLower = (currentProfile.full_name || '').toLowerCase().trim();
-      const clientEmailLower = (currentProfile.email || '').toLowerCase().trim();
-
-      return data.projects.filter((project) => {
-        if (clientProjectIds.has(project.id)) {
-          return true;
-        }
-
-        const projClientName = (project.client_name || '').toLowerCase().trim();
-        const projClientEmail = (project.client_email || '').toLowerCase().trim();
-
-        if (clientNameLower && projClientName && (projClientName === clientNameLower || clientNameLower.includes(projClientName) || projClientName.includes(clientNameLower))) {
-          return true;
-        }
-
-        if (clientEmailLower && projClientEmail && projClientEmail === clientEmailLower) {
-          return true;
-        }
-
-        if (project.created_by === currentProfile.id) {
-          return true;
-        }
-
-        return false;
-      });
+      return data.projects;
     }
 
     return data.projects.filter((project) => project.assigned_to === currentProfile.id);
-  }, [canManageAll, currentProfile, data.clientProjectAccess, data.projects]);
+  }, [canManageAll, currentProfile, data.projects]);
 
   const visibleTasks = useMemo(() => {
     if (!currentProfile || isClientRole(currentProfile.role)) {
       return [];
     }
 
-    return data.tasks.filter((task) => task.assigned_to === currentProfile.id);
-  }, [currentProfile, data.tasks]);
+    const assignedTaskIds = new Set(data.taskAssignees
+      .filter((assignment) => assignment.profile_id === currentProfile.id)
+      .map((assignment) => assignment.task_id));
+    return data.tasks.filter((task) =>
+      !task.archived_at && (task.assigned_to === currentProfile.id || assignedTaskIds.has(task.id)));
+  }, [currentProfile, data.taskAssignees, data.tasks]);
 
   const teamTasks = useMemo(() => {
     if (!currentProfile || !canManageAll) return [];
-    return data.tasks;
+    return data.tasks.filter((task) => !task.archived_at);
   }, [canManageAll, currentProfile, data.tasks]);
 
   const visibleNotifications = useMemo(() => {
@@ -3352,31 +2907,18 @@ export function useTracker() {
         updated_at: new Date().toISOString(),
       };
       if (supabase && mode === 'supabase') {
-        const basePayload: Record<string, unknown> = {
+        const payload = {
           employee_id: compensation.employee_id,
           monthly_salary: compensation.monthly_salary,
           per_project_rate: compensation.per_project_rate,
+          salary_type: compensation.salary_type,
+          default_currency: compensation.default_currency,
           joining_date: compensation.joining_date,
           responsibilities: compensation.responsibilities,
           performance_rating: compensation.performance_rating,
-          updated_at: compensation.updated_at,
         };
-
-        // Try upserting full payload first, fallback to base payload if custom columns aren't in Supabase yet
-        const fullPayload = {
-          ...basePayload,
-          salary_type: compensation.salary_type,
-          default_currency: compensation.default_currency,
-        };
-
-        const { error: fullError } = await supabase.from('employee_compensation').upsert(fullPayload, { onConflict: 'employee_id' });
-        if (fullError) {
-          console.warn('Upsert with extended compensation columns failed, falling back to base schema:', fullError);
-          const { error: baseError } = await supabase.from('employee_compensation').upsert(basePayload, { onConflict: 'employee_id' });
-          if (baseError) {
-            throw new Error(baseError.message || baseError.details || 'Failed to save employee compensation in Supabase.');
-          }
-        }
+        const { error } = await supabase.from('employee_compensation').upsert(payload, { onConflict: 'employee_id' });
+        if (error) throw error;
       }
       setData((previous) => ({
         ...previous,
@@ -3386,7 +2928,6 @@ export function useTracker() {
       const empName = data.profiles.find((p) => p.id === employeeId)?.full_name || 'Employee';
       await addActivity({
         action: `Salary/compensation updated for ${empName}`,
-        user_id: currentProfile.id,
       });
     },
     [addActivity, currentProfile, data.employeeCompensation, data.profiles, mode],
@@ -3402,7 +2943,7 @@ export function useTracker() {
         created_at: new Date().toISOString(),
       };
       if (supabase && mode === 'supabase') {
-        const basePayload: Record<string, unknown> = {
+        const payload = {
           id: ledgerEntry.id,
           employee_id: ledgerEntry.employee_id,
           entry_type: ledgerEntry.entry_type,
@@ -3412,25 +2953,14 @@ export function useTracker() {
           project_id: ledgerEntry.project_id || null,
           notes: ledgerEntry.notes || ledgerEntry.description || '',
           paid_at: ledgerEntry.paid_at,
-          created_at: ledgerEntry.created_at,
-        };
-
-        const fullPayload = {
-          ...basePayload,
           currency: ledgerEntry.currency || 'USD',
           reference: ledgerEntry.reference || null,
           status: ledgerEntry.status || 'Pending',
           description: ledgerEntry.description || '',
         };
 
-        const { error: fullError } = await supabase.from('employee_ledger').insert(fullPayload);
-        if (fullError) {
-          console.warn('Insert with extended ledger columns failed, falling back to base schema:', fullError);
-          const { error: baseError } = await supabase.from('employee_ledger').insert(basePayload);
-          if (baseError) {
-            throw new Error(baseError.message || baseError.details || 'Failed to record employee payroll entry in Supabase.');
-          }
-        }
+        const { error } = await supabase.from('employee_ledger').insert(payload);
+        if (error) throw error;
       }
       setData((previous) => ({ ...previous, employeeLedger: [ledgerEntry, ...previous.employeeLedger] }));
 
@@ -3446,7 +2976,6 @@ export function useTracker() {
 
       await addActivity({
         action: actionLabel,
-        user_id: currentProfile.id,
       });
     },
     [addActivity, currentProfile, data.profiles, mode],
@@ -3468,7 +2997,6 @@ export function useTracker() {
       const empName = existing ? data.profiles.find((p) => p.id === existing.employee_id)?.full_name || 'Employee' : 'Employee';
       await addActivity({
         action: `Payroll entry (${existing?.entry_type || 'Ledger'}) deleted for ${empName}`,
-        user_id: currentProfile.id,
       });
     },
     [addActivity, currentProfile, data.employeeLedger, data.profiles, mode],
@@ -3525,52 +3053,23 @@ export function useTracker() {
       };
 
       if (supabase && mode === 'supabase') {
-        const { id: _unusedId, ...fullPayload } = transaction;
-
         const { data: inserted, error: insertError } = await supabase
           .from('finance_transactions')
-          .insert(fullPayload)
+          .insert({
+            type:transaction.type,category:transaction.category,description:transaction.description,
+            amount:transaction.amount,transaction_date:transaction.transaction_date,
+            project_id:transaction.project_id,currency:transaction.currency,exchange_rate:transaction.exchange_rate,
+            client_name:transaction.client_name,invoice_id:transaction.invoice_id,payment_method:transaction.payment_method,
+            reference_no:transaction.reference_no,vendor:transaction.vendor,recurring_status:transaction.recurring_status,
+            next_recurring_date:transaction.next_recurring_date,notes:transaction.notes,attachment_url:transaction.attachment_url,
+            is_soft_deleted:false,expense_type:transaction.expense_type,payment_status:transaction.payment_status,
+            paid_date:transaction.paid_date,financial_account:transaction.financial_account,tax_amount:transaction.tax_amount,
+            fee_amount:transaction.fee_amount,recurring_end_date:transaction.recurring_end_date,
+            created_by:currentProfile.id,
+          })
           .select()
           .single();
-
-        if (insertError) {
-          const isColumnError =
-            insertError.code === 'PGRST204' ||
-            insertError.code === '42703' ||
-            insertError.message?.toLowerCase().includes('column') ||
-            insertError.message?.toLowerCase().includes('schema');
-
-          if (isColumnError) {
-            const basePayload = {
-              type: transaction.type,
-              category: transaction.category,
-              description: transaction.description,
-              amount: transaction.amount,
-              transaction_date: transaction.transaction_date,
-              project_id: transaction.project_id || null,
-              created_by: currentProfile.id,
-            };
-
-            const { data: baseInserted, error: baseError } = await supabase
-              .from('finance_transactions')
-              .insert(basePayload)
-              .select()
-              .single();
-
-            if (baseError) {
-              throw baseError;
-            }
-
-            const newFtx = { ...transaction, ...(baseInserted as object) };
-            setData((previous) => ({
-              ...previous,
-              financeTransactions: [newFtx, ...(previous.financeTransactions || [])],
-            }));
-            return newFtx;
-          }
-
-          throw insertError;
-        }
+        if (insertError) throw insertError;
 
         const newFtx = (inserted as FinanceTransaction) || transaction;
         setData((previous) => ({
@@ -3591,21 +3090,27 @@ export function useTracker() {
   );
 
   const updateFinanceTransaction = useCallback(
-    async (id: string, updates: Partial<FinanceTransaction>) => {
+    async (id: string, updates: FinanceTransactionUpdate) => {
       if (!currentProfile || !canManageEverything(currentProfile)) {
         throw new Error('Only authorized managers can update finance transactions.');
       }
 
-      const now = new Date().toISOString();
-
       if (supabase && mode === 'supabase') {
+        const {project_id,...ordinary}=updates;
+        const updatePayload=definedValues({
+          type:ordinary.type,category:ordinary.category,description:ordinary.description,amount:ordinary.amount,
+          transaction_date:ordinary.transaction_date,currency:ordinary.currency,exchange_rate:ordinary.exchange_rate,
+          client_name:ordinary.client_name,invoice_id:ordinary.invoice_id,payment_method:ordinary.payment_method,
+          reference_no:ordinary.reference_no,vendor:ordinary.vendor,recurring_status:ordinary.recurring_status,
+          next_recurring_date:ordinary.next_recurring_date,notes:ordinary.notes,attachment_url:ordinary.attachment_url,
+          is_soft_deleted:ordinary.is_soft_deleted,expense_type:ordinary.expense_type,payment_status:ordinary.payment_status,
+          paid_date:ordinary.paid_date,financial_account:ordinary.financial_account,tax_amount:ordinary.tax_amount,
+          fee_amount:ordinary.fee_amount,recurring_end_date:ordinary.recurring_end_date,
+          ...(currentProfile.role==='admin'?{project_id}:{}),
+        });
         const { error: updateError } = await supabase
           .from('finance_transactions')
-          .update({
-            ...updates,
-            updated_by: currentProfile.id,
-            updated_at: now,
-          })
+          .update(updatePayload)
           .eq('id', id);
 
         if (updateError) {
@@ -3634,7 +3139,7 @@ export function useTracker() {
             amount_pkr: pkr,
             base_amount_pkr: pkr,
             updated_by: currentProfile.id,
-            updated_at: now,
+            updated_at: new Date().toISOString(),
           };
         }),
       }));
@@ -3663,9 +3168,7 @@ export function useTracker() {
       }
       if (supabase && mode === 'supabase') {
         const { error: delError } = await supabase.from('finance_transactions').delete().eq('id', id);
-        if (delError) {
-          await supabase.from('finance_transactions').update({ is_soft_deleted: true, updated_by: currentProfile.id }).eq('id', id);
-        }
+        if (delError) throw delError;
       }
       setData((previous) => ({
         ...previous,
@@ -3692,7 +3195,7 @@ export function useTracker() {
       if (supabase && mode === 'supabase') {
         const { error: upsertError } = await supabase
           .from('finance_budgets')
-          .upsert(budgetItem, { onConflict: 'category' });
+          .upsert({ category: budgetItem.category, monthly_budget_pkr: budgetItem.monthly_budget_pkr }, { onConflict: 'category' });
 
         if (upsertError) {
           throw upsertError;
@@ -3759,8 +3262,7 @@ export function useTracker() {
       }
 
       if (supabase && mode === 'supabase') {
-        try {
-          const { error: insertError } = await supabase.from('messages').insert({
+        const { error: insertError } = await supabase.from('messages').insert({
             id: messageId,
             conversation_id: conversationId,
             sender_id: currentProfile.id,
@@ -3770,12 +3272,10 @@ export function useTracker() {
             updated_at: now,
           });
 
-          if (insertError) {
-            console.warn('Supabase message insert error:', insertError);
-          }
+        if (insertError) throw insertError;
 
-          if (attachments && attachments.length > 0) {
-            await supabase.from('message_attachments').insert(
+        if (attachments && attachments.length > 0) {
+          const { error: attachmentError } = await supabase.from('message_attachments').insert(
               newAttachments.map((a) => ({
                 id: a.id,
                 message_id: messageId,
@@ -3784,29 +3284,18 @@ export function useTracker() {
                 file_type: a.file_type,
                 file_size: a.file_size,
               })),
-            );
-          }
+          );
+          if (attachmentError) throw attachmentError;
+        }
 
-          if (mentionedUserIds.length > 0) {
-            await supabase.from('message_mentions').insert(
+        if (mentionedUserIds.length > 0) {
+          const { error: mentionError } = await supabase.from('message_mentions').insert(
               mentionedUserIds.map((uid) => ({
                 message_id: messageId,
                 user_id: uid,
               })),
-            );
-
-            await supabase.from('notifications').insert(
-              mentionedUserIds.map((uid) => ({
-                recipient_id: uid,
-                type: 'mention',
-                title: `${firstName(currentProfile.full_name)} mentioned you`,
-                message: body.length > 80 ? body.slice(0, 80) + '...' : body,
-                is_read: false,
-              })),
-            );
-          }
-        } catch (err) {
-          console.warn('Supabase messaging sync warning:', err);
+          );
+          if (mentionError) throw mentionError;
         }
       }
 
@@ -3826,28 +3315,46 @@ export function useTracker() {
   const toggleReaction = useCallback(
     async (messageId: string, emoji: string) => {
       if (!currentProfile) return;
-      const now = new Date().toISOString();
+      const existing = (data.messageReactions || []).find(
+        (reaction) => reaction.message_id === messageId && reaction.user_id === currentProfile.id && reaction.emoji === emoji,
+      );
 
-      setData((prev) => {
-        const existingReactions = prev.messageReactions || [];
-        const existing = existingReactions.find(
-          (r) => r.message_id === messageId && r.user_id === currentProfile.id && r.emoji === emoji,
-        );
-
-        let updated: MessageReaction[];
+      if (supabase && mode === 'supabase') {
         if (existing) {
-          updated = existingReactions.filter((r) => r.id !== existing.id);
-        } else {
-          updated = [
-            ...existingReactions,
-            { id: createUuid(), message_id: messageId, user_id: currentProfile.id, emoji, created_at: now },
-          ];
+          const { data: deletedReaction, error: deleteError } = await supabase.from('message_reactions').delete()
+            .eq('id', existing.id).eq('user_id', currentProfile.id).select('id').maybeSingle();
+          if (deleteError) throw deleteError;
+          if (!deletedReaction) throw new Error('No reaction row was deleted. Refresh stale message data.');
+          setData((previous) => ({
+            ...previous,
+            messageReactions: (previous.messageReactions || []).filter((reaction) => reaction.id !== existing.id),
+          }));
+          return;
         }
 
-        return { ...prev, messageReactions: updated };
-      });
+        const { data: inserted, error: insertError } = await supabase.from('message_reactions')
+          .insert({ message_id: messageId, user_id: currentProfile.id, emoji })
+          .select().single();
+        if (insertError) throw insertError;
+        if (!inserted) throw new Error('Reaction insert returned no row.');
+        setData((previous) => ({
+          ...previous,
+          messageReactions: [...(previous.messageReactions || []), inserted as MessageReaction],
+        }));
+        return;
+      }
+
+      const localReaction: MessageReaction = {
+        id: createUuid(), message_id: messageId, user_id: currentProfile.id, emoji, created_at: new Date().toISOString(),
+      };
+      setData((previous) => ({
+        ...previous,
+        messageReactions: existing
+          ? (previous.messageReactions || []).filter((reaction) => reaction.id !== existing.id)
+          : [...(previous.messageReactions || []), localReaction],
+      }));
     },
-    [currentProfile],
+    [currentProfile, data.messageReactions, mode],
   );
 
   const markConversationRead = useCallback(
@@ -3861,81 +3368,102 @@ export function useTracker() {
           (m) => m.conversation_id === conversationId && m.user_id === currentProfile.id,
         );
 
-        let updated: ConversationMember[];
-        if (existing) {
-          updated = members.map((m) => (m.id === existing.id ? { ...m, last_read_at: now } : m));
-        } else {
-          updated = [
-            ...members,
-            { id: createUuid(), conversation_id: conversationId, user_id: currentProfile.id, last_read_at: now, created_at: now },
-          ];
-        }
-
-        return { ...prev, conversationMembers: updated };
+        return existing
+          ? { ...prev, conversationMembers: members.map((m) => (m.id === existing.id ? { ...m, last_read_at: now } : m)) }
+          : prev;
       });
 
       if (supabase && mode === 'supabase') {
-        try {
-          const { error } = await supabase.from('conversation_members').upsert(
-            {
-              conversation_id: conversationId,
-              user_id: currentProfile.id,
-              last_read_at: now,
-            },
-            { onConflict: 'conversation_id,user_id' },
-          );
+        const { error } = await supabase.from('conversation_members')
+          .update({ last_read_at: now })
+          .eq('conversation_id', conversationId)
+          .eq('user_id', currentProfile.id);
+        if (error) throw error;
+      }
+    },
+    [currentProfile, mode],
+  );
 
-          if (error && !isMissingSchemaError(error)) {
-            console.warn('conversation_members upsert warning:', error);
-          }
-        } catch (err) {
-          console.warn('Could not persist markConversationRead in supabase:', err);
+  const ensureScopedConversationSelfMembership = useCallback(
+    async (conversationId: string) => {
+      if (!currentProfile) throw new Error('Not logged in.');
+      if (!supabase || mode !== 'supabase') return;
+      const client = supabase;
+
+      const selectSelfMembership = () => client
+        .from('conversation_members')
+        .select('*')
+        .eq('conversation_id', conversationId)
+        .eq('user_id', currentProfile.id)
+        .maybeSingle();
+
+      let { data: membership, error: selectError } = await selectSelfMembership();
+      if (selectError) throw selectError;
+
+      if (!membership) {
+        const { data: inserted, error: insertError } = await client
+          .from('conversation_members')
+          .insert({ conversation_id: conversationId, user_id: currentProfile.id })
+          .select()
+          .single();
+        if (insertError) {
+          // A concurrent/retried self insert may already have committed. Confirm
+          // that exact self row; never create or accept membership for another user.
+          const retry = await selectSelfMembership();
+          if (retry.error) throw retry.error;
+          if (!retry.data) throw insertError;
+          membership = retry.data;
+        } else {
+          if (!inserted) throw new Error('Conversation membership insert returned no row.');
+          membership = inserted;
         }
       }
+
+      const confirmed = membership as ConversationMember;
+      setData((previous) => {
+        const members = previous.conversationMembers || [];
+        const existingIndex = members.findIndex(
+          (member) => member.conversation_id === conversationId && member.user_id === currentProfile.id,
+        );
+        return {
+          ...previous,
+          conversationMembers: existingIndex >= 0
+            ? members.map((member, index) => index === existingIndex ? confirmed : member)
+            : [...members, confirmed],
+        };
+      });
     },
     [currentProfile, mode],
   );
 
   const getOrCreateProjectConversation = useCallback(
     async (projectId: string, isInternal: boolean) => {
+      if (!currentProfile) throw new Error('Not logged in.');
       const type = isInternal ? 'project_internal' : 'project_client';
       const existing = (data.conversations || []).find(
         (c) => c.project_id === projectId && c.type === type,
       );
-      if (existing) return existing;
-
-      const now = new Date().toISOString();
-      const newConvId = createUuid();
-      const newConv: Conversation = {
-        id: newConvId,
-        type,
-        project_id: projectId,
-        created_by: currentProfile?.id || null,
-        created_at: now,
-        updated_at: now,
-      };
-
-      if (supabase && mode === 'supabase') {
-        try {
-          const { data: created, error } = await supabase
-            .from('conversations')
-            .insert({
-              id: newConvId,
-              type,
-              project_id: projectId,
-              created_by: currentProfile?.id || null,
-            })
-            .select()
-            .single();
-
-          if (!error && created) {
-            newConv.id = created.id;
-          }
-        } catch (err) {
-          console.warn('Project conversation insert warning:', err);
-        }
+      if (existing) {
+        await ensureScopedConversationSelfMembership(existing.id);
+        return existing;
       }
 
+      if (supabase && mode === 'supabase') {
+        const { data: created, error } = await supabase
+          .from('conversations')
+          .insert({ type, project_id: projectId, created_by: currentProfile.id })
+          .select()
+          .single();
+        if (error) throw error;
+        if (!created) throw new Error('Project conversation insert returned no row.');
+        const confirmed = created as Conversation;
+        await ensureScopedConversationSelfMembership(confirmed.id);
+        setData((prev) => ({ ...prev, conversations: [...(prev.conversations || []), confirmed] }));
+        return confirmed;
+      }
+
+      const now = new Date().toISOString();
+      const newConv: Conversation = { id: createUuid(), type, project_id: projectId, created_by: currentProfile.id, created_at: now, updated_at: now };
       setData((prev) => ({
         ...prev,
         conversations: [...(prev.conversations || []), newConv],
@@ -3943,48 +3471,36 @@ export function useTracker() {
 
       return newConv;
     },
-    [currentProfile, data.conversations, mode],
+    [currentProfile, data.conversations, ensureScopedConversationSelfMembership, mode],
   );
 
   const getOrCreateTaskConversation = useCallback(
     async (taskId: string) => {
+      if (!currentProfile) throw new Error('Not logged in.');
       const existing = (data.conversations || []).find(
         (c) => c.task_id === taskId && c.type === 'task',
       );
-      if (existing) return existing;
-
-      const now = new Date().toISOString();
-      const newConvId = createUuid();
-      const newConv: Conversation = {
-        id: newConvId,
-        type: 'task',
-        task_id: taskId,
-        created_by: currentProfile?.id || null,
-        created_at: now,
-        updated_at: now,
-      };
-
-      if (supabase && mode === 'supabase') {
-        try {
-          const { data: created, error } = await supabase
-            .from('conversations')
-            .insert({
-              id: newConvId,
-              type: 'task',
-              task_id: taskId,
-              created_by: currentProfile?.id || null,
-            })
-            .select()
-            .single();
-
-          if (!error && created) {
-            newConv.id = created.id;
-          }
-        } catch (err) {
-          console.warn('Task conversation insert warning:', err);
-        }
+      if (existing) {
+        await ensureScopedConversationSelfMembership(existing.id);
+        return existing;
       }
 
+      if (supabase && mode === 'supabase') {
+        const { data: created, error } = await supabase
+          .from('conversations')
+          .insert({ type: 'task', task_id: taskId, created_by: currentProfile.id })
+          .select()
+          .single();
+        if (error) throw error;
+        if (!created) throw new Error('Task conversation insert returned no row.');
+        const confirmed = created as Conversation;
+        await ensureScopedConversationSelfMembership(confirmed.id);
+        setData((prev) => ({ ...prev, conversations: [...(prev.conversations || []), confirmed] }));
+        return confirmed;
+      }
+
+      const now = new Date().toISOString();
+      const newConv: Conversation = { id: createUuid(), type: 'task', task_id: taskId, created_by: currentProfile.id, created_at: now, updated_at: now };
       setData((prev) => ({
         ...prev,
         conversations: [...(prev.conversations || []), newConv],
@@ -3992,7 +3508,7 @@ export function useTracker() {
 
       return newConv;
     },
-    [currentProfile, data.conversations, mode],
+    [currentProfile, data.conversations, ensureScopedConversationSelfMembership, mode],
   );
 
   const getOrCreateDM = useCallback(
@@ -4002,42 +3518,29 @@ export function useTracker() {
         if (c.type !== 'dm') return false;
         const members = (data.conversationMembers || []).filter((m) => m.conversation_id === c.id);
         const userIds = members.map((m) => m.user_id);
-        return userIds.includes(currentProfile.id) && userIds.includes(otherUserId);
+        return members.length === 2 && new Set(userIds).size === 2 &&
+          userIds.includes(currentProfile.id) && userIds.includes(otherUserId);
       });
       if (existing) return existing;
 
+      if (supabase && mode === 'supabase') {
+        const { data: conversationId, error } = await supabase.rpc('phase6_create_direct_conversation', {
+          p_other_user_id: otherUserId,
+        });
+        if (error) throw error;
+        if (!conversationId) throw new Error('Direct conversation RPC returned no conversation ID.');
+        await loadSupabaseData(currentProfile);
+        return {
+          id: String(conversationId), type: 'dm', created_by: currentProfile.id,
+          created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+        } as Conversation;
+      }
+
       const now = new Date().toISOString();
       const newConvId = createUuid();
-      const newConv: Conversation = {
-        id: newConvId,
-        type: 'dm',
-        created_by: currentProfile.id,
-        created_at: now,
-        updated_at: now,
-      };
-
+      const newConv: Conversation = { id: newConvId, type: 'dm', created_by: currentProfile.id, created_at: now, updated_at: now };
       const member1: ConversationMember = { id: createUuid(), conversation_id: newConvId, user_id: currentProfile.id, last_read_at: now, created_at: now };
       const member2: ConversationMember = { id: createUuid(), conversation_id: newConvId, user_id: otherUserId, last_read_at: now, created_at: now };
-
-      if (supabase && mode === 'supabase') {
-        try {
-          const { data: created, error } = await supabase
-            .from('conversations')
-            .insert({ id: newConvId, type: 'dm', created_by: currentProfile.id })
-            .select()
-            .single();
-
-          if (!error && created) {
-            newConv.id = created.id;
-            await supabase.from('conversation_members').insert([
-              { id: member1.id, conversation_id: created.id, user_id: currentProfile.id },
-              { id: member2.id, conversation_id: created.id, user_id: otherUserId },
-            ]);
-          }
-        } catch (err) {
-          console.warn('DM insert warning:', err);
-        }
-      }
 
       setData((prev) => ({
         ...prev,
@@ -4047,7 +3550,7 @@ export function useTracker() {
 
       return newConv;
     },
-    [currentProfile, data.conversationMembers, data.conversations, mode],
+    [currentProfile, data.conversationMembers, data.conversations, loadSupabaseData, mode],
   );
 
   return {
@@ -4083,12 +3586,30 @@ export function useTracker() {
     respondToRevisionRequest,
     approveProjectMilestone,
     submitStageForApproval,
+    advanceWorkflowStage,
+    completeFinalDelivery,
+    setProjectLifecycle,
+    updateWorkflowConfiguration,
+    updateProjectFromDraft,
     requestStageSkip,
     respondToStageSkip,
     adminWorkflowOverride,
     createTask,
     updateTask,
+    archiveTask,
+    assignTaskCollaborator,
+    removeTaskCollaborator,
+    addTaskComment,
+    updateTaskComment,
+    deleteTaskComment,
+    addTaskChecklistItem,
+    toggleTaskChecklistItem,
+    deleteTaskChecklistItem,
+    addTaskDependency,
+    removeTaskDependency,
+    createSubtask,
     inviteClient,
+    provisionTeamMember,
     updateProfile,
     markNotificationRead,
     markAllNotificationsRead,

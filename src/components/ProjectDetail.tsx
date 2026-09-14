@@ -33,8 +33,8 @@ import {
 import { useEffect, useMemo, useState } from 'react';
 import { RevisionRequestsPage } from '../pages/RevisionRequestsPage';
 import { revisionStatuses, timelineStages } from '../lib/constants';
-import { deadlineClass, deadlineLabel, formatDate, todayInput } from '../lib/date';
-import { getTimelineSummary, normalizeStage, timelineUpdateForStage, type OfficialTimelineStage } from '../lib/timeline';
+import { deadlineClass, deadlineLabel, formatDate } from '../lib/date';
+import { getTimelineSummary, normalizeStage, type OfficialTimelineStage } from '../lib/timeline';
 import { firstName, initials } from '../lib/utils';
 import { useCurrency } from '../lib/currency';
 import type {
@@ -44,6 +44,7 @@ import type {
   NoteType,
   Profile,
   Project,
+  ProjectMetadataUpdate,
   ProjectNote,
   RevisionActivity,
   RevisionAttachment,
@@ -106,6 +107,8 @@ export function ProjectDetail({
   onEdit,
   onDelete,
   onUpdateProject,
+  onAdvanceWorkflowStage,
+  onCompleteFinalDelivery,
   onAddNote,
   onAddRevision,
   onUpdateRevisionRequest,
@@ -135,7 +138,9 @@ export function ProjectDetail({
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
-  onUpdateProject: (updates: Partial<Project>) => Promise<void>;
+  onUpdateProject: (updates: ProjectMetadataUpdate) => Promise<void>;
+  onAdvanceWorkflowStage: () => Promise<void>;
+  onCompleteFinalDelivery: (note?: string) => Promise<void>;
   onAddNote: (noteType: NoteType, note: string) => Promise<void>;
   onAddRevision: (note: string, status: RevisionStatus) => Promise<void>;
   onUpdateRevisionRequest: (requestId: string, updates: Partial<RevisionRequest>) => Promise<void>;
@@ -157,8 +162,6 @@ export function ProjectDetail({
 }) {
   const { formatMoney } = useCurrency();
   const [activeTab, setActiveTab] = useState<ProjectDetailTab>('overview');
-  const [stage, setStage] = useState<TimelineStage>(project.current_stage || 'Files Received');
-  const [isSavingStage, setIsSavingStage] = useState(false);
   const [noteType, setNoteType] = useState<NoteType>('work');
   const [note, setNote] = useState('');
   const [revisionNote, setRevisionNote] = useState('');
@@ -192,6 +195,25 @@ export function ProjectDetail({
     setSubmissionFileUrl(initialUrl);
     setSubmissionNote('');
     setShowSubmitModal(true);
+  };
+
+  const advanceFilesReceived = async () => {
+    setIsSubmittingWorkflow(true);
+    try {
+      await onAdvanceWorkflowStage();
+    } finally {
+      setIsSubmittingWorkflow(false);
+    }
+  };
+
+  const completeDelivery = async () => {
+    if (!window.confirm(`Complete final delivery for "${project.project_title}"?`)) return;
+    setIsSubmittingWorkflow(true);
+    try {
+      await onCompleteFinalDelivery('Final delivery completed from the project workflow view.');
+    } finally {
+      setIsSubmittingWorkflow(false);
+    }
   };
 
   // File links editing modal state
@@ -243,41 +265,9 @@ export function ProjectDetail({
   );
 
   const projectTasks = useMemo(
-    () => tasks.filter((task) => task.project_id === project.id),
+    () => tasks.filter((task) => task.project_id === project.id && !task.archived_at),
     [project.id, tasks],
   );
-
-  useEffect(() => {
-    setStage(project.current_stage || 'Files Received');
-  }, [project.current_stage, project.id]);
-
-  async function saveStage() {
-    try {
-      setIsSavingStage(true);
-      const updates = timelineUpdateForStage(project, stage);
-      await onUpdateProject(updates);
-      await onAddNote('qa', `Production stage updated to: ${stage}`);
-    } finally {
-      setIsSavingStage(false);
-    }
-  }
-
-  async function markDelivered() {
-    const confirmed = window.confirm(`Are you sure you want to mark "${project.project_title}" as Completed?`);
-    if (!confirmed) return;
-    try {
-      setIsSavingStage(true);
-      setStage('Final Delivery');
-      const updates = timelineUpdateForStage(
-        { ...project, final_delivery_date: todayInput(), delivery_date: todayInput() },
-        'Completed',
-      );
-      await onUpdateProject(updates);
-      await onAddNote('delivery', 'Final delivery completed. Project is now marked Completed.');
-    } finally {
-      setIsSavingStage(false);
-    }
-  }
 
   async function submitNote() {
     if (!note.trim()) return;
@@ -305,8 +295,7 @@ export function ProjectDetail({
     await onUpdateProject({
       total_price: totalPrice,
       advance_paid: advancePaid,
-      remaining_balance: Math.max(totalPrice - advancePaid, 0),
-      payment_status: paymentValues.payment_status as Project['payment_status'],
+        payment_status: paymentValues.payment_status as Project['payment_status'],
       payment_date: paymentValues.payment_date || null,
       payment_notes: paymentValues.payment_notes,
     });
@@ -412,44 +401,10 @@ export function ProjectDetail({
 
             {/* Top Workflow & Quick Action Buttons */}
             <div className="flex flex-wrap items-center gap-2 shrink-0">
-              {/* Revision Submission Workflow Buttons */}
-              {isRevisionActive && (normStage === 'Concept Approval' || normStage === 'Design Concept') && (
-                <Button
-                  onClick={openSubmitModal}
-                  disabled={isSubmittingWorkflow}
-                  className="text-xs py-2 px-3 bg-gold text-white font-semibold hover:bg-gold/90 shadow-xs"
-                >
-                  <Send className="h-3.5 w-3.5" />
-                  Submit Concept Revision
-                </Button>
-              )}
-
-              {isRevisionActive && (normStage === 'Print Approval' || normStage === 'Print Version') && (
-                <Button
-                  onClick={openSubmitModal}
-                  disabled={isSubmittingWorkflow}
-                  className="text-xs py-2 px-3 bg-gold text-white font-semibold hover:bg-gold/90 shadow-xs"
-                >
-                  <Send className="h-3.5 w-3.5" />
-                  Submit Print Revision
-                </Button>
-              )}
-
-              {isRevisionActive && (normStage === 'Ebook Approval' || normStage === 'Ebook Version') && (
-                <Button
-                  onClick={openSubmitModal}
-                  disabled={isSubmittingWorkflow}
-                  className="text-xs py-2 px-3 bg-gold text-white font-semibold hover:bg-gold/90 shadow-xs"
-                >
-                  <Send className="h-3.5 w-3.5" />
-                  Submit eBook Revision
-                </Button>
-              )}
-
               {/* Standard Stage Submission Workflow Buttons */}
               {!isRevisionActive && !isAwaitingClientReview && normStage === 'Files Received' && (
                 <Button
-                  onClick={openSubmitModal}
+                  onClick={advanceFilesReceived}
                   disabled={isSubmittingWorkflow}
                   className="text-xs py-2 px-3 bg-gold text-white font-semibold hover:bg-gold/90 shadow-xs"
                 >
@@ -493,7 +448,7 @@ export function ProjectDetail({
 
               {normStage === 'Final Delivery' && project.status !== 'Completed' && (
                 <Button
-                  onClick={openSubmitModal}
+                  onClick={completeDelivery}
                   disabled={isSubmittingWorkflow}
                   className="text-xs py-2 px-3 bg-success hover:bg-green-700 text-white font-semibold shadow-xs"
                 >
@@ -733,44 +688,10 @@ export function ProjectDetail({
                     </p>
 
                     <div className="flex flex-col gap-2">
-                      {/* Revision Submission Workflow Buttons */}
-                      {isRevisionActive && (normStage === 'Concept Approval' || normStage === 'Design Concept') && (
-                        <Button
-                          onClick={openSubmitModal}
-                          disabled={isSubmittingWorkflow}
-                          className="w-full text-xs py-2 bg-gold text-white font-semibold hover:bg-gold/90"
-                        >
-                          <Send className="h-3.5 w-3.5" />
-                          Submit Concept Revision
-                        </Button>
-                      )}
-
-                      {isRevisionActive && (normStage === 'Print Approval' || normStage === 'Print Version') && (
-                        <Button
-                          onClick={openSubmitModal}
-                          disabled={isSubmittingWorkflow}
-                          className="w-full text-xs py-2 bg-gold text-white font-semibold hover:bg-gold/90"
-                        >
-                          <Send className="h-3.5 w-3.5" />
-                          Submit Print Revision
-                        </Button>
-                      )}
-
-                      {isRevisionActive && (normStage === 'Ebook Approval' || normStage === 'Ebook Version') && (
-                        <Button
-                          onClick={openSubmitModal}
-                          disabled={isSubmittingWorkflow}
-                          className="w-full text-xs py-2 bg-gold text-white font-semibold hover:bg-gold/90"
-                        >
-                          <Send className="h-3.5 w-3.5" />
-                          Submit eBook Revision
-                        </Button>
-                      )}
-
                       {/* Standard Stage Submission Workflow Buttons */}
                       {!isRevisionActive && !isAwaitingClientReview && normStage === 'Files Received' && (
                         <Button
-                          onClick={openSubmitModal}
+                          onClick={advanceFilesReceived}
                           disabled={isSubmittingWorkflow}
                           className="w-full text-xs py-2 bg-gold text-white font-semibold hover:bg-gold/90"
                         >
@@ -814,7 +735,7 @@ export function ProjectDetail({
 
                       {normStage === 'Final Delivery' && project.status !== 'Completed' && (
                         <Button
-                          onClick={openSubmitModal}
+                          onClick={completeDelivery}
                           disabled={isSubmittingWorkflow}
                           className="w-full text-xs py-2 bg-success hover:bg-green-700 text-white font-semibold"
                         >
@@ -1138,7 +1059,6 @@ export function ProjectDetail({
                   onUpdateRequest={onUpdateRevisionRequest}
                   onUpdateItem={onUpdateRevisionItem}
                   onUploadRevisedProof={onUploadRevisedProof}
-                  onSubmitStageForApproval={onSubmitStageForApproval}
                 />
               </div>
 
