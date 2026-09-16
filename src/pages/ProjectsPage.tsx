@@ -27,11 +27,12 @@ function QuickLifecycleInput({
 }: {
   project: Project;
   currentProfile: Profile;
-  onSetProjectLifecycle: (projectId: string, lifecycle: ProjectLifecycleStatus) => void;
+  onSetProjectLifecycle: (projectId: string, lifecycle: ProjectLifecycleStatus) => Promise<void> | void;
   onRequestArchive?: (project: Project) => void;
 }) {
   const currentLifecycle = project.project_status || 'active';
   const isAdmin = currentProfile?.role === 'admin';
+  const [isPending, setIsPending] = useState(false);
 
   // Canonical RPC workflow_set_project_lifecycle strictly requires admin role.
   // Render read-only badge for non-admins to prevent predictably failing operations.
@@ -56,17 +57,24 @@ function QuickLifecycleInput({
   return (
     <select
       value={currentLifecycle}
-      onChange={(event) => {
+      disabled={isPending}
+      onChange={async (event) => {
         const value = event.target.value;
         if (value === '__archive__') {
           onRequestArchive?.(project);
           return;
         }
         if (value === 'active' || value === 'on_hold') {
-          onSetProjectLifecycle(project.id, value);
+          if (value === currentLifecycle || isPending) return;
+          setIsPending(true);
+          try {
+            await onSetProjectLifecycle(project.id, value);
+          } finally {
+            setIsPending(false);
+          }
         }
       }}
-      className="h-10 w-36 rounded-md border border-border bg-white px-2 text-xs text-ink"
+      className="h-10 w-36 rounded-md border border-border bg-white px-2 text-xs text-ink disabled:opacity-50"
       title="Change project lifecycle"
     >
       <option value="active">Active</option>
@@ -106,7 +114,7 @@ export function ProjectsPage({
   onArchiveProject?: (project: Project) => void;
   onDeleteProject?: (project: Project) => void;
   onDuplicateProject: (project: Project) => void;
-  onSetProjectLifecycle: (projectId: string, lifecycle: ProjectLifecycleStatus) => void;
+  onSetProjectLifecycle: (projectId: string, lifecycle: ProjectLifecycleStatus) => Promise<void> | void;
   onAddProject: () => void;
   emptyTitle?: string;
   emptyMessage?: string;

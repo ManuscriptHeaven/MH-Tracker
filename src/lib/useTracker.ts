@@ -3,6 +3,7 @@ import { supabase } from './supabase';
 import { sampleData, sampleProfiles } from './sampleData';
 import { errorMessage, firstName, isClientRole, isManagerRole } from './utils';
 import { formatWorkflowErrorMessage } from './workflowErrors';
+import { normalizeRevisionRequest } from './revisionUtils';
 import {
   fetchNotifications,
   markAllNotificationsAsRead,
@@ -269,30 +270,7 @@ function normalizeClientProject(project: Partial<Project>): Project {
   });
 }
 
-export function normalizeRevisionRequest(request: Partial<RevisionRequest>): RevisionRequest {
-  const now = new Date().toISOString();
-
-  return {
-    id: request.id || createId('revision-request'),
-    project_id: request.project_id || '',
-    client_id: request.client_id || '',
-    title: request.title || 'Revision Request',
-    description: request.description || '',
-    instructions: request.instructions || request.description || request.title || '',
-    team_response: request.team_response || null,
-    priority: request.priority || 'Normal',
-    status: request.status || 'Submitted',
-    stage_key: request.stage_key ?? null,
-    revision_round: request.revision_round ?? null,
-    canonical_status: request.canonical_status ?? null,
-    parent_revision_request_id: request.parent_revision_request_id ?? null,
-    assigned_to: request.assigned_to || null,
-    submitted_at: request.submitted_at || request.created_at || now,
-    completed_at: request.completed_at || null,
-    created_at: request.created_at || now,
-    updated_at: request.updated_at || now,
-  };
-}
+export { normalizeRevisionRequest } from './revisionUtils';
 
 function normalizeRevisionItem(item: Partial<RevisionItem>): RevisionItem {
   const now = new Date().toISOString();

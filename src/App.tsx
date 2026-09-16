@@ -28,7 +28,7 @@ import { AIChatPanel } from './components/ai/AIChatPanel';
 import { AIDailyPopup } from './components/ai/AIDailyPopup';
 import { useTracker } from './lib/useTracker';
 import { errorMessage, isClientRole } from './lib/utils';
-import type { Project, ProjectDraft, ProjectMetadataUpdate, Role } from './lib/types';
+import type { Project, ProjectDraft, ProjectLifecycleStatus, ProjectMetadataUpdate, Role } from './lib/types';
 
 import { RevisionRequestModal } from './components/RevisionRequestModal';
 import { Toast, type ToastData } from './components/Toast';
@@ -123,6 +123,23 @@ export default function App() {
     }
   }
 
+  async function handleSetProjectLifecycle(projectId: string, lifecycle: ProjectLifecycleStatus) {
+    try {
+      await tracker.setProjectLifecycle(projectId, lifecycle);
+      setToast({
+        message: lifecycle === 'on_hold'
+          ? 'Project placed on hold.'
+          : 'Project reactivated.',
+        tone: 'success',
+      });
+    } catch (error) {
+      setToast({
+        message: errorMessage(error, 'Project lifecycle could not be changed.'),
+        tone: 'error',
+      });
+    }
+  }
+
   /** @deprecated Use onRequestArchive instead */
   const deleteProject = onRequestArchive;
 
@@ -188,7 +205,8 @@ export default function App() {
     onArchiveProject: onRequestArchive,
     onDeleteProject: onRequestArchive,
     onDuplicateProject: tracker.duplicateProject,
-    onSetProjectLifecycle: tracker.setProjectLifecycle,
+    // Canonical tracker delegate wrapped by handleSetProjectLifecycle: onSetProjectLifecycle: tracker.setProjectLifecycle
+    onSetProjectLifecycle: handleSetProjectLifecycle,
     onAddProject: openAddProject,
   };
   const taskPageProps = {

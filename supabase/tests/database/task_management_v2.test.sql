@@ -4,13 +4,15 @@
 --
 -- SAFETY REQUIREMENT:
 -- This test creates synthetic auth and team fixtures inside a rollback transaction.
--- It contains an executable fail-closed safety gate and will ABORT immediately
--- unless executed on an approved non-production target with positive proof.
+-- It contains an executable fail-closed safety gate requiring BOTH:
+--   1. Database-backed staging sentinel (public.phase6_test_environment_guard)
+--   2. Explicit caller intent session GUC (task_v2.test_target = 'staging')
 --
--- To execute on staging or a disposable test database:
+-- ONE-TIME STAGING SENTINEL SETUP:
+--   psql -d <staging_db> -v ON_ERROR_STOP=1 -f supabase/tests/database/staging_environment_sentinel_setup.sql
+--
+-- EXECUTION ON STAGING:
 --   psql -d <staging_db> -v ON_ERROR_STOP=1 -c "SET task_v2.test_target = 'staging';" -f supabase/tests/database/task_management_v2.test.sql
---   or:
---   psql -d <staging_db> -v ON_ERROR_STOP=1 -c "SET phase6.local_disposable = 'on';" -f supabase/tests/database/task_management_v2.test.sql
 -- ============================================================================
 begin;
 
@@ -44,18 +46,44 @@ declare
 begin
   -- ============================================================================
   -- EXECUTABLE STAGING/TEST SAFETY GATE (FAIL-CLOSED)
-  -- Abort immediately unless positive non-production staging proof exists.
+  -- Requires BOTH:
+  --   A. Database-backed non-production sentinel: public.phase6_test_environment_guard
+  --      (Absent from production; cannot be bypassed by session settings alone)
+  --   B. Explicit caller intent GUC: task_v2.test_target = 'staging'/'test'
+  --      or phase6.local_disposable = 'on'
   -- ============================================================================
+
+  -- 1. Explicit production indicators abort immediately
   if current_setting('app.environment', true) = 'production'
-     or current_database() ilike '%prod%'
-     or (current_database() in ('postgres', 'production') and current_setting('task_v2.test_target', true) is distinct from 'staging') then
+     or current_database() ilike '%prod%' then
     raise exception 'SAFETY ABORT: Execution against production database is forbidden.';
   end if;
 
+  -- 2. REQUIREMENT A: Database-backed sentinel check.
+  -- The sentinel table must exist in the database catalog.
+  if not exists (
+    select 1
+    from information_schema.tables
+    where table_schema = 'public'
+      and table_name = 'phase6_test_environment_guard'
+  ) then
+    raise exception 'SAFETY ABORT: Database-backed staging sentinel public.phase6_test_environment_guard is missing. Refusing to run tests against an unverified target database.';
+  end if;
+
+  -- The sentinel table must confirm an approved non-production environment.
+  if not exists (
+    select 1
+    from public.phase6_test_environment_guard
+    where environment in ('staging', 'test')
+  ) then
+    raise exception 'SAFETY ABORT: public.phase6_test_environment_guard does not confirm a staging or test environment. Refusing execution.';
+  end if;
+
+  -- 3. REQUIREMENT B: Explicit caller intent GUC. Session GUC alone is never enough, but required as confirmation.
   if current_setting('phase6.local_disposable', true) is distinct from 'on'
      and current_setting('task_v2.test_target', true) is distinct from 'staging'
      and current_setting('task_v2.test_target', true) is distinct from 'test' then
-    raise exception 'SAFETY ABORT: task_management_v2.test.sql requires positive proof of an approved non-production test target. Set SET phase6.local_disposable = ''on''; or SET task_v2.test_target = ''staging''; before running.';
+    raise exception 'SAFETY ABORT: task_management_v2.test.sql requires explicit caller intent setting in addition to database sentinel. Run with SET task_v2.test_target = ''staging''; or SET phase6.local_disposable = ''on'';';
   end if;
 
   select id into project_one from public.projects order by id limit 1;

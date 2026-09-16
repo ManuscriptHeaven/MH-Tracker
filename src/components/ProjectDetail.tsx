@@ -37,7 +37,8 @@ import { revisionStatuses, timelineStages } from '../lib/constants';
 import { deadlineClass, deadlineLabel, formatDate } from '../lib/date';
 import { getTimelineSummary, normalizeStage, type OfficialTimelineStage } from '../lib/timeline';
 import { firstName, initials } from '../lib/utils';
-import { formatWorkflowErrorMessage, hasAmbiguousRevisionRequests } from '../lib/workflowErrors';
+import { formatWorkflowErrorMessage } from '../lib/workflowErrors';
+import { hasAmbiguousRevisionRequests } from '../lib/revisionUtils';
 import { useCurrency } from '../lib/currency';
 import type {
   ActivityLog,

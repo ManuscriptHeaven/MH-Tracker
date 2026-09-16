@@ -5,7 +5,7 @@ import { dirname, resolve, join } from 'node:path';
 // Handle native node execution by dynamically importing ts module or delegating to tsx
 let normalizeRevisionRequest, hasAmbiguousRevisionRequests;
 try {
-  const mod = await import('../src/lib/workflowErrors.ts');
+  const mod = await import('../src/lib/revisionUtils.ts');
   normalizeRevisionRequest = mod.normalizeRevisionRequest;
   hasAmbiguousRevisionRequests = mod.hasAmbiguousRevisionRequests;
 } catch {
@@ -42,6 +42,8 @@ const workflowClientSrc = readFileSync(resolve(root, 'src/lib/workflowClient.ts'
 const utilsSrc = readFileSync(resolve(root, 'src/lib/utils.ts'), 'utf8');
 const migration00620 = readFileSync(resolve(root, 'supabase/phase6/migrations/00620_task_management_v2_insert_returning_rls_fix.sql'), 'utf8');
 const dbTest = readFileSync(resolve(root, 'supabase/tests/database/task_management_v2.test.sql'), 'utf8');
+const revisionUtilsSrc = readFileSync(resolve(root, 'src/lib/revisionUtils.ts'), 'utf8');
+const stagingSentinelSetupSrc = readFileSync(resolve(root, 'supabase/tests/database/staging_environment_sentinel_setup.sql'), 'utf8');
 
 // 1. Check for physical delete calls across all source files
 let physicalDeleteOccurrences = [];
@@ -139,6 +141,47 @@ const quickLifecycleGuardsNonAdmins =
   quickLifecycleSrc.includes("if (!isAdmin)") ||
   quickLifecycleSrc.includes("currentProfile?.role !== 'admin'");
 
+// Single normalizer implementation checks
+const normalizeImplementations = srcFiles.filter((f) => {
+  const content = readFileSync(f, 'utf8');
+  return /function\s+normalizeRevisionRequest\s*\(/.test(content);
+});
+const onlyOneNormalizeImplementation =
+  normalizeImplementations.length === 1 && normalizeImplementations[0].replace(/\\/g, '/').endsWith('src/lib/revisionUtils.ts');
+
+const trackerImportsAndUsesNormalizer =
+  trackerSrc.includes("import { normalizeRevisionRequest } from './revisionUtils'") &&
+  trackerSrc.includes('revisionRequestsRes.data as Partial<RevisionRequest>[]).map(normalizeRevisionRequest)');
+
+const behavioralTestUsesSameNormalizer =
+  typeof normalizeRevisionRequest === 'function' &&
+  revisionUtilsSrc.includes('export function normalizeRevisionRequest(');
+
+// Quick Lifecycle async failure error handling in App.tsx and ProjectsPage.tsx
+const appWrapsLifecycleWithUserVisibleError =
+  appSrc.includes('handleSetProjectLifecycle') &&
+  appSrc.includes('onSetProjectLifecycle: handleSetProjectLifecycle') &&
+  appSrc.includes("setToast({") &&
+  appSrc.includes("tone: 'error'") &&
+  appSrc.includes('Project lifecycle could not be changed.');
+
+const quickLifecycleHandlesAsyncState =
+  quickLifecycleSrc.includes('disabled={isPending}') &&
+  quickLifecycleSrc.includes('setIsPending(true)') &&
+  quickLifecycleSrc.includes('await onSetProjectLifecycle(project.id, value)') &&
+  quickLifecycleSrc.includes('setIsPending(false)');
+
+// DB sentinel requirement and refusal if session GUC alone is used
+const dbRequiresSentinelTable =
+  dbTest.includes('phase6_test_environment_guard') &&
+  dbTest.includes('information_schema.tables') &&
+  stagingSentinelSetupSrc.includes('phase6_test_environment_guard');
+
+const sessionGucAloneNotEnough =
+  dbTest.includes('Database-backed staging sentinel public.phase6_test_environment_guard is missing') &&
+  dbTest.includes("raise exception 'SAFETY ABORT: Database-backed staging sentinel") &&
+  dbTest.includes('cannot be bypassed by session settings alone');
+
 // DB safety gate checks
 const dbTestHasSafetyGate =
   dbTest.includes('SAFETY ABORT') &&
@@ -197,6 +240,18 @@ const checks = [
   [
     'BEHAVIORAL: Project with no revision requests does NOT trigger hasAmbiguousRevisionRequests',
     behaviorScenarioC,
+  ],
+  [
+    'Single source: only one normalizeRevisionRequest implementation exists in src/',
+    onlyOneNormalizeImplementation,
+  ],
+  [
+    'Single source: production useTracker imports and uses revisionUtils normalizeRevisionRequest',
+    trackerImportsAndUsesNormalizer,
+  ],
+  [
+    'Single source: behavioral test uses that exact same implementation',
+    behavioralTestUsesSameNormalizer,
   ],
   [
     'ProjectDetail has NO hardcoded MH-1021 or project number check',
@@ -297,6 +352,14 @@ const checks = [
     'BEHAVIORAL: QuickLifecycleInput guards non-admins with read-only view',
     quickLifecycleGuardsNonAdmins,
   ],
+  [
+    'Quick Lifecycle: async failures are caught and surfaced to user via toast',
+    appWrapsLifecycleWithUserVisibleError,
+  ],
+  [
+    'Quick Lifecycle: pending state disables select and restores canonical state on error',
+    quickLifecycleHandlesAsyncState,
+  ],
 
   // 7. Admin Override Modal in ProjectDetail.tsx
   [
@@ -332,6 +395,14 @@ const checks = [
   [
     'task_management_v2.test.sql contains executable fail-closed staging/test safety gate',
     dbTestHasSafetyGate,
+  ],
+  [
+    'Database Guard: test SQL requires database-backed non-production sentinel table',
+    dbRequiresSentinelTable,
+  ],
+  [
+    'Database Guard: session GUC alone is rejected without database sentinel',
+    sessionGucAloneNotEnough,
   ],
   [
     'task_management_v2.test.sql tests INSERT ... RETURNING under RLS for Admin and Employee',

@@ -60,9 +60,13 @@ export {
   WorkflowDomainError,
   domainCodeFrom,
   formatWorkflowErrorMessage,
-  hasAmbiguousRevisionRequests,
 } from './workflowErrors';
-export type { WorkflowDomainCode, RevisionRequestAmbiguityCandidate } from './workflowErrors';
+export type { WorkflowDomainCode } from './workflowErrors';
+export {
+  normalizeRevisionRequest,
+  hasAmbiguousRevisionRequests,
+} from './revisionUtils';
+export type { RevisionRequestAmbiguityCandidate } from './revisionUtils';
 import {
   domainCodeFrom,
   WorkflowDomainError,
