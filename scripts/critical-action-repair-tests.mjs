@@ -2,6 +2,18 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
 
+// Handle native node execution by dynamically importing ts module or delegating to tsx
+let normalizeRevisionRequest, hasAmbiguousRevisionRequests;
+try {
+  const mod = await import('../src/lib/workflowErrors.ts');
+  normalizeRevisionRequest = mod.normalizeRevisionRequest;
+  hasAmbiguousRevisionRequests = mod.hasAmbiguousRevisionRequests;
+} catch {
+  const { execSync } = await import('node:child_process');
+  execSync('npx --yes tsx ' + JSON.stringify(fileURLToPath(import.meta.url)), { stdio: 'inherit' });
+  process.exit(0);
+}
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 // Helper to recursively collect all source files
@@ -39,6 +51,100 @@ for (const file of srcFiles) {
     physicalDeleteOccurrences.push(file);
   }
 }
+
+// ============================================================================
+// Behavioral Tests for Canonical Revision Normalization & Ambiguity Detection
+// ============================================================================
+
+// Scenario A: Fully canonical RevisionRequest
+const canonicalFixture = {
+  id: 'rev-canonical-101',
+  project_id: 'proj-alpha',
+  client_id: 'client-user-1',
+  title: 'Canonical Print Revision',
+  description: 'Adjust margin by 2mm',
+  instructions: 'Adjust margin by 2mm',
+  stage_key: 'print_approval',
+  revision_round: 1,
+  canonical_status: 'ready_for_client_review',
+  parent_revision_request_id: null,
+};
+const canonicalNorm = normalizeRevisionRequest(canonicalFixture);
+const behaviorScenarioA =
+  canonicalNorm.stage_key === 'print_approval' &&
+  canonicalNorm.revision_round === 1 &&
+  canonicalNorm.canonical_status === 'ready_for_client_review' &&
+  canonicalNorm.parent_revision_request_id === null &&
+  hasAmbiguousRevisionRequests('proj-alpha', [canonicalNorm]) === false;
+
+// Scenario B: Incomplete / genuinely ambiguous legacy RevisionRequest
+const ambiguousMissingStage = normalizeRevisionRequest({
+  id: 'rev-legacy-1',
+  project_id: 'proj-beta',
+  client_id: 'client-user-1',
+  title: 'Legacy without stage',
+  stage_key: null,
+  revision_round: 1,
+  canonical_status: 'ready_for_client_review',
+});
+const ambiguousMissingRound = normalizeRevisionRequest({
+  id: 'rev-legacy-2',
+  project_id: 'proj-beta',
+  client_id: 'client-user-1',
+  title: 'Legacy without round',
+  stage_key: 'print_approval',
+  revision_round: null,
+  canonical_status: 'ready_for_client_review',
+});
+const ambiguousMissingCanonicalStatus = normalizeRevisionRequest({
+  id: 'rev-legacy-3',
+  project_id: 'proj-beta',
+  client_id: 'client-user-1',
+  title: 'Legacy without canonical status',
+  stage_key: 'print_approval',
+  revision_round: 1,
+  canonical_status: null,
+});
+const ambiguousZeroRound = normalizeRevisionRequest({
+  id: 'rev-legacy-4',
+  project_id: 'proj-beta',
+  client_id: 'client-user-1',
+  title: 'Legacy with 0 round',
+  stage_key: 'print_approval',
+  revision_round: 0,
+  canonical_status: 'ready_for_client_review',
+});
+const behaviorScenarioB =
+  hasAmbiguousRevisionRequests('proj-beta', [ambiguousMissingStage]) === true &&
+  hasAmbiguousRevisionRequests('proj-beta', [ambiguousMissingRound]) === true &&
+  hasAmbiguousRevisionRequests('proj-beta', [ambiguousMissingCanonicalStatus]) === true &&
+  hasAmbiguousRevisionRequests('proj-beta', [ambiguousZeroRound]) === true;
+
+// Scenario C: Project with no revision requests
+const behaviorScenarioC =
+  hasAmbiguousRevisionRequests('proj-empty', []) === false &&
+  hasAmbiguousRevisionRequests('proj-empty', null) === false &&
+  hasAmbiguousRevisionRequests('proj-empty', undefined) === false &&
+  hasAmbiguousRevisionRequests('proj-empty', [canonicalNorm]) === false; // proj-alpha revision does not affect proj-empty
+
+// Quick status safety checks
+const quickLifecycleMatch = projectsPageSrc.match(/function QuickLifecycleInput[\s\S]*?export function ProjectsPage/);
+const quickLifecycleSrc = quickLifecycleMatch ? quickLifecycleMatch[0] : '';
+const quickLifecycleHasNoCancelled = !quickLifecycleSrc.includes('value="cancelled"');
+const quickLifecycleHasNoArchived = !quickLifecycleSrc.includes('value="archived"');
+const quickLifecycleRoutesArchiveToModal =
+  quickLifecycleSrc.includes("value === '__archive__'") &&
+  quickLifecycleSrc.includes('onRequestArchive?.(project)');
+const quickLifecycleGuardsNonAdmins =
+  quickLifecycleSrc.includes("if (!isAdmin)") ||
+  quickLifecycleSrc.includes("currentProfile?.role !== 'admin'");
+
+// DB safety gate checks
+const dbTestHasSafetyGate =
+  dbTest.includes('SAFETY ABORT') &&
+  dbTest.includes('current_setting') &&
+  (dbTest.includes('phase6.local_disposable') || dbTest.includes('task_v2.test_target')) &&
+  dbTest.includes("current_setting('app.environment', true) = 'production'");
 
 const checks = [
   // 1. Physical deletion ban
@@ -79,21 +185,30 @@ const checks = [
     utilsSrc.includes('return formatWorkflowErrorMessage(error, fallback);'),
   ],
 
-  // 3. Generic ambiguous revisions handling
+  // 3. Behavioral verification of RevisionRequest normalization and ambiguity detection
+  [
+    'BEHAVIORAL: normalizeRevisionRequest preserves canonical fields (stage_key, revision_round, canonical_status)',
+    behaviorScenarioA,
+  ],
+  [
+    'BEHAVIORAL: Genuinely incomplete/ambiguous legacy revision request triggers hasAmbiguousRevisionRequests',
+    behaviorScenarioB,
+  ],
+  [
+    'BEHAVIORAL: Project with no revision requests does NOT trigger hasAmbiguousRevisionRequests',
+    behaviorScenarioC,
+  ],
   [
     'ProjectDetail has NO hardcoded MH-1021 or project number check',
     !projectDetailSrc.includes('MH-1021') && !trackerSrc.includes('MH-1021') && !appSrc.includes('MH-1021'),
   ],
   [
-    'ProjectDetail computes hasAmbiguousRevisions from data-backed signals (stage_key, revision_round, canonical_status)',
-    projectDetailSrc.includes('hasAmbiguousRevisions') &&
-    projectDetailSrc.includes('stage_key') &&
-    projectDetailSrc.includes('revision_round') &&
-    projectDetailSrc.includes('canonical_status'),
+    'ProjectDetail uses pure hasAmbiguousRevisionRequests helper',
+    projectDetailSrc.includes('hasAmbiguousRevisionRequests(project.id, revisionRequests)'),
   ],
   [
-    'ProjectDetail displays generic admin review warning banner for ambiguous revisions',
-    projectDetailSrc.includes('Legacy revision history for this project needs Admin review before this workflow action can continue.'),
+    'ProjectDetail restricts ambiguous revision warning strictly to admin role (currentProfile.role === "admin")',
+    projectDetailSrc.includes("hasAmbiguousRevisions && currentProfile.role === 'admin'"),
   ],
 
   // 4. Archive project lifecycle in useTracker
@@ -150,7 +265,7 @@ const checks = [
     appSrc.includes('{archiveError &&'),
   ],
 
-  // 6. ProjectsPage lifecycle filtering
+  // 6. ProjectsPage lifecycle filtering & Quick Lifecycle safety
   [
     'ProjectsPage defaults lifecycleFilter to active and hides archived projects',
     projectsPageSrc.includes("const [lifecycleFilter, setLifecycleFilter] = useState<'active' | 'archived' | 'all'>('active');") &&
@@ -169,6 +284,18 @@ const checks = [
     projectsPageSrc.includes('Archive') &&
     projectsPageSrc.includes('handleArchive') &&
     projectsPageSrc.includes('onRequestArchive'),
+  ],
+  [
+    'BEHAVIORAL: QuickLifecycleInput removes reasonless "Cancelled" and direct "Archived" dropdown options',
+    quickLifecycleHasNoCancelled && quickLifecycleHasNoArchived,
+  ],
+  [
+    'BEHAVIORAL: QuickLifecycleInput routes archival to onRequestArchive modal',
+    quickLifecycleRoutesArchiveToModal,
+  ],
+  [
+    'BEHAVIORAL: QuickLifecycleInput guards non-admins with read-only view',
+    quickLifecycleGuardsNonAdmins,
   ],
 
   // 7. Admin Override Modal in ProjectDetail.tsx
@@ -195,12 +322,16 @@ const checks = [
     projectDetailSrc.includes('{overrideError &&'),
   ],
 
-  // 8. Migration 00620 and database test integrity
+  // 8. Migration 00620 and database test integrity & safety gate
   [
     'Migration 00620 is present with phase6_tasks_team_select RLS fix for INSERT RETURNING',
     migration00620.includes('phase6_tasks_team_select') &&
     migration00620.includes('public.phase6_can_access_task(id)') &&
     migration00620.includes('created_by=(select auth.uid())'),
+  ],
+  [
+    'task_management_v2.test.sql contains executable fail-closed staging/test safety gate',
+    dbTestHasSafetyGate,
   ],
   [
     'task_management_v2.test.sql tests INSERT ... RETURNING under RLS for Admin and Employee',

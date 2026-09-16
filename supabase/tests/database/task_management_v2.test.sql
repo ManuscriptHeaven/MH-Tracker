@@ -1,6 +1,17 @@
+-- ============================================================================
 -- Task Management V2 PostgreSQL integration/RLS checks for verified staging.
--- Apply the authoritative Phase 6 chain through 00620 first. Never run on production.
--- Every fixture, including auth identities, is contained in this rollback transaction.
+-- Apply the authoritative Phase 6 chain through 00620 first.
+--
+-- SAFETY REQUIREMENT:
+-- This test creates synthetic auth and team fixtures inside a rollback transaction.
+-- It contains an executable fail-closed safety gate and will ABORT immediately
+-- unless executed on an approved non-production target with positive proof.
+--
+-- To execute on staging or a disposable test database:
+--   psql -d <staging_db> -v ON_ERROR_STOP=1 -c "SET task_v2.test_target = 'staging';" -f supabase/tests/database/task_management_v2.test.sql
+--   or:
+--   psql -d <staging_db> -v ON_ERROR_STOP=1 -c "SET phase6.local_disposable = 'on';" -f supabase/tests/database/task_management_v2.test.sql
+-- ============================================================================
 begin;
 
 create function pg_temp.task_v2_assert(p_ok boolean,p_label text) returns void
@@ -31,6 +42,22 @@ declare
   denied boolean;
   returned_task public.tasks%rowtype;
 begin
+  -- ============================================================================
+  -- EXECUTABLE STAGING/TEST SAFETY GATE (FAIL-CLOSED)
+  -- Abort immediately unless positive non-production staging proof exists.
+  -- ============================================================================
+  if current_setting('app.environment', true) = 'production'
+     or current_database() ilike '%prod%'
+     or (current_database() in ('postgres', 'production') and current_setting('task_v2.test_target', true) is distinct from 'staging') then
+    raise exception 'SAFETY ABORT: Execution against production database is forbidden.';
+  end if;
+
+  if current_setting('phase6.local_disposable', true) is distinct from 'on'
+     and current_setting('task_v2.test_target', true) is distinct from 'staging'
+     and current_setting('task_v2.test_target', true) is distinct from 'test' then
+    raise exception 'SAFETY ABORT: task_management_v2.test.sql requires positive proof of an approved non-production test target. Set SET phase6.local_disposable = ''on''; or SET task_v2.test_target = ''staging''; before running.';
+  end if;
+
   select id into project_one from public.projects order by id limit 1;
   select id into project_two from public.projects where id<>project_one order by id limit 1;
   perform pg_temp.task_v2_assert(project_one is not null and project_two is not null,

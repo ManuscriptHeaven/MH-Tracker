@@ -37,7 +37,7 @@ import { revisionStatuses, timelineStages } from '../lib/constants';
 import { deadlineClass, deadlineLabel, formatDate } from '../lib/date';
 import { getTimelineSummary, normalizeStage, type OfficialTimelineStage } from '../lib/timeline';
 import { firstName, initials } from '../lib/utils';
-import { formatWorkflowErrorMessage } from '../lib/workflowErrors';
+import { formatWorkflowErrorMessage, hasAmbiguousRevisionRequests } from '../lib/workflowErrors';
 import { useCurrency } from '../lib/currency';
 import type {
   ActivityLog,
@@ -197,9 +197,7 @@ export function ProjectDetail({
   const isOverrideFormValid = isOverrideReasonValid && isOverrideExplanationValid;
 
   const hasAmbiguousRevisions = useMemo(() => {
-    return (revisionRequests || []).some(
-      (req) => req.project_id === project.id && (!req.stage_key || req.revision_round === undefined || req.revision_round === null || !req.canonical_status)
-    );
+    return hasAmbiguousRevisionRequests(project.id, revisionRequests);
   }, [project.id, revisionRequests]);
 
   const openSubmitModal = () => {
@@ -556,7 +554,7 @@ export function ProjectDetail({
           </div>
 
           {/* Ambiguous Revision History Admin Warning */}
-          {hasAmbiguousRevisions && canManageAll && (
+          {hasAmbiguousRevisions && currentProfile.role === 'admin' && (
             <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900 shadow-xs">
               <div className="flex items-start gap-3">
                 <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />

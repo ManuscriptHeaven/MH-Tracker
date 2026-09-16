@@ -21,22 +21,57 @@ function profileName(profiles: Profile[], id?: string | null) {
 
 function QuickLifecycleInput({
   project,
+  currentProfile,
   onSetProjectLifecycle,
+  onRequestArchive,
 }: {
   project: Project;
+  currentProfile: Profile;
   onSetProjectLifecycle: (projectId: string, lifecycle: ProjectLifecycleStatus) => void;
+  onRequestArchive?: (project: Project) => void;
 }) {
+  const currentLifecycle = project.project_status || 'active';
+  const isAdmin = currentProfile?.role === 'admin';
+
+  // Canonical RPC workflow_set_project_lifecycle strictly requires admin role.
+  // Render read-only badge for non-admins to prevent predictably failing operations.
+  if (!isAdmin) {
+    return (
+      <span className="inline-flex items-center rounded bg-ivory px-2 py-1 text-xs font-medium text-muted capitalize">
+        {currentLifecycle.replace('_', ' ')}
+      </span>
+    );
+  }
+
+  // Terminal/archived lifecycles cannot be mutated via Quick Status.
+  if (currentLifecycle === 'archived' || currentLifecycle === 'completed' || currentLifecycle === 'cancelled') {
+    return (
+      <span className="inline-flex items-center rounded bg-ivory px-2 py-1 text-xs font-medium text-muted capitalize">
+        {currentLifecycle.replace('_', ' ')}
+      </span>
+    );
+  }
+
+  // Only expose safe reason-free transitions (active <-> on_hold) and route archival to modal.
   return (
     <select
-      value={project.project_status || 'active'}
-      onChange={(event) => onSetProjectLifecycle(project.id, event.target.value as ProjectLifecycleStatus)}
-      className="h-10 w-40 rounded-md border border-border bg-white px-2 text-xs"
+      value={currentLifecycle}
+      onChange={(event) => {
+        const value = event.target.value;
+        if (value === '__archive__') {
+          onRequestArchive?.(project);
+          return;
+        }
+        if (value === 'active' || value === 'on_hold') {
+          onSetProjectLifecycle(project.id, value);
+        }
+      }}
+      className="h-10 w-36 rounded-md border border-border bg-white px-2 text-xs text-ink"
       title="Change project lifecycle"
     >
       <option value="active">Active</option>
       <option value="on_hold">On Hold</option>
-      <option value="cancelled">Cancelled</option>
-      <option value="archived">Archived</option>
+      {onRequestArchive && <option value="__archive__">Archive...</option>}
     </select>
   );
 }
@@ -241,7 +276,12 @@ export function ProjectsPage({
                     </td>
                   ) : null}
                   <td className="border-t border-border px-4 py-3">
-                    <QuickLifecycleInput project={project} onSetProjectLifecycle={onSetProjectLifecycle} />
+                    <QuickLifecycleInput
+                      project={project}
+                      currentProfile={currentProfile}
+                      onSetProjectLifecycle={onSetProjectLifecycle}
+                      onRequestArchive={handleArchive}
+                    />
                   </td>
                   <td className="border-t border-border px-4 py-3">
                     <div className="flex justify-end gap-2">

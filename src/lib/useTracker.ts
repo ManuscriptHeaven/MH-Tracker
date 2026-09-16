@@ -269,7 +269,7 @@ function normalizeClientProject(project: Partial<Project>): Project {
   });
 }
 
-function normalizeRevisionRequest(request: Partial<RevisionRequest>): RevisionRequest {
+export function normalizeRevisionRequest(request: Partial<RevisionRequest>): RevisionRequest {
   const now = new Date().toISOString();
 
   return {
@@ -282,6 +282,10 @@ function normalizeRevisionRequest(request: Partial<RevisionRequest>): RevisionRe
     team_response: request.team_response || null,
     priority: request.priority || 'Normal',
     status: request.status || 'Submitted',
+    stage_key: request.stage_key ?? null,
+    revision_round: request.revision_round ?? null,
+    canonical_status: request.canonical_status ?? null,
+    parent_revision_request_id: request.parent_revision_request_id ?? null,
     assigned_to: request.assigned_to || null,
     submitted_at: request.submitted_at || request.created_at || now,
     completed_at: request.completed_at || null,
