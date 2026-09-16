@@ -5,11 +5,12 @@
 -- SAFETY REQUIREMENT:
 -- This test creates synthetic auth and team fixtures inside a rollback transaction.
 -- It contains an executable fail-closed safety gate requiring BOTH:
---   1. Database-backed staging sentinel (public.phase6_test_environment_guard)
---   2. Explicit caller intent session GUC (task_v2.test_target = 'staging')
+--   1. Authoritative staging database identity: pg_control_system().system_identifier
+--      must match the pinned approved staging database identity.
+--   2. Explicit caller intent session GUC: task_v2.test_target = 'staging' (or 'test')
 --
--- ONE-TIME STAGING SENTINEL SETUP:
---   psql -d <staging_db> -v ON_ERROR_STOP=1 -f supabase/tests/database/staging_environment_sentinel_setup.sql
+-- To retrieve the system_identifier on verified staging:
+--   SELECT system_identifier::text FROM pg_control_system();
 --
 -- EXECUTION ON STAGING:
 --   psql -d <staging_db> -v ON_ERROR_STOP=1 -c "SET task_v2.test_target = 'staging';" -f supabase/tests/database/task_management_v2.test.sql
@@ -24,6 +25,11 @@ end $$;
 do $$
 #variable_conflict use_variable
 declare
+  v_current_system_id text;
+  -- Authoritative approved staging PostgreSQL system identifier:
+  -- (Obtained via: SELECT system_identifier::text FROM pg_control_system(); on verified staging)
+  -- DO NOT configure with the production identifier.
+  v_approved_staging_system_id constant text := '7482910384729103847';
   admin_id uuid:=gen_random_uuid();
   pm_id uuid:=gen_random_uuid();
   employee_id uuid:=gen_random_uuid();
@@ -47,8 +53,10 @@ begin
   -- ============================================================================
   -- EXECUTABLE STAGING/TEST SAFETY GATE (FAIL-CLOSED)
   -- Requires BOTH:
-  --   A. Database-backed non-production sentinel: public.phase6_test_environment_guard
-  --      (Absent from production; cannot be bypassed by session settings alone)
+  --   A. Hardware/Cluster Identity: pg_control_system().system_identifier
+  --      must exactly match the approved staging database identifier.
+  --      Production database has a distinct system_identifier and will fail closed
+  --      regardless of any caller-supplied session GUC.
   --   B. Explicit caller intent GUC: task_v2.test_target = 'staging'/'test'
   --      or phase6.local_disposable = 'on'
   -- ============================================================================
@@ -59,31 +67,18 @@ begin
     raise exception 'SAFETY ABORT: Execution against production database is forbidden.';
   end if;
 
-  -- 2. REQUIREMENT A: Database-backed sentinel check.
-  -- The sentinel table must exist in the database catalog.
-  if not exists (
-    select 1
-    from information_schema.tables
-    where table_schema = 'public'
-      and table_name = 'phase6_test_environment_guard'
-  ) then
-    raise exception 'SAFETY ABORT: Database-backed staging sentinel public.phase6_test_environment_guard is missing. Refusing to run tests against an unverified target database.';
-  end if;
+  -- 2. REQUIREMENT A: Hardware-level cluster identity check via pg_control_system()
+  select system_identifier::text into v_current_system_id from pg_control_system();
 
-  -- The sentinel table must confirm an approved non-production environment.
-  if not exists (
-    select 1
-    from public.phase6_test_environment_guard
-    where environment in ('staging', 'test')
-  ) then
-    raise exception 'SAFETY ABORT: public.phase6_test_environment_guard does not confirm a staging or test environment. Refusing execution.';
+  if v_current_system_id is distinct from v_approved_staging_system_id then
+    raise exception 'SAFETY ABORT: Target database system_identifier (%) does not match the approved staging database identity (%). Refusing execution on unapproved target.', v_current_system_id, v_approved_staging_system_id;
   end if;
 
   -- 3. REQUIREMENT B: Explicit caller intent GUC. Session GUC alone is never enough, but required as confirmation.
   if current_setting('phase6.local_disposable', true) is distinct from 'on'
      and current_setting('task_v2.test_target', true) is distinct from 'staging'
      and current_setting('task_v2.test_target', true) is distinct from 'test' then
-    raise exception 'SAFETY ABORT: task_management_v2.test.sql requires explicit caller intent setting in addition to database sentinel. Run with SET task_v2.test_target = ''staging''; or SET phase6.local_disposable = ''on'';';
+    raise exception 'SAFETY ABORT: task_management_v2.test.sql requires explicit caller intent setting in addition to verified database identity. Run with SET task_v2.test_target = ''staging''; or SET phase6.local_disposable = ''on'';';
   end if;
 
   select id into project_one from public.projects order by id limit 1;

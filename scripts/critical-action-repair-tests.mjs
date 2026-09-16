@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
 
@@ -43,7 +43,7 @@ const utilsSrc = readFileSync(resolve(root, 'src/lib/utils.ts'), 'utf8');
 const migration00620 = readFileSync(resolve(root, 'supabase/phase6/migrations/00620_task_management_v2_insert_returning_rls_fix.sql'), 'utf8');
 const dbTest = readFileSync(resolve(root, 'supabase/tests/database/task_management_v2.test.sql'), 'utf8');
 const revisionUtilsSrc = readFileSync(resolve(root, 'src/lib/revisionUtils.ts'), 'utf8');
-const stagingSentinelSetupSrc = readFileSync(resolve(root, 'supabase/tests/database/staging_environment_sentinel_setup.sql'), 'utf8');
+const stagingSentinelSetupExists = existsSync(resolve(root, 'supabase/tests/database/staging_environment_sentinel_setup.sql'));
 
 // 1. Check for physical delete calls across all source files
 let physicalDeleteOccurrences = [];
@@ -171,16 +171,18 @@ const quickLifecycleHandlesAsyncState =
   quickLifecycleSrc.includes('await onSetProjectLifecycle(project.id, value)') &&
   quickLifecycleSrc.includes('setIsPending(false)');
 
-// DB sentinel requirement and refusal if session GUC alone is used
-const dbRequiresSentinelTable =
-  dbTest.includes('phase6_test_environment_guard') &&
-  dbTest.includes('information_schema.tables') &&
-  stagingSentinelSetupSrc.includes('phase6_test_environment_guard');
+// DB system_identifier requirement and refusal if session GUC alone is used
+const dbRequiresSystemIdentifier =
+  dbTest.includes('pg_control_system()') &&
+  dbTest.includes('system_identifier::text') &&
+  dbTest.includes('v_approved_staging_system_id');
 
 const sessionGucAloneNotEnough =
-  dbTest.includes('Database-backed staging sentinel public.phase6_test_environment_guard is missing') &&
-  dbTest.includes("raise exception 'SAFETY ABORT: Database-backed staging sentinel") &&
-  dbTest.includes('cannot be bypassed by session settings alone');
+  dbTest.includes('Target database system_identifier') &&
+  dbTest.includes("raise exception 'SAFETY ABORT: Target database system_identifier") &&
+  dbTest.includes('Production database has a distinct system_identifier and will fail closed');
+
+const sentinelSetupCleanedUp = !stagingSentinelSetupExists;
 
 // DB safety gate checks
 const dbTestHasSafetyGate =
@@ -397,12 +399,16 @@ const checks = [
     dbTestHasSafetyGate,
   ],
   [
-    'Database Guard: test SQL requires database-backed non-production sentinel table',
-    dbRequiresSentinelTable,
+    'Database Guard: test SQL requires hardware pg_control_system().system_identifier',
+    dbRequiresSystemIdentifier,
   ],
   [
-    'Database Guard: session GUC alone is rejected without database sentinel',
+    'Database Guard: session GUC alone is rejected without matching system_identifier',
     sessionGucAloneNotEnough,
+  ],
+  [
+    'Database Guard: mutable setup script removed; system_identifier cannot be marked arbitrarily',
+    sentinelSetupCleanedUp,
   ],
   [
     'task_management_v2.test.sql tests INSERT ... RETURNING under RLS for Admin and Employee',
