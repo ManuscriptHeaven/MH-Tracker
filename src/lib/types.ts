@@ -543,6 +543,10 @@ export interface RevisionRequest {
   team_response: string | null;
   priority: ClientRevisionPriority;
   status: ClientRevisionStatus;
+  stage_key?: WorkflowStage | string | null;
+  revision_round?: number | null;
+  canonical_status?: string | null;
+  parent_revision_request_id?: string | null;
   assigned_to: string | null;
   submitted_at: string;
   completed_at: string | null;

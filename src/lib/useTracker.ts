@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabase';
 import { sampleData, sampleProfiles } from './sampleData';
 import { errorMessage, firstName, isClientRole, isManagerRole } from './utils';
+import { formatWorkflowErrorMessage } from './workflowErrors';
 import {
   fetchNotifications,
   markAllNotificationsAsRead,
@@ -1784,28 +1785,97 @@ export function useTracker() {
     [addActivity, currentProfile, data.projects, loadSupabaseData, mode],
   );
 
-  const deleteProject = useCallback(
-    async (projectId: string) => {
+  const archiveProject = useCallback(
+    async (projectId: string, reason: string) => {
       if (!currentProfile || currentProfile.role !== 'admin') {
-        throw new Error('Only admins can delete projects.');
+        throw new Error('Only admins can archive or remove projects.');
+      }
+      const trimmedReason = (reason || '').trim();
+      if (!trimmedReason) {
+        throw new Error('A reason is required to archive or remove a project.');
+      }
+
+      const project = data.projects.find((item) => item.id === projectId);
+      if (!project) {
+        throw new Error('Project not found.');
+      }
+
+      const canonicalLifecycle = (project.project_status || 'active') as ProjectLifecycleStatus;
+      if (canonicalLifecycle === 'archived') {
+        throw new Error('This project is already archived.');
       }
 
       if (supabase && mode === 'supabase') {
-        const { error: deleteError } = await supabase.from('projects').delete().eq('id', projectId);
-        if (deleteError) {
-          throw deleteError;
+        if (!workflowClient) {
+          throw new Error('Canonical workflow client is unavailable.');
         }
-      }
 
-      setData((previous) => ({
-        ...previous,
-        projects: previous.projects.filter((project) => project.id !== projectId),
-        revisionNotes: previous.revisionNotes.filter((revision) => revision.project_id !== projectId),
-        projectNotes: previous.projectNotes.filter((note) => note.project_id !== projectId),
-        activityLogs: previous.activityLogs.filter((activity) => activity.project_id !== projectId),
-      }));
+        let currentVersion = requireWorkflowVersion(project);
+
+        if (canonicalLifecycle === 'active' || canonicalLifecycle === 'on_hold') {
+          // Mutation #1: Cancel project using current workflow version
+          const cancelResult = await workflowClient.setLifecycle(
+            projectId,
+            currentVersion,
+            'cancelled',
+            trimmedReason,
+          );
+
+          // Use the workflow_version RETURNED by mutation #1
+          currentVersion = cancelResult.workflow_version;
+
+          // Mutation #2: Archive project using that returned workflow_version
+          try {
+            await workflowClient.setLifecycle(
+              projectId,
+              currentVersion,
+              'archived',
+              trimmedReason,
+            );
+          } catch (archiveError) {
+            // Cancellation succeeded, but archival failed.
+            // Do NOT claim success. Reload canonical project data so state reflects 'cancelled'.
+            await loadSupabaseData(currentProfile);
+            throw new Error(
+              `Project was successfully cancelled, but archiving failed (${formatWorkflowErrorMessage(archiveError)}). You may retry archiving directly.`
+            );
+          }
+        } else if (canonicalLifecycle === 'completed' || canonicalLifecycle === 'cancelled') {
+          // Direct archive mutation
+          await workflowClient.setLifecycle(
+            projectId,
+            currentVersion,
+            'archived',
+            trimmedReason,
+          );
+        } else {
+          throw new Error(`Cannot archive project from lifecycle status: ${canonicalLifecycle}`);
+        }
+
+        await loadSupabaseData(currentProfile);
+      } else {
+        // Demo mode fallback
+        setData((previous) => ({
+          ...previous,
+          projects: previous.projects.map((p) =>
+            p.id === projectId
+              ? { ...p, project_status: 'archived', status: 'Cancelled' }
+              : p
+          ),
+        }));
+      }
     },
-    [currentProfile, mode],
+    [currentProfile, data.projects, loadSupabaseData, mode, workflowClient],
+  );
+
+  /**
+   * @deprecated Physical SQL deletion is removed in Phase 6. Use archiveProject instead.
+   */
+  const deleteProject = useCallback(
+    async (projectId: string, reason?: string) => {
+      return archiveProject(projectId, reason || 'Project removed by administrator');
+    },
+    [archiveProject],
   );
 
   const deletePayment = useCallback(
@@ -3574,6 +3644,7 @@ export function useTracker() {
     loadSupabaseData,
     createProject,
     updateProject,
+    archiveProject,
     deleteProject,
     deletePayment,
     duplicateProject,

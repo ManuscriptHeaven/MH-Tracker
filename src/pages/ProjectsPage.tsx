@@ -1,4 +1,4 @@
-import { Copy, Download, Edit, Eye, Trash2 } from 'lucide-react';
+import { Archive, Copy, Download, Edit, Eye } from 'lucide-react';
 import { useState } from 'react';
 import { PaymentBadge, PriorityBadge, StatusBadge } from '../components/Badges';
 import { ProjectTimelineCompact } from '../components/ProjectTimeline';
@@ -50,6 +50,8 @@ export function ProjectsPage({
   currentProfile,
   onSelectProject,
   onEditProject,
+  onRequestArchive,
+  onArchiveProject,
   onDeleteProject,
   onDuplicateProject,
   onSetProjectLifecycle,
@@ -65,7 +67,9 @@ export function ProjectsPage({
   currentProfile: Profile;
   onSelectProject: (project: Project) => void;
   onEditProject: (project: Project) => void;
-  onDeleteProject: (project: Project) => void;
+  onRequestArchive?: (project: Project) => void;
+  onArchiveProject?: (project: Project) => void;
+  onDeleteProject?: (project: Project) => void;
   onDuplicateProject: (project: Project) => void;
   onSetProjectLifecycle: (projectId: string, lifecycle: ProjectLifecycleStatus) => void;
   onAddProject: () => void;
@@ -73,8 +77,10 @@ export function ProjectsPage({
   emptyMessage?: string;
 }) {
   const { formatMoney } = useCurrency();
+  const handleArchive = onRequestArchive || onArchiveProject || onDeleteProject;
   const canViewPayments = canManageAll;
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'all'>('all');
+  const [lifecycleFilter, setLifecycleFilter] = useState<'active' | 'archived' | 'all'>('active');
   const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
   const [paymentFilter, setPaymentFilter] = useState<PaymentStatus | 'all'>('all');
   const [serviceFilter, setServiceFilter] = useState<string>('all');
@@ -90,12 +96,18 @@ export function ProjectsPage({
         project.client_name.toLowerCase().includes(normalizedSearch) ||
         project.project_number.toLowerCase().includes(normalizedSearch);
       const matchesStatus = statusFilter === 'all' || project.status === statusFilter;
+      const matchesLifecycle =
+        lifecycleFilter === 'all'
+          ? true
+          : lifecycleFilter === 'archived'
+          ? project.project_status === 'archived'
+          : project.project_status !== 'archived';
       const matchesPriority = priorityFilter === 'all' || project.priority === priorityFilter;
       const matchesPayment = !canViewPayments || paymentFilter === 'all' || project.payment_status === paymentFilter;
       const matchesService = serviceFilter === 'all' || project.service_type === serviceFilter;
       const matchesEmployee = employeeFilter === 'all' || project.assigned_to === employeeFilter;
 
-      return matchesSearch && matchesStatus && matchesPriority && matchesPayment && matchesService && matchesEmployee;
+      return matchesSearch && matchesStatus && matchesLifecycle && matchesPriority && matchesPayment && matchesService && matchesEmployee;
     })
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
@@ -130,7 +142,12 @@ export function ProjectsPage({
               {filtered.length} visible project{filtered.length === 1 ? '' : 's'}
             </p>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 2xl:grid-cols-7">
+            <SelectField label="Lifecycle" value={lifecycleFilter} onChange={(event) => setLifecycleFilter(event.target.value as 'active' | 'archived' | 'all')}>
+              <option value="active">Active Projects</option>
+              <option value="archived">Archived Only</option>
+              <option value="all">All (incl. Archived)</option>
+            </SelectField>
             <SelectField label="Status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as ProjectStatus | 'all')}>
               <option value="all">All statuses</option>
               {statusOptions.map((status) => (
@@ -241,9 +258,9 @@ export function ProjectsPage({
                           <Copy className="h-4 w-4" />
                         </IconButton>
                       ) : null}
-                      {currentProfile.role === 'admin' ? (
-                        <IconButton title="Delete project" onClick={() => onDeleteProject(project)}>
-                          <Trash2 className="h-4 w-4" />
+                      {currentProfile.role === 'admin' && handleArchive && project.project_status !== 'archived' ? (
+                        <IconButton title="Archive project" onClick={() => handleArchive(project)} className="text-amber-800 hover:text-amber-900">
+                          <Archive className="h-4 w-4" />
                         </IconButton>
                       ) : null}
                     </div>
@@ -311,9 +328,9 @@ export function ProjectsPage({
                       <Copy className="h-4 w-4" />
                     </IconButton>
                   ) : null}
-                  {currentProfile.role === 'admin' ? (
-                    <IconButton title="Delete" onClick={() => onDeleteProject(project)} className="h-9 w-9 text-danger">
-                      <Trash2 className="h-4 w-4" />
+                  {currentProfile.role === 'admin' && handleArchive && project.project_status !== 'archived' ? (
+                    <IconButton title="Archive project" onClick={() => handleArchive(project)} className="h-9 w-9 text-amber-800 hover:text-amber-900">
+                      <Archive className="h-4 w-4" />
                     </IconButton>
                   ) : null}
                 </div>

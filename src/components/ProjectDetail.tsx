@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   AlertTriangle,
+  Archive,
   CalendarDays,
   CheckCircle2,
   Clock3,
@@ -36,6 +37,7 @@ import { revisionStatuses, timelineStages } from '../lib/constants';
 import { deadlineClass, deadlineLabel, formatDate } from '../lib/date';
 import { getTimelineSummary, normalizeStage, type OfficialTimelineStage } from '../lib/timeline';
 import { firstName, initials } from '../lib/utils';
+import { formatWorkflowErrorMessage } from '../lib/workflowErrors';
 import { useCurrency } from '../lib/currency';
 import type {
   ActivityLog,
@@ -105,6 +107,8 @@ export function ProjectDetail({
   canManageAll,
   onClose,
   onEdit,
+  onRequestArchive,
+  onArchiveProject,
   onDelete,
   onUpdateProject,
   onAdvanceWorkflowStage,
@@ -137,7 +141,9 @@ export function ProjectDetail({
   canManageAll: boolean;
   onClose: () => void;
   onEdit: () => void;
-  onDelete: () => void;
+  onRequestArchive?: () => void;
+  onArchiveProject?: () => void;
+  onDelete?: () => void;
   onUpdateProject: (updates: ProjectMetadataUpdate) => Promise<void>;
   onAdvanceWorkflowStage: () => Promise<void>;
   onCompleteFinalDelivery: (note?: string) => Promise<void>;
@@ -161,6 +167,7 @@ export function ProjectDetail({
   onAdminWorkflowOverride?: (newStage: TimelineStage, reason: string, explanation: string) => Promise<any>;
 }) {
   const { formatMoney } = useCurrency();
+  const handleArchive = onRequestArchive || onArchiveProject || onDelete;
   const [activeTab, setActiveTab] = useState<ProjectDetailTab>('overview');
   const [noteType, setNoteType] = useState<NoteType>('work');
   const [note, setNote] = useState('');
@@ -177,10 +184,23 @@ export function ProjectDetail({
   const [overrideTargetStage, setOverrideTargetStage] = useState<TimelineStage>('Print Version');
   const [overrideReason, setOverrideReason] = useState('');
   const [overrideExplanation, setOverrideExplanation] = useState('');
+  const [overrideError, setOverrideError] = useState<string | null>(null);
   const [isSubmittingWorkflow, setIsSubmittingWorkflow] = useState(false);
   const [quickMsg, setQuickMsg] = useState('');
   const [activityFilter, setActivityFilter] = useState<'all' | 'client' | 'team' | 'files' | 'status' | 'revisions' | 'system'>('all');
   const [taskFilter, setTaskFilter] = useState<'all' | 'open' | 'in_progress' | 'done'>('all');
+
+  const trimmedOverrideReason = overrideReason.trim();
+  const trimmedOverrideExplanation = overrideExplanation.trim();
+  const isOverrideReasonValid = trimmedOverrideReason.length >= 10;
+  const isOverrideExplanationValid = trimmedOverrideExplanation.length > 0;
+  const isOverrideFormValid = isOverrideReasonValid && isOverrideExplanationValid;
+
+  const hasAmbiguousRevisions = useMemo(() => {
+    return (revisionRequests || []).some(
+      (req) => req.project_id === project.id && (!req.stage_key || req.revision_round === undefined || req.revision_round === null || !req.canonical_status)
+    );
+  }, [project.id, revisionRequests]);
 
   const openSubmitModal = () => {
     const norm = normalizeStage(project.current_stage || project.status);
@@ -473,7 +493,10 @@ export function ProjectDetail({
               {currentProfile.role === 'admin' && (
                 <Button
                   variant="secondary"
-                  onClick={() => setShowAdminOverrideModal(true)}
+                  onClick={() => {
+                    setShowAdminOverrideModal(true);
+                    setOverrideError(null);
+                  }}
                   className="text-xs py-2 px-2.5 border-red-200 text-danger hover:bg-red-50"
                 >
                   <ShieldAlert className="h-3.5 w-3.5" />
@@ -489,6 +512,17 @@ export function ProjectDetail({
                 <Button variant="secondary" onClick={onEdit} className="text-xs">
                   <Edit className="h-4 w-4" />
                   Edit Project
+                </Button>
+              ) : null}
+              {currentProfile.role === 'admin' && handleArchive && project.project_status !== 'archived' ? (
+                <Button
+                  variant="secondary"
+                  onClick={handleArchive}
+                  className="text-xs border-amber-300 text-amber-800 hover:bg-amber-50"
+                  title="Archive project"
+                >
+                  <Archive className="h-4 w-4" />
+                  Archive Project
                 </Button>
               ) : null}
             </div>
@@ -520,6 +554,21 @@ export function ProjectDetail({
               </span>
             </div>
           </div>
+
+          {/* Ambiguous Revision History Admin Warning */}
+          {hasAmbiguousRevisions && canManageAll && (
+            <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900 shadow-xs">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="font-semibold text-sm">Legacy Revision History Warning (Admin Review Required)</h4>
+                  <p className="text-xs mt-1 text-amber-800 leading-relaxed">
+                    Legacy revision history for this project needs Admin review before this workflow action can continue. Canonical client approvals fail closed (<code>workflow_revision_ambiguous</code>) pending administrative resolution.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Active Revision Alert if in revision */}
           {summary.stageStatus === 'REVISION_ACTIVE' ? (
@@ -758,7 +807,10 @@ export function ProjectDetail({
                       {currentProfile.role === 'admin' && (
                         <Button
                           variant="secondary"
-                          onClick={() => setShowAdminOverrideModal(true)}
+                          onClick={() => {
+                            setShowAdminOverrideModal(true);
+                            setOverrideError(null);
+                          }}
                           className="w-full text-xs py-1.5 border-red-200 text-danger hover:bg-red-50 mt-1"
                         >
                           <ShieldAlert className="h-3.5 w-3.5" />
@@ -893,7 +945,10 @@ export function ProjectDetail({
                   {currentProfile.role === 'admin' && (
                     <Button
                       variant="secondary"
-                      onClick={() => setShowAdminOverrideModal(true)}
+                      onClick={() => {
+                        setShowAdminOverrideModal(true);
+                        setOverrideError(null);
+                      }}
                       className="text-xs border-red-300 text-danger hover:bg-red-50"
                     >
                       <ShieldAlert className="h-4 w-4" />
@@ -1567,6 +1622,12 @@ export function ProjectDetail({
               </div>
             </div>
 
+            {overrideError && (
+              <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-xs text-danger font-medium">
+                {overrideError}
+              </div>
+            )}
+
             <SelectField
               label="Target Stage"
               value={overrideTargetStage}
@@ -1579,22 +1640,42 @@ export function ProjectDetail({
               ))}
             </SelectField>
 
-            <Field
-              label="Reason Summary"
-              placeholder="e.g. Client approved print version verbally via phone call"
-              value={overrideReason}
-              onChange={(e) => setOverrideReason(e.target.value)}
-              required
-            />
+            <div>
+              <Field
+                label="Reason Summary"
+                placeholder="e.g. Client approved print version verbally via phone call"
+                value={overrideReason}
+                onChange={(e) => {
+                  setOverrideReason(e.target.value);
+                  if (overrideError) setOverrideError(null);
+                }}
+                required
+              />
+              {overrideReason.length > 0 && !isOverrideReasonValid && (
+                <p className="text-[11px] text-danger mt-1">
+                  Reason summary must be at least 10 characters (currently {trimmedOverrideReason.length} characters).
+                </p>
+              )}
+            </div>
 
-            <TextareaField
-              label="Detailed Explanation"
-              placeholder="Provide a detailed explanation for why this emergency workflow override is required..."
-              value={overrideExplanation}
-              onChange={(e) => setOverrideExplanation(e.target.value)}
-              rows={3}
-              required
-            />
+            <div>
+              <TextareaField
+                label="Detailed Explanation"
+                placeholder="Provide a detailed explanation for why this emergency workflow override is required..."
+                value={overrideExplanation}
+                onChange={(e) => {
+                  setOverrideExplanation(e.target.value);
+                  if (overrideError) setOverrideError(null);
+                }}
+                rows={3}
+                required
+              />
+              {overrideExplanation.length > 0 && !isOverrideExplanationValid && (
+                <p className="text-[11px] text-danger mt-1">
+                  Please provide a detailed explanation.
+                </p>
+              )}
+            </div>
 
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="secondary" onClick={() => setShowAdminOverrideModal(false)}>
@@ -1605,22 +1686,26 @@ export function ProjectDetail({
                 variant="secondary"
                 className="border-red-300 text-danger hover:bg-red-50"
                 onClick={async () => {
-                  if (!overrideReason.trim() || !overrideExplanation.trim()) return;
+                  if (!isOverrideFormValid || isSubmittingWorkflow) return;
                   setIsSubmittingWorkflow(true);
+                  setOverrideError(null);
                   try {
                     if (onAdminWorkflowOverride) {
-                      await onAdminWorkflowOverride(overrideTargetStage, overrideReason, overrideExplanation);
+                      await onAdminWorkflowOverride(overrideTargetStage, trimmedOverrideReason, trimmedOverrideExplanation);
                     }
                     setShowAdminOverrideModal(false);
                     setOverrideReason('');
                     setOverrideExplanation('');
+                    setOverrideError(null);
+                  } catch (err) {
+                    setOverrideError(formatWorkflowErrorMessage(err, 'Administrative override failed.'));
                   } finally {
                     setIsSubmittingWorkflow(false);
                   }
                 }}
-                disabled={isSubmittingWorkflow || !overrideReason.trim() || !overrideExplanation.trim()}
+                disabled={isSubmittingWorkflow || !isOverrideFormValid}
               >
-                Confirm Administrative Override
+                {isSubmittingWorkflow ? 'Submitting Override...' : 'Confirm Administrative Override'}
               </Button>
             </div>
           </div>

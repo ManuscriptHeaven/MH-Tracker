@@ -1,5 +1,5 @@
 -- Task Management V2 PostgreSQL integration/RLS checks for verified staging.
--- Apply the authoritative Phase 6 chain through 00600 first. Never run on production.
+-- Apply the authoritative Phase 6 chain through 00620 first. Never run on production.
 -- Every fixture, including auth identities, is contained in this rollback transaction.
 begin;
 
@@ -29,6 +29,7 @@ declare
   visible_rows integer;
   affected_rows integer;
   denied boolean;
+  returned_task public.tasks%rowtype;
 begin
   select id into project_one from public.projects order by id limit 1;
   select id into project_two from public.projects where id<>project_one order by id limit 1;
@@ -63,7 +64,14 @@ begin
   values(task_id,'Task V2 team task','fixture',project_one,employee_id,admin_id,'To Do','Normal','team');
   insert into public.tasks(id,title,description,project_id,assigned_to,created_by,status,priority,visibility)
   values(private_task_id,'Task V2 private task','fixture',project_one,employee_id,admin_id,'To Do','Normal','private');
+
+  -- Admin creates task assigned to PM with RETURNING * (exercises 00620 insert returning RLS fix)
+  insert into public.tasks(title,description,project_id,assigned_to,created_by,status,priority,visibility)
+  values('Admin task for PM with RETURNING','fixture',project_one,pm_id,admin_id,'To Do','Normal','team')
+  returning * into returned_task;
   execute 'reset role';
+  perform pg_temp.task_v2_assert(returned_task.id is not null and returned_task.assigned_to = pm_id,
+    'Admin can insert task assigned to PM with RETURNING under RLS (00620 fix)');
   perform pg_temp.task_v2_assert((select count(*)=1 from public.task_assignees
     where task_assignees.task_id=task_id and profile_id=employee_id and assignment_role='primary'),
     'create with assigned_to mirrors exactly one primary');
@@ -167,6 +175,25 @@ begin
   perform pg_temp.task_v2_assert(visible_rows=0 and denied,
     'non-collaborating employee cannot read or self-assign to private task');
   perform pg_temp.task_v2_assert(affected_rows=0,'employee cannot edit another user private comment');
+
+  -- Employee self-assignment with RETURNING * vs disallowed other-assignment
+  perform set_config('request.jwt.claim.sub',employee_id::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',employee_id,'role','authenticated')::text,true);
+  execute 'set local role authenticated';
+  insert into public.tasks(title,description,project_id,assigned_to,created_by,status,priority,visibility)
+  values('Employee self task with RETURNING','fixture',project_one,employee_id,employee_id,'To Do','Normal','team')
+  returning * into returned_task;
+  denied:=false;
+  begin
+    insert into public.tasks(title,description,project_id,assigned_to,created_by,status,priority,visibility)
+    values('Employee invalid task for PM','fixture',project_one,pm_id,employee_id,'To Do','Normal','team')
+    returning * into returned_task;
+  exception when insufficient_privilege or check_violation then denied:=true; end;
+  execute 'reset role';
+  perform pg_temp.task_v2_assert(returned_task.id is not null and returned_task.assigned_to = employee_id,
+    'Employee can insert self-assigned task with RETURNING');
+  perform pg_temp.task_v2_assert(denied,
+    'Employee is denied inserting task assigned to PM');
 
   -- Clients have no internal task-table access.
   perform set_config('request.jwt.claim.sub',client_id::text,true);

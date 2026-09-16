@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Archive } from 'lucide-react';
 import { Layout, type ViewKey } from './components/Layout';
 import { ProjectDetail } from './components/ProjectDetail';
 import { ClientProjectDetailModal } from './components/ClientProjectDetailModal';
 import { ProjectFormModal } from './components/ProjectFormModal';
+import { Button, Modal, TextareaField } from './components/ui';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { ProjectsPage } from './pages/ProjectsPage';
@@ -42,6 +44,10 @@ export default function App() {
   const [showProjectForm, setShowProjectForm] = useState(false);
   const [showRevisionModal, setShowRevisionModal] = useState(false);
   const [revisionModalProjectId, setRevisionModalProjectId] = useState<string | undefined>(undefined);
+  const [projectToArchive, setProjectToArchive] = useState<Project | null>(null);
+  const [archiveReason, setArchiveReason] = useState('');
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [isArchiving, setIsArchiving] = useState(false);
   const [toast, setToast] = useState<ToastData | null>(null);
   const [jumpToConversationId, setJumpToConversationId] = useState<string | null>(null);
   const visibleProjects = tracker.visibleProjects;
@@ -86,10 +92,40 @@ export default function App() {
     if (!project) { setToast({ message: 'Project is not visible for this user.', tone: 'error' }); return; }
     setSelectedProject(project);
   }
-  async function deleteProject(project: Project) {
-    if (!window.confirm(`Delete "${project.project_title}"? This cannot be undone.`)) return;
-    await tracker.deleteProject(project.id); setSelectedProject(null);
+  function onRequestArchive(project: Project) {
+    setProjectToArchive(project);
+    setArchiveReason('');
+    setArchiveError(null);
+    setIsArchiving(false);
   }
+
+  async function handleConfirmArchive() {
+    if (!projectToArchive) return;
+    const trimmedReason = archiveReason.trim();
+    if (!trimmedReason) {
+      setArchiveError('A reason is required to archive this project.');
+      return;
+    }
+    setIsArchiving(true);
+    setArchiveError(null);
+    try {
+      await tracker.archiveProject(projectToArchive.id, trimmedReason);
+      setToast({ message: `Project "${projectToArchive.project_title}" archived successfully.`, tone: 'success' });
+      setProjectToArchive(null);
+      setArchiveReason('');
+      if (selectedProject?.id === projectToArchive.id) {
+        setSelectedProject(null);
+      }
+    } catch (error) {
+      setArchiveError(errorMessage(error, 'Failed to archive project.'));
+    } finally {
+      setIsArchiving(false);
+    }
+  }
+
+  /** @deprecated Use onRequestArchive instead */
+  const deleteProject = onRequestArchive;
+
   async function updateSelectedProject(updates: ProjectMetadataUpdate) {
     if (selectedProjectFresh) await tracker.updateProject(selectedProjectFresh.id, updates);
   }
@@ -140,7 +176,21 @@ export default function App() {
 
   /* ---------- AI Assistant Integration ---------- */
 
-  const pageProps = { projects: visibleProjects, profiles: tracker.data.profiles, searchTerm, canManageAll: tracker.canManageAll, currentProfile: tracker.currentProfile, onSelectProject: setSelectedProject, onEditProject: openEditProject, onDeleteProject: deleteProject, onDuplicateProject: tracker.duplicateProject, onSetProjectLifecycle: tracker.setProjectLifecycle, onAddProject: openAddProject };
+  const pageProps = {
+    projects: visibleProjects,
+    profiles: tracker.data.profiles,
+    searchTerm,
+    canManageAll: tracker.canManageAll,
+    currentProfile: tracker.currentProfile,
+    onSelectProject: setSelectedProject,
+    onEditProject: openEditProject,
+    onRequestArchive,
+    onArchiveProject: onRequestArchive,
+    onDeleteProject: onRequestArchive,
+    onDuplicateProject: tracker.duplicateProject,
+    onSetProjectLifecycle: tracker.setProjectLifecycle,
+    onAddProject: openAddProject,
+  };
   const taskPageProps = {
     projects: tracker.data.projects,
     profiles: tracker.data.profiles,
@@ -299,7 +349,9 @@ export default function App() {
         canManageAll={tracker.canManageAll}
         onClose={() => setSelectedProject(null)}
         onEdit={() => openEditProject(selectedProjectFresh)}
-        onDelete={() => deleteProject(selectedProjectFresh)}
+        onRequestArchive={() => onRequestArchive(selectedProjectFresh)}
+        onArchiveProject={() => onRequestArchive(selectedProjectFresh)}
+        onDelete={() => onRequestArchive(selectedProjectFresh)}
         onUpdateProject={updateSelectedProject}
         onAdvanceWorkflowStage={() => tracker.advanceWorkflowStage(selectedProjectFresh.id)}
         onCompleteFinalDelivery={(note) => tracker.completeFinalDelivery(selectedProjectFresh.id, note)}
@@ -330,12 +382,8 @@ export default function App() {
           }
         }}
         onAdminWorkflowOverride={async (newStage, reason, explanation) => {
-          try {
-            await tracker.adminWorkflowOverride(selectedProjectFresh.id, newStage, reason, explanation);
-            setToast({ message: 'Administrative workflow override recorded.', tone: 'success' });
-          } catch (err) {
-            setToast({ message: errorMessage(err, 'Admin override failed.'), tone: 'error' });
-          }
+          await tracker.adminWorkflowOverride(selectedProjectFresh.id, newStage, reason, explanation);
+          setToast({ message: 'Administrative workflow override recorded.', tone: 'success' });
         }}
       />
     )}
@@ -396,6 +444,75 @@ export default function App() {
           setToast({ message: 'Revision request submitted! Project status updated to In Revision.', tone: 'success' });
         }}
       />
+    )}
+    {projectToArchive && (
+      <Modal
+        title="Archive Project"
+        width="max-w-lg"
+        onClose={() => {
+          if (!isArchiving) {
+            setProjectToArchive(null);
+            setArchiveReason('');
+            setArchiveError(null);
+          }
+        }}
+      >
+        <div className="space-y-4">
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            <div className="flex items-center gap-2 font-semibold">
+              <Archive className="h-4 w-4 text-amber-600 shrink-0" />
+              <span>{projectToArchive.project_title} ({projectToArchive.project_number})</span>
+            </div>
+            <p className="mt-1.5 text-xs text-amber-800">
+              Warning: This project will be removed from active views and active workflows will be stopped. Physical records are preserved in the database.
+            </p>
+          </div>
+
+          {archiveError && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {archiveError}
+            </div>
+          )}
+
+          <TextareaField
+            label="Reason for Archival"
+            value={archiveReason}
+            onChange={(e) => {
+              setArchiveReason(e.target.value);
+              if (archiveError) setArchiveError(null);
+            }}
+            placeholder="Provide a reason for archiving this project..."
+            rows={3}
+            required
+          />
+          <p className="text-xs text-muted">
+            This reason is permanently recorded in the append-only workflow audit trail.
+          </p>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={isArchiving}
+              onClick={() => {
+                setProjectToArchive(null);
+                setArchiveReason('');
+                setArchiveError(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              disabled={isArchiving || !archiveReason.trim()}
+              onClick={handleConfirmArchive}
+            >
+              {isArchiving ? 'Archiving...' : 'Archive Project'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     )}
     <Toast toast={toast} onClose={() => setToast(null)} onOpenProject={openProjectById} />
     {tracker.canManageAll && <AIDailyPopup />}
