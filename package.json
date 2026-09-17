@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "test:timeline": "npx --yes tsx scripts/timeline-tests.mjs",
     "test:voice": "npx --yes tsx scripts/test-voice-assistant.mjs",
+    "test:basic-agent": "npx --yes tsx scripts/basic-agent-tests.mjs",
     "test": "npx --yes tsx scripts/timeline-tests.mjs && npx --yes tsx scripts/test-voice-assistant.mjs"
   },
   "dependencies": {

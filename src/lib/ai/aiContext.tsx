@@ -4,17 +4,14 @@ import type {
   AIConversation,
   AIUserSettings,
   DailySummary,
-  AIToolContext,
-  AIToolResult,
   AIActionPreview,
   AIActionAuditLog,
   DisambiguationOption,
 } from './aiTypes';
 import { aiService } from './aiService';
 import { voiceService } from './voiceService';
-import { voiceQueryEngine } from './voiceQueryEngine';
+import { runBasicAgent } from './basicAgent';
 import { wakeWordService, playWakeChime } from './wakeWordService';
-import { useCurrency } from '../currency';
 
 interface AIContextType {
   isOpen: boolean;
@@ -73,7 +70,6 @@ export function AIProvider({
   activeView?: string;
   selectedProject?: any;
 }) {
-  const currencyCtx = useCurrency();
   const [isOpen, setIsOpen] = useState(false);
   const [isChatMinimized, setIsChatMinimized] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat' | 'activity'>('chat');
@@ -124,13 +120,8 @@ export function AIProvider({
   settingsRef.current = settings;
   const trackerRef = useRef<any>(tracker);
   trackerRef.current = tracker;
-  const currencyRef = useRef<any>(currencyCtx);
-  currencyRef.current = currencyCtx;
-
-  const activeViewRef = useRef<string>(activeView);
-  activeViewRef.current = activeView;
-  const selectedProjectRef = useRef<any>(selectedProject);
-  selectedProjectRef.current = selectedProject;
+  void activeView;
+  void selectedProject;
 
   // Persist audit logs
   useEffect(() => {
@@ -160,47 +151,13 @@ export function AIProvider({
     init();
   }, []);
 
-  // Helper to build tool context with mutations
-  const getToolContext = useCallback((): AIToolContext => {
+  // Only pass records already scoped by the tracker to the Basic Agent.
+  const getVisibleSnapshot = useCallback(() => {
     const t = trackerRef.current;
-    const c = currencyRef.current;
-
     return {
-      currentProfile: t.currentProfile,
-      data: t.data,
-      visibleProjects: t.visibleProjects || [],
-      visibleTasks: t.visibleTasks || [],
-      displayCurrency: c.displayCurrency || 'USD',
-      exchangeRate: c.exchangeRate || 277.5,
-      formatMoney: c.formatMoney,
-      convertMoney: c.convertMoney,
-      activeView: activeViewRef.current,
-      selectedProject: selectedProjectRef.current,
-      trackerMutations: {
-        createProject: t.createProject,
-        duplicateProject: t.duplicateProject,
-        createTask: t.createTask,
-        updateTask: t.updateTask,
-        deleteTask: t.deleteTask,
-        updateProject: t.updateProject,
-        deleteProject: t.deleteProject,
-        inviteClient: t.inviteClient,
-        addNote: t.addNote,
-        createRevisionRequest: t.createRevisionRequest,
-        updateRevisionRequest: t.updateRevisionRequest,
-        respondToRevisionRequest: t.respondToRevisionRequest,
-        approveProjectMilestone: t.approveProjectMilestone,
-        createFinanceTransaction: t.createFinanceTransaction,
-        updateFinanceTransaction: t.updateFinanceTransaction,
-        deleteFinanceTransaction: t.deleteFinanceTransaction,
-        addEmployeeLedgerEntry: t.addEmployeeLedgerEntry,
-        deleteEmployeeLedgerEntry: t.deleteEmployeeLedgerEntry,
-        sendMessage: t.sendMessage,
-        getOrCreateDM: t.getOrCreateDM,
-        getOrCreateProjectConversation: t.getOrCreateProjectConversation,
-        getOrCreateTaskConversation: t.getOrCreateTaskConversation,
-      },
-    } as any;
+      projects: t.visibleProjects || [],
+      tasks: t.canManageAll ? (t.teamTasks || []) : (t.visibleTasks || []),
+    };
   }, []);
 
   const openChat = useCallback(() => setIsOpen(true), []);
@@ -227,7 +184,6 @@ export function AIProvider({
   }, []);
 
   const startNewConversation = useCallback(() => {
-    voiceQueryEngine.clearMemory();
     const newId = `conv-${Date.now()}`;
     setActiveConversationId(newId);
     setMessages([]);
@@ -237,7 +193,6 @@ export function AIProvider({
   }, [isOpen, openChat]);
 
   const clearConversation = useCallback(() => {
-    voiceQueryEngine.clearMemory();
     voiceService.stopSpeaking();
     setMessages([]);
     setPendingAction(null);
@@ -394,36 +349,16 @@ export function AIProvider({
       setVoiceError(null);
 
       try {
-        const toolCtx = getToolContext();
-
-        // Process query using semantic Natural Language Voice Query Engine
-        const result: AIToolResult = await voiceQueryEngine.processQuery(text, toolCtx);
-
-        if (result.pendingAction) {
-          setPendingAction(result.pendingAction);
-        } else {
-          setPendingAction(null);
-        }
-
-        if (result.auditLog) {
-          setAuditLogs((prev) => [result.auditLog!, ...prev]);
-        }
+        const result = runBasicAgent(text, getVisibleSnapshot());
+        setPendingAction(null);
 
         const assistantMsgId = `msg-${Date.now() + 1}`;
         const assistantMsg: AIMessage = {
           id: assistantMsgId,
           conversationId: convoId,
           role: 'assistant',
-          content: result.displayText,
-          spokenText: result.spokenText,
-          metadata: {
-            toolUsed: result.toolName,
-            toolResult: result,
-            pendingAction: result.pendingAction,
-            disambiguation: result.disambiguation,
-            auditLog: result.auditLog,
-            invoice: result.invoice,
-          },
+          content: result.text,
+          spokenText: result.text,
           createdAt: new Date().toISOString(),
         };
 
@@ -431,7 +366,7 @@ export function AIProvider({
 
         // Speak response if voice TTS is enabled and not muted
         if (settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
-          voiceService.speak(result.spokenText || result.displayText, settingsRef.current.voiceLanguage);
+          voiceService.speak(result.text, settingsRef.current.voiceLanguage);
         }
       } catch (e: any) {
         console.error('Error processing query:', e);
@@ -447,96 +382,28 @@ export function AIProvider({
         setIsProcessing(false);
       }
     },
-    [getToolContext, isOpen, openChat],
+    [getVisibleSnapshot, isOpen, openChat],
   );
 
-  const confirmAction = useCallback(
-    async (action: AIActionPreview) => {
-      setIsProcessing(true);
-      setPendingAction(null);
-      voiceQueryEngine.setPendingAction(null);
-
-      let convoId = activeConvoRef.current || `conv-${Date.now()}`;
-
-      try {
-        const toolCtx = getToolContext();
-        const result = await voiceQueryEngine.executeAction(action, toolCtx);
-
-        if (result.auditLog) {
-          setAuditLogs((prev) => [result.auditLog!, ...prev]);
-        }
-
-        const assistantMsg: AIMessage = {
-          id: `msg-${Date.now()}`,
-          conversationId: convoId,
-          role: 'assistant',
-          content: result.displayText,
-          spokenText: result.spokenText,
-          metadata: {
-            toolUsed: action.toolName,
-            actionStatus: result.success ? 'confirmed' : 'failed',
-            auditLog: result.auditLog,
-          },
-          createdAt: new Date().toISOString(),
-        };
-
-        setMessages((prev) => [...prev, assistantMsg]);
-
-        if (settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
-          voiceService.speak(result.spokenText || result.displayText, settingsRef.current.voiceLanguage);
-        }
-      } catch (e: any) {
-        const errorMsg: AIMessage = {
-          id: `msg-${Date.now()}`,
-          conversationId: convoId,
-          role: 'assistant',
-          content: `❌ Could not complete action: ${e?.message || 'Unknown error'}`,
-          createdAt: new Date().toISOString(),
-        };
-        setMessages((prev) => [...prev, errorMsg]);
-      } finally {
-        setIsProcessing(false);
-      }
-    },
-    [getToolContext],
-  );
-
-  const cancelAction = useCallback((action: AIActionPreview) => {
+  // Keep the legacy context contract, but do not expose an action executor in v1.
+  const confirmAction = useCallback(async (_action: AIActionPreview) => {
     setPendingAction(null);
-    voiceQueryEngine.setPendingAction(null);
-
-    let convoId = activeConvoRef.current || `conv-${Date.now()}`;
-    const cancelMsg: AIMessage = {
+    setMessages((prev) => [...prev, {
       id: `msg-${Date.now()}`,
-      conversationId: convoId,
+      conversationId: activeConvoRef.current || 'default',
       role: 'assistant',
-      content: '🛑 **Action cancelled.** No changes were made.',
-      spokenText: 'Action cancelled.',
-      metadata: {
-        actionStatus: 'cancelled',
-      },
+      content: 'Basic Agent v1 is read-only. No change was made.',
       createdAt: new Date().toISOString(),
-    };
-
-    setMessages((prev) => [...prev, cancelMsg]);
-
-    if (settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
-      voiceService.speak('Action cancelled.', settingsRef.current.voiceLanguage);
-    }
+    }]);
   }, []);
 
-  const selectDisambiguationOption = useCallback(
-    async (option: DisambiguationOption) => {
-      const toolCtx = getToolContext();
-      const mem = voiceQueryEngine.getMemory();
-      const context = mem.pendingDisambiguationContext;
-      voiceQueryEngine.setPendingDisambiguation(null);
+  const cancelAction = useCallback((_action: AIActionPreview) => {
+    setPendingAction(null);
+  }, []);
 
-      // Re-trigger query resolution with disambiguated title
-      await sendMessage(option.title);
-    },
-    [getToolContext, sendMessage],
-  );
+  const selectDisambiguationOption = useCallback(async (_option: DisambiguationOption) => {
+    // The Basic Agent does not offer disambiguation actions.
+  }, []);
 
   const dismissDailyPopup = useCallback(() => {
     setShowDailyPopup(false);

@@ -26,24 +26,6 @@ export function AIChatMessage({ message, isProcessing, onViewInvoice }: AIChatMe
     }
   };
 
-  const renderContent = (content: string) => {
-    let rendered = content || '';
-
-    // Bold
-    rendered = rendered.replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-ink dark:text-linen">$1</strong>');
-    
-    // Headings ###
-    rendered = rendered.replace(/^### (.*$)/gim, '<h4 class="font-display font-semibold text-sm text-gold mt-1.5 mb-1">$1</h4>');
-    
-    // Inline code
-    rendered = rendered.replace(/`(.*?)`/g, '<code class="bg-black/5 dark:bg-white/10 px-1 py-0.5 rounded text-xs font-mono">$1</code>');
-    
-    // Bullet points
-    rendered = rendered.replace(/^[•\-\*]\s+(.*)$/gm, '<div class="flex items-start gap-1.5 my-0.5"><span class="text-gold mt-0.5 select-none">•</span><span>$1</span></div>');
-
-    return <div dangerouslySetInnerHTML={{ __html: rendered }} />;
-  };
-
   return (
     <div
       className={cn(
@@ -67,7 +49,7 @@ export function AIChatMessage({ message, isProcessing, onViewInvoice }: AIChatMe
       >
         <div className="whitespace-pre-wrap">
           {message.content ? (
-            renderContent(message.content)
+            <div>{message.content}</div>
           ) : isProcessing && !isUser ? (
             <div className="flex items-center gap-1.5 py-1 text-muted text-xs">
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-gold animate-bounce" />

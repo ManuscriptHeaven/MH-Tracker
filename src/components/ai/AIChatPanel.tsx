@@ -86,12 +86,12 @@ export function AIChatPanel() {
   };
 
   const quickQuestions = [
-    'How many projects are in revision?',
-    'Assign QAI revision to Zain',
-    'Put Book 2 on hold',
-    'Create a task for Zain to check the print PDF',
-    'How much do clients owe us?',
-    'Record a $100 payment from BCH',
+    'Summarize projects',
+    'Which projects are overdue?',
+    'Which projects are due today?',
+    'Summarize tasks',
+    'Which tasks are overdue?',
+    'Which tasks are due today?',
   ];
 
   return (
@@ -114,10 +114,10 @@ export function AIChatPanel() {
             <div className="flex items-center gap-1.5">
               <span className="font-display font-semibold text-sm text-linen">MH AI Assistant</span>
               <span className="px-1.5 py-0.2 text-[9px] font-semibold bg-gold/20 text-gold rounded tracking-wider uppercase">
-                Phase 2 Safe Actions
+                Basic Agent v1
               </span>
             </div>
-            <p className="text-[10px] text-linen/60">Voice Assistant with Safe Actions & Previews</p>
+            <p className="text-[10px] text-linen/60">Read-only project and task answers</p>
           </div>
         </div>
 
@@ -200,10 +200,10 @@ export function AIChatPanel() {
                 <Sparkles className="w-7 h-7 text-gold" />
               </div>
               <h3 className="text-base font-display font-semibold text-ink mb-1">
-                Hi! Ask or command anything.
+                Ask about your projects or tasks.
               </h3>
               <p className="text-xs text-muted max-w-[300px] mb-5">
-                Speak naturally or type. I'll preview every write action for your confirmation.
+                I summarize only records visible to you. I cannot make changes.
               </p>
 
               {/* Quick Action Pills */}
@@ -342,7 +342,7 @@ export function AIChatPanel() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={isListening ? 'Listening to your voice...' : 'Type or speak a question or action...'}
+              placeholder={isListening ? 'Listening to your voice...' : 'Ask about visible projects or tasks...'}
               disabled={isProcessing}
               className="w-full bg-transparent border-none focus:outline-none focus:ring-0 py-2.5 pl-3 pr-2 text-xs sm:text-sm text-ink placeholder:text-muted"
             />
@@ -361,8 +361,8 @@ export function AIChatPanel() {
 
         {/* Quick follow-up hint below input */}
         <div className="flex items-center justify-between mt-2 text-[10px] text-muted px-1">
-          <span>Phase 2: Safe Actions + Previews</span>
-          <span>Permission Verified</span>
+          <span>Basic Agent v1 · Read-only</span>
+          <span>Visible data only</span>
         </div>
       </div>
     </div>

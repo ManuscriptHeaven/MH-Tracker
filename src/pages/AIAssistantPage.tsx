@@ -12,7 +12,6 @@ import {
   AlertTriangle,
   FolderKanban,
   Clock,
-  DollarSign,
   ChevronLeft,
   ChevronRight,
   Receipt,
@@ -22,11 +21,9 @@ import { useAIContext } from '../lib/ai/aiContext';
 import { AIChatMessage } from '../components/ai/AIChatMessage';
 import { AIVoiceIndicator } from '../components/ai/AIVoiceIndicator';
 import { AIActivityHistory } from '../components/ai/AIActivityHistory';
-import { InvoiceModal } from '../components/InvoiceModal';
 import { cn } from '../lib/utils';
-import { isOverdue } from '../lib/date';
-import { useCurrency } from '../lib/currency';
-import type { Project, Invoice } from '../lib/types';
+import { isOverdue, todayInput } from '../lib/date';
+import type { Project } from '../lib/types';
 
 interface AIAssistantPageProps {
   projects?: Project[];
@@ -56,10 +53,8 @@ export function AIAssistantPage({ projects = [] }: AIAssistantPageProps) {
     auditLogs,
   } = useAIContext();
 
-  const { formatMoney } = useCurrency();
   const [input, setInput] = useState('');
   const [activeChipSlide, setActiveChipSlide] = useState(0);
-  const [viewingInvoice, setViewingInvoice] = useState<Invoice | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -71,7 +66,7 @@ export function AIAssistantPage({ projects = [] }: AIAssistantPageProps) {
   const pendingApprovals = activeProjects.filter(
     (p) => p.status === 'Awaiting Client Approval' || (p.current_stage || '').includes('Approval'),
   );
-  const totalReceivables = projects.reduce((sum, p) => sum + (p.remaining_balance || 0), 0);
+  const dueTodayProjects = activeProjects.filter((p) => p.due_date?.slice(0, 10) === todayInput());
 
   // Auto-scroll on new message or live transcript
   useEffect(() => {
@@ -101,23 +96,17 @@ export function AIAssistantPage({ projects = [] }: AIAssistantPageProps) {
     sendMessage(promptText);
   };
 
-  // Quick Action Chip Packs (Slide 0 & Slide 1)
+  // Basic Agent read-only questions
   const chipPacks = [
     [
-      { label: 'List Overdue', query: 'How many projects are overdue?' },
-      { label: 'Active Projects', query: 'Show active projects summary' },
-      { label: 'Assign Task', query: 'Create a task for Zain to check the print PDF tomorrow' },
-      { label: 'Review Receivables', query: 'Who owes us money and what are the receivables?' },
-      { label: 'Generate Invoice (BCH)', query: 'Generate invoice for BCH for all pending payments' },
-      { label: 'Pending Approvals', query: 'What projects are waiting for client approval?' },
+      { label: 'Project Summary', query: 'Summarize projects' },
+      { label: 'Overdue Projects', query: 'Which projects are overdue?' },
+      { label: 'Projects Due Today', query: 'Which projects are due today?' },
     ],
     [
-      { label: 'Income This Month', query: 'What is our income and net profit this month?' },
-      { label: 'Projects in Revision', query: 'How many projects are currently in revision?' },
-      { label: 'Team Payroll', query: 'How much do we owe the team in monthly payroll?' },
-      { label: 'Put QAI on Hold', query: 'Put QAI Reformatting on hold' },
-      { label: 'Move BCH to Print Approval', query: 'Put Project BCH to Print Approval' },
-      { label: 'Employee Workload', query: 'Who has the most active projects?' },
+      { label: 'Task Summary', query: 'Summarize tasks' },
+      { label: 'Overdue Tasks', query: 'Which tasks are overdue?' },
+      { label: 'Tasks Due Today', query: 'Which tasks are due today?' },
     ],
   ];
 
@@ -126,9 +115,9 @@ export function AIAssistantPage({ projects = [] }: AIAssistantPageProps) {
       {/* Top Header & Tab Controls */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs sm:text-sm font-medium text-muted">Welcome back, Tahir</p>
+          <p className="text-xs sm:text-sm font-medium text-muted">Visible projects and tasks</p>
           <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-ink">
-            AI Assistant
+            Basic Agent v1
           </h1>
         </div>
 
@@ -229,16 +218,16 @@ export function AIAssistantPage({ projects = [] }: AIAssistantPageProps) {
               <div className="flex-1 text-center sm:text-left">
                 <h2 className="font-display text-lg sm:text-xl font-bold tracking-tight text-white flex items-center justify-center sm:justify-start gap-2">
                   <Sparkles className="h-4 w-4 text-gold" />
-                  MH AI Business Assistant
+                  MH Basic Agent v1
                 </h2>
                 <p className="text-xs text-white/60 mt-0.5">
-                  Live Voice Operations, Guided Confirmations, Timeline Control & Financial Queries
+                  Basic Agent v1 · Read-only answers from visible project and task data
                 </p>
               </div>
 
               <div className="hidden sm:flex items-center gap-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 px-3 py-1 text-xs font-semibold text-emerald-400 shadow-sm">
                 <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                Connected
+                Read-only
               </div>
             </div>
 
@@ -387,17 +376,17 @@ export function AIAssistantPage({ projects = [] }: AIAssistantPageProps) {
                   </div>
                 </div>
 
-                {/* Receivables */}
+                {/* Due today */}
                 <div
-                  onClick={() => handleQuickPrompt('Who owes us money and what are the receivables?')}
+                  onClick={() => handleQuickPrompt('Which projects are due today?')}
                   className="flex-1 cursor-pointer rounded-2xl border border-white/10 bg-white/5 p-4 transition duration-200 hover:border-emerald-500/50 hover:bg-emerald-500/10"
                 >
                   <div className="flex items-center gap-2 text-xs font-medium text-white/70">
-                    <DollarSign className="h-4 w-4 text-emerald-400" />
-                    Receivables
+                    <Clock className="h-4 w-4 text-emerald-400" />
+                    Due Today
                   </div>
                   <div className="mt-2 font-display text-lg sm:text-2xl font-bold text-emerald-400 truncate">
-                    {formatMoney(totalReceivables)}
+                    {dueTodayProjects.length}
                   </div>
                 </div>
               </div>
@@ -428,9 +417,8 @@ export function AIAssistantPage({ projects = [] }: AIAssistantPageProps) {
                 </div>
                 <h3 className="font-display text-base font-bold text-ink">Ready to Assist</h3>
                 <p className="text-xs max-w-md mt-1">
-                  Ask questions, manage projects, update timeline stages, or say{' '}
-                  <strong className="text-ink">"Generate invoice for BCH"</strong> to compile pending
-                  payments.
+                  Ask about project and task summaries, overdue work, or items due today.
+                  This agent cannot make changes.
                 </p>
               </div>
             ) : (
@@ -439,7 +427,6 @@ export function AIAssistantPage({ projects = [] }: AIAssistantPageProps) {
                   <AIChatMessage
                     key={message.id}
                     message={message}
-                    onViewInvoice={(invoice) => setViewingInvoice(invoice)}
                   />
                 ))}
 
@@ -451,7 +438,7 @@ export function AIAssistantPage({ projects = [] }: AIAssistantPageProps) {
                       <div className="h-2 w-2 rounded-full bg-gold animate-bounce [animation-delay:0.2s]" />
                       <div className="h-2 w-2 rounded-full bg-gold animate-bounce [animation-delay:0.4s]" />
                     </div>
-                    <span>Processing live Tracker data & safe actions...</span>
+                    <span>Checking visible Tracker data...</span>
                   </div>
                 )}
 
@@ -501,7 +488,7 @@ export function AIAssistantPage({ projects = [] }: AIAssistantPageProps) {
                 placeholder={
                   isListening
                     ? 'Listening to your voice...'
-                    : 'Ask question or speak a command (e.g. "Generate invoice for BCH", "Put QAI on hold")...'
+                    : 'Ask about visible projects or tasks...'
                 }
                 disabled={isProcessing}
                 className="flex-1 rounded-xl border border-border bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gold/50"
@@ -519,10 +506,6 @@ export function AIAssistantPage({ projects = [] }: AIAssistantPageProps) {
         </>
       )}
 
-      {/* Full Printable / Downloadable Invoice Modal */}
-      {viewingInvoice && (
-        <InvoiceModal invoice={viewingInvoice} onClose={() => setViewingInvoice(null)} />
-      )}
     </div>
   );
 }
