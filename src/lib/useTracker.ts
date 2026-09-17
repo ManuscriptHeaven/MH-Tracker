@@ -13,6 +13,8 @@ import type {
   TimelineStage,
 } from './types';
 import type { ApprovalMilestone, OfficialTimelineStage } from './timeline';
+import { validateAdminOverride } from './projectCriticalActions';
+import { archiveProjectLifecycle, type ProjectLifecycle } from './projectArchive';
 
 type DbWorkflowStage =
   | 'files_received'
@@ -235,6 +237,9 @@ function phase6Error(error: unknown) {
   }
   if (message.includes('workflow_invalid_state')) {
     return new Error('This workflow action is not valid for the project’s current stage. Refresh and try again.');
+  }
+  if (message.includes('workflow_admin_reason_required')) {
+    return new Error('Administrative overrides require a reason of at least 10 characters and a detailed explanation.');
   }
   return new Error(message || 'Phase 6 workflow action failed.');
 }
@@ -680,6 +685,8 @@ export function useTracker() {
     if (!currentProfile || currentProfile.role !== 'admin') {
       throw new Error('Administrative Workflow Override is strictly restricted to Admin users.');
     }
+    const validationError = validateAdminOverride(reason, explanation);
+    if (validationError) throw new Error(validationError);
     const project = findProject(projectId);
     const target = canonicalTupleForOverride(project, newStage);
     const result = await callWorkflow('workflow_admin_override', {
@@ -707,6 +714,27 @@ export function useTracker() {
     return row;
   };
 
+  const archiveProject = async (projectId: string, reason: string) => {
+    if (!isPhase6Live) throw new Error('Project archiving requires the connected Phase 6 tracker.');
+    if (!currentProfile || currentProfile.role !== 'admin') {
+      throw new Error('Only Admin users can archive projects.');
+    }
+    const project = findProject(projectId);
+    await archiveProjectLifecycle({
+      lifecycle: project.project_status as ProjectLifecycle,
+      workflowVersion: phase6Version(project),
+      reason,
+      transition: (target, expectedVersion, cleanReason) => callWorkflow('workflow_set_project_lifecycle', {
+        p_project_id: projectId,
+        p_expected_workflow_version: expectedVersion,
+        p_idempotency_key: createUuid(),
+        p_target_lifecycle: target,
+        p_reason: cleanReason,
+      }),
+      reload: refresh,
+    });
+  };
+
   return {
     ...legacy,
     createProject,
@@ -722,5 +750,6 @@ export function useTracker() {
     requestStageSkip,
     respondToStageSkip,
     adminWorkflowOverride,
+    archiveProject,
   };
 }

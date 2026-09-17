@@ -158,7 +158,6 @@ export interface AIToolContext {
     updateTask?: (taskId: string, updates: Partial<Task>) => Promise<Task>;
     deleteTask?: (taskId: string) => Promise<void>;
     updateProject?: (projectId: string, updates: Partial<Project>) => Promise<Project>;
-    deleteProject?: (projectId: string) => Promise<void>;
     addNote?: (projectId: string, noteType: NoteType, note: string) => Promise<any>;
     createRevisionRequest?: (draft: any) => Promise<any>;
     updateRevisionRequest?: (id: string, updates: Partial<RevisionRequest>) => Promise<void>;

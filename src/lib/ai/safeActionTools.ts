@@ -783,67 +783,16 @@ export async function execute_assign_project(
 }
 
 export async function execute_delete_project(
-  payload: { projectId: string },
-  ctx: AIToolContext,
+  _payload: { projectId: string },
+  _ctx: AIToolContext,
 ): Promise<AIToolResult> {
-  if (ctx.currentProfile.role !== 'admin') {
-    return {
-      success: false,
-      toolName: 'delete_project',
-      error: 'permission_denied',
-      spokenText: "Only administrators can delete projects.",
-      displayText: "🔒 Only administrators can delete projects.",
-    };
-  }
-
-  const project = ctx.data.projects.find((p) => p.id === payload.projectId);
-  if (!project) {
-    return {
-      success: false,
-      toolName: 'delete_project',
-      error: 'project_not_found',
-      spokenText: "I couldn't find the project to delete.",
-      displayText: "❌ Project not found.",
-    };
-  }
-
-  try {
-    if (ctx.trackerMutations?.deleteProject) {
-      await ctx.trackerMutations.deleteProject(project.id);
-    }
-
-    const audit = createAuditLog(
-      ctx,
-      `Deleted project: "${project.project_title}" (${project.project_number})`,
-      'project',
-      project.id,
-      project.project_title,
-      project.status,
-      'Deleted',
-      'success',
-    );
-
-    const spoken = `Done. Project ${project.project_number} (${project.project_title}) has been deleted.`;
-    const display = `### 🗑️ Project Deleted\n\n• **Project:** ~~${project.project_title} (${project.project_number})~~\n• **Status:** Permanently removed`;
-
-    return {
-      success: true,
-      toolName: 'delete_project',
-      spokenText: spoken,
-      displayText: display,
-      auditLog: audit,
-    };
-  } catch (err: any) {
-    const errorMsg = err?.message || 'Failed to delete project.';
-    return {
-      success: false,
-      toolName: 'delete_project',
-      error: errorMsg,
-      spokenText: `I couldn't delete the project. ${errorMsg}`,
-      displayText: `❌ Failed to delete project: ${errorMsg}`,
-      auditLog: createAuditLog(ctx, `Delete project failed: "${project.project_title}"`, 'project', project.id, project.project_title, null, null, 'failed', errorMsg),
-    };
-  }
+  return {
+    success: false,
+    toolName: 'delete_project',
+    error: 'project_deletion_unavailable',
+    spokenText: 'Project deletion is unavailable. Use the Admin Archive action in Projects.',
+    displayText: 'Project deletion is unavailable. Use the Admin Archive action in Projects.',
+  };
 }
 
 // ==========================================

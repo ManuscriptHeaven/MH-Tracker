@@ -1772,30 +1772,6 @@ export function useTracker() {
     [addActivity, currentProfile, data.projects, loadSupabaseData, mode],
   );
 
-  const deleteProject = useCallback(
-    async (projectId: string) => {
-      if (!currentProfile || currentProfile.role !== 'admin') {
-        throw new Error('Only admins can delete projects.');
-      }
-
-      if (supabase && mode === 'supabase') {
-        const { error: deleteError } = await supabase.from('projects').delete().eq('id', projectId);
-        if (deleteError) {
-          throw deleteError;
-        }
-      }
-
-      setData((previous) => ({
-        ...previous,
-        projects: previous.projects.filter((project) => project.id !== projectId),
-        revisionNotes: previous.revisionNotes.filter((revision) => revision.project_id !== projectId),
-        projectNotes: previous.projectNotes.filter((note) => note.project_id !== projectId),
-        activityLogs: previous.activityLogs.filter((activity) => activity.project_id !== projectId),
-      }));
-    },
-    [currentProfile, mode],
-  );
-
   const deletePayment = useCallback(
     async (projectId: string) => {
       if (!currentProfile || currentProfile.role !== 'admin') {
@@ -4071,7 +4047,6 @@ export function useTracker() {
     loadSupabaseData,
     createProject,
     updateProject,
-    deleteProject,
     deletePayment,
     duplicateProject,
     addRevision,

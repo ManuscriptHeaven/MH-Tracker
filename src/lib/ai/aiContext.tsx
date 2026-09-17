@@ -12,6 +12,8 @@ import { aiService } from './aiService';
 import { voiceService } from './voiceService';
 import { runBasicAgent } from './basicAgent';
 import { wakeWordService, playWakeChime } from './wakeWordService';
+import { isArchivedProject } from '../projectArchive';
+import type { Project } from '../types';
 
 interface AIContextType {
   isOpen: boolean;
@@ -155,7 +157,7 @@ export function AIProvider({
   const getVisibleSnapshot = useCallback(() => {
     const t = trackerRef.current;
     return {
-      projects: t.visibleProjects || [],
+      projects: (t.visibleProjects || []).filter((project: Project) => !isArchivedProject(project)),
       tasks: t.canManageAll ? (t.teamTasks || []) : (t.visibleTasks || []),
     };
   }, []);

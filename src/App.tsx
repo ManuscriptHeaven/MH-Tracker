@@ -27,6 +27,7 @@ import { AIDailyPopup } from './components/ai/AIDailyPopup';
 import { useTracker } from './lib/useTracker';
 import { errorMessage, isClientRole } from './lib/utils';
 import type { Project, ProjectDraft, Role } from './lib/types';
+import { isArchivedProject } from './lib/projectArchive';
 
 import { RevisionRequestModal } from './components/RevisionRequestModal';
 import { Toast, type ToastData } from './components/Toast';
@@ -44,12 +45,12 @@ export default function App() {
   const [revisionModalProjectId, setRevisionModalProjectId] = useState<string | undefined>(undefined);
   const [toast, setToast] = useState<ToastData | null>(null);
   const [jumpToConversationId, setJumpToConversationId] = useState<string | null>(null);
-  const visibleProjects = tracker.visibleProjects;
+  const visibleProjects = tracker.visibleProjects.filter((project) => !isArchivedProject(project));
   const isClient = tracker.currentProfile ? isClientRole(tracker.currentProfile.role) : false;
 
   const selectedProjectFresh = useMemo(() => selectedProject
-    ? visibleProjects.find((project) => project.id === selectedProject.id) || null
-    : null, [selectedProject, visibleProjects]);
+    ? tracker.visibleProjects.find((project) => project.id === selectedProject.id) || null
+    : null, [selectedProject, tracker.visibleProjects]);
   const deliveredProjects = visibleProjects.filter((project) => project.status === 'Delivered' || project.status === 'Completed');
 
   useEffect(() => {
@@ -86,9 +87,15 @@ export default function App() {
     if (!project) { setToast({ message: 'Project is not visible for this user.', tone: 'error' }); return; }
     setSelectedProject(project);
   }
-  async function deleteProject(project: Project) {
-    if (!window.confirm(`Delete "${project.project_title}"? This cannot be undone.`)) return;
-    await tracker.deleteProject(project.id); setSelectedProject(null);
+  async function archiveProject(project: Project, reason: string) {
+    try {
+      await tracker.archiveProject(project.id, reason);
+      setSelectedProject(null);
+      setToast({ message: 'Project archived. Its history and records have been retained.', tone: 'success' });
+    } catch (error) {
+      setToast({ message: errorMessage(error, 'Project could not be archived.'), tone: 'error' });
+      throw error;
+    }
   }
   async function updateSelectedProject(updates: Partial<Project>) {
     if (selectedProjectFresh) await tracker.updateProject(selectedProjectFresh.id, updates);
@@ -140,7 +147,7 @@ export default function App() {
 
   /* ---------- AI Assistant Integration ---------- */
 
-  const pageProps = { projects: visibleProjects, profiles: tracker.data.profiles, searchTerm, canManageAll: tracker.canManageAll, currentProfile: tracker.currentProfile, onSelectProject: setSelectedProject, onEditProject: openEditProject, onDeleteProject: deleteProject, onDuplicateProject: tracker.duplicateProject, onUpdateProject: tracker.updateProject, onAddProject: openAddProject };
+  const pageProps = { projects: tracker.visibleProjects, profiles: tracker.data.profiles, searchTerm, canManageAll: tracker.canManageAll, currentProfile: tracker.currentProfile, onSelectProject: setSelectedProject, onEditProject: openEditProject, onArchiveProject: archiveProject, onDuplicateProject: tracker.duplicateProject, onUpdateProject: tracker.updateProject, onAddProject: openAddProject };
 
   return (
     <CurrencyProvider>
@@ -177,8 +184,8 @@ export default function App() {
     )}
     {activeView === 'projects' && isClient && <ClientProjectsPage projects={visibleProjects} searchTerm={searchTerm} onSelectProject={setSelectedProject} />}
     {activeView === 'projects' && !isClient && <ProjectsPage {...pageProps} />}
-    {activeView === 'my_tasks' && <TasksPage mode="personal" tasks={tracker.visibleTasks} projects={tracker.data.projects} profiles={tracker.data.profiles} currentProfile={tracker.currentProfile} searchTerm={searchTerm} onCreateTask={async (draft) => { await tracker.createTask(draft); }} onUpdateTask={async (taskId, updates) => { await tracker.updateTask(taskId, updates); }} onSelectProject={setSelectedProject} />}
-    {activeView === 'team_tasks' && tracker.canManageAll && <TasksPage mode="team" tasks={tracker.teamTasks} projects={tracker.data.projects} profiles={tracker.data.profiles} currentProfile={tracker.currentProfile} searchTerm={searchTerm} onCreateTask={async (draft) => { await tracker.createTask(draft); }} onUpdateTask={async (taskId, updates) => { await tracker.updateTask(taskId, updates); }} onSelectProject={setSelectedProject} />}
+    {activeView === 'my_tasks' && <TasksPage mode="personal" tasks={tracker.visibleTasks} projects={visibleProjects} profiles={tracker.data.profiles} currentProfile={tracker.currentProfile} searchTerm={searchTerm} onCreateTask={async (draft) => { await tracker.createTask(draft); }} onUpdateTask={async (taskId, updates) => { await tracker.updateTask(taskId, updates); }} onSelectProject={setSelectedProject} />}
+    {activeView === 'team_tasks' && tracker.canManageAll && <TasksPage mode="team" tasks={tracker.teamTasks} projects={visibleProjects} profiles={tracker.data.profiles} currentProfile={tracker.currentProfile} searchTerm={searchTerm} onCreateTask={async (draft) => { await tracker.createTask(draft); }} onUpdateTask={async (taskId, updates) => { await tracker.updateTask(taskId, updates); }} onSelectProject={setSelectedProject} />}
     {activeView === 'communication' && (
       <CommunicationPage
         currentProfile={tracker.currentProfile}
@@ -276,7 +283,6 @@ export default function App() {
         canManageAll={tracker.canManageAll}
         onClose={() => setSelectedProject(null)}
         onEdit={() => openEditProject(selectedProjectFresh)}
-        onDelete={() => deleteProject(selectedProjectFresh)}
         onUpdateProject={updateSelectedProject}
         onAddNote={async (noteType, note) => { await tracker.addNote(selectedProjectFresh.id, noteType, note); }}
         onAddRevision={async (note, status) => { await tracker.addRevision(selectedProjectFresh.id, note, status); }}
@@ -310,6 +316,7 @@ export default function App() {
             setToast({ message: 'Administrative workflow override recorded.', tone: 'success' });
           } catch (err) {
             setToast({ message: errorMessage(err, 'Admin override failed.'), tone: 'error' });
+            throw err;
           }
         }}
       />

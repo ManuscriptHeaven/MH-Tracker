@@ -555,58 +555,15 @@ export class VoiceQueryEngine {
     }
 
     // ----------------------------------------------------
-    // 0C. DELETE PROJECT / DELETE TASK
+    // 0C. PROJECT ARCHIVE GUIDANCE / DELETE TASK
     // ----------------------------------------------------
     if ((lower.startsWith('delete project') || lower.startsWith('remove project')) && !lower.includes('task')) {
-      if (ctx.currentProfile.role !== 'admin') {
-        return {
-          success: false,
-          toolName: 'delete_project',
-          error: 'permission_denied',
-          spokenText: 'Only administrators can delete projects.',
-          displayText: '🔒 Only administrators can delete projects.',
-        };
-      }
-
-      const matchedProject = this.findProjectInQueryOrMemory(lower, ctx);
-      if (!matchedProject) {
-        return {
-          success: false,
-          toolName: 'delete_project',
-          error: 'project_not_found',
-          spokenText: "I couldn't find the project to delete.",
-          displayText: '❌ Project not found.',
-        };
-      }
-
-      const preview: AIActionPreview = {
-        actionId: `act-${Date.now()}`,
-        toolName: 'delete_project',
-        category: 'destructive',
-        requiresStrongConfirmation: true,
-        title: 'Delete Project Permanently',
-        description: `Permanently delete ${matchedProject.project_title} (${matchedProject.project_number})`,
-        targetType: 'project',
-        targetId: matchedProject.id,
-        targetTitle: matchedProject.project_title,
-        clientName: matchedProject.client_name,
-        changes: [
-          { field: 'project', label: 'Project', oldValue: matchedProject.project_title, newValue: 'PERMANENT DELETION' },
-        ],
-        payload: { projectId: matchedProject.id },
-        confirmButtonText: 'Yes, Delete Project',
-        cancelButtonText: 'Cancel',
-        spokenPrompt: `Warning: This will permanently delete project ${matchedProject.project_title}. Are you absolutely sure?`,
-      };
-
-      this.memory.pendingAction = preview;
-
       return {
-        success: true,
+        success: false,
         toolName: 'delete_project',
-        spokenText: preview.spokenPrompt,
-        displayText: `⚠️ **Warning:** You are about to permanently delete **${matchedProject.project_title}** (${matchedProject.project_number}).\n\nAre you sure?`,
-        pendingAction: preview,
+        error: 'project_deletion_unavailable',
+        spokenText: 'Projects cannot be permanently deleted here. An Admin can archive a project from the Projects view with a reason.',
+        displayText: 'Projects cannot be permanently deleted here. An Admin can use Archive in the Projects view and provide a reason.',
       };
     }
 
@@ -1538,7 +1495,7 @@ export class VoiceQueryEngine {
       case 'assign_project':
         return safeActions.execute_assign_project(action.payload as any, ctx);
       case 'delete_project':
-        return safeActions.execute_delete_project(action.payload as any, ctx);
+        return { success: false, toolName: 'delete_project', error: 'project_deletion_unavailable', spokenText: 'Project deletion is unavailable. Use the Admin Archive action in Projects.', displayText: 'Project deletion is unavailable. Use the Admin Archive action in Projects.' };
       case 'reassign_revision':
         return safeActions.execute_reassign_revision(action.payload as any, ctx);
       case 'update_revision_status':

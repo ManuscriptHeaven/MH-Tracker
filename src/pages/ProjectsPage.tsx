@@ -1,8 +1,8 @@
-import { Copy, Download, Edit, Eye, Trash2 } from 'lucide-react';
+import { Archive, Copy, Download, Edit, Eye } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { PaymentBadge, PriorityBadge, StatusBadge } from '../components/Badges';
 import { ProjectTimelineCompact } from '../components/ProjectTimeline';
-import { Button, Card, EmptyState, IconButton, SelectField } from '../components/ui';
+import { Button, Card, EmptyState, IconButton, Modal, SelectField, TextareaField } from '../components/ui';
 import {
   isProjectStatus,
   paymentStatuses,
@@ -15,6 +15,8 @@ import { deadlineClass, deadlineLabel, formatDate } from '../lib/date';
 import { downloadTextFile, firstName, isClientRole, projectCsv } from '../lib/utils';
 import { useCurrency } from '../lib/currency';
 import type { PaymentStatus, Priority, Profile, Project, ProjectStatus } from '../lib/types';
+import { isArchivedProject } from '../lib/projectArchive';
+import { errorMessage } from '../lib/utils';
 
 function profileName(profiles: Profile[], id?: string | null) {
   const profile = profiles.find((item) => item.id === id);
@@ -81,7 +83,7 @@ export function ProjectsPage({
   currentProfile,
   onSelectProject,
   onEditProject,
-  onDeleteProject,
+  onArchiveProject,
   onDuplicateProject,
   onUpdateProject,
   onAddProject,
@@ -96,7 +98,7 @@ export function ProjectsPage({
   currentProfile: Profile;
   onSelectProject: (project: Project) => void;
   onEditProject: (project: Project) => void;
-  onDeleteProject: (project: Project) => void;
+  onArchiveProject: (project: Project, reason: string) => Promise<void>;
   onDuplicateProject: (project: Project) => void;
   onUpdateProject: (projectId: string, updates: Partial<Project>) => void;
   onAddProject: () => void;
@@ -105,7 +107,11 @@ export function ProjectsPage({
 }) {
   const { formatMoney } = useCurrency();
   const canViewPayments = canManageAll;
-  const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'all' | 'archived'>('all');
+  const [archiveTarget, setArchiveTarget] = useState<Project | null>(null);
+  const [archiveReason, setArchiveReason] = useState('');
+  const [archiveError, setArchiveError] = useState('');
+  const [isArchiving, setIsArchiving] = useState(false);
   const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
   const [paymentFilter, setPaymentFilter] = useState<PaymentStatus | 'all'>('all');
   const [serviceFilter, setServiceFilter] = useState<string>('all');
@@ -120,7 +126,8 @@ export function ProjectsPage({
         project.project_title.toLowerCase().includes(normalizedSearch) ||
         project.client_name.toLowerCase().includes(normalizedSearch) ||
         project.project_number.toLowerCase().includes(normalizedSearch);
-      const matchesStatus = statusFilter === 'all' || project.status === statusFilter;
+      const archived = isArchivedProject(project);
+      const matchesStatus = statusFilter === 'archived' ? archived : !archived && (statusFilter === 'all' || project.status === statusFilter);
       const matchesPriority = priorityFilter === 'all' || project.priority === priorityFilter;
       const matchesPayment = !canViewPayments || paymentFilter === 'all' || project.payment_status === paymentFilter;
       const matchesService = serviceFilter === 'all' || project.service_type === serviceFilter;
@@ -132,6 +139,25 @@ export function ProjectsPage({
 
   function exportProjects() {
     downloadTextFile('manuscript-heaven-projects.csv', projectCsv(filtered), 'text/csv');
+  }
+
+  async function confirmArchive() {
+    if (!archiveTarget || isArchiving) return;
+    if (!archiveReason.trim()) {
+      setArchiveError('An Admin reason is required.');
+      return;
+    }
+    setArchiveError('');
+    setIsArchiving(true);
+    try {
+      await onArchiveProject(archiveTarget, archiveReason.trim());
+      setArchiveTarget(null);
+      setArchiveReason('');
+    } catch (error) {
+      setArchiveError(errorMessage(error, 'Project could not be archived.'));
+    } finally {
+      setIsArchiving(false);
+    }
   }
 
   if (!filtered.length && projects.length === 0) {
@@ -162,8 +188,9 @@ export function ProjectsPage({
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            <SelectField label="Status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as ProjectStatus | 'all')}>
+            <SelectField label="Status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as ProjectStatus | 'all' | 'archived')}>
               <option value="all">All statuses</option>
+              <option value="archived">Archived</option>
               {statusOptions.map((status) => (
                 <option key={status}>{status}</option>
               ))}
@@ -236,7 +263,7 @@ export function ProjectsPage({
                   <td className="border-t border-border px-4 py-3">{project.client_name}</td>
                   <td className="border-t border-border px-4 py-3">{profileName(profiles, project.assigned_to)}</td>
                   <td className="border-t border-border px-4 py-3">
-                    <StatusBadge status={project.status} />
+                    {isArchivedProject(project) ? <span className="text-xs font-semibold text-muted">Archived</span> : <StatusBadge status={project.status} />}
                   </td>
                   <td className="border-t border-border px-4 py-3">
                     <ProjectTimelineCompact project={project} />
@@ -255,14 +282,14 @@ export function ProjectsPage({
                     </td>
                   ) : null}
                   <td className="border-t border-border px-4 py-3">
-                    <QuickStatusInput project={project} onUpdateProject={onUpdateProject} />
+                    {isArchivedProject(project) ? <span className="text-xs text-muted">Archived</span> : <QuickStatusInput project={project} onUpdateProject={onUpdateProject} />}
                   </td>
                   <td className="border-t border-border px-4 py-3">
                     <div className="flex justify-end gap-2">
                       <IconButton title="View project" onClick={() => onSelectProject(project)}>
                         <Eye className="h-4 w-4" />
                       </IconButton>
-                      {canManageAll ? (
+                      {canManageAll && !isArchivedProject(project) ? (
                         <IconButton title="Edit project" onClick={() => onEditProject(project)}>
                           <Edit className="h-4 w-4" />
                         </IconButton>
@@ -272,9 +299,9 @@ export function ProjectsPage({
                           <Copy className="h-4 w-4" />
                         </IconButton>
                       ) : null}
-                      {currentProfile.role === 'admin' ? (
-                        <IconButton title="Delete project" onClick={() => onDeleteProject(project)}>
-                          <Trash2 className="h-4 w-4" />
+                      {currentProfile.role === 'admin' && !isArchivedProject(project) ? (
+                        <IconButton title="Archive project" onClick={() => { setArchiveTarget(project); setArchiveReason(''); setArchiveError(''); }}>
+                          <Archive className="h-4 w-4" />
                         </IconButton>
                       ) : null}
                     </div>
@@ -298,7 +325,7 @@ export function ProjectsPage({
                   <p className="text-xs text-muted mt-0.5">{project.project_number} · {project.client_name}</p>
                 </div>
                 <div className="flex flex-col items-end gap-1 shrink-0">
-                  <StatusBadge status={project.status} />
+                  {isArchivedProject(project) ? <span className="text-xs font-semibold text-muted">Archived</span> : <StatusBadge status={project.status} />}
                   <PriorityBadge priority={project.priority} />
                 </div>
               </div>
@@ -332,7 +359,7 @@ export function ProjectsPage({
 
               <div className="pt-2 border-t border-border/60 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
-                  {canManageAll ? (
+                  {canManageAll && !isArchivedProject(project) ? (
                     <IconButton title="Edit" onClick={() => onEditProject(project)} className="h-9 w-9">
                       <Edit className="h-4 w-4" />
                     </IconButton>
@@ -342,9 +369,9 @@ export function ProjectsPage({
                       <Copy className="h-4 w-4" />
                     </IconButton>
                   ) : null}
-                  {currentProfile.role === 'admin' ? (
-                    <IconButton title="Delete" onClick={() => onDeleteProject(project)} className="h-9 w-9 text-danger">
-                      <Trash2 className="h-4 w-4" />
+                  {currentProfile.role === 'admin' && !isArchivedProject(project) ? (
+                    <IconButton title="Archive" onClick={() => { setArchiveTarget(project); setArchiveReason(''); setArchiveError(''); }} className="h-9 w-9">
+                      <Archive className="h-4 w-4" />
                     </IconButton>
                   ) : null}
                 </div>
@@ -367,6 +394,23 @@ export function ProjectsPage({
           </div>
         ) : null}
       </Card>
+      {archiveTarget ? (
+        <Modal title="Archive project" width="max-w-lg" onClose={() => { if (!isArchiving) setArchiveTarget(null); }}>
+          <div className="space-y-4">
+            <p className="text-sm text-ink">
+              Archive <strong>{archiveTarget.project_title}</strong>? Active or on-hold projects will first be cancelled. The project, history, audit records, and receipts will be retained.
+            </p>
+            <TextareaField label="Admin reason" value={archiveReason} onChange={(event) => setArchiveReason(event.target.value)} placeholder="Why is this project being archived?" />
+            {archiveError ? <p role="alert" className="text-sm text-danger">{archiveError}</p> : null}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="secondary" disabled={isArchiving} onClick={() => setArchiveTarget(null)}>Cancel</Button>
+              <Button type="button" disabled={isArchiving || !archiveReason.trim()} onClick={confirmArchive}>
+                {isArchiving ? 'Archiving…' : 'Archive project'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
     </div>
   );
 }
