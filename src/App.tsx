@@ -147,7 +147,7 @@ export default function App() {
 
   /* ---------- AI Assistant Integration ---------- */
 
-  const pageProps = { projects: tracker.visibleProjects, profiles: tracker.data.profiles, searchTerm, canManageAll: tracker.canManageAll, currentProfile: tracker.currentProfile, onSelectProject: setSelectedProject, onEditProject: openEditProject, onArchiveProject: archiveProject, onDuplicateProject: tracker.duplicateProject, onUpdateProject: tracker.updateProject, onAddProject: openAddProject };
+  const pageProps = { projects: tracker.visibleProjects, profiles: tracker.data.profiles, searchTerm, canManageAll: tracker.canManageAll, currentProfile: tracker.currentProfile, archiveAvailable: tracker.mode === 'supabase', onSelectProject: setSelectedProject, onEditProject: openEditProject, onArchiveProject: archiveProject, onDuplicateProject: tracker.duplicateProject, onUpdateProject: tracker.updateProject, onAddProject: openAddProject };
 
   return (
     <CurrencyProvider>

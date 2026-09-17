@@ -81,6 +81,7 @@ export function ProjectsPage({
   searchTerm,
   canManageAll,
   currentProfile,
+  archiveAvailable,
   onSelectProject,
   onEditProject,
   onArchiveProject,
@@ -96,6 +97,7 @@ export function ProjectsPage({
   searchTerm: string;
   canManageAll: boolean;
   currentProfile: Profile;
+  archiveAvailable: boolean;
   onSelectProject: (project: Project) => void;
   onEditProject: (project: Project) => void;
   onArchiveProject: (project: Project, reason: string) => Promise<void>;
@@ -300,7 +302,7 @@ export function ProjectsPage({
                         </IconButton>
                       ) : null}
                       {currentProfile.role === 'admin' && !isArchivedProject(project) ? (
-                        <IconButton title="Archive project" onClick={() => { setArchiveTarget(project); setArchiveReason(''); setArchiveError(''); }}>
+                        <IconButton title={archiveAvailable ? 'Archive project' : 'Archive requires a connected Phase 6 tracker'} disabled={!archiveAvailable} onClick={() => { setArchiveTarget(project); setArchiveReason(''); setArchiveError(''); }}>
                           <Archive className="h-4 w-4" />
                         </IconButton>
                       ) : null}
@@ -370,7 +372,7 @@ export function ProjectsPage({
                     </IconButton>
                   ) : null}
                   {currentProfile.role === 'admin' && !isArchivedProject(project) ? (
-                    <IconButton title="Archive" onClick={() => { setArchiveTarget(project); setArchiveReason(''); setArchiveError(''); }} className="h-9 w-9">
+                    <IconButton title={archiveAvailable ? 'Archive' : 'Archive requires a connected Phase 6 tracker'} disabled={!archiveAvailable} onClick={() => { setArchiveTarget(project); setArchiveReason(''); setArchiveError(''); }} className="h-9 w-9">
                       <Archive className="h-4 w-4" />
                     </IconButton>
                   ) : null}
