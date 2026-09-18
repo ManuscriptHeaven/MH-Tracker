@@ -940,42 +940,77 @@ export async function get_finance_summary(monthQuery: string | undefined, ctx: A
     };
   }
 
-  const txs = ctx.data.financeTransactions || [];
-  const currentMonthStr = todayInput().slice(0, 7); // e.g. "2026-08"
-
-  const monthTxs = txs.filter((t) => (t.transaction_date || '').startsWith(currentMonthStr));
-  let income = 0;
-  let expenses = 0;
-
-  monthTxs.forEach((t) => {
-    const amount = Number(t.amount || 0);
-    const converted = ctx.convertMoney(amount, t.currency || 'USD');
-    if (t.type === 'income') {
-      income += converted;
-    } else {
-      expenses += converted;
-    }
+  const currentMonthStr = todayInput().slice(0, 7);
+  const allProjects = ctx.data.projects || ctx.visibleProjects || [];
+  const monthOrders = allProjects.filter((project) => {
+    const createdMonth = (project.created_at || '').slice(0, 7);
+    const lifecycle = String(project.project_status || '').toLowerCase();
+    const status = String(project.status || '').toLowerCase();
+    return (
+      createdMonth === currentMonthStr &&
+      Number(project.total_price || 0) > 0 &&
+      lifecycle !== 'cancelled' &&
+      lifecycle !== 'archived' &&
+      status !== 'cancelled' &&
+      status !== 'archived'
+    );
   });
 
-  const netProfit = income - expenses;
-  const formattedIncome = ctx.formatMoney(income, ctx.displayCurrency);
-  const formattedExpenses = ctx.formatMoney(expenses, ctx.displayCurrency);
-  const formattedNet = ctx.formatMoney(netProfit, ctx.displayCurrency);
+  const orderRevenue = monthOrders.reduce(
+    (sum, project) => sum + Number(project.total_price || 0),
+    0,
+  );
+  const collectedOnOrders = monthOrders.reduce(
+    (sum, project) => sum + Number(project.advance_paid || 0),
+    0,
+  );
 
-  const spoken = `Our income this month is ${formattedIncome}, with expenses of ${formattedExpenses}, resulting in a net profit of ${formattedNet}.`;
+  const txs = ctx.data.financeTransactions || [];
+  const monthExpenseTxs = txs.filter(
+    (transaction) =>
+      !transaction.is_soft_deleted &&
+      transaction.type === 'expense' &&
+      (transaction.transaction_date || '').startsWith(currentMonthStr),
+  );
 
-  let display = `### Financial Summary for This Month\n\n`;
-  display += `• **Total Income:** **${formattedIncome}**\n`;
-  display += `• **Total Expenses:** **${formattedExpenses}**\n`;
-  display += `• **Net Profit:** **${formattedNet}**\n`;
-  display += `• **Transactions Count:** ${monthTxs.length}\n`;
+  const expenses = monthExpenseTxs.reduce((sum, transaction) => {
+    const amount = Number(transaction.amount || transaction.original_amount || 0);
+    return sum + ctx.convertMoney(amount, transaction.currency || 'USD', 'USD');
+  }, 0);
+
+  const revenueLessExpenses = orderRevenue - expenses;
+  const formattedRevenue = ctx.formatMoney(orderRevenue, 'USD');
+  const formattedExpenses = ctx.formatMoney(expenses, 'USD');
+  const formattedNet = ctx.formatMoney(revenueLessExpenses, 'USD');
+  const formattedCollected = ctx.formatMoney(collectedOnOrders, 'USD');
+
+  const spoken =
+    `Order revenue this month is ${formattedRevenue} from ${monthOrders.length} ` +
+    `${monthOrders.length === 1 ? 'order' : 'orders'}, with ${formattedExpenses} in operating expenses. ` +
+    `Revenue less expenses is ${formattedNet}.`;
+
+  let display = `### Finance Summary for This Month\n\n`;
+  display += `• **Orders:** ${monthOrders.length}\n`;
+  display += `• **Order Revenue:** **${formattedRevenue}**\n`;
+  display += `• **Collected on Those Orders:** **${formattedCollected}**\n`;
+  display += `• **Operating Expenses:** **${formattedExpenses}**\n`;
+  display += `• **Revenue Less Expenses:** **${formattedNet}**\n\n`;
+  display += `Revenue is calculated automatically from project order values; manual income entries are not used for revenue.`;
 
   return {
     success: true,
     toolName: 'get_finance_summary',
     spokenText: spoken,
     displayText: display.trim(),
-    data: { income, expenses, netProfit },
+    data: {
+      income: orderRevenue,
+      orderRevenue,
+      expenses,
+      netProfit: revenueLessExpenses,
+      revenueLessExpenses,
+      collectedOnOrders,
+      orderCount: monthOrders.length,
+    },
   };
 }
 
