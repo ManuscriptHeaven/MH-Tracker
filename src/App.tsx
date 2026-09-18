@@ -321,7 +321,18 @@ export default function App() {
     {activeView === 'delivered' && <ProjectsPage {...pageProps} title="Delivered Projects" projects={deliveredProjects} />}
     {activeView === 'payments' && tracker.canManageAll && (
       <ErrorBoundary>
-        <PaymentsPage projects={visibleProjects} currentProfile={tracker.currentProfile} isLoading={tracker.isLoading} error={tracker.error} onSelectProject={setSelectedProject} onEditProject={openEditProject} onUpdateProject={tracker.updateProject} onDeletePayment={tracker.deletePayment} />
+        <PaymentsPage
+          projects={visibleProjects}
+          currentProfile={tracker.currentProfile}
+          isLoading={tracker.isLoading}
+          error={tracker.error}
+          onSelectProject={setSelectedProject}
+          onEditProject={openEditProject}
+          onUpdateProject={tracker.updateProject}
+          onDeletePayment={tracker.deletePayment}
+          invoices={tracker.data.invoices || []}
+          onSaveInvoiceVersion={tracker.saveInvoiceVersion}
+        />
       </ErrorBoundary>
     )}
     {activeView === 'finance' && tracker.currentProfile.role === 'admin' && (

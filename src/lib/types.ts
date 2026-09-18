@@ -353,7 +353,11 @@ export interface InvoiceItem {
 }
 
 export interface Invoice {
+  /** Version row id. */
   id: string;
+  /** Stable logical invoice id shared by all revisions. */
+  logical_invoice_id?: string;
+  version_number?: number;
   invoice_number: string;
   client_name: string;
   client_email: string;
@@ -367,6 +371,8 @@ export interface Invoice {
   total_paid: number;
   total_due: number;
   notes?: string;
+  change_note?: string;
+  created_by?: string | null;
   status: 'Draft' | 'Sent' | 'Paid';
 }
 
@@ -638,6 +644,7 @@ export interface TrackerData {
   adminWorkflowOverrides?: AdminWorkflowOverrideLog[];
   financeTransactions?: FinanceTransaction[];
   financeBudgets?: FinanceBudget[];
+  invoices?: Invoice[];
   projectProfitability?: ProjectProfitabilityItem[];
   clientReceivables?: ClientReceivableItem[];
   teamPayroll?: TeamPayrollItem[];

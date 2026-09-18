@@ -28,8 +28,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
     margin: 0 !important;
     padding: 0 !important;
     width: 210mm !important;
-    height: 297mm !important;
-    overflow: hidden !important;
+    min-height: 297mm !important;
+    height: auto !important;
+    overflow: visible !important;
   }
 
   /* Hide everything except the modal */
@@ -38,47 +39,56 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   }
 
   .printable-invoice-modal {
-    display: flex !important;
-    position: fixed !important;
-    inset: 0 !important;
+    display: block !important;
+    position: static !important;
     background: white !important;
     padding: 0 !important;
     margin: 0 !important;
     z-index: 99999 !important;
     width: 210mm !important;
-    height: 297mm !important;
-    overflow: hidden !important;
+    min-height: 297mm !important;
+    height: auto !important;
+    overflow: visible !important;
   }
 
   .printable-invoice-wrapper {
-    display: flex !important;
-    flex-direction: column !important;
+    display: block !important;
     width: 210mm !important;
-    height: 297mm !important;
-    max-height: 297mm !important;
+    min-height: 297mm !important;
+    height: auto !important;
+    max-height: none !important;
     border: none !important;
     border-radius: 0 !important;
     box-shadow: none !important;
-    overflow: hidden !important;
+    overflow: visible !important;
   }
 
   .printable-invoice-wrapper > div:last-child {
     background: white !important;
     padding: 0 !important;
-    flex: 1 !important;
-    overflow: hidden !important;
+    overflow: visible !important;
   }
 
   .printable-invoice-content {
     width: 210mm !important;
-    height: 297mm !important;
-    max-height: 297mm !important;
+    min-height: 297mm !important;
+    height: auto !important;
+    max-height: none !important;
     padding: 14mm !important;
     margin: 0 !important;
     box-sizing: border-box !important;
-    overflow: hidden !important;
-    page-break-inside: avoid !important;
+    overflow: visible !important;
     transform-origin: top left !important;
+  }
+
+  .printable-invoice-content thead {
+    display: table-header-group !important;
+  }
+
+  .printable-invoice-content tr,
+  .printable-invoice-content .invoice-keep-together {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 }
 

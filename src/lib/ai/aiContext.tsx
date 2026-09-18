@@ -193,6 +193,7 @@ export function AIProvider({
         createFinanceTransaction: t.createFinanceTransaction,
         updateFinanceTransaction: t.updateFinanceTransaction,
         deleteFinanceTransaction: t.deleteFinanceTransaction,
+        saveInvoiceVersion: t.saveInvoiceVersion,
         addEmployeeLedgerEntry: t.addEmployeeLedgerEntry,
         deleteEmployeeLedgerEntry: t.deleteEmployeeLedgerEntry,
         sendMessage: t.sendMessage,

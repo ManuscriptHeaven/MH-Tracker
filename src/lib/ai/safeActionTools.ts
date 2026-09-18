@@ -1701,7 +1701,10 @@ export async function execute_generate_client_invoice(
   }
 
   const clientEmail = invoiceProjects[0]?.client_email || '';
-  const invoice = createBulkInvoice(resolvedClient, clientEmail, invoiceProjects, month, year);
+  const invoiceDraft = createBulkInvoice(resolvedClient, clientEmail, invoiceProjects, month, year);
+  const invoice = ctx.trackerMutations?.saveInvoiceVersion
+    ? await ctx.trackerMutations.saveInvoiceVersion(invoiceDraft)
+    : invoiceDraft;
 
   const audit = createAuditLog(
     ctx,
