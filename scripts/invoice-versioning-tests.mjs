@@ -75,7 +75,7 @@ assert(
 assert(
   invoiceModal.includes('const ITEMS_PER_PAGE = 5') &&
     invoiceModal.includes('chunkInvoiceItems') &&
-    invoiceModal.includes('Projects ${pageIndex * ITEMS_PER_PAGE + 1}') &&
+    invoiceModal.includes('Projects {pageIndex * ITEMS_PER_PAGE + 1}') &&
     invoiceModal.includes('Page {pageNumber} of {totalPages}'),
   'invoice preview enforces a maximum of five projects per numbered page',
 );
