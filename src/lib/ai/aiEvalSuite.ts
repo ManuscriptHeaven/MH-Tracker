@@ -176,7 +176,7 @@ export async function runAIEvaluationSuite(): Promise<{
   ] as unknown as import('../types').Project[];
 
   const evalTasks = [
-    { id: 'task-123', title: 'Format Chapter 12', description: 'Formatting', project_id: 'proj-1', assigned_to: 'emp-ahmed', created_by: 'admin', status: 'To Do' as const, priority: 'Normal' as const, due_date: null, completed_at: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+    { id: 'task-123', title: 'Format Chapter 12', description: 'Formatting', project_id: 'proj-1', assigned_to: 'emp-ahmed', created_by: 'admin', status: 'To Do' as const, priority: 'Normal' as const, start_date: null, due_date: null, parent_task_id: null, estimated_minutes: null, actual_minutes: null, blocked_reason: null, sort_order: 0, task_type: 'task', visibility: 'team' as const, archived_at: null, completed_at: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
   ];
 
   const adminProfile = evalProfiles.find((p) => p.role === 'admin') || evalProfiles[0];
@@ -186,6 +186,10 @@ export async function runAIEvaluationSuite(): Promise<{
       profiles: evalProfiles,
       projects: evalProjects,
       tasks: evalTasks,
+      taskAssignees: [],
+      taskComments: [],
+      taskChecklistItems: [],
+      taskDependencies: [],
       notifications: [],
       clientProjectAccess: [],
       revisionRequests: [],

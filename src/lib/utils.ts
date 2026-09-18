@@ -1,4 +1,5 @@
 import type { Project, Role } from './types';
+import { formatWorkflowErrorMessage } from './workflowErrors';
 
 export function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(' ');
@@ -35,19 +36,7 @@ export function isClientRole(role: Role | null | undefined) {
 }
 
 export function errorMessage(error: unknown, fallback = 'Something went wrong.') {
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-
-  if (typeof error === 'object' && error && 'message' in error) {
-    return String((error as { message?: unknown }).message || fallback);
-  }
-
-  if (typeof error === 'string') {
-    return error;
-  }
-
-  return fallback;
+  return formatWorkflowErrorMessage(error, fallback);
 }
 
 export function projectCsv(projects: Project[]) {

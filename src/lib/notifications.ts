@@ -22,16 +22,6 @@ function normalizeNotification(row: NotificationRow): NotificationItem {
   };
 }
 
-function isMissingRecipientColumn(error: unknown) {
-  const message = errorMessage(error, '').toLowerCase();
-  return message.includes('recipient_id') || message.includes("column notifications.recipient_id");
-}
-
-function isMissingNotificationsTable(error: unknown) {
-  const message = errorMessage(error, '').toLowerCase();
-  return message.includes('notifications') && (message.includes('does not exist') || message.includes('schema cache'));
-}
-
 export async function fetchNotifications(userId: string) {
   if (!supabase) {
     return [];
@@ -43,33 +33,8 @@ export async function fetchNotifications(userId: string) {
     .eq('recipient_id', userId)
     .order('created_at', { ascending: false });
 
-  if (!error) {
-    return ((data || []) as NotificationRow[]).map(normalizeNotification);
-  }
-
-  if (isMissingNotificationsTable(error)) {
-    return [];
-  }
-
-  if (!isMissingRecipientColumn(error)) {
-    throw error;
-  }
-
-  const fallback = await supabase
-    .from('notifications')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false });
-
-  if (fallback.error) {
-    if (isMissingNotificationsTable(fallback.error)) {
-      return [];
-    }
-
-    throw fallback.error;
-  }
-
-  return ((fallback.data || []) as NotificationRow[]).map(normalizeNotification);
+  if (error) throw new Error(`Phase 6 notification read failed: ${errorMessage(error, 'required notifications schema unavailable')}`);
+  return ((data || []) as NotificationRow[]).map(normalizeNotification);
 }
 
 export async function markNotificationAsRead(notificationId: string) {
@@ -79,9 +44,7 @@ export async function markNotificationAsRead(notificationId: string) {
 
   const { error } = await supabase.from('notifications').update({ is_read: true }).eq('id', notificationId);
 
-  if (error && !isMissingNotificationsTable(error)) {
-    throw error;
-  }
+  if (error) throw error;
 }
 
 export async function markAllNotificationsAsRead(userId: string) {
@@ -95,23 +58,7 @@ export async function markAllNotificationsAsRead(userId: string) {
     .eq('recipient_id', userId)
     .eq('is_read', false);
 
-  if (!error || isMissingNotificationsTable(error)) {
-    return;
-  }
-
-  if (!isMissingRecipientColumn(error)) {
-    throw error;
-  }
-
-  const fallback = await supabase
-    .from('notifications')
-    .update({ is_read: true })
-    .eq('user_id', userId)
-    .eq('is_read', false);
-
-  if (fallback.error && !isMissingNotificationsTable(fallback.error)) {
-    throw fallback.error;
-  }
+  if (error) throw error;
 }
 
 export function subscribeToNotifications({

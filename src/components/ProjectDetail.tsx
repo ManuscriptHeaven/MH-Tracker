@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   AlertTriangle,
+  Archive,
   CalendarDays,
   CheckCircle2,
   Clock3,
@@ -33,9 +34,11 @@ import {
 import { useEffect, useMemo, useState } from 'react';
 import { RevisionRequestsPage } from '../pages/RevisionRequestsPage';
 import { revisionStatuses, timelineStages } from '../lib/constants';
-import { deadlineClass, deadlineLabel, formatDate, todayInput } from '../lib/date';
-import { getTimelineSummary, normalizeStage, timelineUpdateForStage, type OfficialTimelineStage } from '../lib/timeline';
+import { deadlineClass, deadlineLabel, formatDate } from '../lib/date';
+import { getTimelineSummary, normalizeStage, type OfficialTimelineStage } from '../lib/timeline';
 import { firstName, initials } from '../lib/utils';
+import { formatWorkflowErrorMessage } from '../lib/workflowErrors';
+import { hasAmbiguousRevisionRequests } from '../lib/revisionUtils';
 import { useCurrency } from '../lib/currency';
 import type {
   ActivityLog,
@@ -44,6 +47,7 @@ import type {
   NoteType,
   Profile,
   Project,
+  ProjectMetadataUpdate,
   ProjectNote,
   RevisionActivity,
   RevisionAttachment,
@@ -104,8 +108,12 @@ export function ProjectDetail({
   canManageAll,
   onClose,
   onEdit,
+  onRequestArchive,
+  onArchiveProject,
   onDelete,
   onUpdateProject,
+  onAdvanceWorkflowStage,
+  onCompleteFinalDelivery,
   onAddNote,
   onAddRevision,
   onUpdateRevisionRequest,
@@ -134,8 +142,12 @@ export function ProjectDetail({
   canManageAll: boolean;
   onClose: () => void;
   onEdit: () => void;
-  onDelete: () => void;
-  onUpdateProject: (updates: Partial<Project>) => Promise<void>;
+  onRequestArchive?: () => void;
+  onArchiveProject?: () => void;
+  onDelete?: () => void;
+  onUpdateProject: (updates: ProjectMetadataUpdate) => Promise<void>;
+  onAdvanceWorkflowStage: () => Promise<void>;
+  onCompleteFinalDelivery: (note?: string) => Promise<void>;
   onAddNote: (noteType: NoteType, note: string) => Promise<void>;
   onAddRevision: (note: string, status: RevisionStatus) => Promise<void>;
   onUpdateRevisionRequest: (requestId: string, updates: Partial<RevisionRequest>) => Promise<void>;
@@ -156,9 +168,8 @@ export function ProjectDetail({
   onAdminWorkflowOverride?: (newStage: TimelineStage, reason: string, explanation: string) => Promise<any>;
 }) {
   const { formatMoney } = useCurrency();
+  const handleArchive = onRequestArchive || onArchiveProject || onDelete;
   const [activeTab, setActiveTab] = useState<ProjectDetailTab>('overview');
-  const [stage, setStage] = useState<TimelineStage>(project.current_stage || 'Files Received');
-  const [isSavingStage, setIsSavingStage] = useState(false);
   const [noteType, setNoteType] = useState<NoteType>('work');
   const [note, setNote] = useState('');
   const [revisionNote, setRevisionNote] = useState('');
@@ -174,10 +185,21 @@ export function ProjectDetail({
   const [overrideTargetStage, setOverrideTargetStage] = useState<TimelineStage>('Print Version');
   const [overrideReason, setOverrideReason] = useState('');
   const [overrideExplanation, setOverrideExplanation] = useState('');
+  const [overrideError, setOverrideError] = useState<string | null>(null);
   const [isSubmittingWorkflow, setIsSubmittingWorkflow] = useState(false);
   const [quickMsg, setQuickMsg] = useState('');
   const [activityFilter, setActivityFilter] = useState<'all' | 'client' | 'team' | 'files' | 'status' | 'revisions' | 'system'>('all');
   const [taskFilter, setTaskFilter] = useState<'all' | 'open' | 'in_progress' | 'done'>('all');
+
+  const trimmedOverrideReason = overrideReason.trim();
+  const trimmedOverrideExplanation = overrideExplanation.trim();
+  const isOverrideReasonValid = trimmedOverrideReason.length >= 10;
+  const isOverrideExplanationValid = trimmedOverrideExplanation.length > 0;
+  const isOverrideFormValid = isOverrideReasonValid && isOverrideExplanationValid;
+
+  const hasAmbiguousRevisions = useMemo(() => {
+    return hasAmbiguousRevisionRequests(project.id, revisionRequests);
+  }, [project.id, revisionRequests]);
 
   const openSubmitModal = () => {
     const norm = normalizeStage(project.current_stage || project.status);
@@ -192,6 +214,25 @@ export function ProjectDetail({
     setSubmissionFileUrl(initialUrl);
     setSubmissionNote('');
     setShowSubmitModal(true);
+  };
+
+  const advanceFilesReceived = async () => {
+    setIsSubmittingWorkflow(true);
+    try {
+      await onAdvanceWorkflowStage();
+    } finally {
+      setIsSubmittingWorkflow(false);
+    }
+  };
+
+  const completeDelivery = async () => {
+    if (!window.confirm(`Complete final delivery for "${project.project_title}"?`)) return;
+    setIsSubmittingWorkflow(true);
+    try {
+      await onCompleteFinalDelivery('Final delivery completed from the project workflow view.');
+    } finally {
+      setIsSubmittingWorkflow(false);
+    }
   };
 
   // File links editing modal state
@@ -243,41 +284,9 @@ export function ProjectDetail({
   );
 
   const projectTasks = useMemo(
-    () => tasks.filter((task) => task.project_id === project.id),
+    () => tasks.filter((task) => task.project_id === project.id && !task.archived_at),
     [project.id, tasks],
   );
-
-  useEffect(() => {
-    setStage(project.current_stage || 'Files Received');
-  }, [project.current_stage, project.id]);
-
-  async function saveStage() {
-    try {
-      setIsSavingStage(true);
-      const updates = timelineUpdateForStage(project, stage);
-      await onUpdateProject(updates);
-      await onAddNote('qa', `Production stage updated to: ${stage}`);
-    } finally {
-      setIsSavingStage(false);
-    }
-  }
-
-  async function markDelivered() {
-    const confirmed = window.confirm(`Are you sure you want to mark "${project.project_title}" as Completed?`);
-    if (!confirmed) return;
-    try {
-      setIsSavingStage(true);
-      setStage('Final Delivery');
-      const updates = timelineUpdateForStage(
-        { ...project, final_delivery_date: todayInput(), delivery_date: todayInput() },
-        'Completed',
-      );
-      await onUpdateProject(updates);
-      await onAddNote('delivery', 'Final delivery completed. Project is now marked Completed.');
-    } finally {
-      setIsSavingStage(false);
-    }
-  }
 
   async function submitNote() {
     if (!note.trim()) return;
@@ -305,8 +314,7 @@ export function ProjectDetail({
     await onUpdateProject({
       total_price: totalPrice,
       advance_paid: advancePaid,
-      remaining_balance: Math.max(totalPrice - advancePaid, 0),
-      payment_status: paymentValues.payment_status as Project['payment_status'],
+        payment_status: paymentValues.payment_status as Project['payment_status'],
       payment_date: paymentValues.payment_date || null,
       payment_notes: paymentValues.payment_notes,
     });
@@ -412,44 +420,10 @@ export function ProjectDetail({
 
             {/* Top Workflow & Quick Action Buttons */}
             <div className="flex flex-wrap items-center gap-2 shrink-0">
-              {/* Revision Submission Workflow Buttons */}
-              {isRevisionActive && (normStage === 'Concept Approval' || normStage === 'Design Concept') && (
-                <Button
-                  onClick={openSubmitModal}
-                  disabled={isSubmittingWorkflow}
-                  className="text-xs py-2 px-3 bg-gold text-white font-semibold hover:bg-gold/90 shadow-xs"
-                >
-                  <Send className="h-3.5 w-3.5" />
-                  Submit Concept Revision
-                </Button>
-              )}
-
-              {isRevisionActive && (normStage === 'Print Approval' || normStage === 'Print Version') && (
-                <Button
-                  onClick={openSubmitModal}
-                  disabled={isSubmittingWorkflow}
-                  className="text-xs py-2 px-3 bg-gold text-white font-semibold hover:bg-gold/90 shadow-xs"
-                >
-                  <Send className="h-3.5 w-3.5" />
-                  Submit Print Revision
-                </Button>
-              )}
-
-              {isRevisionActive && (normStage === 'Ebook Approval' || normStage === 'Ebook Version') && (
-                <Button
-                  onClick={openSubmitModal}
-                  disabled={isSubmittingWorkflow}
-                  className="text-xs py-2 px-3 bg-gold text-white font-semibold hover:bg-gold/90 shadow-xs"
-                >
-                  <Send className="h-3.5 w-3.5" />
-                  Submit eBook Revision
-                </Button>
-              )}
-
               {/* Standard Stage Submission Workflow Buttons */}
               {!isRevisionActive && !isAwaitingClientReview && normStage === 'Files Received' && (
                 <Button
-                  onClick={openSubmitModal}
+                  onClick={advanceFilesReceived}
                   disabled={isSubmittingWorkflow}
                   className="text-xs py-2 px-3 bg-gold text-white font-semibold hover:bg-gold/90 shadow-xs"
                 >
@@ -493,7 +467,7 @@ export function ProjectDetail({
 
               {normStage === 'Final Delivery' && project.status !== 'Completed' && (
                 <Button
-                  onClick={openSubmitModal}
+                  onClick={completeDelivery}
                   disabled={isSubmittingWorkflow}
                   className="text-xs py-2 px-3 bg-success hover:bg-green-700 text-white font-semibold shadow-xs"
                 >
@@ -518,7 +492,10 @@ export function ProjectDetail({
               {currentProfile.role === 'admin' && (
                 <Button
                   variant="secondary"
-                  onClick={() => setShowAdminOverrideModal(true)}
+                  onClick={() => {
+                    setShowAdminOverrideModal(true);
+                    setOverrideError(null);
+                  }}
                   className="text-xs py-2 px-2.5 border-red-200 text-danger hover:bg-red-50"
                 >
                   <ShieldAlert className="h-3.5 w-3.5" />
@@ -534,6 +511,17 @@ export function ProjectDetail({
                 <Button variant="secondary" onClick={onEdit} className="text-xs">
                   <Edit className="h-4 w-4" />
                   Edit Project
+                </Button>
+              ) : null}
+              {currentProfile.role === 'admin' && handleArchive && project.project_status !== 'archived' ? (
+                <Button
+                  variant="secondary"
+                  onClick={handleArchive}
+                  className="text-xs border-amber-300 text-amber-800 hover:bg-amber-50"
+                  title="Archive project"
+                >
+                  <Archive className="h-4 w-4" />
+                  Archive Project
                 </Button>
               ) : null}
             </div>
@@ -565,6 +553,21 @@ export function ProjectDetail({
               </span>
             </div>
           </div>
+
+          {/* Ambiguous Revision History Admin Warning */}
+          {hasAmbiguousRevisions && currentProfile.role === 'admin' && (
+            <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900 shadow-xs">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="font-semibold text-sm">Legacy Revision History Warning (Admin Review Required)</h4>
+                  <p className="text-xs mt-1 text-amber-800 leading-relaxed">
+                    Legacy revision history for this project needs Admin review before this workflow action can continue. Canonical client approvals fail closed (<code>workflow_revision_ambiguous</code>) pending administrative resolution.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Active Revision Alert if in revision */}
           {summary.stageStatus === 'REVISION_ACTIVE' ? (
@@ -733,44 +736,10 @@ export function ProjectDetail({
                     </p>
 
                     <div className="flex flex-col gap-2">
-                      {/* Revision Submission Workflow Buttons */}
-                      {isRevisionActive && (normStage === 'Concept Approval' || normStage === 'Design Concept') && (
-                        <Button
-                          onClick={openSubmitModal}
-                          disabled={isSubmittingWorkflow}
-                          className="w-full text-xs py-2 bg-gold text-white font-semibold hover:bg-gold/90"
-                        >
-                          <Send className="h-3.5 w-3.5" />
-                          Submit Concept Revision
-                        </Button>
-                      )}
-
-                      {isRevisionActive && (normStage === 'Print Approval' || normStage === 'Print Version') && (
-                        <Button
-                          onClick={openSubmitModal}
-                          disabled={isSubmittingWorkflow}
-                          className="w-full text-xs py-2 bg-gold text-white font-semibold hover:bg-gold/90"
-                        >
-                          <Send className="h-3.5 w-3.5" />
-                          Submit Print Revision
-                        </Button>
-                      )}
-
-                      {isRevisionActive && (normStage === 'Ebook Approval' || normStage === 'Ebook Version') && (
-                        <Button
-                          onClick={openSubmitModal}
-                          disabled={isSubmittingWorkflow}
-                          className="w-full text-xs py-2 bg-gold text-white font-semibold hover:bg-gold/90"
-                        >
-                          <Send className="h-3.5 w-3.5" />
-                          Submit eBook Revision
-                        </Button>
-                      )}
-
                       {/* Standard Stage Submission Workflow Buttons */}
                       {!isRevisionActive && !isAwaitingClientReview && normStage === 'Files Received' && (
                         <Button
-                          onClick={openSubmitModal}
+                          onClick={advanceFilesReceived}
                           disabled={isSubmittingWorkflow}
                           className="w-full text-xs py-2 bg-gold text-white font-semibold hover:bg-gold/90"
                         >
@@ -814,7 +783,7 @@ export function ProjectDetail({
 
                       {normStage === 'Final Delivery' && project.status !== 'Completed' && (
                         <Button
-                          onClick={openSubmitModal}
+                          onClick={completeDelivery}
                           disabled={isSubmittingWorkflow}
                           className="w-full text-xs py-2 bg-success hover:bg-green-700 text-white font-semibold"
                         >
@@ -837,7 +806,10 @@ export function ProjectDetail({
                       {currentProfile.role === 'admin' && (
                         <Button
                           variant="secondary"
-                          onClick={() => setShowAdminOverrideModal(true)}
+                          onClick={() => {
+                            setShowAdminOverrideModal(true);
+                            setOverrideError(null);
+                          }}
                           className="w-full text-xs py-1.5 border-red-200 text-danger hover:bg-red-50 mt-1"
                         >
                           <ShieldAlert className="h-3.5 w-3.5" />
@@ -972,7 +944,10 @@ export function ProjectDetail({
                   {currentProfile.role === 'admin' && (
                     <Button
                       variant="secondary"
-                      onClick={() => setShowAdminOverrideModal(true)}
+                      onClick={() => {
+                        setShowAdminOverrideModal(true);
+                        setOverrideError(null);
+                      }}
                       className="text-xs border-red-300 text-danger hover:bg-red-50"
                     >
                       <ShieldAlert className="h-4 w-4" />
@@ -1138,7 +1113,6 @@ export function ProjectDetail({
                   onUpdateRequest={onUpdateRevisionRequest}
                   onUpdateItem={onUpdateRevisionItem}
                   onUploadRevisedProof={onUploadRevisedProof}
-                  onSubmitStageForApproval={onSubmitStageForApproval}
                 />
               </div>
 
@@ -1647,34 +1621,65 @@ export function ProjectDetail({
               </div>
             </div>
 
+            {overrideError && (
+              <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-xs text-danger font-medium">
+                {overrideError}
+              </div>
+            )}
+
             <SelectField
               label="Target Stage"
               value={overrideTargetStage}
               onChange={(e) => setOverrideTargetStage(e.target.value as TimelineStage)}
             >
-              {timelineStages.map((stg) => (
-                <option key={stg} value={stg}>
-                  {stg}
-                </option>
-              ))}
+              {timelineStages
+                .filter((stg) => stg !== 'Completed' && stg !== 'On Hold' && stg !== 'Cancelled')
+                .map((stg) => (
+                  <option key={stg} value={stg}>
+                    {stg}
+                  </option>
+                ))}
             </SelectField>
+            <p className="text-[11px] leading-relaxed text-muted">
+              Completion, hold, cancellation, and archival must use their dedicated workflow actions so lifecycle history stays consistent.
+            </p>
 
-            <Field
-              label="Reason Summary"
-              placeholder="e.g. Client approved print version verbally via phone call"
-              value={overrideReason}
-              onChange={(e) => setOverrideReason(e.target.value)}
-              required
-            />
+            <div>
+              <Field
+                label="Reason Summary"
+                placeholder="e.g. Client approved print version verbally via phone call"
+                value={overrideReason}
+                onChange={(e) => {
+                  setOverrideReason(e.target.value);
+                  if (overrideError) setOverrideError(null);
+                }}
+                required
+              />
+              {overrideReason.length > 0 && !isOverrideReasonValid && (
+                <p className="text-[11px] text-danger mt-1">
+                  Reason summary must be at least 10 characters (currently {trimmedOverrideReason.length} characters).
+                </p>
+              )}
+            </div>
 
-            <TextareaField
-              label="Detailed Explanation"
-              placeholder="Provide a detailed explanation for why this emergency workflow override is required..."
-              value={overrideExplanation}
-              onChange={(e) => setOverrideExplanation(e.target.value)}
-              rows={3}
-              required
-            />
+            <div>
+              <TextareaField
+                label="Detailed Explanation"
+                placeholder="Provide a detailed explanation for why this emergency workflow override is required..."
+                value={overrideExplanation}
+                onChange={(e) => {
+                  setOverrideExplanation(e.target.value);
+                  if (overrideError) setOverrideError(null);
+                }}
+                rows={3}
+                required
+              />
+              {overrideExplanation.length > 0 && !isOverrideExplanationValid && (
+                <p className="text-[11px] text-danger mt-1">
+                  Please provide a detailed explanation.
+                </p>
+              )}
+            </div>
 
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="secondary" onClick={() => setShowAdminOverrideModal(false)}>
@@ -1685,22 +1690,26 @@ export function ProjectDetail({
                 variant="secondary"
                 className="border-red-300 text-danger hover:bg-red-50"
                 onClick={async () => {
-                  if (!overrideReason.trim() || !overrideExplanation.trim()) return;
+                  if (!isOverrideFormValid || isSubmittingWorkflow) return;
                   setIsSubmittingWorkflow(true);
+                  setOverrideError(null);
                   try {
                     if (onAdminWorkflowOverride) {
-                      await onAdminWorkflowOverride(overrideTargetStage, overrideReason, overrideExplanation);
+                      await onAdminWorkflowOverride(overrideTargetStage, trimmedOverrideReason, trimmedOverrideExplanation);
                     }
                     setShowAdminOverrideModal(false);
                     setOverrideReason('');
                     setOverrideExplanation('');
+                    setOverrideError(null);
+                  } catch (err) {
+                    setOverrideError(formatWorkflowErrorMessage(err, 'Administrative override failed.'));
                   } finally {
                     setIsSubmittingWorkflow(false);
                   }
                 }}
-                disabled={isSubmittingWorkflow || !overrideReason.trim() || !overrideExplanation.trim()}
+                disabled={isSubmittingWorkflow || !isOverrideFormValid}
               >
-                Confirm Administrative Override
+                {isSubmittingWorkflow ? 'Submitting Override...' : 'Confirm Administrative Override'}
               </Button>
             </div>
           </div>

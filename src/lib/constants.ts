@@ -69,7 +69,7 @@ export const clientRevisionStatuses: ClientRevisionStatus[] = [
 
 export const revisionItemStatuses: RevisionItemStatus[] = ['Open', 'Under Review', 'In Progress', 'Completed'];
 
-export const taskStatuses: TaskStatus[] = ['To Do', 'In Progress', 'Done'];
+export const taskStatuses: TaskStatus[] = ['To Do', 'In Progress', 'Blocked', 'Done'];
 
 export const standardProjectStatuses: ProjectStatus[] = [
   'Active',
@@ -223,6 +223,7 @@ export const priorityBadgeClasses: Record<Priority, string> = {
 export const taskStatusBadgeClasses: Record<TaskStatus, string> = {
   'To Do': 'bg-stone-100 text-stone-700 border-stone-200',
   'In Progress': 'bg-amber-50 text-amber-800 border-amber-200',
+  Blocked: 'bg-red-50 text-danger border-red-200',
   Done: 'bg-green-50 text-success border-green-100',
 };
 
@@ -261,6 +262,7 @@ export const timelineStages: TimelineStage[] = [
 ];
 
 export const DEFAULT_WORKFLOW_SETTINGS: WorkflowSettings = {
+  revision_days: 2,
   files_received_days: 2,
   design_concept_days: 3,
   design_concept_revision_days: 2,

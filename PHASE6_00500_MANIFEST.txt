@@ -1,0 +1,34 @@
+PHASE 6 MIGRATION 00500 REVIEW V3 MANIFEST
+
+Packaged files:
+supabase/phase6/migrations/00500_phase6_cutover_and_validation.sql
+SHA-256: 8439ce1388eccc8bf1090a8cd3effd5c6f0e0ec6c991e1b3d84cc0d278f0038f
+
+supabase/tests/database/phase6_cutover.test.sql
+SHA-256: c214ea14b9d2b5d6861bd71b3c3617ca588354f09e3607af7235673402e5a2a3
+
+scripts/phase6-cutover-static-tests.mjs
+SHA-256: 33a1c47a1007ba4536121ad6e16c77166b4b3e26296bee12f5305067dfdb4c50
+
+docs/PHASE6_00500_CUTOVER_REVIEW.md
+SHA-256: ad370555e061c14d4bdff741919910c34b71fc512698b84d07766e3f754fbe4d
+
+PHASE6_00500_MANIFEST.txt
+Package self-manifest
+
+Accepted migration reference hashes (00100-00460):
+supabase/phase6/migrations/00100_phase6_canonical_foundation.sql
+SHA-256: 3bdae7a341b22699cb8879a3508e3f97eb76e1e09287949ebd7fe93aed1ee21a
+supabase/phase6/migrations/00200_phase6_legacy_backfill.sql
+SHA-256: 848c80db812dfa583c563fc9b73c44deebf6130d56578946712a78003cbb2cfc
+supabase/phase6/migrations/00300_phase6_workflow_rpcs.sql
+SHA-256: 296b77041d7af216c499c50a7e91866cb70d2f7e4fb9e36f6410e86bf6c7e767
+supabase/phase6/migrations/00400_phase6_security_and_projections.sql
+SHA-256: 22a852cf39d1e6d3292d98fcdc8ad90663770864e65592472a9b783565415628
+supabase/phase6/migrations/00450_phase6_core_application_security.sql
+SHA-256: fcffa593f087308a87c5d58e974cfbb81f13c2335429da82c24bfe8c11c980ee
+supabase/phase6/migrations/00460_phase6_finance_payroll_security.sql
+SHA-256: 927032d087c2f1cd9faaa59ba10a9dbf76afb8a47b074dff029d7ced19b76add
+
+Total packaged review files: 5
+No file bytes were normalized during packaging.

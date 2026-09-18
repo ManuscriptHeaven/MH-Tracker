@@ -43,15 +43,24 @@ function OptionList({ id, values }: { id: string; values: string[] }) {
   );
 }
 
-function defaultDraft(currentProfile: Profile): ProjectDraft {
+function capabilitiesForServiceType(serviceType: string) {
+  const service = serviceType.trim().toLowerCase();
+  if (service.includes('print + ebook')) return { requires_print: true, requires_ebook: true };
+  if (service.includes('ebook')) return { requires_print: false, requires_ebook: true };
+  return { requires_print: true, requires_ebook: false };
+}
+
+function defaultDraft(currentProfile: Profile, canonical: boolean): ProjectDraft {
   const startDate = todayInput();
-  const estimatedDueDate = addCalendarDays(startDate, PRINT_ONLY_TIMELINE_DAYS);
+  const estimatedDueDate = canonical ? '' : addCalendarDays(startDate, PRINT_ONLY_TIMELINE_DAYS);
 
   return {
     client_name: '',
     client_email: '',
     project_title: '',
     service_type: 'Print Formatting',
+    requires_print: true,
+    requires_ebook: false,
     genre: '',
     trim_size: '',
     page_count: 0,
@@ -155,6 +164,7 @@ export function ProjectFormModal({
   profiles,
   projects,
   project,
+  canonical,
   onClose,
   onSubmit,
 }: {
@@ -162,20 +172,21 @@ export function ProjectFormModal({
   profiles: Profile[];
   projects: Project[];
   project?: Project | null;
+  canonical: boolean;
   onClose: () => void;
   onSubmit: (draft: ProjectDraft) => Promise<void>;
 }) {
   const [draft, setDraft] = useState<ProjectDraft>(() =>
-    project ? draftFromProject(project) : defaultDraft(currentProfile),
+    project ? draftFromProject(project) : defaultDraft(currentProfile, canonical),
   );
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const isEditing = Boolean(project);
 
   useEffect(() => {
-    setDraft(project ? draftFromProject(project) : defaultDraft(currentProfile));
+    setDraft(project ? draftFromProject(project) : defaultDraft(currentProfile, canonical));
     setFormError(null);
-  }, [currentProfile, project]);
+  }, [canonical, currentProfile, project]);
 
   const assignableProfiles = useMemo(
     () => profiles.filter((profile) => !isClientRole(profile.role)),
@@ -247,7 +258,7 @@ export function ProjectFormModal({
     setIsSaving(true);
     setFormError(null);
 
-    const timelineErrors = validateTimelineDates(draft);
+    const timelineErrors = canonical ? [] : validateTimelineDates(draft);
     if (timelineErrors.length) {
       setFormError(timelineErrors[0]);
       setIsSaving(false);
@@ -260,8 +271,16 @@ export function ProjectFormModal({
       return;
     }
 
+    if (!isEditing &&
+        (typeof draft.requires_print !== 'boolean' || typeof draft.requires_ebook !== 'boolean' ||
+         (!draft.requires_print && !draft.requires_ebook))) {
+      setFormError('Confirm at least one canonical service capability: Print or eBook.');
+      setIsSaving(false);
+      return;
+    }
+
     try {
-      await onSubmit(deriveProjectTimeline(draft, { syncStatus: true }));
+      await onSubmit(draft);
       onClose();
     } catch (error) {
       setFormError(errorMessage(error, 'Project could not be saved.'));
@@ -311,10 +330,26 @@ export function ProjectFormModal({
               label="Service Type"
               list="service-type-options"
               value={draft.service_type}
-              onChange={(event) =>
-                isEditing ? update('service_type', event.target.value) : updateNewProjectTimeline({ service_type: event.target.value })
-              }
+              onChange={(event) => isEditing || canonical
+                ? setDraft((previous) => ({ ...previous, service_type: event.target.value, ...(!isEditing ? capabilitiesForServiceType(event.target.value) : {}) }))
+                : updateNewProjectTimeline({ service_type: event.target.value, ...capabilitiesForServiceType(event.target.value) })}
             />
+            <div className="grid gap-2 rounded-md border border-border bg-ivory/40 p-3 md:col-span-2">
+              <span className="text-sm font-semibold text-ink">Canonical Service Capabilities</span>
+              <div className="flex flex-wrap gap-5">
+                <label className="flex items-center gap-2 text-sm text-ink">
+                  <input type="checkbox" checked={draft.requires_print === true}
+                    onChange={(event) => update('requires_print', event.target.checked)} />
+                  Print production
+                </label>
+                <label className="flex items-center gap-2 text-sm text-ink">
+                  <input type="checkbox" checked={draft.requires_ebook === true}
+                    onChange={(event) => update('requires_ebook', event.target.checked)} />
+                  eBook production
+                </label>
+              </div>
+              <p className="text-xs text-muted">Confirm at least one. Service Type remains descriptive CRM metadata.</p>
+            </div>
             <Field
               label="Book Genre"
               list="genre-options"
@@ -398,7 +433,7 @@ export function ProjectFormModal({
               type="date"
               value={draft.start_date}
               onChange={(event) =>
-                isEditing ? update('start_date', event.target.value) : updateNewProjectTimeline({ start_date: event.target.value })
+                isEditing || canonical ? update('start_date', event.target.value) : updateNewProjectTimeline({ start_date: event.target.value })
               }
             />
             {isEditing ? (
@@ -415,19 +450,25 @@ export function ProjectFormModal({
                   value={draft.internal_deadline}
                   onChange={(event) => update('internal_deadline', event.target.value)}
                 />
-                <Field
-                  label="Delivery Date"
-                  type="date"
-                  value={draft.delivery_date || ''}
-                  onChange={(event) => update('delivery_date', event.target.value || null)}
-                />
-                <ReadOnlyValue label="Timeline Stage" value={timelineSummary.stage} />
+                {!canonical && (
+                  <Field
+                    label="Delivery Date"
+                    type="date"
+                    value={draft.delivery_date || ''}
+                    onChange={(event) => update('delivery_date', event.target.value || null)}
+                  />
+                )}
+                {!canonical && <ReadOnlyValue label="Timeline Stage" value={timelineSummary.stage} />}
               </>
             ) : (
-              <>
-                <ReadOnlyValue label="Estimated Project Due Date" value={formatDate(draft.due_date)} />
-                <ReadOnlyValue label="Initial Timeline Stage" value={timelineSummary.stage} />
-              </>
+              canonical ? (
+                <ReadOnlyValue label="Workflow Due Dates" value="Calculated by the database after the workflow begins" />
+              ) : (
+                <>
+                  <ReadOnlyValue label="Estimated Project Due Date" value={formatDate(draft.due_date)} />
+                  <ReadOnlyValue label="Initial Timeline Stage" value={timelineSummary.stage} />
+                </>
+              )
             )}
           </div>
         </section>
@@ -437,16 +478,30 @@ export function ProjectFormModal({
             <div>
               <h3 className="font-display text-lg font-semibold">Project Timeline</h3>
               <p className="text-sm text-muted">
-                Deadlines use calendar days and include weekends. Client review time pauses the active stage.
+                {canonical
+                  ? 'Workflow due dates are calculated by the database using the configured working-day rules.'
+                  : 'Demo-only calendar-day estimate. It is not saved as canonical workflow state.'}
               </p>
             </div>
-            <div className="rounded-md border border-border bg-ivory px-3 py-2 text-sm">
+            {!canonical && <div className="rounded-md border border-border bg-ivory px-3 py-2 text-sm">
               <span className="font-semibold">{timelineSummary.stage}</span>
               <span className="text-muted"> | {timelineSummary.progress}% | {timelineSummary.timelineStatus}</span>
-            </div>
+            </div>}
           </div>
 
-          {!isEditing ? (
+          {canonical ? (
+            isEditing ? (
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <ReadOnlyValue label="Current Workflow Stage" value={project?.workflow_stage_key || 'Pending'} />
+                <ReadOnlyValue label="Current Stage Due" value={project?.stage_due_at ? formatDate(project.stage_due_at) : 'Not scheduled'} />
+                <ReadOnlyValue label="Estimated Final Due" value={project?.final_due_at ? formatDate(project.final_due_at) : 'Not scheduled'} />
+              </div>
+            ) : (
+              <p className="rounded-md border border-border bg-ivory px-3 py-3 text-sm text-muted">
+                Canonical workflow dates will appear after the database starts and advances the workflow.
+              </p>
+            )
+          ) : !isEditing ? (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <Field
                 label="Files Received Date"

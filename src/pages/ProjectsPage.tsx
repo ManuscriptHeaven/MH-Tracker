@@ -1,74 +1,86 @@
-import { Copy, Download, Edit, Eye, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Archive, Copy, Download, Edit, Eye } from 'lucide-react';
+import { useState } from 'react';
 import { PaymentBadge, PriorityBadge, StatusBadge } from '../components/Badges';
 import { ProjectTimelineCompact } from '../components/ProjectTimeline';
 import { Button, Card, EmptyState, IconButton, SelectField } from '../components/ui';
 import {
-  isProjectStatus,
   paymentStatuses,
   priorityOptions,
-  projectStatusChoices,
   serviceTypes,
   statusOptions,
 } from '../lib/constants';
 import { deadlineClass, deadlineLabel, formatDate } from '../lib/date';
 import { downloadTextFile, firstName, isClientRole, projectCsv } from '../lib/utils';
 import { useCurrency } from '../lib/currency';
-import type { PaymentStatus, Priority, Profile, Project, ProjectStatus } from '../lib/types';
+import type { PaymentStatus, Priority, Profile, Project, ProjectLifecycleStatus, ProjectStatus } from '../lib/types';
 
 function profileName(profiles: Profile[], id?: string | null) {
   const profile = profiles.find((item) => item.id === id);
   return profile ? firstName(profile.full_name) : 'Unassigned';
 }
 
-function QuickStatusInput({
+function QuickLifecycleInput({
   project,
-  onUpdateProject,
+  currentProfile,
+  onSetProjectLifecycle,
+  onRequestArchive,
 }: {
   project: Project;
-  onUpdateProject: (projectId: string, updates: Partial<Project>) => void;
+  currentProfile: Profile;
+  onSetProjectLifecycle: (projectId: string, lifecycle: ProjectLifecycleStatus) => Promise<void> | void;
+  onRequestArchive?: (project: Project) => void;
 }) {
-  const [value, setValue] = useState(project.status);
-  const listId = `project-status-options-${project.id}`;
+  const currentLifecycle = project.project_status || 'active';
+  const isAdmin = currentProfile?.role === 'admin';
+  const [isPending, setIsPending] = useState(false);
 
-  useEffect(() => {
-    setValue(project.status);
-  }, [project.status]);
-
-  function commitStatus() {
-    if (value === project.status) {
-      return;
-    }
-
-    if (!isProjectStatus(value)) {
-      setValue(project.status);
-      return;
-    }
-
-    onUpdateProject(project.id, { status: value });
+  // Canonical RPC workflow_set_project_lifecycle strictly requires admin role.
+  // Render read-only badge for non-admins to prevent predictably failing operations.
+  if (!isAdmin) {
+    return (
+      <span className="inline-flex items-center rounded bg-ivory px-2 py-1 text-xs font-medium text-muted capitalize">
+        {currentLifecycle.replace('_', ' ')}
+      </span>
+    );
   }
 
+  // Terminal/archived lifecycles cannot be mutated via Quick Status.
+  if (currentLifecycle === 'archived' || currentLifecycle === 'completed' || currentLifecycle === 'cancelled') {
+    return (
+      <span className="inline-flex items-center rounded bg-ivory px-2 py-1 text-xs font-medium text-muted capitalize">
+        {currentLifecycle.replace('_', ' ')}
+      </span>
+    );
+  }
+
+  // Only expose safe reason-free transitions (active <-> on_hold) and route archival to modal.
   return (
-    <>
-      <input
-        list={listId}
-        value={value}
-        onChange={(event) => setValue(event.target.value as ProjectStatus)}
-        onBlur={commitStatus}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') {
-            event.currentTarget.blur();
+    <select
+      value={currentLifecycle}
+      disabled={isPending}
+      onChange={async (event) => {
+        const value = event.target.value;
+        if (value === '__archive__') {
+          onRequestArchive?.(project);
+          return;
+        }
+        if (value === 'active' || value === 'on_hold') {
+          if (value === currentLifecycle || isPending) return;
+          setIsPending(true);
+          try {
+            await onSetProjectLifecycle(project.id, value);
+          } finally {
+            setIsPending(false);
           }
-        }}
-        className="h-10 w-40 rounded-md border border-border bg-white px-2 text-xs"
-        title="Type or choose a status, then press Enter."
-      />
-      <datalist id={listId}>
-        {projectStatusChoices(project.status).map((status) => (
-          <option key={status} value={status} />
-        ))}
-      </datalist>
-    </>
+        }
+      }}
+      className="h-10 w-36 rounded-md border border-border bg-white px-2 text-xs text-ink disabled:opacity-50"
+      title="Change project lifecycle"
+    >
+      <option value="active">Active</option>
+      <option value="on_hold">On Hold</option>
+      {onRequestArchive && <option value="__archive__">Archive...</option>}
+    </select>
   );
 }
 
@@ -81,9 +93,11 @@ export function ProjectsPage({
   currentProfile,
   onSelectProject,
   onEditProject,
+  onRequestArchive,
+  onArchiveProject,
   onDeleteProject,
   onDuplicateProject,
-  onUpdateProject,
+  onSetProjectLifecycle,
   onAddProject,
   emptyTitle = 'No projects yet',
   emptyMessage = 'Create the first project to begin tracking deadlines, assignments, revisions, and payments.',
@@ -96,16 +110,20 @@ export function ProjectsPage({
   currentProfile: Profile;
   onSelectProject: (project: Project) => void;
   onEditProject: (project: Project) => void;
-  onDeleteProject: (project: Project) => void;
+  onRequestArchive?: (project: Project) => void;
+  onArchiveProject?: (project: Project) => void;
+  onDeleteProject?: (project: Project) => void;
   onDuplicateProject: (project: Project) => void;
-  onUpdateProject: (projectId: string, updates: Partial<Project>) => void;
+  onSetProjectLifecycle: (projectId: string, lifecycle: ProjectLifecycleStatus) => Promise<void> | void;
   onAddProject: () => void;
   emptyTitle?: string;
   emptyMessage?: string;
 }) {
   const { formatMoney } = useCurrency();
+  const handleArchive = onRequestArchive || onArchiveProject || onDeleteProject;
   const canViewPayments = canManageAll;
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'all'>('all');
+  const [lifecycleFilter, setLifecycleFilter] = useState<'active' | 'archived' | 'all'>('active');
   const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
   const [paymentFilter, setPaymentFilter] = useState<PaymentStatus | 'all'>('all');
   const [serviceFilter, setServiceFilter] = useState<string>('all');
@@ -121,12 +139,18 @@ export function ProjectsPage({
         project.client_name.toLowerCase().includes(normalizedSearch) ||
         project.project_number.toLowerCase().includes(normalizedSearch);
       const matchesStatus = statusFilter === 'all' || project.status === statusFilter;
+      const matchesLifecycle =
+        lifecycleFilter === 'all'
+          ? true
+          : lifecycleFilter === 'archived'
+          ? project.project_status === 'archived'
+          : project.project_status !== 'archived';
       const matchesPriority = priorityFilter === 'all' || project.priority === priorityFilter;
       const matchesPayment = !canViewPayments || paymentFilter === 'all' || project.payment_status === paymentFilter;
       const matchesService = serviceFilter === 'all' || project.service_type === serviceFilter;
       const matchesEmployee = employeeFilter === 'all' || project.assigned_to === employeeFilter;
 
-      return matchesSearch && matchesStatus && matchesPriority && matchesPayment && matchesService && matchesEmployee;
+      return matchesSearch && matchesStatus && matchesLifecycle && matchesPriority && matchesPayment && matchesService && matchesEmployee;
     })
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
@@ -161,7 +185,12 @@ export function ProjectsPage({
               {filtered.length} visible project{filtered.length === 1 ? '' : 's'}
             </p>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 2xl:grid-cols-7">
+            <SelectField label="Lifecycle" value={lifecycleFilter} onChange={(event) => setLifecycleFilter(event.target.value as 'active' | 'archived' | 'all')}>
+              <option value="active">Active Projects</option>
+              <option value="archived">Archived Only</option>
+              <option value="all">All (incl. Archived)</option>
+            </SelectField>
             <SelectField label="Status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as ProjectStatus | 'all')}>
               <option value="all">All statuses</option>
               {statusOptions.map((status) => (
@@ -255,7 +284,12 @@ export function ProjectsPage({
                     </td>
                   ) : null}
                   <td className="border-t border-border px-4 py-3">
-                    <QuickStatusInput project={project} onUpdateProject={onUpdateProject} />
+                    <QuickLifecycleInput
+                      project={project}
+                      currentProfile={currentProfile}
+                      onSetProjectLifecycle={onSetProjectLifecycle}
+                      onRequestArchive={handleArchive}
+                    />
                   </td>
                   <td className="border-t border-border px-4 py-3">
                     <div className="flex justify-end gap-2">
@@ -272,9 +306,9 @@ export function ProjectsPage({
                           <Copy className="h-4 w-4" />
                         </IconButton>
                       ) : null}
-                      {currentProfile.role === 'admin' ? (
-                        <IconButton title="Delete project" onClick={() => onDeleteProject(project)}>
-                          <Trash2 className="h-4 w-4" />
+                      {currentProfile.role === 'admin' && handleArchive && project.project_status !== 'archived' ? (
+                        <IconButton title="Archive project" onClick={() => handleArchive(project)} className="text-amber-800 hover:text-amber-900">
+                          <Archive className="h-4 w-4" />
                         </IconButton>
                       ) : null}
                     </div>
@@ -342,9 +376,9 @@ export function ProjectsPage({
                       <Copy className="h-4 w-4" />
                     </IconButton>
                   ) : null}
-                  {currentProfile.role === 'admin' ? (
-                    <IconButton title="Delete" onClick={() => onDeleteProject(project)} className="h-9 w-9 text-danger">
-                      <Trash2 className="h-4 w-4" />
+                  {currentProfile.role === 'admin' && handleArchive && project.project_status !== 'archived' ? (
+                    <IconButton title="Archive project" onClick={() => handleArchive(project)} className="h-9 w-9 text-amber-800 hover:text-amber-900">
+                      <Archive className="h-4 w-4" />
                     </IconButton>
                   ) : null}
                 </div>
