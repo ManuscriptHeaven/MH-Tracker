@@ -1389,7 +1389,7 @@ export async function execute_record_expense(
     };
   }
 
-  const currency = payload.currency || (ctx.displayCurrency === 'PKR' ? 'PKR' : 'USD');
+  const currency = 'USD';
   const amountStr = ctx.formatMoney(payload.amount, currency);
   const category = payload.category || 'Office';
   const description = payload.description || 'Expense entry recorded via AI Assistant';
@@ -1402,7 +1402,7 @@ export async function execute_record_expense(
         description,
         amount: payload.amount,
         currency: currency as any,
-        exchange_rate: ctx.exchangeRate,
+        exchange_rate: 1,
         transaction_date: payload.transactionDate || new Date().toISOString().slice(0, 10),
         payment_method: 'Credit Card',
       });
