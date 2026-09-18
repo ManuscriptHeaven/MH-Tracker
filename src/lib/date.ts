@@ -124,9 +124,14 @@ export function formatDate(value?: string | null) {
   }).format(parsed);
 }
 
-export function daysUntil(value: string) {
-  const today = new Date(todayInput());
-  const due = new Date(value);
+export function daysUntil(value?: string | null) {
+  // Keep a numeric return type for callers across the app. Missing or invalid
+  // dates sort to the far future instead of accidentally becoming 1970/overdue.
+  if (!value) return Number.POSITIVE_INFINITY;
+  const today = new Date(`${todayInput()}T12:00:00`);
+  const datePart = value.slice(0, 10);
+  const due = new Date(`${datePart}T12:00:00`);
+  if (isNaN(due.getTime())) return Number.POSITIVE_INFINITY;
   const msPerDay = 24 * 60 * 60 * 1000;
   return Math.round((due.getTime() - today.getTime()) / msPerDay);
 }
@@ -168,17 +173,21 @@ export function isOverdue(project: Project) {
 }
 
 export function isDueToday(project: Project) {
-  return !isClosed(project) && daysUntil(project.due_date) === 0;
+  return Boolean(project.due_date) && !isClosed(project) && daysUntil(project.due_date) === 0;
 }
 
 export function isDueThisWeek(project: Project) {
   const days = daysUntil(project.due_date);
-  return !isClosed(project) && days >= 0 && days <= 7;
+  return Boolean(project.due_date) && !isClosed(project) && days >= 0 && days <= 7;
 }
 
 export function deadlineLabel(project: Project) {
   if (isClosed(project)) {
     return project.status;
+  }
+
+  if (!project.due_date) {
+    return 'No due date';
   }
 
   const days = daysUntil(project.due_date);
@@ -194,11 +203,15 @@ export function deadlineLabel(project: Project) {
 }
 
 export function deadlineClass(project: Project) {
-  const days = daysUntil(project.due_date);
-
   if (isClosed(project)) {
     return 'text-success';
   }
+
+  if (!project.due_date) {
+    return 'text-muted';
+  }
+
+  const days = daysUntil(project.due_date);
 
   if (days < 0) {
     return 'text-danger';
