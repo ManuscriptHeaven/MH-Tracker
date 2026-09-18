@@ -2798,6 +2798,47 @@ export function useTracker() {
     [currentProfile, data.profiles, loadSupabaseData, mode],
   );
 
+  const provisionClient = useCallback(
+    async (draft: ClientInviteDraft) => {
+      if (!currentProfile || currentProfile.role !== 'admin') {
+        throw new Error('Only admins can add or update clients.');
+      }
+
+      const cleanName = draft.full_name.trim();
+      const cleanEmail = draft.email.trim().toLowerCase();
+      if (!cleanName || !cleanEmail || !cleanEmail.includes('@')) {
+        throw new Error('Client name and a valid email are required.');
+      }
+
+      if (supabase && mode === 'supabase') {
+        const { data: result, error: invokeError } = await supabase.functions.invoke(
+          'provision-client',
+          {
+            body: {
+              full_name: cleanName,
+              email: cleanEmail,
+              project_ids: draft.project_ids || [],
+            },
+          },
+        );
+
+        if (invokeError) throw invokeError;
+        if (result?.error) throw new Error(String(result.error));
+
+        await loadSupabaseData(currentProfile);
+        return String(result?.message || 'Client saved successfully.');
+      }
+
+      return inviteClient({
+        full_name: cleanName,
+        email: cleanEmail,
+        project_ids: draft.project_ids || [],
+        status: 'active',
+      });
+    },
+    [currentProfile, inviteClient, loadSupabaseData, mode],
+  );
+
   const provisionTeamMember = useCallback(
     async ({ fullName, email, role, phone }: {
       fullName: string;
@@ -3782,6 +3823,7 @@ export function useTracker() {
     removeTaskDependency,
     createSubtask,
     inviteClient,
+    provisionClient,
     provisionTeamMember,
     updateProfile,
     markNotificationRead,
