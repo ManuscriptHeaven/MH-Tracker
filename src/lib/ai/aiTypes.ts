@@ -174,7 +174,7 @@ export interface AIToolContext {
     deleteEmployeeLedgerEntry?: (id: string) => Promise<void>;
     sendMessage?: (conversationId: string, body: string) => Promise<any>;
     getOrCreateDM?: (otherUserId: string) => Promise<any>;
-    getOrCreateProjectConversation?: (projectId: string) => Promise<any>;
+    getOrCreateProjectConversation?: (projectId: string, isInternal?: boolean) => Promise<any>;
     getOrCreateTaskConversation?: (taskId: string) => Promise<any>;
   };
 }
