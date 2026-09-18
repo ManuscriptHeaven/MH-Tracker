@@ -1632,12 +1632,17 @@ export function ProjectDetail({
               value={overrideTargetStage}
               onChange={(e) => setOverrideTargetStage(e.target.value as TimelineStage)}
             >
-              {timelineStages.map((stg) => (
-                <option key={stg} value={stg}>
-                  {stg}
-                </option>
-              ))}
+              {timelineStages
+                .filter((stg) => stg !== 'Completed' && stg !== 'On Hold' && stg !== 'Cancelled')
+                .map((stg) => (
+                  <option key={stg} value={stg}>
+                    {stg}
+                  </option>
+                ))}
             </SelectField>
+            <p className="text-[11px] leading-relaxed text-muted">
+              Completion, hold, cancellation, and archival must use their dedicated workflow actions so lifecycle history stays consistent.
+            </p>
 
             <div>
               <Field
