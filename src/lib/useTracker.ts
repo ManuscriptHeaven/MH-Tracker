@@ -59,6 +59,7 @@ import type {
   FinanceTransaction,
   FinanceTransactionDraft,
   FinanceTransactionUpdate,
+  Invoice,
   Conversation,
   ConversationMember,
   ChatMessage,
@@ -145,6 +146,27 @@ function paymentMonthParts(dueDate: string | null | undefined) {
     due_date: cleanDueDate,
     payment_month: cleanDueDate.slice(0, 7),
     payment_year: Number(cleanDueDate.slice(0, 4)),
+  };
+}
+
+type InvoiceVersionRow = Omit<Invoice, 'logical_invoice_id'> & {
+  invoice_id: string;
+};
+
+function normalizeInvoiceVersion(row: InvoiceVersionRow): Invoice {
+  return {
+    ...row,
+    id: row.id,
+    logical_invoice_id: row.invoice_id,
+    version_number: Number(row.version_number || 1),
+    month: Number(row.month || 1),
+    year: Number(row.year || new Date().getFullYear()),
+    subtotal: Number(row.subtotal || 0),
+    total_paid: Number(row.total_paid || 0),
+    total_due: Number(row.total_due || 0),
+    items: Array.isArray(row.items) ? row.items : [],
+    notes: row.notes || '',
+    change_note: row.change_note || '',
   };
 }
 
@@ -889,6 +911,11 @@ export function useTracker() {
     const financeBudgetsPromise = canManage
       ? safeSelect<FinanceBudget>(supabase.from('finance_budgets').select('*'))
       : emptyResult;
+    const invoiceVersionsPromise = canManage
+      ? safeSelect<InvoiceVersionRow>(
+          supabase.from('invoice_versions').select('*').order('created_at', { ascending: false }),
+        )
+      : emptyResult;
 
     const conversationsPromise = profileIsClient
       ? safeSelect<Conversation>(supabase.from('conversations').select('*').eq('type', 'project_client'))
@@ -921,6 +948,7 @@ export function useTracker() {
       employeeLedgerRes,
       financeTransactionsRes,
       financeBudgetsRes,
+      invoiceVersionsRes,
       conversationsRes,
       conversationMembersRes,
       messagesRes,
@@ -950,6 +978,7 @@ export function useTracker() {
       employeeLedgerPromise,
       financeTransactionsPromise,
       financeBudgetsPromise,
+      invoiceVersionsPromise,
       conversationsPromise,
       conversationMembersPromise,
       messagesPromise,
@@ -1006,6 +1035,7 @@ export function useTracker() {
       employeeLedger: employeeLedgerRes.data as EmployeeLedgerEntry[],
       financeTransactions: financeTransactionsRes.data as FinanceTransaction[],
       financeBudgets: financeBudgetsRes.data as FinanceBudget[],
+      invoices: (invoiceVersionsRes.data as InvoiceVersionRow[]).map(normalizeInvoiceVersion),
       conversations,
       conversationMembers: conversationMembersRes.data as ConversationMember[],
       messages: messagesRes.data as ChatMessage[],
@@ -3053,6 +3083,95 @@ export function useTracker() {
     [addActivity, currentProfile, data.employeeLedger, data.profiles, mode],
   );
 
+  const saveInvoiceVersion = useCallback(
+    async (draft: Invoice, existingInvoiceId?: string | null, changeNote = '') => {
+      if (!currentProfile || !canManageEverything(currentProfile)) {
+        throw new Error('Only admins and authorized managers can generate or revise invoices.');
+      }
+
+      const now = new Date().toISOString();
+
+      if (supabase && mode === 'supabase') {
+        const { data: resultData, error: saveError } = await supabase.rpc('invoice_save_version', {
+          p_invoice_id: existingInvoiceId || null,
+          p_invoice_number: draft.invoice_number,
+          p_client_name: draft.client_name,
+          p_client_email: draft.client_email || '',
+          p_month: draft.month,
+          p_year: draft.year,
+          p_month_label: draft.month_label,
+          p_due_date: cleanDate(draft.due_date),
+          p_items: draft.items,
+          p_subtotal: Number(draft.subtotal || 0),
+          p_total_paid: Number(draft.total_paid || 0),
+          p_total_due: Number(draft.total_due || 0),
+          p_notes: draft.notes || '',
+          p_status: draft.status,
+          p_change_note: changeNote || '',
+        });
+
+        if (saveError) throw saveError;
+
+        const result = Array.isArray(resultData) ? resultData[0] : resultData;
+        if (!result?.invoice_id || !result?.version_id) {
+          throw new Error('Invoice version save returned no invoice identity.');
+        }
+
+        const saved: Invoice = {
+          ...draft,
+          id: String(result.version_id),
+          logical_invoice_id: String(result.invoice_id),
+          version_number: Number(result.version_number || 1),
+          invoice_number: String(result.invoice_number || draft.invoice_number),
+          created_at: now,
+          created_by: currentProfile.id,
+          change_note: changeNote || '',
+        };
+
+        await loadSupabaseData(currentProfile);
+        return saved;
+      }
+
+      const logicalId = existingInvoiceId || createUuid();
+      const existingVersions = (data.invoices || []).filter(
+        (item) => item.logical_invoice_id === logicalId,
+      );
+      const versionNumber =
+        existingVersions.length > 0
+          ? Math.max(...existingVersions.map((item) => Number(item.version_number || 1))) + 1
+          : 1;
+
+      const saved: Invoice = {
+        ...draft,
+        id: createUuid(),
+        logical_invoice_id: logicalId,
+        version_number: versionNumber,
+        created_at: now,
+        created_by: currentProfile.id,
+        change_note: changeNote || '',
+      };
+
+      const projectIds = new Set(saved.items.map((item) => item.project_id).filter(Boolean));
+      setData((previous) => ({
+        ...previous,
+        invoices: [saved, ...(previous.invoices || [])],
+        projects: previous.projects.map((project) =>
+          projectIds.has(project.id)
+            ? {
+                ...project,
+                invoiced: true,
+                invoice_id: logicalId,
+                invoiced_at: project.invoiced_at || now,
+              }
+            : project,
+        ),
+      }));
+
+      return saved;
+    },
+    [currentProfile, data.invoices, loadSupabaseData, mode],
+  );
+
   const createFinanceTransaction = useCallback(
     async (draft: FinanceTransactionDraft) => {
       if (!currentProfile || !canManageEverything(currentProfile)) {
@@ -3672,6 +3791,7 @@ export function useTracker() {
     saveEmployeeCompensation,
     addEmployeeLedgerEntry,
     deleteEmployeeLedgerEntry,
+    saveInvoiceVersion,
     createFinanceTransaction,
     updateFinanceTransaction,
     deleteFinanceTransaction,
