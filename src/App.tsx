@@ -146,20 +146,37 @@ export default function App() {
     if (selectedProjectFresh) await tracker.updateProject(selectedProjectFresh.id, updates);
   }
 
-  if (tracker.isInitializing && !tracker.currentProfile) {
+  if (tracker.isInitializing) {
     return (
-      <main className="grid min-h-screen place-items-center bg-linen p-4">
-        <div className="flex flex-col items-center gap-4 text-center">
-          <div className="grid h-16 w-16 place-items-center rounded-xl bg-gold text-ink font-display text-2xl font-bold shadow-lg animate-pulse">
-            MH
+      <main className="relative grid min-h-screen place-items-center overflow-hidden bg-linen p-4">
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute left-1/2 top-1/2 h-72 w-72 -translate-x-1/2 -translate-y-1/2 rounded-full bg-gold/10 blur-3xl animate-pulse" />
+        </div>
+
+        <div className="relative flex w-full max-w-sm flex-col items-center rounded-3xl border border-border/70 bg-white/80 px-8 py-10 text-center shadow-soft backdrop-blur">
+          <div className="relative">
+            <div className="absolute inset-0 rounded-2xl bg-gold/25 blur-xl animate-pulse" />
+            <div className="relative grid h-16 w-16 place-items-center rounded-2xl bg-gold text-ink font-display text-2xl font-bold shadow-lg">
+              MH
+            </div>
           </div>
-          <div>
+
+          <div className="mt-5">
             <h1 className="font-display text-xl font-semibold text-ink">Manuscript Heaven</h1>
-            <p className="text-xs uppercase tracking-[0.2em] text-gold mt-1">Publishing Operations</p>
+            <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-gold">
+              Publishing Operations
+            </p>
           </div>
-          <div className="mt-4 flex items-center gap-2 text-sm font-medium text-muted">
-            <div className="h-4 w-4 rounded-full border-2 border-gold border-t-transparent animate-spin" />
-            <span>Restoring session...</span>
+
+          <div className="mt-7 flex items-center gap-2.5 text-sm font-medium text-muted">
+            <div className="h-4 w-4 rounded-full border-2 border-gold/30 border-t-gold animate-spin" />
+            <span>{tracker.currentProfile ? 'Loading your projects...' : 'Restoring your session...'}</span>
+          </div>
+
+          <div className="mt-4 flex items-center gap-1.5" aria-hidden="true">
+            <span className="h-1.5 w-1.5 rounded-full bg-gold animate-bounce" />
+            <span className="h-1.5 w-1.5 rounded-full bg-gold animate-bounce [animation-delay:120ms]" />
+            <span className="h-1.5 w-1.5 rounded-full bg-gold animate-bounce [animation-delay:240ms]" />
           </div>
         </div>
       </main>

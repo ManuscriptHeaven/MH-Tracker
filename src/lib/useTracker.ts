@@ -711,6 +711,42 @@ const AUTH_PROFILE_STORAGE_KEY = 'mh_auth_profile';
 const AUTH_MODE_STORAGE_KEY = 'mh_auth_mode';
 const TRACKER_DATA_STORAGE_KEY = 'mh_tracker_cache';
 
+function createEmptyTrackerData(profile: Profile | null = null): TrackerData {
+  return {
+    profiles: profile ? [profile] : [],
+    projects: [],
+    revisionNotes: [],
+    projectNotes: [],
+    activityLogs: [],
+    notifications: [],
+    clientProjectAccess: [],
+    tasks: [],
+    taskAssignees: [],
+    taskComments: [],
+    taskChecklistItems: [],
+    taskDependencies: [],
+    revisionRequests: [],
+    revisionItems: [],
+    revisionAttachments: [],
+    revisionActivity: [],
+    employeeCompensation: [],
+    employeeLedger: [],
+    stageSkipRequests: [],
+    financeTransactions: [],
+    financeBudgets: [],
+    invoices: [],
+    projectProfitability: [],
+    clientReceivables: [],
+    teamPayroll: [],
+    conversations: [],
+    conversationMembers: [],
+    messages: [],
+    messageAttachments: [],
+    messageReactions: [],
+    messageMentions: [],
+  };
+}
+
 function getStoredProfile(): Profile | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -791,13 +827,19 @@ function clearStoredAuth() {
 export function useTracker() {
   const initialProfile = useMemo(() => getStoredProfile(), []);
   const initialMode = useMemo(() => getStoredMode(), []);
-  const initialData = useMemo(() => getStoredTrackerData() || sampleData, []);
+  const initialData = useMemo(() => {
+    const cachedData = getStoredTrackerData();
+    if (cachedData) return cachedData;
+    if (!supabase || initialMode === 'demo') return sampleData;
+    return createEmptyTrackerData(initialProfile);
+  }, [initialMode, initialProfile]);
 
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [currentProfile, setCurrentProfile] = useState<Profile | null>(initialProfile);
   const [data, setData] = useState<TrackerData>(initialData);
-  // isInitializing is true only on cold startup when no cached profile exists
-  const [isInitializing, setIsInitializing] = useState<boolean>(() => Boolean(supabase && !initialProfile));
+  // Keep startup gated until Supabase has confirmed the session and loaded live workspace data.
+  // This prevents sample/demo projects from flashing before the real projects arrive.
+  const [isInitializing, setIsInitializing] = useState<boolean>(() => Boolean(supabase));
   const [isSubmittingLogin, setIsSubmittingLogin] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
