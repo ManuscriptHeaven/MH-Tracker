@@ -108,6 +108,114 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 }
 
 /* ======================================
+   Invoice PNG export stabilization
+   html2canvas can mis-measure Tailwind line-clamp and tight font line boxes
+   inside table cells. These rules are enabled only while capturing PNGs.
+   ====================================== */
+
+.invoice-page.invoice-png-export .invoice-export-header-right {
+  min-width: 330px;
+  padding-top: 2px;
+}
+
+.invoice-page.invoice-png-export .invoice-export-title {
+  line-height: 1.12 !important;
+  margin-bottom: 10px !important;
+  padding-bottom: 2px;
+}
+
+.invoice-page.invoice-png-export .invoice-export-badges {
+  min-height: 28px;
+  align-items: center !important;
+}
+
+.invoice-page.invoice-png-export .invoice-export-meta {
+  margin-top: 18px !important;
+  align-items: flex-start !important;
+  gap: 22px !important;
+}
+
+.invoice-page.invoice-png-export .invoice-export-meta > div {
+  min-width: 88px;
+}
+
+.invoice-page.invoice-png-export .invoice-export-status {
+  display: flex !important;
+  min-width: 82px !important;
+  flex-direction: column !important;
+  align-items: flex-end !important;
+  gap: 5px !important;
+}
+
+.invoice-page.invoice-png-export .invoice-export-status-badge {
+  margin-top: 0 !important;
+  line-height: 1.25 !important;
+  padding-top: 3px !important;
+  padding-bottom: 3px !important;
+}
+
+.invoice-page.invoice-png-export table {
+  table-layout: fixed !important;
+}
+
+.invoice-page.invoice-png-export th:nth-child(1),
+.invoice-page.invoice-png-export td:nth-child(1) {
+  width: 6% !important;
+}
+
+.invoice-page.invoice-png-export th:nth-child(2),
+.invoice-page.invoice-png-export td:nth-child(2) {
+  width: 34% !important;
+}
+
+.invoice-page.invoice-png-export th:nth-child(3),
+.invoice-page.invoice-png-export td:nth-child(3) {
+  width: 23% !important;
+}
+
+.invoice-page.invoice-png-export th:nth-child(4),
+.invoice-page.invoice-png-export td:nth-child(4) {
+  width: 11% !important;
+}
+
+.invoice-page.invoice-png-export th:nth-child(5),
+.invoice-page.invoice-png-export td:nth-child(5) {
+  width: 10% !important;
+}
+
+.invoice-page.invoice-png-export th:nth-child(6),
+.invoice-page.invoice-png-export td:nth-child(6) {
+  width: 16% !important;
+}
+
+.invoice-page.invoice-png-export tbody tr {
+  height: 62px !important;
+}
+
+.invoice-page.invoice-png-export tbody td {
+  vertical-align: middle !important;
+}
+
+.invoice-page.invoice-png-export .invoice-export-project-title,
+.invoice-page.invoice-png-export .invoice-export-service {
+  display: block !important;
+  overflow: visible !important;
+  -webkit-box-orient: initial !important;
+  -webkit-line-clamp: unset !important;
+  white-space: normal !important;
+  word-break: break-word;
+  line-height: 1.35 !important;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+.invoice-page.invoice-png-export .invoice-export-project-id {
+  display: block !important;
+  margin-top: 2px;
+  line-height: 1.3 !important;
+}
+
+/* ======================================
    MH AI Assistant — Animations & Styles
    ====================================== */
 
