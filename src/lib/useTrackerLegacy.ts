@@ -1779,10 +1779,23 @@ export function useTracker() {
       }
 
       if (supabase && mode === 'supabase') {
-        const { error: deleteError } = await supabase.from('projects').delete().eq('id', projectId);
+        const { data: deletedProject, error: deleteError } = await supabase
+          .from('projects')
+          .delete()
+          .eq('id', projectId)
+          .select('id')
+          .maybeSingle();
+
         if (deleteError) {
           throw deleteError;
         }
+
+        if (!deletedProject) {
+          throw new Error('Project was not deleted. Refresh your session and try again.');
+        }
+
+        await loadSupabaseData(currentProfile);
+        return;
       }
 
       setData((previous) => ({
@@ -1793,7 +1806,7 @@ export function useTracker() {
         activityLogs: previous.activityLogs.filter((activity) => activity.project_id !== projectId),
       }));
     },
-    [currentProfile, mode],
+    [currentProfile, loadSupabaseData, mode],
   );
 
   const deletePayment = useCallback(
