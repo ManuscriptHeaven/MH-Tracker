@@ -69,7 +69,6 @@ import type {
   WorkflowStage,
   WorkflowSettings,
 } from './types';
-import { DEFAULT_EXCHANGE_RATES } from './financeUtils';
 import { CanonicalWorkflowClient } from './workflowClient';
 
 type AuthMode = 'demo' | 'supabase';
