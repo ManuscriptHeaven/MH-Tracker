@@ -73,17 +73,28 @@ assert(
 );
 
 assert(
-  invoiceModal.includes('Save PNG') &&
-    invoiceModal.includes("canvas.toDataURL('image/png')") &&
-    !invoiceModal.includes('Save JPG'),
-  'lossy JPG export is replaced by high-quality PNG export',
+  invoiceModal.includes('const ITEMS_PER_PAGE = 5') &&
+    invoiceModal.includes('chunkInvoiceItems') &&
+    invoiceModal.includes('Projects {pageIndex * ITEMS_PER_PAGE + 1}') &&
+    invoiceModal.includes('Page {pageNumber} of {totalPages}'),
+  'invoice preview enforces a maximum of five projects per numbered page',
 );
 
 assert(
-  printCss.includes('height: auto !important') &&
+  invoiceModal.includes('const EXPORT_SCALE_300_DPI = 3.125') &&
+    invoiceModal.includes("canvas.toDataURL('image/png')") &&
+    invoiceModal.includes('Save ${totalPages} PNGs') &&
+    !invoiceModal.includes('Save JPG'),
+  'lossy JPG export is replaced by approximately 300-DPI PNG export per page',
+);
+
+assert(
+  printCss.includes('.invoice-page:last-child') &&
+    printCss.includes('height: 297mm !important') &&
+    printCss.includes('page-break-after: always !important') &&
     printCss.includes('table-header-group') &&
     printCss.includes('break-inside: avoid !important'),
-  'invoice print CSS supports clean multi-page output',
+  'invoice print CSS enforces exact A4 multi-page boundaries without splitting rows',
 );
 
 assert(
