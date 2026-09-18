@@ -69,16 +69,31 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
     overflow: visible !important;
   }
 
+  .invoice-pages {
+    display: block !important;
+    width: 210mm !important;
+  }
+
+  .invoice-page,
   .printable-invoice-content {
     width: 210mm !important;
     min-height: 297mm !important;
-    height: auto !important;
-    max-height: none !important;
+    height: 297mm !important;
+    max-height: 297mm !important;
     padding: 14mm !important;
     margin: 0 !important;
     box-sizing: border-box !important;
-    overflow: visible !important;
+    overflow: hidden !important;
+    border: none !important;
+    box-shadow: none !important;
     transform-origin: top left !important;
+    break-after: page !important;
+    page-break-after: always !important;
+  }
+
+  .invoice-page:last-child {
+    break-after: auto !important;
+    page-break-after: auto !important;
   }
 
   .printable-invoice-content thead {
