@@ -168,6 +168,7 @@ export interface AIToolContext {
     createFinanceTransaction?: (draft: FinanceTransactionDraft) => Promise<any>;
     updateFinanceTransaction?: (id: string, updates: any) => Promise<any>;
     deleteFinanceTransaction?: (id: string) => Promise<void>;
+    saveInvoiceVersion?: (draft: Invoice, existingInvoiceId?: string | null, changeNote?: string) => Promise<Invoice>;
     addEmployeeLedgerEntry?: (entry: any) => Promise<void>;
     deleteEmployeeLedgerEntry?: (id: string) => Promise<void>;
     sendMessage?: (conversationId: string, body: string) => Promise<any>;
