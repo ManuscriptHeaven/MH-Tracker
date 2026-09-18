@@ -1652,12 +1652,15 @@ export function ProjectDetail({
               value={overrideTargetStage}
               onChange={(e) => setOverrideTargetStage(e.target.value as TimelineStage)}
             >
-              {timelineStages.map((stg) => (
+              {timelineStages.filter((stg) => stg !== 'Completed').map((stg) => (
                 <option key={stg} value={stg}>
                   {stg}
                 </option>
               ))}
             </SelectField>
+            <p className="text-[11px] leading-relaxed text-muted">
+              To complete a project, use Complete Final Delivery so delivery timestamps and workflow history stay consistent.
+            </p>
 
             <Field
               label="Reason Summary"
@@ -1666,6 +1669,9 @@ export function ProjectDetail({
               onChange={(e) => setOverrideReason(e.target.value)}
               required
             />
+            {overrideReason.trim().length > 0 && overrideReason.trim().length < 10 ? (
+              <p className="text-[11px] font-medium text-danger">Reason must be at least 10 characters.</p>
+            ) : null}
 
             <TextareaField
               label="Detailed Explanation"
@@ -1685,7 +1691,7 @@ export function ProjectDetail({
                 variant="secondary"
                 className="border-red-300 text-danger hover:bg-red-50"
                 onClick={async () => {
-                  if (!overrideReason.trim() || !overrideExplanation.trim()) return;
+                  if (overrideReason.trim().length < 10 || !overrideExplanation.trim()) return;
                   setIsSubmittingWorkflow(true);
                   try {
                     if (onAdminWorkflowOverride) {
@@ -1698,7 +1704,7 @@ export function ProjectDetail({
                     setIsSubmittingWorkflow(false);
                   }
                 }}
-                disabled={isSubmittingWorkflow || !overrideReason.trim() || !overrideExplanation.trim()}
+                disabled={isSubmittingWorkflow || overrideReason.trim().length < 10 || !overrideExplanation.trim()}
               >
                 Confirm Administrative Override
               </Button>
