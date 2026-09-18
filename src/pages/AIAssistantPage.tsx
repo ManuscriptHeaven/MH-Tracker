@@ -197,12 +197,20 @@ export function AIAssistantPage({
     ];
 
     if (canManage) {
-      commands.push({
-        label: 'Create Task',
-        description: 'Preview a task before creating it.',
-        query: 'Create a task for Zain to check the print PDF tomorrow',
-        icon: CheckCircle2,
-      });
+      commands.push(
+        {
+          label: 'New Project',
+          description: 'Start the guided project creation wizard.',
+          query: 'Create a new project',
+          icon: FolderKanban,
+        },
+        {
+          label: 'Create Task',
+          description: 'Preview a task before creating it.',
+          query: 'Create a task for Zain to check the print PDF tomorrow',
+          icon: CheckCircle2,
+        },
+      );
     }
 
     if (firstUnpaid && canManage) {
