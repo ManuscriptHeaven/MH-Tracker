@@ -191,7 +191,7 @@ begin
     values (
       v_invoice_id, v_project_id, v_project_number, v_version
     )
-    on conflict (invoice_id, project_number) do update
+    on conflict on constraint invoice_project_links_invoice_id_project_number_key do update
       set project_id = coalesce(excluded.project_id, public.invoice_project_links.project_id);
 
     if v_project_id is not null then
