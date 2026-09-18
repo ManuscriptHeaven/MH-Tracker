@@ -54,9 +54,9 @@ assert(
 );
 
 assert(
-  date.includes("if (!value) return null") &&
+  date.includes("if (!value) return Number.POSITIVE_INFINITY") &&
     date.includes("return 'No due date'") &&
-    date.includes("if (days === null)"),
+    date.includes("if (!project.due_date)"),
   'missing due dates no longer render as huge overdue-day counts',
 );
 
