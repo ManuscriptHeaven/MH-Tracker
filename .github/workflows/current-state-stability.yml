@@ -1,8 +1,10 @@
-name: Current State Stability Gate
+﻿name: Current State Stability Gate
 
 on:
   push:
     branches:
+      - main
+      - feature/task-management-v2
       - integration/current-state-stabilization-20260918
   pull_request:
     branches:
