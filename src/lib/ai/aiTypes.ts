@@ -199,6 +199,25 @@ export interface AIToolResult<T = any> {
   };
 }
 
+export interface ProjectCreationMemoryDraft {
+  projectTitle?: string;
+  clientName?: string;
+  clientEmail?: string;
+  serviceType?: string;
+  requiresPrint?: boolean;
+  requiresEbook?: boolean;
+  totalPrice?: number;
+  advancePaid?: number;
+  startDate?: string;
+  dueDate?: string;
+  assignedToId?: string;
+  assignedToName?: string;
+  projectManagerId?: string;
+  projectManagerName?: string;
+  priority?: 'Low' | 'Normal' | 'High' | 'Urgent';
+  notes?: string;
+}
+
 export interface ConversationMemory {
   lastTopic?: 'projects' | 'tasks' | 'revisions' | 'clients' | 'team' | 'finance' | 'payroll' | 'messages' | 'general';
   lastToolUsed?: AIToolName;
@@ -216,6 +235,11 @@ export interface ConversationMemory {
     originalQuery: string;
     intentType: string;
     targetPayload: Record<string, any>;
+  } | null;
+  pendingProjectCreation?: {
+    draft: ProjectCreationMemoryDraft;
+    requestedFields: string[];
+    startedAt: string;
   } | null;
 }
 
