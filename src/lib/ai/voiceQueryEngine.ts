@@ -15,6 +15,7 @@ import { formatDate, parseNaturalDate, todayInput, addDays } from '../date';
 import { aiUnderstandingEngine } from './aiUnderstandingEngine';
 import { buildPageContext } from './aiPageContext';
 import { runProjectCreationWizard } from './projectCreationWizard';
+import { prepareClientCommunication } from './clientCommunication';
 
 export class VoiceQueryEngine {
   private static instance: VoiceQueryEngine;
@@ -74,6 +75,32 @@ export class VoiceQueryEngine {
     // 0. HANDLE PENDING CONFIRMATION (Voice / Text)
     // ==========================================
     if (this.memory.pendingAction) {
+      const pending = this.memory.pendingAction;
+
+      if (
+        pending.toolName === 'send_client_message' &&
+        /\b(friendly|professional|firm|warmer|warm|more direct|direct)\b/i.test(lower)
+      ) {
+        const tone = /\b(friendly|warmer|warm)\b/i.test(lower)
+          ? 'friendly'
+          : /\b(firm|more direct|direct)\b/i.test(lower)
+            ? 'firm'
+            : 'professional';
+        const project = ctx.visibleProjects.find((item) => item.id === pending.payload.projectId);
+        const kind = String(pending.payload.communicationKind || '').replace(/_/g, ' ');
+        if (project && kind) {
+          this.memory.pendingAction = null;
+          const redraft = prepareClientCommunication(
+            'draft ' + kind + ' for ' + project.project_number + ' ' + tone + ' tone',
+            ctx,
+          );
+          if (redraft?.pendingAction) {
+            this.memory.pendingAction = redraft.pendingAction;
+          }
+          if (redraft) return redraft;
+        }
+      }
+
       const isAffirmative = /\b(yes|yes do it|confirm|go ahead|do that|do it|okay|ok|sure|proceed|yep|yeah)\b/i.test(lower);
       const isNegative = /\b(no|cancel|don't do it|dont do it|stop|never mind|nevermind|abort)\b/i.test(lower);
 
@@ -1532,7 +1559,19 @@ export class VoiceQueryEngine {
     }
 
     // ----------------------------------------------------
-    // J. COMMUNICATION (e.g. "Send Zain a message saying the revision is due tomorrow")
+    // J. SMART CLIENT COMMUNICATION
+    // Context-aware client drafts; any actual send requires confirmation.
+    // ----------------------------------------------------
+    const clientCommunication = prepareClientCommunication(q, ctx);
+    if (clientCommunication) {
+      if (clientCommunication.pendingAction) {
+        this.memory.pendingAction = clientCommunication.pendingAction;
+      }
+      return clientCommunication;
+    }
+
+    // ----------------------------------------------------
+    // J2. INTERNAL COMMUNICATION (e.g. "Send Zain a message saying the revision is due tomorrow")
     // ----------------------------------------------------
     if (lower.startsWith('send ') && (lower.includes('message') || lower.includes('reminder') || lower.includes('saying'))) {
       const targetEmp = this.extractEmployeeFromQuery(lower, ctx);
