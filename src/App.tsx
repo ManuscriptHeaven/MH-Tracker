@@ -302,10 +302,7 @@ export default function App() {
         profiles={tracker.data.profiles}
         projects={tracker.data.projects}
         clientProjectAccess={tracker.data.clientProjectAccess}
-        onInviteClient={tracker.inviteClient}
-        onAddClient={async (data) => {
-          await tracker.signUp(data);
-        }}
+        onSaveClient={tracker.provisionClient}
       />
     )}
     {activeView === 'delivered' && <ProjectsPage {...pageProps} title="Delivered Projects" projects={deliveredProjects} />}
