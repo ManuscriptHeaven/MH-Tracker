@@ -159,6 +159,33 @@ export class AIService {
     }
   }
 
+  async wasDailySummaryDismissedToday(): Promise<boolean> {
+    if (!isSupabaseConfigured || !supabase) return false;
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return false;
+
+      const today = new Date().toISOString().slice(0, 10);
+      const { data, error } = await supabase
+        .from('ai_daily_summary_dismissals')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('dismissed_date', today)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Failed to read daily summary dismissal:', error);
+        return false;
+      }
+
+      return Boolean(data);
+    } catch (error) {
+      console.error('Failed to check daily summary dismissal:', error);
+      return false;
+    }
+  }
+
   async dismissDailySummary(): Promise<void> {
     if (!isSupabaseConfigured || !supabase) return;
     
