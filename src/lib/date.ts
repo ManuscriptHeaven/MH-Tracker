@@ -124,9 +124,12 @@ export function formatDate(value?: string | null) {
   }).format(parsed);
 }
 
-export function daysUntil(value: string) {
-  const today = new Date(todayInput());
-  const due = new Date(value);
+export function daysUntil(value?: string | null) {
+  if (!value) return null;
+  const today = new Date(`${todayInput()}T12:00:00`);
+  const datePart = value.slice(0, 10);
+  const due = new Date(`${datePart}T12:00:00`);
+  if (isNaN(due.getTime())) return null;
   const msPerDay = 24 * 60 * 60 * 1000;
   return Math.round((due.getTime() - today.getTime()) / msPerDay);
 }
@@ -158,22 +161,25 @@ export function isOverdue(project: Project) {
                   ? project.final_delivery_date || project.due_date
                   : null;
 
-    if (stageDueDate && daysUntil(stageDueDate) < 0) {
+    const stageDays = daysUntil(stageDueDate);
+    if (stageDays !== null && stageDays < 0) {
       return true;
     }
   }
 
   // Fallback to overall project due_date
-  return Boolean(project.due_date) && daysUntil(project.due_date) < 0;
+  const dueDays = daysUntil(project.due_date);
+  return dueDays !== null && dueDays < 0;
 }
 
 export function isDueToday(project: Project) {
-  return !isClosed(project) && daysUntil(project.due_date) === 0;
+  const days = daysUntil(project.due_date);
+  return !isClosed(project) && days !== null && days === 0;
 }
 
 export function isDueThisWeek(project: Project) {
   const days = daysUntil(project.due_date);
-  return !isClosed(project) && days >= 0 && days <= 7;
+  return !isClosed(project) && days !== null && days >= 0 && days <= 7;
 }
 
 export function deadlineLabel(project: Project) {
@@ -182,6 +188,10 @@ export function deadlineLabel(project: Project) {
   }
 
   const days = daysUntil(project.due_date);
+  if (days === null) {
+    return 'No due date';
+  }
+
   if (days === 0) {
     return 'Due today';
   }
@@ -198,6 +208,10 @@ export function deadlineClass(project: Project) {
 
   if (isClosed(project)) {
     return 'text-success';
+  }
+
+  if (days === null) {
+    return 'text-muted';
   }
 
   if (days < 0) {
