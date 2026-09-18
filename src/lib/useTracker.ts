@@ -69,7 +69,6 @@ import type {
   WorkflowStage,
   WorkflowSettings,
 } from './types';
-import { DEFAULT_EXCHANGE_RATES } from './financeUtils';
 import { CanonicalWorkflowClient } from './workflowClient';
 
 type AuthMode = 'demo' | 'supabase';
@@ -3060,10 +3059,12 @@ export function useTracker() {
         throw new Error('Only admins and authorized managers can create finance transactions.');
       }
 
-      const currencyCode = draft.currency || 'PKR';
-      const rate = currencyCode === 'PKR' ? 1.0 : (draft.exchange_rate && draft.exchange_rate > 0 ? draft.exchange_rate : (DEFAULT_EXCHANGE_RATES[currencyCode] || 1.0));
+      const currencyCode = 'USD' as const;
+      const rate = 1.0;
       const originalAmount = Number(draft.original_amount ?? draft.amount ?? 0);
-      const amountPkr = Math.round(originalAmount * rate);
+      // Legacy compatibility columns are retained in the database, but finance
+      // is now USD-only so no FX conversion is performed.
+      const amountPkr = originalAmount;
       const now = new Date().toISOString();
 
       const transaction: FinanceTransaction = {
@@ -3178,10 +3179,10 @@ export function useTracker() {
         financeTransactions: (previous.financeTransactions || []).map((t) => {
           if (t.id !== id) return t;
           const merged = { ...t, ...updates };
-          const currencyCode = merged.currency || 'PKR';
-          const rate = currencyCode === 'PKR' ? 1.0 : (merged.exchange_rate && merged.exchange_rate > 0 ? merged.exchange_rate : (DEFAULT_EXCHANGE_RATES[currencyCode] || 1.0));
+          const currencyCode = 'USD' as const;
+          const rate = 1.0;
           const orig = Number(merged.original_amount ?? merged.amount ?? 0);
-          const pkr = Math.round(orig * rate);
+          const pkr = orig;
           return {
             ...merged,
             currency: currencyCode,

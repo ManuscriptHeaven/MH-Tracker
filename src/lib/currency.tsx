@@ -40,11 +40,9 @@ const DEFAULT_LAST_UPDATED = '2026-08-18 00:00';
 const CurrencyContext = createContext<CurrencyContextValue | null>(null);
 
 export function CurrencyProvider({ children }: { children: React.ReactNode }) {
-  // Global display currency preference (persisted in localStorage)
-  const [displayCurrency, setDisplayCurrencyState] = useState<CurrencyCode>(() => {
-    const saved = localStorage.getItem('mh_display_currency');
-    return saved === 'PKR' || saved === 'USD' ? (saved as CurrencyCode) : 'USD';
-  });
+  // Manuscript Heaven finance is intentionally USD-only. Keep the context
+  // API stable for the rest of the app, but do not expose a mutable display currency.
+  const displayCurrency: CurrencyCode = 'USD';
 
   // USD to PKR exchange rate (persisted in localStorage)
   const [exchangeRate, setExchangeRateState] = useState<number>(() => {
@@ -57,9 +55,8 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
     return localStorage.getItem('mh_usd_pkr_updated') || DEFAULT_LAST_UPDATED;
   });
 
-  function setDisplayCurrency(currency: CurrencyCode) {
-    setDisplayCurrencyState(currency);
-    localStorage.setItem('mh_display_currency', currency);
+  function setDisplayCurrency(_currency: CurrencyCode) {
+    localStorage.setItem('mh_display_currency', 'USD');
   }
 
   function setExchangeRate(rate: number) {
