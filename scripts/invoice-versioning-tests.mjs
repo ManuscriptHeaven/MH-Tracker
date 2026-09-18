@@ -89,6 +89,19 @@ assert(
 );
 
 assert(
+  invoiceModal.includes("page.classList.add('invoice-png-export')") &&
+    invoiceModal.includes("page.classList.remove('invoice-png-export')") &&
+    invoiceModal.includes('waitForExportLayout') &&
+    invoiceModal.includes('invoice-export-project-title') &&
+    invoiceModal.includes('invoice-export-service') &&
+    printCss.includes('.invoice-page.invoice-png-export .invoice-export-title') &&
+    printCss.includes('.invoice-page.invoice-png-export .invoice-export-status') &&
+    printCss.includes('-webkit-line-clamp: unset !important') &&
+    printCss.includes('vertical-align: middle !important'),
+  'PNG export uses a temporary capture-only layout that prevents header collisions and clipped service-row text',
+);
+
+assert(
   printCss.includes('.invoice-page:last-child') &&
     printCss.includes('height: 297mm !important') &&
     printCss.includes('page-break-after: always !important') &&
