@@ -1136,6 +1136,178 @@ export async function execute_approve_project_milestone(
 // 5. FINANCE & PAYROLL ACTIONS
 // ==========================================
 
+export async function execute_record_project_payment(
+  payload: {
+    projectId: string;
+    amount: number;
+    paymentDate?: string;
+    paymentMethod?: string;
+    notes?: string;
+  },
+  ctx: AIToolContext,
+): Promise<AIToolResult> {
+  if (ctx.currentProfile.role !== 'admin') {
+    return {
+      success: false,
+      toolName: 'record_project_payment',
+      error: 'permission_denied',
+      spokenText: 'Only administrators can record client payments.',
+      displayText: '🔒 Client payment recording is restricted to administrators.',
+    };
+  }
+
+  const project = (ctx.data.projects || ctx.visibleProjects).find(
+    (item) => item.id === payload.projectId,
+  );
+
+  if (!project) {
+    return {
+      success: false,
+      toolName: 'record_project_payment',
+      error: 'project_not_found',
+      spokenText: "I couldn't find the project for this payment.",
+      displayText: '❌ Project not found for payment recording.',
+    };
+  }
+
+  const amount = Number(payload.amount || 0);
+  const totalPrice = Number(project.total_price || 0);
+  const previousPaid = Number(project.advance_paid || 0);
+  const outstanding = Math.max(totalPrice - previousPaid, 0);
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return {
+      success: false,
+      toolName: 'record_project_payment',
+      error: 'invalid_amount',
+      spokenText: 'The payment amount must be greater than zero.',
+      displayText: '❌ Payment amount must be greater than zero.',
+    };
+  }
+
+  if (amount > outstanding + 0.005) {
+    return {
+      success: false,
+      toolName: 'record_project_payment',
+      error: 'payment_exceeds_balance',
+      spokenText:
+        'That payment is higher than the remaining balance of ' +
+        ctx.formatMoney(outstanding, 'USD') +
+        '.',
+      displayText:
+        '❌ **Payment exceeds balance.**\n\n' +
+        '• **Project:** ' + project.project_title + '\n' +
+        '• **Remaining Balance:** **' + ctx.formatMoney(outstanding, 'USD') + '**\n' +
+        '• **Requested Payment:** **' + ctx.formatMoney(amount, 'USD') + '**',
+    };
+  }
+
+  const paymentDate = payload.paymentDate || todayInput();
+  const newPaid = Math.min(previousPaid + amount, totalPrice);
+  const newOutstanding = Math.max(totalPrice - newPaid, 0);
+  const paymentStatus =
+    newOutstanding <= 0.005
+      ? 'Fully Paid'
+      : newPaid > 0
+        ? 'Partially Paid'
+        : 'Not Started';
+  const amountStr = ctx.formatMoney(amount, 'USD');
+  const oldPaidStr = ctx.formatMoney(previousPaid, 'USD');
+  const newPaidStr = ctx.formatMoney(newPaid, 'USD');
+
+  try {
+    if (ctx.trackerMutations?.createFinanceTransaction) {
+      await ctx.trackerMutations.createFinanceTransaction({
+        type: 'income',
+        category: 'Project Payment',
+        description: 'Payment received for ' + project.project_title,
+        amount,
+        original_amount: amount,
+        currency: 'USD',
+        exchange_rate: 1,
+        transaction_date: paymentDate,
+        client_name: project.client_name,
+        project_id: project.id,
+        payment_method: payload.paymentMethod || 'Bank Transfer',
+        notes: payload.notes || 'Recorded via AI Assistant for ' + project.project_number,
+        payment_status: 'Paid',
+        paid_date: paymentDate,
+      } as any);
+    }
+
+    if (ctx.trackerMutations?.updateProject) {
+      await ctx.trackerMutations.updateProject(project.id, {
+        advance_paid: newPaid,
+        payment_status: paymentStatus as any,
+        payment_date: paymentDate,
+        payment_notes:
+          payload.notes ||
+          'Payment of ' + amountStr + ' recorded via AI Assistant on ' + paymentDate + '.',
+      });
+    }
+
+    const audit = createAuditLog(
+      ctx,
+      'Recorded project payment: ' + amountStr,
+      'project',
+      project.id,
+      project.project_title,
+      oldPaidStr,
+      newPaidStr,
+      'success',
+    );
+
+    const spoken =
+      'Done. I recorded ' + amountStr + ' for ' + project.project_title + '. ' +
+      'The remaining balance is ' + ctx.formatMoney(newOutstanding, 'USD') + '.';
+    const display =
+      '### ✅ Project Payment Recorded\n\n' +
+      '• **Project:** **' + project.project_title + '** (' + project.project_number + ')\n' +
+      '• **Client:** ' + project.client_name + '\n' +
+      '• **Payment:** **' + amountStr + '**\n' +
+      '• **Total Paid:** **' + newPaidStr + '**\n' +
+      '• **Remaining Balance:** **' + ctx.formatMoney(newOutstanding, 'USD') + '**\n' +
+      '• **Status:** ' + paymentStatus + '\n' +
+      '• **Date:** ' + formatDate(paymentDate) + '\n\n' +
+      'Order revenue is unchanged because revenue is calculated from the project order value.';
+
+    return {
+      success: true,
+      toolName: 'record_project_payment',
+      spokenText: spoken,
+      displayText: display,
+      auditLog: audit,
+      data: {
+        projectId: project.id,
+        amount,
+        totalPaid: newPaid,
+        remainingBalance: newOutstanding,
+        paymentStatus,
+      },
+    };
+  } catch (err: any) {
+    const errorMsg = err?.message || 'Failed to record project payment.';
+    return {
+      success: false,
+      toolName: 'record_project_payment',
+      error: errorMsg,
+      spokenText: "I couldn't record the project payment. " + errorMsg,
+      displayText: '❌ Failed to record project payment: ' + errorMsg,
+      auditLog: createAuditLog(
+        ctx,
+        'Project payment failed: ' + amountStr,
+        'project',
+        project.id,
+        project.project_title,
+        oldPaidStr,
+        null,
+        'failed',
+        errorMsg,
+      ),
+    };
+  }
+}
+
 export async function execute_record_income(
   payload: { amount: number; currency?: string; category?: string; description?: string; transactionDate?: string },
   ctx: AIToolContext,
@@ -1150,7 +1322,7 @@ export async function execute_record_income(
     };
   }
 
-  const currency = payload.currency || (ctx.displayCurrency === 'PKR' ? 'PKR' : 'USD');
+  const currency = 'USD';
   const amountStr = ctx.formatMoney(payload.amount, currency);
   const category = payload.category || 'Client Payment';
   const description = payload.description || 'Income entry recorded via AI Assistant';
@@ -1163,7 +1335,7 @@ export async function execute_record_income(
         description,
         amount: payload.amount,
         currency: currency as any,
-        exchange_rate: ctx.exchangeRate,
+        exchange_rate: 1,
         transaction_date: payload.transactionDate || new Date().toISOString().slice(0, 10),
         payment_method: 'Bank Wire',
       });
