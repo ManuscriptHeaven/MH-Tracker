@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ImageDown,
+  FilePenLine,
   Printer,
   X,
   Calendar,
@@ -28,14 +29,16 @@ export function InvoiceModal({
   project,
   invoice,
   onClose,
+  onRevise,
 }: {
   project?: Project | null;
   invoice?: Invoice | null;
   onClose: () => void;
+  onRevise?: (invoice: Invoice) => void;
 }) {
   const { formatMoney } = useCurrency();
   const invoiceRef = useRef<HTMLDivElement>(null);
-  const [savingJpg, setSavingJpg] = useState(false);
+  const [savingImage, setSavingImage] = useState(false);
 
   if (!project && !invoice) {
     return null;
@@ -45,9 +48,9 @@ export function InvoiceModal({
     window.print();
   }
 
-  async function handleSaveJpg() {
+  async function handleSaveImage() {
     if (!invoiceRef.current) return;
-    setSavingJpg(true);
+    setSavingImage(true);
     try {
       if (!(window as unknown as Record<string, unknown>)['html2canvas']) {
         await new Promise<void>((resolve, reject) => {
@@ -64,20 +67,32 @@ export function InvoiceModal({
       ) => Promise<HTMLCanvasElement>;
 
       const canvas = await html2canvas(invoiceRef.current, {
-        scale: 2.5,
+        scale: Math.min(Math.max(window.devicePixelRatio || 1, 2) * 1.5, 4),
         useCORS: true,
         backgroundColor: '#ffffff',
         logging: false,
+        width: 794,
+        windowWidth: 794,
+        scrollX: 0,
+        scrollY: 0,
+        onclone: (documentClone: Document) => {
+          const clonedInvoice = documentClone.querySelector('.printable-invoice-content') as HTMLElement | null;
+          if (clonedInvoice) {
+            clonedInvoice.style.boxShadow = 'none';
+            clonedInvoice.style.border = 'none';
+          }
+        },
       });
       const link = document.createElement('a');
-      link.download = `Invoice-${invoiceNumber}.jpg`;
-      link.href = canvas.toDataURL('image/jpeg', 0.95);
+      const versionSuffix = invoice?.version_number ? `-v${invoice.version_number}` : '';
+      link.download = `Invoice-${invoiceNumber}${versionSuffix}.png`;
+      link.href = canvas.toDataURL('image/png');
       link.click();
     } catch (err) {
-      console.error('JPG export failed:', err);
-      alert('JPG export failed. Use Print / Save PDF to save as PDF instead.');
+      console.error('Invoice image export failed:', err);
+      alert('Image export failed. Print / Save PDF remains the highest-quality export option.');
     } finally {
-      setSavingJpg(false);
+      setSavingImage(false);
     }
   }
 
@@ -152,14 +167,24 @@ export function InvoiceModal({
           </div>
 
           <div className="flex items-center gap-2">
+            {invoice && onRevise ? (
+              <Button
+                variant="secondary"
+                onClick={() => onRevise(invoice)}
+                className="border-border text-ink hover:bg-gold/10 text-xs py-1.5 px-3"
+              >
+                <FilePenLine className="mr-1.5 h-4 w-4 text-gold" />
+                Revise Invoice
+              </Button>
+            ) : null}
             <Button
               variant="secondary"
-              onClick={handleSaveJpg}
-              disabled={savingJpg}
+              onClick={handleSaveImage}
+              disabled={savingImage}
               className="border-border text-ink hover:bg-gold/10 text-xs py-1.5 px-3"
             >
               <ImageDown className="mr-1.5 h-4 w-4 text-gold" />
-              {savingJpg ? 'Saving...' : 'Save JPG'}
+              {savingImage ? 'Saving...' : 'Save PNG'}
             </Button>
             <Button
               variant="primary"
@@ -180,7 +205,7 @@ export function InvoiceModal({
           {/* THE OFFICIAL A4 INVOICE SHEET */}
           <div
             ref={invoiceRef}
-            className="printable-invoice-content w-[794px] min-h-[1080px] bg-white p-12 text-[#1a1a1a] shadow-xl border border-[#e8dec8] flex flex-col justify-between box-border font-sans"
+            className="printable-invoice-content w-[794px] min-h-[1123px] bg-white p-12 text-[#1a1a1a] shadow-xl border border-[#e8dec8] flex flex-col justify-between box-border font-sans"
             style={{ fontFamily: '"Inter", "Segoe UI", Arial, sans-serif' }}
           >
             <div>
@@ -194,9 +219,16 @@ export function InvoiceModal({
                   <h1 className="font-serif text-3xl font-bold tracking-wider text-[#7a5518] leading-none mb-1.5">
                     INVOICE
                   </h1>
-                  <span className="inline-block rounded-md bg-[#7a5518] px-3 py-1 font-mono text-xs font-bold text-white tracking-wider shadow-xs">
-                    #{invoiceNumber}
-                  </span>
+                  <div className="flex items-center justify-end gap-2">
+                    <span className="inline-block rounded-md bg-[#7a5518] px-3 py-1 font-mono text-xs font-bold text-white tracking-wider shadow-xs">
+                      #{invoiceNumber}
+                    </span>
+                    {invoice?.version_number ? (
+                      <span className="inline-block rounded-md border border-[#d8ccb8] bg-[#faf8f5] px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[#7a5518]">
+                        Version {invoice.version_number}
+                      </span>
+                    ) : null}
+                  </div>
 
                   {/* Sub-row: Dates & Status */}
                   <div className="mt-4 flex items-center justify-end gap-6 text-xs">
