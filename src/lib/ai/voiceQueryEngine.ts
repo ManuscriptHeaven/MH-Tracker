@@ -309,7 +309,7 @@ export class VoiceQueryEngine {
       const clientName = this.extractClientFromQuery(lower, ctx);
       result = await tools.get_client_receivables(clientName, ctx);
     }
-    // --- FINANCE / INCOME / EXPENSES / NET PROFIT ---
+    // --- FINANCE / ORDER REVENUE / EXPENSES ---
     else if (
       lower.includes('income') ||
       lower.includes('revenue') ||
@@ -336,8 +336,8 @@ export class VoiceQueryEngine {
     // --- GREETINGS / BOT IDENTITY ---
     else if (/\b(hi|hello|hey|who are you|what can you do|help)\b/i.test(lower)) {
       const firstNameStr = ctx.currentProfile.full_name.split(' ')[0];
-      const spoken = `Hi ${firstNameStr}! I'm your Manuscript Heaven business voice assistant. I can answer questions or safely perform actions like assigning tasks, updating statuses, or recording finance data.`;
-      const display = `### Hi ${firstNameStr} 👋\n\nI'm your **MH AI Assistant (Phase 2: Safe Actions & Voice)**.\n\n• 🎙 **Voice Commands & Actions:** *"Assign QAI revision to Zain"*, *"Put Book 2 on hold"*, *"Create a task for Zain"*...\n• ⏰ **Deadlines & Overdue:** *"How many projects are overdue?"*, *"What's due today?"*\n• 👥 **Team & Workload:** *"What is Zain working on?"*, *"Who has the most projects?"*\n• 💰 **Finance & Approvals:** *"Record a $100 payment from BCH"*, *"How much do clients owe us?"*`;
+      const spoken = `Hi ${firstNameStr}! I'm your Manuscript Heaven AI command assistant. I can analyze live tracker data and preview safe actions before anything changes.`;
+      const display = `### Hi ${firstNameStr} 👋\n\nI'm your **MH AI Command Assistant**. I work from live Tracker data and preview write actions before execution.\n\n• **Projects:** *"How many projects are overdue?"*, *"What's due today?"*\n• **Team:** *"What is Zain working on?"*, *"Who has the most active projects?"*\n• **Finance:** *"Show order revenue and expenses this month"*, *"How much do clients owe us?"*\n• **Safe Actions:** *"Create a task for Zain"*, *"Record a $100 payment from BCH for Magazine 2"*`;
       result = {
         success: true,
         toolName: 'get_project_summary',
@@ -1214,8 +1214,9 @@ export class VoiceQueryEngine {
     }
 
     // ----------------------------------------------------
-    // G. FINANCE & EXPENSE / INCOME ACTIONS
-    // e.g. "Record a $100 payment from BCH", "Add a Rs. 5,000 office expense", "Record $300 income"
+    // G. FINANCE ACTIONS
+    // Revenue is automatic from project orders. AI can record operating
+    // expenses and client payments against a specific project balance.
     // ----------------------------------------------------
     if (
       (lower.includes('record') || lower.includes('add')) &&
@@ -1227,54 +1228,216 @@ export class VoiceQueryEngine {
       if (ctx.currentProfile.role !== 'admin') {
         return {
           success: false,
-          toolName: 'record_income',
+          toolName: lower.includes('expense') ? 'record_expense' : 'record_project_payment',
           error: 'permission_denied',
-          spokenText: "Only administrators can record financial transactions.",
-          displayText: "🔒 Financial records are restricted to administrators.",
+          spokenText: 'Only administrators can record financial transactions.',
+          displayText: '🔒 Financial records are restricted to administrators.',
         };
       }
 
-      const amountMatch = lower.match(/(?:\$|rs\.?|usd|pkr)?\s*(\d+(?:,\d{3})*(?:\.\d+)?)/i);
-      const rawAmount = amountMatch ? parseFloat(amountMatch[1].replace(/,/g, '')) : 100;
-      const currency = lower.includes('rs') || lower.includes('pkr') ? 'PKR' : 'USD';
+      const amountMatch = lower.match(/(?:\$|usd)?\s*(\d+(?:,\d{3})*(?:\.\d+)?)/i);
+      const rawAmount = amountMatch ? parseFloat(amountMatch[1].replace(/,/g, '')) : 0;
+
+      if (!rawAmount || rawAmount <= 0) {
+        return {
+          success: false,
+          toolName: lower.includes('expense') ? 'record_expense' : 'record_project_payment',
+          error: 'invalid_amount',
+          spokenText: 'Please include a valid USD amount.',
+          displayText: '❌ Please include a valid **USD amount**.',
+        };
+      }
+
       const isExpense = lower.includes('expense') || lower.includes('spent');
-      const categoryMatch = lower.match(/(?:for|category)\s+([a-zA-Z\s]+)/i);
-      const category = categoryMatch ? categoryMatch[1].trim() : isExpense ? 'Office' : 'Client Payment';
 
-      const amountFormatted = ctx.formatMoney(rawAmount, currency);
+      if (isExpense) {
+        const categoryMatch = lower.match(/(?:for|category)\s+([a-zA-Z\s]+)/i);
+        const category = categoryMatch ? categoryMatch[1].trim() : 'Office';
+        const amountFormatted = ctx.formatMoney(rawAmount, 'USD');
 
+        const preview: AIActionPreview = {
+          actionId: `act-${Date.now()}`,
+          toolName: 'record_expense',
+          category: 'high_risk',
+          title: 'Record Expense',
+          description: `Record ${amountFormatted} operating expense`,
+          targetType: 'finance',
+          targetTitle: `Expense: ${category}`,
+          changes: [
+            { field: 'type', label: 'Type', newValue: 'Expense' },
+            { field: 'amount', label: 'Amount', newValue: amountFormatted },
+            { field: 'category', label: 'Category', newValue: category },
+            { field: 'date', label: 'Date', newValue: formatDate(todayInput()) },
+          ],
+          payload: {
+            amount: rawAmount,
+            currency: 'USD',
+            category,
+            transactionDate: todayInput(),
+          },
+          confirmButtonText: 'Save Expense',
+          cancelButtonText: 'Cancel',
+          spokenPrompt: `Record expense of ${amountFormatted} for ${category}? Confirm?`,
+        };
+
+        this.memory.pendingAction = preview;
+
+        return {
+          success: true,
+          toolName: 'record_expense',
+          spokenText: preview.spokenPrompt,
+          displayText:
+            `### Record Expense\n\n` +
+            `• **Amount:** **${amountFormatted}**\n` +
+            `• **Category:** ${category}\n` +
+            `• **Date:** ${formatDate(todayInput())}\n\nConfirm?`,
+          pendingAction: preview,
+        };
+      }
+
+      // Manual income is intentionally disabled. Client cash receipts must be
+      // applied to a project so paid/outstanding balances stay authoritative.
+      if (lower.includes('income') && !lower.includes('payment')) {
+        return {
+          success: false,
+          toolName: 'record_income',
+          error: 'manual_income_disabled',
+          spokenText:
+            'Manual income entries are disabled. Order revenue is calculated automatically from projects. Record a client payment against a project instead.',
+          displayText:
+            '### Revenue Is Automatic\n\n' +
+            'Order revenue is calculated from project order values, so the assistant does not create manual income entries.\n\n' +
+            'To record money received, say something like **"Record a $100 payment from BCH for Magazine 2."**',
+        };
+      }
+
+      const explicitProject = this.extractProjectFromQuery(q, ctx);
+      let targetProject = explicitProject
+        ? ctx.visibleProjects.find(
+            (project) =>
+              project.project_title.toLowerCase() === explicitProject.toLowerCase() ||
+              project.project_number.toLowerCase() === explicitProject.toLowerCase(),
+          )
+        : undefined;
+
+      if (!targetProject) {
+        const clientName = this.extractClientFromQuery(lower, ctx);
+        if (clientName) {
+          const unpaidForClient = ctx.visibleProjects.filter((project) => {
+            const outstanding = Math.max(
+              Number(project.total_price || 0) - Number(project.advance_paid || 0),
+              0,
+            );
+            return (
+              (project.client_name || '').toLowerCase() === clientName.toLowerCase() &&
+              outstanding > 0.005
+            );
+          });
+
+          if (unpaidForClient.length === 1) {
+            targetProject = unpaidForClient[0];
+          } else if (unpaidForClient.length > 1) {
+            const names = unpaidForClient
+              .slice(0, 5)
+              .map((project) => `**${project.project_title}** (${project.project_number})`)
+              .join(', ');
+            return {
+              success: false,
+              toolName: 'record_project_payment',
+              error: 'project_required',
+              spokenText: `${clientName} has more than one unpaid project. Please tell me which project should receive the payment.`,
+              displayText:
+                `### Choose a Project\n\n` +
+                `**${clientName}** has ${unpaidForClient.length} unpaid projects: ${names}.\n\n` +
+                'Please repeat the payment with the project title or project number.',
+            };
+          }
+        }
+      }
+
+      if (!targetProject) {
+        return {
+          success: false,
+          toolName: 'record_project_payment',
+          error: 'project_required',
+          spokenText: 'Please tell me which project this payment belongs to.',
+          displayText:
+            '### Project Required\n\n' +
+            'Client payments must be applied to a specific project so paid and outstanding balances stay correct.',
+        };
+      }
+
+      const previousPaid = Number(targetProject.advance_paid || 0);
+      const totalPrice = Number(targetProject.total_price || 0);
+      const outstanding = Math.max(totalPrice - previousPaid, 0);
+      const amountFormatted = ctx.formatMoney(rawAmount, 'USD');
+
+      if (rawAmount > outstanding + 0.005) {
+        return {
+          success: false,
+          toolName: 'record_project_payment',
+          error: 'payment_exceeds_balance',
+          spokenText: `That payment is higher than the remaining balance of ${ctx.formatMoney(outstanding, 'USD')}.`,
+          displayText:
+            `❌ **Payment exceeds balance.**\n\n` +
+            `• **Project:** ${targetProject.project_title}\n` +
+            `• **Remaining Balance:** **${ctx.formatMoney(outstanding, 'USD')}**\n` +
+            `• **Requested Payment:** **${amountFormatted}**`,
+        };
+      }
+
+      const nextPaid = previousPaid + rawAmount;
+      const nextOutstanding = Math.max(totalPrice - nextPaid, 0);
       const preview: AIActionPreview = {
         actionId: `act-${Date.now()}`,
-        toolName: isExpense ? 'record_expense' : 'record_income',
+        toolName: 'record_project_payment',
         category: 'high_risk',
-        title: isExpense ? 'Record Expense' : 'Record Income',
-        description: `Record ${amountFormatted} ${isExpense ? 'expense' : 'income'} entry`,
-        targetType: 'finance',
-        targetTitle: `${isExpense ? 'Expense' : 'Income'}: ${category}`,
+        title: 'Record Project Payment',
+        description: `Apply ${amountFormatted} to ${targetProject.project_title}`,
+        targetType: 'project',
+        targetId: targetProject.id,
+        targetTitle: targetProject.project_title,
+        clientName: targetProject.client_name,
         changes: [
-          { field: 'type', label: 'Type', newValue: isExpense ? 'Expense' : 'Income' },
-          { field: 'amount', label: 'Amount', newValue: amountFormatted },
-          { field: 'category', label: 'Category', newValue: category },
-          { field: 'date', label: 'Date', newValue: formatDate(todayInput()) },
+          {
+            field: 'advance_paid',
+            label: 'Total Paid',
+            oldValue: ctx.formatMoney(previousPaid, 'USD'),
+            newValue: ctx.formatMoney(nextPaid, 'USD'),
+          },
+          {
+            field: 'remaining_balance',
+            label: 'Balance Due',
+            oldValue: ctx.formatMoney(outstanding, 'USD'),
+            newValue: ctx.formatMoney(nextOutstanding, 'USD'),
+          },
         ],
         payload: {
+          projectId: targetProject.id,
           amount: rawAmount,
-          currency,
-          category,
-          transactionDate: todayInput(),
+          paymentDate: todayInput(),
+          paymentMethod: 'Bank Transfer',
         },
-        confirmButtonText: isExpense ? 'Save Expense' : 'Save Income',
+        confirmButtonText: 'Record Payment',
         cancelButtonText: 'Cancel',
-        spokenPrompt: `Record ${isExpense ? 'expense' : 'income'} of ${amountFormatted} for ${category}? Confirm?`,
+        spokenPrompt:
+          `Apply ${amountFormatted} to ${targetProject.project_title}? ` +
+          `The new balance will be ${ctx.formatMoney(nextOutstanding, 'USD')}. Confirm?`,
       };
 
       this.memory.pendingAction = preview;
 
       return {
         success: true,
-        toolName: isExpense ? 'record_expense' : 'record_income',
+        toolName: 'record_project_payment',
         spokenText: preview.spokenPrompt,
-        displayText: `### Record ${isExpense ? 'Expense' : 'Income'}\n\n• **Amount:** **${amountFormatted}**\n• **Category:** ${category}\n• **Date:** ${formatDate(todayInput())}\n\nConfirm?`,
+        displayText:
+          `### Record Project Payment\n\n` +
+          `• **Project:** **${targetProject.project_title}** (${targetProject.project_number})\n` +
+          `• **Client:** ${targetProject.client_name}\n` +
+          `• **Payment:** **${amountFormatted}**\n` +
+          `• **Current Balance:** ${ctx.formatMoney(outstanding, 'USD')}\n` +
+          `• **New Balance:** **${ctx.formatMoney(nextOutstanding, 'USD')}**\n\nConfirm?`,
         pendingAction: preview,
       };
     }
@@ -1560,6 +1723,8 @@ export class VoiceQueryEngine {
         return safeActions.execute_approve_project_milestone(action.payload as any, ctx);
       case 'invite_client':
         return safeActions.execute_invite_client(action.payload as any, ctx);
+      case 'record_project_payment':
+        return safeActions.execute_record_project_payment(action.payload as any, ctx);
       case 'record_income':
         return safeActions.execute_record_income(action.payload as any, ctx);
       case 'record_expense':
