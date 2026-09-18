@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Bell,
   CalendarDays,
@@ -22,6 +22,7 @@ import {
   Users,
   Volume2,
   VolumeX,
+  X,
 } from 'lucide-react';
 import { roleLabels } from '../lib/constants';
 import { initials, cn, firstName, isClientRole, isManagerRole } from '../lib/utils';
@@ -150,14 +151,6 @@ const navStructure: NavEntry[] = [
   },
 ];
 
-function getGroupForView(view: ViewKey): string | null {
-  if (['projects', 'delivered', 'calendar'].includes(view)) return 'projects_group';
-  if (['my_tasks', 'team_tasks'].includes(view)) return 'tasks_group';
-  if (['payments', 'finance'].includes(view)) return 'finance_group';
-  if (['team', 'clients', 'settings'].includes(view)) return 'management_group';
-  return null;
-}
-
 export function Layout({
   children,
   activeView,
@@ -199,6 +192,7 @@ export function Layout({
   onOpenConversation?: (conversationId: string) => void;
 }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(false);
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
   const [soundActive, setSoundActive] = useState<boolean>(() => isSoundEnabled());
   const { canInstall, promptInstall } = usePwaInstall();
@@ -210,18 +204,11 @@ export function Layout({
   const unreadNotificationsCount = notifications.filter((n) => !n.is_read).length;
 
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => ({
-    projects_group: true,
-    tasks_group: true,
-    finance_group: true,
-    management_group: true,
+    projects_group: false,
+    tasks_group: false,
+    finance_group: false,
+    management_group: false,
   }));
-
-  useEffect(() => {
-    const activeGroup = getGroupForView(activeView);
-    if (activeGroup) {
-      setExpandedGroups((prev) => ({ ...prev, [activeGroup]: true }));
-    }
-  }, [activeView]);
 
   const visibleNavEntries = useMemo(() => {
     if (isClient) {
@@ -296,10 +283,32 @@ export function Layout({
 
   return (
     <div className="min-h-screen bg-linen text-ink">
-      <aside className="no-print fixed left-0 top-0 z-30 hidden h-screen w-72 border-r border-border bg-ink text-white lg:block">
+      {desktopSidebarOpen ? (
+        <button
+          type="button"
+          aria-label="Close sidebar"
+          onClick={() => setDesktopSidebarOpen(false)}
+          className="no-print fixed inset-0 z-30 hidden bg-black/25 backdrop-blur-[1px] lg:block"
+        />
+      ) : null}
+
+      <aside
+        className={cn(
+          'no-print fixed left-0 top-0 z-40 hidden h-screen w-72 border-r border-border bg-ink text-white shadow-2xl transition-transform duration-200 lg:block',
+          desktopSidebarOpen ? 'translate-x-0' : '-translate-x-full',
+        )}
+      >
         <div className="flex h-full flex-col">
-          <div className="border-b border-white/10 p-6">
+          <div className="flex items-center justify-between gap-3 border-b border-white/10 p-5">
             <ManuscriptHeavenLogo variant="full" darkTheme />
+            <button
+              type="button"
+              onClick={() => setDesktopSidebarOpen(false)}
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 text-white/70 transition hover:bg-white/10 hover:text-white"
+              title="Close sidebar"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
 
           <nav className="flex-1 space-y-1.5 overflow-y-auto px-4 py-5">
@@ -312,7 +321,10 @@ export function Layout({
                 return (
                   <button
                     key={entry.id}
-                    onClick={() => setActiveView(entry.id)}
+                    onClick={() => {
+                      setActiveView(entry.id);
+                      setDesktopSidebarOpen(false);
+                    }}
                     className={cn(
                       'flex w-full items-center justify-between rounded-md px-3 py-2.5 text-left text-sm font-medium transition',
                       active ? 'bg-gold text-ink font-semibold shadow-xs' : 'text-white/75 hover:bg-white/10 hover:text-white',
@@ -342,9 +354,6 @@ export function Layout({
                     onClick={() => {
                       const nextExpanded = !isExpanded;
                       setExpandedGroups((prev) => ({ ...prev, [entry.id]: nextExpanded }));
-                      if (nextExpanded && !isGroupActive && entry.children.length > 0) {
-                        setActiveView(entry.children[0].id);
-                      }
                     }}
                     className={cn(
                       'flex w-full items-center justify-between rounded-md px-3 py-2.5 text-left text-sm font-medium transition',
@@ -374,7 +383,10 @@ export function Layout({
                         return (
                           <button
                             key={child.id}
-                            onClick={() => setActiveView(child.id)}
+                            onClick={() => {
+                              setActiveView(child.id);
+                              setDesktopSidebarOpen(false);
+                            }}
                             className={cn(
                               'flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-xs font-medium transition',
                               childActive
@@ -433,15 +445,24 @@ export function Layout({
         </div>
       </aside>
 
-      <main className="pb-24 lg:ml-72 lg:pb-0">
+      <main className="pb-24 lg:pb-0">
         <header className="no-print sticky top-0 z-20 border-b border-border bg-linen/95 px-3 py-3 backdrop-blur sm:px-4 sm:py-4 lg:px-8">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs sm:text-sm font-medium text-muted">Welcome back, {displayName}</p>
-                <h1 className="font-display text-xl sm:text-2xl lg:text-3xl font-semibold text-ink">
-                  {viewHeaderTitles[activeView] || 'MH Tracker'}
-                </h1>
+              <div className="flex min-w-0 items-center gap-3">
+                <IconButton
+                  title={desktopSidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+                  onClick={() => setDesktopSidebarOpen((value) => !value)}
+                  className="hidden lg:inline-flex"
+                >
+                  {desktopSidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+                </IconButton>
+                <div className="min-w-0">
+                  <p className="text-xs sm:text-sm font-medium text-muted">Welcome back, {displayName}</p>
+                  <h1 className="truncate font-display text-xl sm:text-2xl lg:text-3xl font-semibold text-ink">
+                    {viewHeaderTitles[activeView] || 'MH Tracker'}
+                  </h1>
+                </div>
               </div>
               <IconButton title="Open menu" onClick={() => setMobileMenuOpen(true)} className="lg:hidden">
                 <Menu className="h-5 w-5" />
