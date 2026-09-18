@@ -73,6 +73,7 @@ export type AIToolName =
   | 'add_payroll_advance'
   | 'add_payroll_deduction'
   | 'send_internal_message'
+  | 'draft_client_communication'
   | 'send_client_message'
   | 'send_whatsapp_message'
   | 'generate_client_invoice';
@@ -173,7 +174,7 @@ export interface AIToolContext {
     deleteEmployeeLedgerEntry?: (id: string) => Promise<void>;
     sendMessage?: (conversationId: string, body: string) => Promise<any>;
     getOrCreateDM?: (otherUserId: string) => Promise<any>;
-    getOrCreateProjectConversation?: (projectId: string) => Promise<any>;
+    getOrCreateProjectConversation?: (projectId: string, isInternal?: boolean) => Promise<any>;
     getOrCreateTaskConversation?: (taskId: string) => Promise<any>;
   };
 }

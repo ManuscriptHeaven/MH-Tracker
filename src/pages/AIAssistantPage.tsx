@@ -155,6 +155,7 @@ export function AIAssistantPage({
   );
 
   const firstOverdue = overdueProjects[0];
+  const firstApproval = pendingApprovals[0];
 
   const quickCommands = useMemo<QuickCommand[]>(() => {
     const commands: QuickCommand[] = [
@@ -214,6 +215,15 @@ export function AIAssistantPage({
           icon: CheckCircle2,
         },
       );
+
+      if (firstApproval) {
+        commands.push({
+          label: 'Client Reminder',
+          description: 'Draft an approval reminder from live project context.',
+          query: `Draft a professional approval reminder message for ${firstApproval.project_number}`,
+          icon: MessageSquare,
+        });
+      }
     }
 
     if (firstUnpaid && canManage) {
@@ -235,7 +245,7 @@ export function AIAssistantPage({
     }
 
     return commands.filter((command) => !command.adminOnly || isAdmin);
-  }, [canManage, firstOverdue, firstUnpaid, isAdmin]);
+  }, [canManage, firstApproval, firstOverdue, firstUnpaid, isAdmin]);
 
   useEffect(() => {
     if (activeTab === 'chat') {
