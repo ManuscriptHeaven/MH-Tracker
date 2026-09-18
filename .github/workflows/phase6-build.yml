@@ -1,6 +1,9 @@
 name: Phase 6 Build Verification
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - phase6-staging-cutover-20260913
