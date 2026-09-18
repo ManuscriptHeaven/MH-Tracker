@@ -165,6 +165,14 @@ export function InvoiceModal({
     ) => Promise<HTMLCanvasElement>;
   }
 
+  async function waitForExportLayout() {
+    await new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => resolve());
+      });
+    });
+  }
+
   async function handleSaveImage() {
     if (!invoiceRef.current) return;
     setSavingImage(true);
@@ -178,9 +186,13 @@ export function InvoiceModal({
         throw new Error('No invoice pages were found for export.');
       }
 
-      for (let index = 0; index < pages.length; index += 1) {
-        const page = pages[index];
-        const canvas = await html2canvas(page, {
+      pages.forEach((page) => page.classList.add('invoice-png-export'));
+      await waitForExportLayout();
+
+      try {
+        for (let index = 0; index < pages.length; index += 1) {
+          const page = pages[index];
+          const canvas = await html2canvas(page, {
           scale: EXPORT_SCALE_300_DPI,
           useCORS: true,
           allowTaint: false,
@@ -202,9 +214,12 @@ export function InvoiceModal({
         link.click();
         link.remove();
 
-        if (pages.length > 1) {
-          await new Promise((resolve) => window.setTimeout(resolve, 120));
+          if (pages.length > 1) {
+            await new Promise((resolve) => window.setTimeout(resolve, 120));
+          }
         }
+      } finally {
+        pages.forEach((page) => page.classList.remove('invoice-png-export'));
       }
     } catch (err) {
       console.error('Invoice image export failed:', err);
@@ -219,11 +234,11 @@ export function InvoiceModal({
       <div className={compact ? 'flex items-start justify-between border-b-2 border-[#e8dec8] pb-4 mb-5' : 'flex items-start justify-between border-b-2 border-[#e8dec8] pb-6 mb-6'}>
         <ManuscriptHeavenLogo variant="invoice-header" className={compact ? 'scale-90 origin-left' : ''} />
 
-        <div className="text-right">
-          <h1 className={compact ? 'font-serif text-2xl font-bold tracking-wider text-[#7a5518] leading-none mb-1.5' : 'font-serif text-3xl font-bold tracking-wider text-[#7a5518] leading-none mb-1.5'}>
+        <div className="invoice-export-header-right text-right">
+          <h1 className={compact ? 'invoice-export-title font-serif text-2xl font-bold tracking-wider text-[#7a5518] leading-none mb-1.5' : 'invoice-export-title font-serif text-3xl font-bold tracking-wider text-[#7a5518] leading-none mb-1.5'}>
             INVOICE
           </h1>
-          <div className="flex items-center justify-end gap-2">
+          <div className="invoice-export-badges flex items-center justify-end gap-2">
             <span className="inline-block rounded-md bg-[#7a5518] px-3 py-1 font-mono text-xs font-bold text-white tracking-wider shadow-xs">
               #{invoiceNumber}
             </span>
@@ -235,7 +250,7 @@ export function InvoiceModal({
           </div>
 
           {!compact ? (
-            <div className="mt-4 flex items-center justify-end gap-6 text-xs">
+            <div className="invoice-export-meta mt-4 flex items-center justify-end gap-6 text-xs">
               <div>
                 <span className="text-[10px] uppercase font-bold text-[#8b6f38] tracking-wider flex items-center gap-1 justify-end">
                   <Calendar className="h-3 w-3" /> INVOICE DATE
@@ -250,10 +265,10 @@ export function InvoiceModal({
                 <strong className="block text-[#1a1a1a] font-semibold text-xs mt-0.5">{dueDate}</strong>
               </div>
 
-              <div>
+              <div className="invoice-export-status">
                 <span className="text-[10px] uppercase font-bold text-[#8b6f38] tracking-wider block">STATUS</span>
                 <span
-                  className={`inline-block mt-0.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold tracking-wider uppercase border ${
+                  className={`invoice-export-status-badge inline-block mt-0.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold tracking-wider uppercase border ${
                     isPaid
                       ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
                       : isPartial
@@ -352,15 +367,15 @@ export function InvoiceModal({
                     {pageIndex * ITEMS_PER_PAGE + idx + 1}
                   </td>
                   <td className="py-3 px-4 max-w-[220px]">
-                    <span className="font-bold text-[#1a1a1a] block text-xs leading-snug line-clamp-2">
+                    <span className="invoice-export-project-title font-bold text-[#1a1a1a] block text-xs leading-snug line-clamp-2">
                       {item.project_title}
                     </span>
-                    <span className="font-mono text-[10px] text-[#777777]">
+                    <span className="invoice-export-project-id font-mono text-[10px] text-[#777777]">
                       Project ID: {item.project_number}
                     </span>
                   </td>
                   <td className="py-3 px-4 text-[#444444] text-[11px] max-w-[150px]">
-                    <span className="line-clamp-2">{item.service_type || 'Publishing & Formatting'}</span>
+                    <span className="invoice-export-service line-clamp-2">{item.service_type || 'Publishing & Formatting'}</span>
                   </td>
                   <td className="py-3 px-4 text-right font-medium text-[#1a1a1a] whitespace-nowrap">
                     {formatMoney(item.total_price)}
