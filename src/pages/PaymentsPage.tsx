@@ -1,7 +1,8 @@
-import { AlertTriangle, CheckCircle2, CircleDollarSign, Download, Edit, FileText, Printer, RotateCcw, Trash2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CircleDollarSign, Download, Edit, FilePenLine, FileText, History, Printer, RotateCcw, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { PaymentBadge, StatusBadge } from '../components/Badges';
 import { InvoiceModal } from '../components/InvoiceModal';
+import { InvoiceRevisionModal } from '../components/InvoiceRevisionModal';
 import { Button, Card, EmptyState, Field, SelectField } from '../components/ui';
 import { paymentStatuses, statusOptions } from '../lib/constants';
 import { daysUntil, formatDate, todayInput } from '../lib/date';
@@ -182,6 +183,8 @@ export function PaymentsPage({
   onEditProject,
   onUpdateProject,
   onDeletePayment,
+  invoices = [],
+  onSaveInvoiceVersion,
 }: {
   projects: Project[];
   currentProfile: Profile;
@@ -191,6 +194,12 @@ export function PaymentsPage({
   onEditProject: (project: Project) => void;
   onUpdateProject: (projectId: string, updates: Partial<Project>) => Promise<unknown>;
   onDeletePayment: (projectId: string) => Promise<void>;
+  invoices?: Invoice[];
+  onSaveInvoiceVersion: (
+    draft: Invoice,
+    existingInvoiceId?: string | null,
+    changeNote?: string,
+  ) => Promise<Invoice>;
 }) {
   const { formatMoney } = useCurrency();
   const [clientFilter, setClientFilter] = useState('all');
@@ -202,7 +211,6 @@ export function PaymentsPage({
   const [searchTerm, setSearchTerm] = useState('');
   const [busyProjectId, setBusyProjectId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [invoiceProject, setInvoiceProject] = useState<Project | null>(null);
 
   // Bulk Monthly Invoice State
   const [bulkClient, setBulkClient] = useState('all');
@@ -212,7 +220,7 @@ export function PaymentsPage({
   const [includeInvoiced, setIncludeInvoiced] = useState<boolean>(false);
   const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
   const [selectedBulkInvoice, setSelectedBulkInvoice] = useState<Invoice | null>(null);
-  const [generatedInvoices, setGeneratedInvoices] = useState<Invoice[]>([]);
+  const [revisingInvoice, setRevisingInvoice] = useState<Invoice | null>(null);
 
   const clients = useMemo(() => [...new Set(projects.map((project) => project.client_name).filter(Boolean))].sort(), [
     projects,
@@ -222,6 +230,31 @@ export function PaymentsPage({
     [projects],
   );
 
+  const invoiceHistory = useMemo(
+    () => [...invoices].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+    [invoices],
+  );
+
+  const latestInvoices = useMemo(() => {
+    const latest = new Map<string, Invoice>();
+    invoiceHistory.forEach((invoice) => {
+      const key = invoice.logical_invoice_id || invoice.invoice_number;
+      const current = latest.get(key);
+      if (!current || Number(invoice.version_number || 1) > Number(current.version_number || 1)) {
+        latest.set(key, invoice);
+      }
+    });
+    return Array.from(latest.values()).sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    );
+  }, [invoiceHistory]);
+
+  function latestInvoiceForProject(projectId: string) {
+    return latestInvoices.find((invoice) =>
+      invoice.items.some((item) => item.project_id === projectId),
+    ) || null;
+  }
+
   const eligibleProjectsForBulk = useMemo(() => {
     if (bulkClient === 'all') {
       return [];
@@ -229,7 +262,7 @@ export function PaymentsPage({
     return getEligibleProjectsForClient(projects, bulkClient, bulkMonth, bulkYear, bulkPaymentStatus, includeInvoiced);
   }, [projects, bulkClient, bulkMonth, bulkYear, bulkPaymentStatus, includeInvoiced]);
 
-  function handleGenerateBulkInvoice() {
+  async function handleGenerateBulkInvoice() {
     if (!bulkClient || bulkClient === 'all' || eligibleProjectsForBulk.length === 0) {
       return;
     }
@@ -246,13 +279,40 @@ export function PaymentsPage({
         bulkMonth,
         bulkYear,
       );
-
-      setGeneratedInvoices((prev) => [newInvoice, ...prev]);
-      setSelectedBulkInvoice(newInvoice);
+      const savedInvoice = await onSaveInvoiceVersion(newInvoice);
+      setSelectedBulkInvoice(savedInvoice);
     } catch (err) {
       setActionError(errorMessage(err, 'Failed to generate invoice.'));
     } finally {
       setIsGeneratingInvoice(false);
+    }
+  }
+
+  async function handleProjectInvoice(project: Project) {
+    const existing = latestInvoiceForProject(project.id);
+    if (existing) {
+      setSelectedBulkInvoice(existing);
+      return;
+    }
+
+    setBusyProjectId(project.id);
+    setActionError(null);
+    try {
+      const month = monthValue(project) || new Date().getMonth() + 1;
+      const year = yearValue(project) || new Date().getFullYear();
+      const draft = createBulkInvoice(
+        project.client_name,
+        project.client_email || '',
+        [project],
+        month,
+        year,
+      );
+      const savedInvoice = await onSaveInvoiceVersion(draft);
+      setSelectedBulkInvoice(savedInvoice);
+    } catch (err) {
+      setActionError(errorMessage(err, 'Failed to generate project invoice.'));
+    } finally {
+      setBusyProjectId(null);
     }
   }
 
@@ -542,12 +602,15 @@ export function PaymentsPage({
           </div>
         ) : null}
 
-        {/* Recently Generated Invoices List */}
-        {generatedInvoices.length > 0 ? (
+        {/* Persisted Invoice Shortcuts */}
+        {latestInvoices.length > 0 ? (
           <div className="mt-4 border-t border-border pt-4">
-            <p className="text-xs uppercase tracking-wider font-semibold text-muted mb-2">Recently Generated Monthly Invoices</p>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="text-xs uppercase tracking-wider font-semibold text-muted">Latest Saved Invoices</p>
+              <span className="text-xs text-muted">{latestInvoices.length} invoice{latestInvoices.length === 1 ? '' : 's'}</span>
+            </div>
             <div className="flex flex-wrap gap-2">
-              {generatedInvoices.map((inv) => (
+              {latestInvoices.slice(0, 8).map((inv) => (
                 <button
                   key={inv.id}
                   onClick={() => setSelectedBulkInvoice(inv)}
@@ -555,12 +618,114 @@ export function PaymentsPage({
                 >
                   <FileText className="h-3.5 w-3.5 text-gold" />
                   <span>{inv.invoice_number}</span>
-                  <span className="text-muted">({inv.month_label})</span>
+                  <span className="rounded bg-ivory px-1.5 py-0.5 text-[10px] text-muted">v{inv.version_number || 1}</span>
                 </button>
               ))}
             </div>
           </div>
         ) : null}
+      </Card>
+
+      <Card>
+        <div className="flex items-center justify-between gap-3 border-b border-border pb-4">
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-md bg-gold/15 text-gold">
+              <History className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="font-display text-xl font-semibold text-ink">Invoice History</h2>
+              <p className="text-xs text-muted">
+                Persistent invoice records and every revision. Older versions are never overwritten.
+              </p>
+            </div>
+          </div>
+          <span className="rounded-md border border-border bg-ivory px-3 py-1.5 text-xs font-semibold text-muted">
+            {latestInvoices.length} invoices · {invoiceHistory.length} versions
+          </span>
+        </div>
+
+        {invoiceHistory.length > 0 ? (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[980px] text-left text-sm">
+              <thead className="border-b border-border text-xs font-semibold uppercase tracking-wider text-muted">
+                <tr>
+                  <th className="py-2.5">Invoice</th>
+                  <th>Client</th>
+                  <th>Period</th>
+                  <th>Generated</th>
+                  <th className="text-center">Projects</th>
+                  <th className="text-right">Total</th>
+                  <th className="text-right">Due</th>
+                  <th>Revision Note</th>
+                  <th className="text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/60">
+                {invoiceHistory.map((inv) => {
+                  const logicalKey = inv.logical_invoice_id || inv.invoice_number;
+                  const latest = latestInvoices.find(
+                    (item) => (item.logical_invoice_id || item.invoice_number) === logicalKey,
+                  );
+                  const isLatest = latest?.id === inv.id;
+                  return (
+                    <tr key={inv.id} className="hover:bg-ivory/50">
+                      <td className="py-3">
+                        <p className="font-semibold text-ink">{inv.invoice_number}</p>
+                        <div className="mt-1 flex items-center gap-1.5">
+                          <span className="rounded bg-ivory px-1.5 py-0.5 text-[10px] font-semibold text-muted">
+                            Version {inv.version_number || 1}
+                          </span>
+                          {isLatest ? (
+                            <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                              Current
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="text-ink">{inv.client_name}</td>
+                      <td className="text-xs text-muted">{inv.month_label}</td>
+                      <td className="text-xs text-muted">{formatDate(inv.created_at)}</td>
+                      <td className="text-center text-muted">{inv.items.length}</td>
+                      <td className="text-right font-semibold">{formatMoney(inv.subtotal, 'USD')}</td>
+                      <td className="text-right font-bold text-warning">{formatMoney(inv.total_due, 'USD')}</td>
+                      <td className="max-w-[220px] text-xs text-muted">
+                        <span className="line-clamp-2">{inv.change_note || (inv.version_number === 1 ? 'Original invoice' : 'Revision')}</span>
+                      </td>
+                      <td className="text-right">
+                        <div className="inline-flex items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            className="min-h-8 px-3 py-1 text-xs"
+                            onClick={() => setSelectedBulkInvoice(inv)}
+                          >
+                            <Printer className="h-3.5 w-3.5" />
+                            View
+                          </Button>
+                          {isLatest ? (
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              className="min-h-8 px-3 py-1 text-xs"
+                              onClick={() => setRevisingInvoice(inv)}
+                            >
+                              <FilePenLine className="h-3.5 w-3.5" />
+                              Revise
+                            </Button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="mt-4 rounded-md border border-dashed border-border bg-ivory/40 p-8 text-center text-sm text-muted">
+            No saved invoices yet. Generate the first invoice above or from a project row.
+          </div>
+        )}
       </Card>
 
       <Card>
@@ -680,6 +845,7 @@ export function PaymentsPage({
                   const state = paymentState(project);
                   const due = dueAmount(project);
                   const busy = busyProjectId === project.id;
+                  const projectInvoice = latestInvoiceForProject(project.id);
 
                   return (
                     <tr key={project.id} className="transition hover:bg-ivory/70">
@@ -707,9 +873,9 @@ export function PaymentsPage({
                       </td>
                       <td className="border-t border-border px-4 py-3">
                         <div className="flex justify-end gap-2">
-                          <Button type="button" variant="secondary" onClick={() => setInvoiceProject(project)}>
-                            <Printer className="h-4 w-4" />
-                            Print
+                          <Button type="button" variant="secondary" onClick={() => handleProjectInvoice(project)} disabled={busy}>
+                            <FileText className="h-4 w-4" />
+                            {projectInvoice ? `Invoice v${projectInvoice.version_number || 1}` : 'Generate Invoice'}
                           </Button>
                           <Button type="button" variant="secondary" onClick={() => onEditProject(project)}>
                             <Edit className="h-4 w-4" />
@@ -740,6 +906,7 @@ export function PaymentsPage({
             {filteredProjects.map((project) => {
               const due = dueAmount(project);
               const busy = busyProjectId === project.id;
+              const projectInvoice = latestInvoiceForProject(project.id);
 
               return (
                 <div key={project.id} className="rounded-md border border-border bg-white p-4">
@@ -764,9 +931,9 @@ export function PaymentsPage({
                   </div>
                   <p className="mt-3 text-sm text-muted">{project.payment_notes || 'No notes'}</p>
                   <div className="mt-4 flex flex-wrap gap-2">
-                    <Button type="button" variant="secondary" onClick={() => setInvoiceProject(project)}>
-                      <Printer className="h-4 w-4" />
-                      Print
+                    <Button type="button" variant="secondary" onClick={() => handleProjectInvoice(project)} disabled={busy}>
+                      <FileText className="h-4 w-4" />
+                      {projectInvoice ? `Invoice v${projectInvoice.version_number || 1}` : 'Generate Invoice'}
                     </Button>
                     <Button type="button" variant="secondary" onClick={() => onEditProject(project)}>
                       <Edit className="h-4 w-4" />
@@ -808,12 +975,31 @@ export function PaymentsPage({
         </div>
       ) : null}
 
-      {invoiceProject ? (
-        <InvoiceModal project={invoiceProject} onClose={() => setInvoiceProject(null)} />
+      {selectedBulkInvoice ? (
+        <InvoiceModal
+          invoice={selectedBulkInvoice}
+          onClose={() => setSelectedBulkInvoice(null)}
+          onRevise={(invoice) => {
+            setSelectedBulkInvoice(null);
+            setRevisingInvoice(invoice);
+          }}
+        />
       ) : null}
 
-      {selectedBulkInvoice ? (
-        <InvoiceModal invoice={selectedBulkInvoice} onClose={() => setSelectedBulkInvoice(null)} />
+      {revisingInvoice ? (
+        <InvoiceRevisionModal
+          invoice={revisingInvoice}
+          onClose={() => setRevisingInvoice(null)}
+          onSave={async (draft, changeNote) => {
+            const saved = await onSaveInvoiceVersion(
+              draft,
+              revisingInvoice.logical_invoice_id || null,
+              changeNote,
+            );
+            setRevisingInvoice(null);
+            setSelectedBulkInvoice(saved);
+          }}
+        />
       ) : null}
     </div>
   );
