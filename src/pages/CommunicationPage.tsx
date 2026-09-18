@@ -160,16 +160,16 @@ function ConvRow({
   return (
     <button
       onClick={onClick}
-      className={`group flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-all ${
+      className={`group flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-all ${
         isSelected
-          ? 'bg-gold/12 border-l-2 border-gold ml-0 pl-2'
-          : 'border-l-2 border-transparent hover:bg-black/5'
+          ? 'bg-gold/15 ring-1 ring-gold/25 shadow-xs'
+          : 'hover:bg-black/[0.035]'
       }`}
     >
       <div className="mt-0.5 shrink-0">{icon}</div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-1">
-          <span className={`truncate text-xs font-semibold ${isSelected ? 'text-ink' : 'text-ink/85'}`}>
+          <span className={`truncate text-[13px] font-semibold ${isSelected ? 'text-ink' : 'text-ink/85'}`}>
             {name}
           </span>
           <div className="flex shrink-0 items-center gap-1.5">
@@ -181,9 +181,9 @@ function ConvRow({
             ) : null}
           </div>
         </div>
-        {subtitle && <p className="truncate text-[10px] text-muted">{subtitle}</p>}
+        {subtitle && <p className="mt-0.5 truncate text-[11px] text-muted">{subtitle}</p>}
         {lastMsg && (
-          <p className={`truncate text-[11px] mt-0.5 ${unreadCount ? 'font-medium text-ink/80' : 'text-muted'}`}>
+          <p className={`truncate text-[12px] mt-1 ${unreadCount ? 'font-medium text-ink/80' : 'text-muted'}`}>
             {lastMsg}
           </p>
         )}
@@ -567,7 +567,7 @@ export function CommunicationPage({
   const [showNewMsg, setShowNewMsg] = useState(false);
   const [createTaskMessage, setCreateTaskMessage] = useState<ChatMessage | null>(null);
   const [activeConvTab, setActiveConvTab] = useState<ConvTab>('chat');
-  const [contextPanelOpen, setContextPanelOpen] = useState(true);
+  const [contextPanelOpen, setContextPanelOpen] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('list');
   // sidebar collapse state
   const [dmsCollapsed, setDmsCollapsed] = useState(false);
@@ -835,9 +835,9 @@ export function CommunicationPage({
   }, [isClient, projects, allConversations, unreadCountMap]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sidebar = (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden bg-[#fcfbf8]">
       {/* Search */}
-      <div className="px-3 py-2 border-b border-border">
+      <div className="px-4 py-3 border-b border-border bg-white/80">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted pointer-events-none" />
           <input
@@ -845,13 +845,13 @@ export function CommunicationPage({
             placeholder="Search conversations…"
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
-            className="w-full rounded-lg border border-border bg-white pl-8 pr-3 py-1.5 text-xs outline-none focus:border-gold"
+            className="h-10 w-full rounded-xl border border-border bg-white pl-9 pr-3 text-[13px] outline-none transition focus:border-gold focus:ring-2 focus:ring-gold/10"
           />
         </div>
       </div>
 
       {/* Filter pills */}
-      <div className="flex items-center gap-1 px-3 py-2 border-b border-border">
+      <div className="flex items-center gap-1.5 px-4 py-2.5 border-b border-border bg-white/60">
         {(['all', 'unread', 'mentions'] as FilterMode[]).map(mode => (
           <button
             key={mode}
@@ -866,7 +866,7 @@ export function CommunicationPage({
       </div>
 
       {/* Lists */}
-      <div className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
+      <div className="flex-1 overflow-y-auto px-2.5 py-3.5 space-y-5">
 
         {/* CLIENT VIEW */}
         {isClient && allConversations
@@ -1020,12 +1020,12 @@ export function CommunicationPage({
   const filesTabCount = convAttachments.length;
 
   const mainPanel = (
-    <div className="flex flex-1 flex-col bg-white min-h-0">
+    <div className="flex flex-1 flex-col bg-[#fcfbf8] min-h-0">
       {displayedConv ? (
         <>
           {/* ─── HEADER ─── */}
-          <div className="shrink-0 border-b border-border bg-white">
-            <div className="flex items-start justify-between gap-3 px-5 py-3">
+          <div className="shrink-0 border-b border-border bg-white/95 backdrop-blur">
+            <div className="flex items-start justify-between gap-4 px-5 py-4 lg:px-6">
               <div className="flex items-center gap-3 min-w-0">
                 {/* Mobile back */}
                 <button className="md:hidden shrink-0 text-muted hover:text-ink" onClick={() => setMobilePanel('list')}>
@@ -1045,7 +1045,7 @@ export function CommunicationPage({
                 {/* Name + badge */}
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-display text-base font-bold text-ink truncate">{headerName}</h3>
+                    <h3 className="font-display text-lg font-bold text-ink truncate">{headerName}</h3>
                     {convTypeBadge()}
                   </div>
                   {activeProject && (
@@ -1091,7 +1091,7 @@ export function CommunicationPage({
                 <button
                   onClick={() => setContextPanelOpen(v => !v)}
                   className={`rounded-lg p-2 transition ${contextPanelOpen ? 'bg-gold/15 text-ink' : 'text-muted hover:text-ink hover:bg-black/5'}`}
-                  title="Conversation info"
+                  title={contextPanelOpen ? 'Hide conversation info' : 'Show conversation info'}
                 >
                   <Info className="h-4 w-4" />
                 </button>
@@ -1166,7 +1166,8 @@ export function CommunicationPage({
           {activeConvTab === 'chat' && (
             <div className="flex flex-col flex-1 min-h-0">
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+              <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8">
+                <div className="mx-auto w-full max-w-5xl space-y-5">
                 {activeMessages.length === 0 ? (
                   <div className="flex h-full items-center justify-center text-center">
                     <div>
@@ -1199,7 +1200,7 @@ export function CommunicationPage({
                         onMouseLeave={() => { setHoveredMessageId(null); }}
                       >
                         <UserAvatar profile={sender || (isMe ? currentProfile : null)} name={sender?.full_name} size="sm" showRoleRing />
-                        <div className={`max-w-[68%] space-y-1 ${isMe ? 'items-end text-right' : ''}`}>
+                        <div className={`max-w-[78%] sm:max-w-[72%] space-y-1.5 ${isMe ? 'items-end text-right' : ''}`}>
                           {/* Sender name + time */}
                           <div className={`flex items-center gap-2 text-[11px] ${isMe ? 'justify-end' : ''}`}>
                             <span className="font-semibold text-ink">{isMe ? 'You' : sender?.full_name || 'User'}</span>
@@ -1214,7 +1215,7 @@ export function CommunicationPage({
                           )}
 
                           {/* Message bubble */}
-                          <div className={`inline-block rounded-xl px-3.5 py-2.5 text-xs leading-relaxed text-left break-words ${
+                          <div className={`inline-block rounded-2xl px-4 py-3 text-[13px] leading-6 text-left break-words shadow-xs ${
                             isMe ? 'bg-ink text-white rounded-tr-none'
                             : displayedConv.type === 'project_internal' ? 'bg-amber-50 border border-amber-100 text-ink rounded-tl-none'
                             : displayedConv.type === 'project_client' ? 'bg-purple-50 border border-purple-100 text-ink rounded-tl-none'
@@ -1332,6 +1333,7 @@ export function CommunicationPage({
                   })
                 )}
                 <div ref={messagesEndRef} />
+                </div>
               </div>
 
               {/* Pending attachments */}
@@ -1381,9 +1383,9 @@ export function CommunicationPage({
               )}
 
               {/* Composer */}
-              <div className="shrink-0 border-t border-border bg-linen/20 p-3">
-                <div className="rounded-xl border border-border bg-white focus-within:border-gold transition overflow-hidden">
-                  <div className="flex items-center gap-1.5 px-3 py-2.5">
+              <div className="shrink-0 border-t border-border bg-white/90 p-3 sm:p-4">
+                <div className="mx-auto w-full max-w-5xl rounded-2xl border border-border bg-white shadow-xs transition focus-within:border-gold focus-within:ring-2 focus-within:ring-gold/10">
+                  <div className="flex items-end gap-1.5 px-3 py-2.5">
                     <label className="cursor-pointer shrink-0 rounded p-1.5 text-muted hover:text-ink hover:bg-black/5 transition">
                       <Paperclip className="h-4 w-4" />
                       <input type="file" onChange={handleFileUpload} className="hidden" />
@@ -1396,28 +1398,40 @@ export function CommunicationPage({
                     >
                       <AtSign className="h-4 w-4" />
                     </button>
-                    <input
-                      type="text"
+                    <textarea
+                      rows={1}
                       placeholder={`Message ${headerName || ''}…`}
                       value={messageInput}
-                      onChange={e => { setMessageInput(e.target.value); if (e.target.value.endsWith('@')) setShowMentionPopover(true); }}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
-                        if (e.key === 'Escape') { setShowMentionPopover(false); setReplyingToMessage(null); }
+                      onChange={e => {
+                        setMessageInput(e.target.value);
+                        if (e.target.value.endsWith('@')) setShowMentionPopover(true);
+                        e.currentTarget.style.height = 'auto';
+                        e.currentTarget.style.height = `${Math.min(e.currentTarget.scrollHeight, 128)}px`;
                       }}
-                      className="flex-1 bg-transparent text-xs text-ink outline-none placeholder:text-muted/60"
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSend();
+                          e.currentTarget.style.height = 'auto';
+                        }
+                        if (e.key === 'Escape') {
+                          setShowMentionPopover(false);
+                          setReplyingToMessage(null);
+                        }
+                      }}
+                      className="min-h-10 max-h-32 flex-1 resize-none bg-transparent px-1 py-2 text-[13px] leading-5 text-ink outline-none placeholder:text-muted/60"
                     />
                     <button
                       onClick={handleSend}
                       disabled={!messageInput.trim() && pendingAttachments.length === 0}
-                      className="shrink-0 flex items-center gap-1.5 rounded-lg bg-gold px-3 py-1.5 text-xs font-bold text-ink hover:bg-gold/90 transition disabled:opacity-40"
+                      className="shrink-0 flex min-h-10 items-center gap-1.5 rounded-xl bg-gold px-4 py-2 text-xs font-bold text-ink hover:bg-gold/90 transition disabled:opacity-40"
                     >
                       <Send className="h-3.5 w-3.5" />
                       <span className="hidden sm:inline">Send</span>
                     </button>
                   </div>
                 </div>
-                <p className="text-center text-[10px] text-muted/50 mt-1">Enter to send · Shift+Enter for new line</p>
+                <p className="mx-auto mt-1.5 max-w-5xl px-1 text-[10px] text-muted/60">Enter to send · Shift+Enter for a new line · @ to mention</p>
               </div>
             </div>
           )}
@@ -1614,7 +1628,7 @@ export function CommunicationPage({
   const contextPanel = (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="shrink-0 flex items-center justify-between border-b border-border px-4 py-3">
+      <div className="shrink-0 flex items-center justify-between border-b border-border bg-white px-5 py-4">
         <h3 className="text-xs font-bold uppercase tracking-wider text-muted">Conversation Info</h3>
         <div className="flex items-center gap-1">
           {/* Mobile back */}
@@ -1760,13 +1774,20 @@ export function CommunicationPage({
         />
       )}
 
-      <div className="flex flex-col h-[calc(100vh-140px)] overflow-hidden rounded-xl border border-border bg-white shadow-sm">
+      <div className="flex min-h-[640px] flex-col h-[calc(100vh-132px)] overflow-hidden rounded-2xl border border-border bg-white shadow-sm">
 
         {/* ── TOP BAR ── */}
-        <div className="shrink-0 flex items-center justify-between gap-3 border-b border-border bg-linen/40 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <MessageSquare className="h-4 w-4 text-gold shrink-0" />
-            <h2 className="font-display text-base font-bold text-ink hidden sm:block">Communication</h2>
+        <div className="shrink-0 flex items-center justify-between gap-3 border-b border-border bg-white px-5 py-3.5">
+          <div className="flex items-center gap-3">
+            <div className="grid h-9 w-9 place-items-center rounded-xl bg-gold/15 text-gold">
+              <MessageSquare className="h-4 w-4" />
+            </div>
+            <div>
+              <h2 className="font-display text-base font-bold text-ink">Inbox</h2>
+              <p className="text-[11px] text-muted">
+                {totalUnread > 0 ? `${totalUnread} unread message${totalUnread === 1 ? '' : 's'}` : 'All caught up'}
+              </p>
+            </div>
           </div>
           {!isClient && (
             <button
@@ -1783,7 +1804,7 @@ export function CommunicationPage({
         <div className="flex flex-1 min-h-0 overflow-hidden">
 
           {/* PANEL 1: Conversations sidebar */}
-          <div className={`flex-col w-72 shrink-0 border-r border-border bg-linen/20 ${
+          <div className={`flex-col w-80 xl:w-[21rem] shrink-0 border-r border-border bg-[#faf9f6] ${
             mobilePanel === 'list' ? 'flex' : 'hidden md:flex'
           }`}>
             {sidebar}
@@ -1798,7 +1819,7 @@ export function CommunicationPage({
 
           {/* PANEL 3: Context panel */}
           {contextPanelOpen && (
-            <div className={`flex-col w-72 shrink-0 border-l border-border bg-linen/10 ${
+            <div className={`flex-col w-80 shrink-0 border-l border-border bg-[#fcfbf8] ${
               mobilePanel === 'context' ? 'flex' : 'hidden lg:flex'
             }`}>
               {contextPanel}
