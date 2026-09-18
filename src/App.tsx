@@ -28,12 +28,11 @@ import { AIChatPanel } from './components/ai/AIChatPanel';
 import { AIDailyPopup } from './components/ai/AIDailyPopup';
 import { useTracker } from './lib/useTracker';
 import { errorMessage, isClientRole } from './lib/utils';
-import type { Project, ProjectDraft, ProjectLifecycleStatus, ProjectMetadataUpdate, Role } from './lib/types';
+import type { Project, ProjectDraft, ProjectLifecycleStatus, ProjectMetadataUpdate } from './lib/types';
 
 import { RevisionRequestModal } from './components/RevisionRequestModal';
 import { Toast, type ToastData } from './components/Toast';
 import { OfflineBanner } from './components/OfflineBanner';
-import { DemoRoleSwitcher } from './components/DemoRoleSwitcher';
 
 export default function App() {
   const tracker = useTracker();
@@ -145,15 +144,6 @@ export default function App() {
 
   async function updateSelectedProject(updates: ProjectMetadataUpdate) {
     if (selectedProjectFresh) await tracker.updateProject(selectedProjectFresh.id, updates);
-  }
-
-  function handleSwitchRole(role: Role) {
-    tracker.loginDemo(role);
-    setActiveView('dashboard');
-    setSelectedProject(null);
-    setEditingProject(null);
-    setShowProjectForm(false);
-    setShowRevisionModal(false);
   }
 
   if (tracker.isInitializing && !tracker.currentProfile) {
@@ -552,11 +542,6 @@ export default function App() {
       <AIChatPanel />
     </>
   )}
-  <DemoRoleSwitcher
-    currentRole={tracker.currentProfile.role}
-    currentProfile={tracker.currentProfile}
-    onSwitchRole={handleSwitchRole}
-  />
   </AIProvider>
   </CurrencyProvider>
   );
