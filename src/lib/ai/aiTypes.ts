@@ -73,6 +73,7 @@ export type AIToolName =
   | 'add_payroll_advance'
   | 'add_payroll_deduction'
   | 'send_internal_message'
+  | 'draft_client_communication'
   | 'send_client_message'
   | 'send_whatsapp_message'
   | 'generate_client_invoice';
