@@ -131,7 +131,18 @@ export class VoiceQueryEngine {
     const understanding = aiUnderstandingEngine.processMessage(q, ctx, pageCtx);
 
     // Smart Clarification Check
-    if (understanding.needsClarification && understanding.clarificationQuestion) {
+    // Do not let a low-confidence/unknown result from the newer understanding
+    // layer pre-empt the mature deterministic voice intent parser below. Many
+    // supported business commands (overdue, approvals, finance, payroll,
+    // follow-ups, etc.) are intentionally handled by that parser. Clarify early
+    // only when we have a concrete ambiguity or an assign-task request that
+    // genuinely needs a missing assignee.
+    const shouldClarifyBeforeLegacyParser =
+      understanding.needsClarification &&
+      Boolean(understanding.clarificationQuestion) &&
+      (understanding.ambiguities.length > 0 || understanding.intent.name === 'assign_task');
+
+    if (shouldClarifyBeforeLegacyParser && understanding.clarificationQuestion) {
       const result: AIToolResult = {
         success: true,
         toolName: 'get_tasks_summary',
