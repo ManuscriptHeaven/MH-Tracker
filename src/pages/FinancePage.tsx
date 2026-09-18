@@ -367,9 +367,9 @@ export function FinancePage({
       headers,
       rows,
       [
-        { label: 'Total Income', value: formatMoney(totalIncome, displayCurrency) },
+        { label: 'Order Revenue', value: formatMoney(totalIncome, 'USD') },
         { label: 'Total Expenses', value: formatMoney(totalExp, displayCurrency) },
-        { label: 'Net Profit', value: formatMoney(net, displayCurrency) },
+        { label: 'Revenue Less Expenses', value: formatMoney(net, 'USD') },
         { label: 'Client Receivables', value: formatMoney(kpiData.receivable, displayCurrency) },
       ],
     );
@@ -472,10 +472,10 @@ export function FinancePage({
       </nav>
 
       {/* ========================================================================= */}
-      {/* TOP 4 KPI CARDS (CONVERTED TO DISPLAY CURRENCY) */}
+      {/* TOP 4 KPI CARDS — USD */}
       {/* ========================================================================= */}
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {/* 1. Income */}
+        {/* 1. Order Revenue */}
         <Card className="flex flex-col justify-between border-l-4 border-l-emerald-600 bg-white">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wider text-muted">Order Revenue</span>
@@ -990,8 +990,7 @@ export function FinancePage({
                     <th>Description</th>
                     <th>Category</th>
                     <th>Vendor</th>
-                    <th className="text-right">Original Amount</th>
-                    <th className="text-right">Display ({displayCurrency})</th>
+                    <th className="text-right">Amount (USD)</th>
                     <th>Method</th>
                     {canManage && <th className="text-right">Actions</th>}
                   </tr>
@@ -1010,9 +1009,6 @@ export function FinancePage({
                             </span>
                           </td>
                           <td className="text-xs text-muted">{item.vendor || '—'}</td>
-                          <td className="text-right font-medium text-slate-800 whitespace-nowrap">
-                            -{txInfo.originalValue}
-                          </td>
                           <td className="text-right font-bold text-slate-900 whitespace-nowrap">
                             -{txInfo.displayValue}
                           </td>
@@ -1045,7 +1041,7 @@ export function FinancePage({
                     })
                   ) : (
                     <tr>
-                      <td colSpan={8} className="py-8 text-center text-sm text-muted">
+                      <td colSpan={7} className="py-8 text-center text-sm text-muted">
                         No expense records found.
                       </td>
                     </tr>
@@ -1276,7 +1272,7 @@ export function FinancePage({
 
                 <Button variant="secondary" onClick={handleExportReportsCSV}>
                   <Download className="h-4 w-4" />
-                  Export CSV ({displayCurrency})
+                  Export CSV (USD)
                 </Button>
 
                 <Button variant="secondary" onClick={handlePrintReport}>
@@ -1289,7 +1285,7 @@ export function FinancePage({
             {/* Financial Summary Box */}
             <div className="mt-6 grid gap-4 rounded-lg border border-border bg-ivory/80 p-5 sm:grid-cols-2 lg:grid-cols-5">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted">Year Income</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted">Year Order Revenue</p>
                 <p className="mt-1 font-display text-2xl font-bold text-ink">
                   {formatMoney(monthlyReports.reduce((s, r) => s + r.income, 0), displayCurrency)}
                 </p>
@@ -1303,7 +1299,7 @@ export function FinancePage({
               </div>
 
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted">Net Profit</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted">Revenue Less Expenses</p>
                 <p className="mt-1 font-display text-2xl font-bold text-emerald-700">
                   {formatMoney(
                     monthlyReports.reduce((s, r) => s + r.income, 0) -
@@ -1331,16 +1327,17 @@ export function FinancePage({
             {/* Monthly Summary Table */}
             <div className="mt-8">
               <h3 className="font-display text-lg font-semibold text-ink">
-                Monthly Breakdown ({selectedReportYear}) — in {displayCurrency}
+                Monthly Order Revenue ({selectedReportYear}) — USD
               </h3>
               <div className="mt-3 overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead className="border-b border-border text-xs font-semibold uppercase tracking-wider text-muted">
                     <tr>
                       <th className="py-2.5">Month</th>
-                      <th className="text-right">Income ({displayCurrency})</th>
-                      <th className="text-right">Expenses ({displayCurrency})</th>
-                      <th className="text-right">Profit ({displayCurrency})</th>
+                      <th className="text-right">Orders</th>
+                      <th className="text-right">Order Revenue</th>
+                      <th className="text-right">Expenses</th>
+                      <th className="text-right">Revenue Less Expenses</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
@@ -1349,8 +1346,9 @@ export function FinancePage({
                         <td className="py-2.5 font-medium text-ink">
                           {row.month_name} {selectedReportYear}
                         </td>
-                        <td className="text-right text-emerald-700 font-semibold">{formatMoney(row.income, displayCurrency)}</td>
-                        <td className="text-right text-slate-800">{formatMoney(row.expenses, displayCurrency)}</td>
+                        <td className="text-right text-muted">{row.order_count}</td>
+                        <td className="text-right text-emerald-700 font-semibold">{formatMoney(row.income, 'USD')}</td>
+                        <td className="text-right text-slate-800">{formatMoney(row.expenses, 'USD')}</td>
                         <td
                           className={`text-right font-bold ${
                             row.profit >= 0 ? 'text-emerald-700' : 'text-rose-700'
@@ -1363,8 +1361,11 @@ export function FinancePage({
                     {/* Totals Row */}
                     <tr className="border-t-2 border-border font-bold bg-ivory/40">
                       <td className="py-3 font-display text-ink">Total {selectedReportYear}</td>
+                      <td className="text-right text-muted">
+                        {monthlyReports.reduce((s, r) => s + r.order_count, 0)}
+                      </td>
                       <td className="text-right text-emerald-700">
-                        {formatMoney(monthlyReports.reduce((s, r) => s + r.income, 0), displayCurrency)}
+                        {formatMoney(monthlyReports.reduce((s, r) => s + r.income, 0), 'USD')}
                       </td>
                       <td className="text-right text-slate-800">
                         {formatMoney(monthlyReports.reduce((s, r) => s + r.expenses, 0), displayCurrency)}
@@ -1568,9 +1569,7 @@ export function FinancePage({
                     <tr>
                       <th className="py-2">Date</th>
                       <th>Description</th>
-                      <th className="text-right">Original Amount</th>
-                      <th className="text-center">Rate</th>
-                      <th className="text-right">Display Amount ({displayCurrency})</th>
+                      <th className="text-right">Amount (USD)</th>
                       <th>Method</th>
                       <th className="text-center">Status</th>
                     </tr>
@@ -1582,12 +1581,6 @@ export function FinancePage({
                         <tr key={tx.id} className="hover:bg-ivory/50">
                           <td className="py-2.5 text-xs text-muted whitespace-nowrap">{tx.transaction_date}</td>
                           <td className="text-ink text-xs font-medium">{tx.description}</td>
-                          <td className="text-right font-medium text-emerald-700 text-xs whitespace-nowrap">
-                            {txInfo.originalValue}
-                          </td>
-                          <td className="text-center text-xs text-muted whitespace-nowrap">
-                            {tx.currency === 'USD' ? `${tx.exchange_rate || exchangeRate} PKR/USD` : '1.0 (PKR)'}
-                          </td>
                           <td className="text-right font-bold text-emerald-900 text-xs whitespace-nowrap">
                             {txInfo.displayValue}
                           </td>
@@ -1610,8 +1603,8 @@ export function FinancePage({
                     })}
                     {activeClientDetail.transactions.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="py-4 text-center text-xs text-muted">
-                          No direct income payments recorded for this client yet.
+                        <td colSpan={5} className="py-4 text-center text-xs text-muted">
+                          No payment audit entries recorded for this client yet.
                         </td>
                       </tr>
                     )}
@@ -1805,7 +1798,7 @@ export function FinancePage({
           onSave={async (amount, date, method, notes) => {
             const numAmount = Number(amount);
 
-            // 1. Create income transaction with exact currency & rate
+            // 1. Create a USD payment audit transaction (not used to calculate order revenue)
             if (onCreateTransaction) {
               await onCreateTransaction({
                 type: 'income',
@@ -1826,7 +1819,7 @@ export function FinancePage({
               });
             }
 
-            // 2. Update project advance paid in base USD
+            // 2. Update project paid balance in USD
             if (onUpdateProject) {
               const newPaid = Number(projectToPay.advance_paid || 0) + numAmount;
               const total = Number(projectToPay.total_price || 0);
