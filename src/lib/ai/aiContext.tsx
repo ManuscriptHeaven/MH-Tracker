@@ -38,6 +38,27 @@ function persistentMessageMetadata(message: AIMessage['metadata']): AIMessage['m
   };
 }
 
+function suggestedFollowUpsForResult(result: AIToolResult): string[] {
+  switch (result.toolName) {
+    case 'get_overdue_projects':
+      return ['Which clients?', 'Who is assigned to them?', 'What is due today?'];
+    case 'get_pending_approvals':
+      return ['Which clients are waiting?', 'What is overdue?', 'Show projects in revision'];
+    case 'get_client_receivables':
+      return ['Who owes the most?', 'Show order revenue and expenses this month', 'Show invoice summary'];
+    case 'get_finance_summary':
+      return ['Who owes us money?', 'How much do we owe the team?', 'Show invoice summary'];
+    case 'get_employee_workload':
+      return ['Who has overdue work?', 'Show active projects summary', 'What is due this week?'];
+    case 'get_projects_in_revision':
+      return ['Which ones?', 'Who is working on them?', 'What is due this week?'];
+    case 'get_project_summary':
+      return ['What is overdue?', 'What is due today?', 'What is waiting for client approval?'];
+    default:
+      return [];
+  }
+}
+
 interface AIContextType {
   isOpen: boolean;
   isChatMinimized: boolean;
@@ -493,6 +514,7 @@ export function AIProvider({
             disambiguation: result.disambiguation,
             auditLog: result.auditLog,
             invoice: result.invoice,
+            suggestedFollowUps: suggestedFollowUpsForResult(result),
           },
           createdAt: new Date().toISOString(),
         };
