@@ -233,6 +233,12 @@ function phase6Error(error: unknown) {
   if (message.includes('workflow_forbidden')) {
     return new Error('You do not have permission to perform this workflow action.');
   }
+  if (message.includes('workflow_admin_reason_required')) {
+    return new Error('Admin override requires a reason of at least 10 characters and a detailed explanation.');
+  }
+  if (message.includes('workflow_final_delivery_required')) {
+    return new Error('Complete the project through Final Delivery so delivery evidence and timestamps remain consistent.');
+  }
   if (message.includes('workflow_invalid_state')) {
     return new Error('This workflow action is not valid for the project’s current stage. Refresh and try again.');
   }
