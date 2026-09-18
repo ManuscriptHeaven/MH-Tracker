@@ -295,13 +295,19 @@ export interface RAGSource {
 
 export interface DailySummary {
   greeting: string;
+  headline: string;
+  generatedAt: string;
+  financeVisible: boolean;
   pendingProjects: { count: number; items: DailySummaryItem[] };
   dueToday: { count: number; items: DailySummaryItem[] };
+  overdueProjects: { count: number; items: DailySummaryItem[] };
   overdueTasks: { count: number; items: DailySummaryItem[] };
+  awaitingApprovals: { count: number; items: DailySummaryItem[] };
   unreadMessages: number;
   pendingInvoices: { count: number; totalAmount: number };
+  receivables: number;
   revenueSummary: { thisMonth: number; lastMonth: number; change: number };
-  recommendedActions: string[];
+  recommendedActions: DailyRecommendedAction[];
   proactiveInsights: ProactiveInsight[];
 }
 
@@ -312,8 +318,26 @@ export interface DailySummaryItem {
   urgency?: 'low' | 'medium' | 'high' | 'critical';
 }
 
+export interface DailyRecommendedAction {
+  id: string;
+  title: string;
+  description: string;
+  command: string;
+  priority: 'high' | 'medium' | 'low';
+  relatedId?: string;
+}
+
 export interface ProactiveInsight {
-  type: 'missing_invoice' | 'late_project' | 'missing_files' | 'unpaid_client' | 'upcoming_deadline' | 'duplicate_project';
+  type:
+    | 'missing_invoice'
+    | 'late_project'
+    | 'missing_files'
+    | 'unpaid_client'
+    | 'upcoming_deadline'
+    | 'duplicate_project'
+    | 'approval_stall'
+    | 'workload_risk'
+    | 'overdue_task';
   title: string;
   description: string;
   severity: 'info' | 'warning' | 'critical';
