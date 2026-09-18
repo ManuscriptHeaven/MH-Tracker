@@ -18,15 +18,10 @@ import {
   EXPENSE_CATEGORIES,
   PAYMENT_METHODS,
   calculateClientBalances,
-  calculateMonthlyReports,
   calculateTeamPayments,
   exportReportPDF,
   exportToCSV,
-  formatOriginalCurrency,
-  formatPKR,
-  getTransactionPkr,
   isDateInRange,
-  type ClientBalanceSummary,
   type DateFilterType,
 } from '../lib/financeUtils';
 import type {
@@ -91,7 +86,7 @@ export function FinancePage({
   onDeleteLedgerEntry?: (entryId: string) => Promise<void>;
   onSaveBudget?: (category: string, monthlyBudgetPkr: number) => Promise<void>;
 }) {
-  const { displayCurrency, exchangeRate, formatMoney, convertMoney, formatOriginal, formatTransaction } = useCurrency();
+  const { displayCurrency, exchangeRate, formatMoney, convertMoney, formatTransaction } = useCurrency();
   const [activeTab, setActiveTab] = useState<FinanceTab>('overview');
   const [dateFilter, setDateFilter] = useState<DateFilterType>('this_month');
   const [customStart, setCustomStart] = useState('');
