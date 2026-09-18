@@ -166,10 +166,10 @@ export class AIService {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       
-      await supabase.from('ai_daily_summary_dismissals').insert({
+      await supabase.from('ai_daily_summary_dismissals').upsert({
         user_id: user.id,
-        dismissed_at: new Date().toISOString()
-      });
+        dismissed_date: new Date().toISOString().slice(0, 10)
+      }, { onConflict: 'user_id,dismissed_date' });
     } catch (e) {
       console.error(e);
     }
@@ -196,6 +196,88 @@ export class AIService {
     } catch (e) {
       console.error(e);
       return [];
+    }
+  }
+
+  async createConversation(userId: string, title: string): Promise<AIConversation | null> {
+    if (!isSupabaseConfigured || !supabase) return null;
+
+    const cleanTitle = title.trim().slice(0, 80) || 'New Conversation';
+    const { data, error } = await supabase
+      .from('ai_conversations')
+      .insert({
+        user_id: userId,
+        title: cleanTitle,
+      })
+      .select('*')
+      .single();
+
+    if (error || !data) {
+      console.error('Failed to create AI conversation:', error);
+      return null;
+    }
+
+    return {
+      id: data.id,
+      userId: data.user_id,
+      title: data.title || cleanTitle,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+      messages: [],
+    };
+  }
+
+  async saveMessage(
+    conversationId: string,
+    role: AIMessage['role'],
+    content: string,
+    metadata: AIMessage['metadata'] = {},
+  ): Promise<AIMessage | null> {
+    if (!isSupabaseConfigured || !supabase) return null;
+
+    const { data, error } = await supabase
+      .from('ai_messages')
+      .insert({
+        conversation_id: conversationId,
+        role,
+        content,
+        metadata: metadata || {},
+      })
+      .select('*')
+      .single();
+
+    if (error || !data) {
+      console.error('Failed to persist AI message:', error);
+      return null;
+    }
+
+    return {
+      id: data.id,
+      conversationId: data.conversation_id,
+      role: data.role,
+      content: data.content,
+      metadata: data.metadata || {},
+      createdAt: data.created_at,
+    };
+  }
+
+  async touchConversation(id: string, title?: string): Promise<void> {
+    if (!isSupabaseConfigured || !supabase) return;
+
+    const updates: Record<string, string> = {
+      updated_at: new Date().toISOString(),
+    };
+    if (title?.trim()) {
+      updates.title = title.trim().slice(0, 80);
+    }
+
+    const { error } = await supabase
+      .from('ai_conversations')
+      .update(updates)
+      .eq('id', id);
+
+    if (error) {
+      console.error('Failed to update AI conversation:', error);
     }
   }
 
