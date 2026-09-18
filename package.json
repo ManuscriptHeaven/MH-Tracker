@@ -11,7 +11,7 @@
     "test:voice": "npx --yes tsx scripts/test-voice-assistant.mjs",
     "test:tasks-v2": "node scripts/task-management-v2-static-tests.mjs",
     "test:critical-repair": "node scripts/critical-action-repair-tests.mjs",
-    "test": "npx --yes tsx scripts/timeline-tests.mjs && npx --yes tsx scripts/test-voice-assistant.mjs"
+    "test": "npx --yes tsx scripts/timeline-tests.mjs && npx --yes tsx scripts/test-voice-assistant.mjs && node scripts/task-management-v2-static-tests.mjs && node scripts/critical-action-repair-tests.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
