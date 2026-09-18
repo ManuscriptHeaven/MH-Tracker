@@ -1864,30 +1864,168 @@ export async function execute_send_internal_message(
 }
 
 export async function execute_send_client_message(
-  payload: { clientName: string; body: string },
+  payload: {
+    projectId: string;
+    clientName: string;
+    clientEmail?: string;
+    subject?: string;
+    body: string;
+    tone?: 'professional' | 'friendly' | 'firm';
+    communicationKind?: string;
+    channel?: 'project_client';
+  },
   ctx: AIToolContext,
 ): Promise<AIToolResult> {
-  const audit = createAuditLog(
-    ctx,
-    `Prepared client notification for ${payload.clientName}`,
-    'message',
-    undefined,
-    payload.clientName,
-    null,
-    payload.body,
-    'success',
+  if (!isManagerRole(ctx.currentProfile.role)) {
+    return {
+      success: false,
+      toolName: 'send_client_message',
+      error: 'permission_denied',
+      spokenText: "I can't send client-facing messages with your current permissions.",
+      displayText: '🔒 Client communication is restricted to Admin and Project Manager roles.',
+    };
+  }
+
+  const project = ctx.visibleProjects.find((item) => item.id === payload.projectId);
+  if (!project) {
+    return {
+      success: false,
+      toolName: 'send_client_message',
+      error: 'project_not_found',
+      spokenText: "I couldn't find the project for this client message.",
+      displayText: '❌ Project not found or no longer accessible.',
+    };
+  }
+
+  if (project.client_name.toLowerCase() !== payload.clientName.toLowerCase()) {
+    return {
+      success: false,
+      toolName: 'send_client_message',
+      error: 'client_project_mismatch',
+      spokenText: 'The client no longer matches this project, so I did not send the message.',
+      displayText: '❌ Client/project context changed. Please generate a fresh draft.',
+    };
+  }
+
+  const projectAccess = (ctx.data.clientProjectAccess || []).filter(
+    (access) => access.project_id === project.id,
   );
+  if (projectAccess.length === 0) {
+    return {
+      success: false,
+      toolName: 'send_client_message',
+      error: 'client_portal_access_required',
+      spokenText:
+        'This project does not currently have client portal access, so there is no client conversation recipient. I did not send the message.',
+      displayText:
+        '### Client Access Required\n\n' +
+        '**' +
+        project.project_title +
+        '** does not currently have a client portal access record. ' +
+        'The draft was not sent. Add/assign client access first, then regenerate the message.',
+    };
+  }
 
-  const spoken = `Done. The message for ${payload.clientName} has been queued.`;
-  const display = `### ✉️ Client Notification Sent\n\n• **To Client:** **${payload.clientName}**\n• **Message:** "${payload.body}"`;
+  if (!payload.body?.trim()) {
+    return {
+      success: false,
+      toolName: 'send_client_message',
+      error: 'message_body_required',
+      spokenText: 'The client message is empty, so I did not send it.',
+      displayText: '❌ Client message body is required.',
+    };
+  }
 
-  return {
-    success: true,
-    toolName: 'send_client_message',
-    spokenText: spoken,
-    displayText: display,
-    auditLog: audit,
-  };
+  if (!ctx.trackerMutations?.getOrCreateProjectConversation || !ctx.trackerMutations?.sendMessage) {
+    return {
+      success: false,
+      toolName: 'send_client_message',
+      error: 'messaging_unavailable',
+      spokenText: 'Client messaging is not available in the current workspace.',
+      displayText: '❌ Project client messaging is not available.',
+    };
+  }
+
+  try {
+    const conversation = await ctx.trackerMutations.getOrCreateProjectConversation(
+      project.id,
+      false,
+    );
+
+    if (!conversation?.id) {
+      throw new Error('Client conversation could not be created.');
+    }
+
+    const sent = await ctx.trackerMutations.sendMessage(
+      conversation.id,
+      payload.body.trim(),
+    );
+
+    const audit = createAuditLog(
+      ctx,
+      'Sent client message: ' + (payload.communicationKind || 'client communication'),
+      'message',
+      sent?.id || conversation.id,
+      project.project_title,
+      null,
+      payload.body.trim(),
+      'success',
+    );
+
+    return {
+      success: true,
+      toolName: 'send_client_message',
+      spokenText:
+        'Done. The message was sent to ' +
+        project.client_name +
+        ' in the ' +
+        project.project_title +
+        ' client conversation.',
+      displayText:
+        '### ✉️ Client Message Sent\n\n' +
+        '• **Client:** **' +
+        project.client_name +
+        '**\n' +
+        '• **Project:** ' +
+        project.project_title +
+        ' (' +
+        project.project_number +
+        ')\n' +
+        '• **Channel:** Client project conversation\n' +
+        (payload.subject ? '• **Subject:** ' + payload.subject + '\n' : '') +
+        '• **Tone:** ' +
+        (payload.tone || 'professional') +
+        '\n\n' +
+        payload.body.trim(),
+      auditLog: audit,
+      data: {
+        messageId: sent?.id,
+        conversationId: conversation.id,
+        projectId: project.id,
+        clientName: project.client_name,
+      },
+    };
+  } catch (err: any) {
+    const errorMsg = err?.message || 'Failed to send client message.';
+    return {
+      success: false,
+      toolName: 'send_client_message',
+      error: errorMsg,
+      spokenText: "I couldn't send the client message. " + errorMsg,
+      displayText: '❌ Failed to send client message: ' + errorMsg,
+      auditLog: createAuditLog(
+        ctx,
+        'Client message failed',
+        'message',
+        project.id,
+        project.project_title,
+        null,
+        null,
+        'failed',
+        errorMsg,
+      ),
+    };
+  }
 }
 
 export async function execute_invite_client(
