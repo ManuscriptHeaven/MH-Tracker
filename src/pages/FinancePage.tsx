@@ -30,7 +30,6 @@ import {
   type DateFilterType,
 } from '../lib/financeUtils';
 import type {
-  CurrencyCode,
   EmployeeCompensation,
   EmployeeLedgerEntry,
   FinanceBudget,
@@ -40,6 +39,18 @@ import type {
   Project,
 } from '../lib/types';
 import { errorMessage, isManagerRole } from '../lib/utils';
+
+function isRevenueOrder(project: Project) {
+  return (
+    Number(project.total_price || 0) > 0 &&
+    project.project_status !== 'cancelled' &&
+    project.project_status !== 'archived'
+  );
+}
+
+function orderDate(project: Project) {
+  return project.created_at || project.start_date || project.due_date;
+}
 
 export type FinanceTab =
   | 'overview'
@@ -93,7 +104,6 @@ export function FinancePage({
   const [selectedReportYear, setSelectedReportYear] = useState<number>(currentYearNumber);
 
   // Modals state
-  const [showAddIncomeModal, setShowAddIncomeModal] = useState(false);
   const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<FinanceTransaction | null>(null);
   const [deletingTransactionId, setDeletingTransactionId] = useState<string | null>(null);
@@ -114,7 +124,6 @@ export function FinancePage({
   // Income Tab Filters
   const [incomeSearch, setIncomeSearch] = useState('');
   const [incomeClientFilter, setIncomeClientFilter] = useState('all');
-  const [incomeProjectFilter, setIncomeProjectFilter] = useState('all');
   const [incomeStatusFilter, setIncomeStatusFilter] = useState('all');
 
   // Expense Tab Filters
@@ -139,6 +148,23 @@ export function FinancePage({
     );
   }, [activeTransactions, dateFilter, customStart, customEnd]);
 
+  // Order revenue is authoritative and automatic: contract value from valid
+  // projects, grouped by the month the order/project was created.
+  const periodProjects = useMemo(
+    () =>
+      projects.filter(
+        (project) =>
+          isRevenueOrder(project) &&
+          isDateInRange(orderDate(project), dateFilter, customStart, customEnd),
+      ),
+    [projects, dateFilter, customStart, customEnd],
+  );
+
+  const periodOrderRevenue = useMemo(
+    () => periodProjects.reduce((sum, project) => sum + Number(project.total_price || 0), 0),
+    [periodProjects],
+  );
+
   // Client Balances across projects & transactions (in base USD)
   const clientBalances = useMemo(() => {
     return calculateClientBalances(projects, activeTransactions);
@@ -159,29 +185,18 @@ export function FinancePage({
     };
   }, [convertMoney, displayCurrency, exchangeRate]);
 
-  // 4 Top KPI Cards metrics based on active period in active display currency
+  // Core finance KPIs. Revenue comes from orders; finance_transactions
+  // is used for operating expenses and payment audit entries only.
   const kpiData = useMemo(() => {
-    const income = dateFilteredTransactions
-      .filter((t) => t.type === 'income')
-      .reduce((sum, t) => sum + getTxDisplayAmount(t), 0);
+    const income = periodOrderRevenue;
 
     const expenses = dateFilteredTransactions
       .filter((t) => t.type === 'expense')
       .reduce((sum, t) => sum + getTxDisplayAmount(t), 0);
 
     const netProfit = income - expenses;
-
-    // Total outstanding receivables from clients in display currency
-    const totalReceivable = clientBalances.reduce(
-      (sum, c) => sum + convertMoney(c.outstanding, 'USD', displayCurrency),
-      0,
-    );
-
-    // Total team dues for selected month in display currency
-    const totalTeamDues = teamPayments.reduce(
-      (sum, p) => sum + convertMoney(p.outstanding, 'USD', displayCurrency),
-      0,
-    );
+    const totalReceivable = clientBalances.reduce((sum, c) => sum + c.outstanding, 0);
+    const totalTeamDues = teamPayments.reduce((sum, p) => sum + p.outstanding, 0);
 
     return {
       income,
@@ -189,8 +204,13 @@ export function FinancePage({
       netProfit,
       receivable: totalReceivable,
       teamDues: totalTeamDues,
+      orderCount: periodProjects.length,
+      collectedOnOrders: periodProjects.reduce(
+        (sum, project) => sum + Number(project.advance_paid || 0),
+        0,
+      ),
     };
-  }, [dateFilteredTransactions, clientBalances, teamPayments, getTxDisplayAmount, convertMoney, displayCurrency]);
+  }, [periodOrderRevenue, periodProjects, dateFilteredTransactions, clientBalances, teamPayments, getTxDisplayAmount]);
 
   // Recent 10 transactions for Overview
   const recentTransactions = useMemo(() => {
@@ -199,18 +219,24 @@ export function FinancePage({
       .slice(0, 10);
   }, [activeTransactions]);
 
-  // Income transactions list
+  // Orders & Revenue list. No manual income entry is required.
   const incomeList = useMemo(() => {
-    return activeTransactions
-      .filter((t) => t.type === 'income')
-      .filter((t) => isDateInRange(t.transaction_date, dateFilter, customStart, customEnd))
-      .filter((t) => {
-        if (incomeClientFilter !== 'all' && t.client_name !== incomeClientFilter) return false;
-        if (incomeProjectFilter !== 'all' && t.project_id !== incomeProjectFilter) return false;
-        if (incomeStatusFilter !== 'all' && t.payment_status !== incomeStatusFilter) return false;
+    return periodProjects
+      .filter((project) => {
+        if (incomeClientFilter !== 'all' && project.client_name !== incomeClientFilter) return false;
+        if (incomeStatusFilter !== 'all') {
+          const status = project.payment_status || 'Not Started';
+          if (status !== incomeStatusFilter) return false;
+        }
         if (incomeSearch.trim()) {
           const q = incomeSearch.toLowerCase();
-          const target = [t.description, t.client_name, t.payment_method, t.notes]
+          const target = [
+            project.project_number,
+            project.project_title,
+            project.client_name,
+            project.service_type,
+            project.payment_status,
+          ]
             .filter(Boolean)
             .join(' ')
             .toLowerCase();
@@ -218,17 +244,8 @@ export function FinancePage({
         }
         return true;
       })
-      .sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime());
-  }, [
-    activeTransactions,
-    dateFilter,
-    customStart,
-    customEnd,
-    incomeClientFilter,
-    incomeProjectFilter,
-    incomeStatusFilter,
-    incomeSearch,
-  ]);
+      .sort((a, b) => new Date(orderDate(b)).getTime() - new Date(orderDate(a)).getTime());
+  }, [periodProjects, incomeClientFilter, incomeStatusFilter, incomeSearch]);
 
   // Expense transactions list
   const expenseList = useMemo(() => {
@@ -259,19 +276,19 @@ export function FinancePage({
     expenseSearch,
   ]);
 
-  // Monthly reports for selected year (in display currency)
+  // Monthly reports: automatic order revenue minus recorded operating expenses.
   const monthlyReports = useMemo(() => {
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return monthNames.map((name, idx) => {
       const monthKey = `${selectedReportYear}-${String(idx + 1).padStart(2, '0')}`;
+      const monthOrders = projects.filter(
+        (project) => isRevenueOrder(project) && orderDate(project).slice(0, 7) === monthKey,
+      );
       const monthTx = activeTransactions.filter(
         (t) => !t.is_soft_deleted && t.transaction_date && t.transaction_date.startsWith(monthKey),
       );
 
-      const income = monthTx
-        .filter((t) => t.type === 'income')
-        .reduce((sum, t) => sum + getTxDisplayAmount(t), 0);
-
+      const income = monthOrders.reduce((sum, project) => sum + Number(project.total_price || 0), 0);
       const expenses = monthTx
         .filter((t) => t.type === 'expense')
         .reduce((sum, t) => sum + getTxDisplayAmount(t), 0);
@@ -280,12 +297,13 @@ export function FinancePage({
         month_index: idx,
         month_name: name,
         month_key: monthKey,
+        order_count: monthOrders.length,
         income,
         expenses,
         profit: income - expenses,
       };
     });
-  }, [activeTransactions, selectedReportYear, getTxDisplayAmount]);
+  }, [projects, activeTransactions, selectedReportYear, getTxDisplayAmount]);
 
   // Filtered Client Balances table
   const filteredClientBalances = useMemo(() => {
@@ -325,19 +343,19 @@ export function FinancePage({
 
   // Export CSV Handler for Reports
   function handleExportReportsCSV() {
-    const headers = [`Month`, `Income (${displayCurrency})`, `Expenses (${displayCurrency})`, `Net Profit (${displayCurrency})`];
+    const headers = [`Month`, `Order Revenue (USD)`, `Expenses (USD)`, `Revenue Less Expenses (USD)`];
     const rows = monthlyReports.map((r) => [
       `${r.month_name} ${selectedReportYear}`,
       r.income,
       r.expenses,
       r.profit,
     ]);
-    exportToCSV(`Manuscript_Heaven_Finance_${selectedReportYear}_${displayCurrency}`, headers, rows);
+    exportToCSV(`Manuscript_Heaven_Finance_${selectedReportYear}_USD`, headers, rows);
   }
 
   // Print Report Handler
   function handlePrintReport() {
-    const headers = ['Month', 'Income', 'Expenses', 'Net Profit'];
+    const headers = ['Month', 'Order Revenue', 'Expenses', 'Revenue Less Expenses'];
     const rows = monthlyReports.map((r) => [
       `${r.month_name} ${selectedReportYear}`,
       formatMoney(r.income, displayCurrency),
@@ -350,7 +368,7 @@ export function FinancePage({
 
     exportReportPDF(
       `Financial Report (${selectedReportYear})`,
-      `Annual Financial Summary — Display Currency: ${displayCurrency}`,
+      `Annual Financial Summary — USD`,
       headers,
       rows,
       [
@@ -371,7 +389,7 @@ export function FinancePage({
         <div>
           <h1 className="font-display text-3xl font-bold tracking-tight text-ink">Finance</h1>
           <p className="mt-1 text-sm text-muted">
-            Track income, expenses, client balances, payroll and profitability in real time.
+            Track automatic order revenue, expenses, client balances and payroll in USD.
           </p>
         </div>
 
@@ -417,17 +435,6 @@ export function FinancePage({
           {canManage && (
             <div className="flex items-center gap-2">
               <Button
-                variant="primary"
-                onClick={() => {
-                  setEditingTransaction(null);
-                  setShowAddIncomeModal(true);
-                }}
-              >
-                <Plus className="h-4 w-4" />
-                Income
-              </Button>
-
-              <Button
                 variant="secondary"
                 onClick={() => {
                   setEditingTransaction(null);
@@ -448,7 +455,7 @@ export function FinancePage({
       <nav className="flex flex-wrap gap-2 border-b border-border/70 pb-3" aria-label="Finance navigation tabs">
         {[
           { id: 'overview', label: 'Overview' },
-          { id: 'income', label: 'Income' },
+          { id: 'income', label: 'Orders & Revenue' },
           { id: 'expenses', label: 'Expenses' },
           { id: 'client_balances', label: 'Client Balances' },
           { id: 'team_payments', label: 'Team Payments' },
@@ -476,7 +483,7 @@ export function FinancePage({
         {/* 1. Income */}
         <Card className="flex flex-col justify-between border-l-4 border-l-emerald-600 bg-white">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted">Income</span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted">Order Revenue</span>
             <div className="rounded-md bg-emerald-50 p-2 text-emerald-700">
               <ArrowUpRight className="h-4 w-4" />
             </div>
@@ -486,7 +493,7 @@ export function FinancePage({
               {formatMoney(kpiData.income, displayCurrency)}
             </p>
             <p className="mt-1 text-xs text-muted">
-              {dateFilter === 'this_month' ? 'Received this month' : 'In selected period'}
+              {dateFilter === 'this_month' ? `${kpiData.orderCount} orders booked this month` : `${kpiData.orderCount} orders in selected period`}
             </p>
           </div>
         </Card>
@@ -516,7 +523,7 @@ export function FinancePage({
           } bg-white`}
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted">Net Profit</span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted">Revenue Less Expenses</span>
             <div
               className={`rounded-md p-2 ${
                 kpiData.netProfit >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
@@ -533,7 +540,7 @@ export function FinancePage({
             >
               {formatMoney(kpiData.netProfit, displayCurrency)}
             </p>
-            <p className="mt-1 text-xs text-muted">Income minus Expenses</p>
+            <p className="mt-1 text-xs text-muted">Order revenue minus operating expenses</p>
           </div>
         </Card>
 
@@ -571,13 +578,13 @@ export function FinancePage({
       {/* ========================================================================= */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
-          {/* SECTION 1: RECENT TRANSACTIONS */}
+          {/* SECTION 1: RECENT ORDERS */}
           <Card>
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div>
-                <h2 className="font-display text-xl font-semibold text-ink">Recent Transactions</h2>
+                <h2 className="font-display text-xl font-semibold text-ink">Recent Orders</h2>
                 <p className="text-xs text-muted">
-                  Latest financial movements showing display amount ({displayCurrency}) and original currency.
+                  Revenue is generated automatically from project order values. No duplicate income entry is needed.
                 </p>
               </div>
               <button
@@ -585,7 +592,7 @@ export function FinancePage({
                 onClick={() => setActiveTab('income')}
                 className="inline-flex items-center gap-1 text-xs font-semibold text-gold hover:underline cursor-pointer"
               >
-                View All Transactions <ChevronRight className="h-3.5 w-3.5" />
+                View Orders & Revenue <ChevronRight className="h-3.5 w-3.5" />
               </button>
             </div>
 
@@ -593,66 +600,44 @@ export function FinancePage({
               <table className="w-full text-left text-sm">
                 <thead className="border-b border-border/80 text-xs font-semibold uppercase tracking-wider text-muted">
                   <tr>
-                    <th className="py-2.5">Date</th>
-                    <th>Description</th>
-                    <th>Client / Vendor</th>
-                    <th>Type</th>
-                    <th className="text-right">Original</th>
-                    <th className="text-right">Display Amount</th>
-                    <th className="text-center">Status</th>
+                    <th className="py-2.5">Order Date</th>
+                    <th>Project</th>
+                    <th>Client</th>
+                    <th>Service</th>
+                    <th className="text-right">Order Value</th>
+                    <th className="text-right">Paid</th>
+                    <th className="text-right">Outstanding</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
-                  {recentTransactions.length > 0 ? (
-                    recentTransactions.map((tx) => {
-                      const isIncome = tx.type === 'income';
-                      const txInfo = formatTransaction(tx);
-                      const isPartial = tx.payment_status === 'Partially Paid';
+                  {projects
+                    .filter(isRevenueOrder)
+                    .sort((a, b) => new Date(orderDate(b)).getTime() - new Date(orderDate(a)).getTime())
+                    .slice(0, 10)
+                    .map((project) => {
+                      const total = Number(project.total_price || 0);
+                      const paid = Number(project.advance_paid || 0);
+                      const outstanding = Math.max(total - paid, 0);
                       return (
-                        <tr key={tx.id} className="hover:bg-ivory/60 transition">
-                          <td className="py-3 text-muted text-xs whitespace-nowrap">{tx.transaction_date}</td>
-                          <td className="font-medium text-ink">{tx.description}</td>
-                          <td className="text-muted text-xs">{tx.client_name || tx.vendor || '—'}</td>
+                        <tr key={project.id} className="hover:bg-ivory/60 transition">
+                          <td className="py-3 text-muted text-xs whitespace-nowrap">{orderDate(project).slice(0, 10)}</td>
                           <td>
-                            <span
-                              className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                                isIncome ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-800'
-                              }`}
-                            >
-                              {isIncome ? 'Income' : 'Expense'}
-                            </span>
+                            <p className="font-medium text-ink">{project.project_title}</p>
+                            <p className="text-[11px] text-muted">{project.project_number}</p>
                           </td>
-                          <td className="text-right text-xs text-muted whitespace-nowrap">
-                            {txInfo.originalValue}
-                          </td>
-                          <td
-                            className={`text-right font-bold whitespace-nowrap ${
-                              isIncome ? 'text-emerald-800' : 'text-slate-900'
-                            }`}
-                          >
-                            {isIncome ? '+' : '-'}{txInfo.displayValue}
-                          </td>
-                          <td className="text-center">
-                            <span
-                              className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                                tx.payment_status === 'Paid'
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : isPartial
-                                  ? 'bg-amber-100 text-amber-800'
-                                  : 'bg-rose-100 text-rose-800'
-                              }`}
-                            >
-                              {tx.payment_status || 'Paid'}
-                            </span>
+                          <td className="text-muted text-xs">{project.client_name}</td>
+                          <td className="text-muted text-xs">{project.service_type || '—'}</td>
+                          <td className="text-right font-semibold text-ink">{formatMoney(total, 'USD')}</td>
+                          <td className="text-right text-emerald-700">{formatMoney(paid, 'USD')}</td>
+                          <td className={`text-right font-bold ${outstanding > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                            {formatMoney(outstanding, 'USD')}
                           </td>
                         </tr>
                       );
-                    })
-                  ) : (
+                    })}
+                  {projects.filter(isRevenueOrder).length === 0 && (
                     <tr>
-                      <td colSpan={7} className="py-6 text-center text-sm text-muted">
-                        No transactions recorded yet.
-                      </td>
+                      <td colSpan={7} className="py-6 text-center text-sm text-muted">No revenue orders found.</td>
                     </tr>
                   )}
                 </tbody>
@@ -792,169 +777,131 @@ export function FinancePage({
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 2: INCOME */}
+      {/* TAB 2: ORDERS & REVENUE */}
       {/* ========================================================================= */}
       {activeTab === 'income' && (
         <div className="space-y-4">
           <Card>
-            <div className="flex flex-col justify-between gap-4 border-b border-border pb-4 sm:flex-row sm:items-center">
+            <div className="flex flex-col justify-between gap-4 border-b border-border pb-4 lg:flex-row lg:items-center">
               <div>
-                <h2 className="font-display text-xl font-semibold text-ink">Income Transactions</h2>
-                <p className="text-xs text-muted">Client payments with original currency & converted display amount ({displayCurrency}).</p>
+                <h2 className="font-display text-xl font-semibold text-ink">Orders & Revenue</h2>
+                <p className="text-xs text-muted">
+                  Automatic USD revenue from project orders. Cancelled and archived projects are excluded.
+                </p>
               </div>
-
-              {canManage && (
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    setEditingTransaction(null);
-                    setShowAddIncomeModal(true);
-                  }}
-                >
-                  <Plus className="h-4 w-4" />
-                  Add Income
-                </Button>
-              )}
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-md border border-border bg-ivory px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase text-muted">Orders</p>
+                  <p className="font-display text-lg font-bold text-ink">{periodProjects.length}</p>
+                </div>
+                <div className="rounded-md border border-border bg-ivory px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase text-muted">Revenue</p>
+                  <p className="font-display text-lg font-bold text-emerald-700">{formatMoney(kpiData.income, 'USD')}</p>
+                </div>
+                <div className="rounded-md border border-border bg-ivory px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase text-muted">Collected</p>
+                  <p className="font-display text-lg font-bold text-ink">{formatMoney(kpiData.collectedOnOrders, 'USD')}</p>
+                </div>
+              </div>
             </div>
 
-            {/* Filter controls */}
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <div className="relative">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-muted" />
                 <input
                   type="text"
-                  placeholder="Search description, client..."
+                  placeholder="Search order, project or client..."
                   value={incomeSearch}
                   onChange={(e) => setIncomeSearch(e.target.value)}
                   className="min-h-10 w-full rounded-md border border-border bg-white pl-9 pr-3 text-sm focus:border-gold focus:outline-hidden"
                 />
               </div>
-
               <select
-                aria-label="Filter by client"
+                aria-label="Filter orders by client"
                 value={incomeClientFilter}
                 onChange={(e) => setIncomeClientFilter(e.target.value)}
                 className="min-h-10 rounded-md border border-border bg-white px-3 text-sm focus:border-gold focus:outline-hidden"
               >
                 <option value="all">All Clients</option>
-                {clientBalances.map((c) => (
-                  <option key={c.client_name} value={c.client_name}>
-                    {c.client_name}
-                  </option>
+                {Array.from(new Set(periodProjects.map((project) => project.client_name))).sort().map((client) => (
+                  <option key={client} value={client}>{client}</option>
                 ))}
               </select>
-
               <select
-                aria-label="Filter by project"
-                value={incomeProjectFilter}
-                onChange={(e) => setIncomeProjectFilter(e.target.value)}
-                className="min-h-10 rounded-md border border-border bg-white px-3 text-sm focus:border-gold focus:outline-hidden"
-              >
-                <option value="all">All Projects</option>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.project_number} - {p.project_title}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                aria-label="Filter by payment status"
+                aria-label="Filter orders by payment status"
                 value={incomeStatusFilter}
                 onChange={(e) => setIncomeStatusFilter(e.target.value)}
                 className="min-h-10 rounded-md border border-border bg-white px-3 text-sm focus:border-gold focus:outline-hidden"
               >
-                <option value="all">All Statuses</option>
-                <option value="Paid">Paid</option>
+                <option value="all">All Payment Statuses</option>
+                <option value="Not Started">Not Started</option>
+                <option value="Advance Paid">Advance Paid</option>
                 <option value="Partially Paid">Partially Paid</option>
-                <option value="Pending">Pending</option>
+                <option value="Fully Paid">Fully Paid</option>
               </select>
             </div>
 
-            {/* Income Table */}
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="border-b border-border text-xs font-semibold uppercase tracking-wider text-muted">
                   <tr>
-                    <th className="py-2.5">Date</th>
-                    <th>Client</th>
+                    <th className="py-2.5">Order Date</th>
                     <th>Project</th>
-                    <th>Description</th>
-                    <th className="text-right">Original Amount</th>
-                    <th className="text-right">Display ({displayCurrency})</th>
-                    <th>Method</th>
-                    <th className="text-center">Status</th>
-                    {canManage && <th className="text-right">Actions</th>}
+                    <th>Client</th>
+                    <th>Service</th>
+                    <th className="text-right">Order Value</th>
+                    <th className="text-right">Paid</th>
+                    <th className="text-right">Outstanding</th>
+                    <th className="text-center">Payment</th>
+                    {canManage && <th className="text-right">Action</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
-                  {incomeList.length > 0 ? (
-                    incomeList.map((item) => {
-                      const linkedProject = projects.find((p) => p.id === item.project_id);
-                      const isPartial = item.payment_status === 'Partially Paid';
-                      const txInfo = formatTransaction(item);
-                      return (
-                        <tr key={item.id} className="hover:bg-ivory/60 transition">
-                          <td className="py-3 text-xs text-muted whitespace-nowrap">{item.transaction_date}</td>
-                          <td className="font-semibold text-ink">{item.client_name || '—'}</td>
-                          <td className="text-xs text-muted">
-                            {linkedProject ? (
-                              <span className="font-medium text-ink">{linkedProject.project_title}</span>
+                  {incomeList.map((project) => {
+                    const total = Number(project.total_price || 0);
+                    const paid = Number(project.advance_paid || 0);
+                    const outstanding = Math.max(total - paid, 0);
+                    return (
+                      <tr key={project.id} className="hover:bg-ivory/60 transition">
+                        <td className="py-3 text-xs text-muted whitespace-nowrap">{orderDate(project).slice(0, 10)}</td>
+                        <td>
+                          <p className="font-semibold text-ink">{project.project_title}</p>
+                          <p className="text-[11px] text-muted">{project.project_number}</p>
+                        </td>
+                        <td className="text-xs text-muted">{project.client_name}</td>
+                        <td className="text-xs text-muted">{project.service_type || '—'}</td>
+                        <td className="text-right font-bold text-ink">{formatMoney(total, 'USD')}</td>
+                        <td className="text-right text-emerald-700">{formatMoney(paid, 'USD')}</td>
+                        <td className={`text-right font-bold ${outstanding > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                          {formatMoney(outstanding, 'USD')}
+                        </td>
+                        <td className="text-center text-xs">
+                          <span className={`inline-block rounded-full px-2 py-0.5 font-semibold ${outstanding === 0 ? 'bg-emerald-100 text-emerald-800' : paid > 0 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'}`}>
+                            {outstanding === 0 ? 'Paid' : paid > 0 ? 'Partial' : 'Unpaid'}
+                          </span>
+                        </td>
+                        {canManage && (
+                          <td className="text-right">
+                            {outstanding > 0 ? (
+                              <Button
+                                variant="secondary"
+                                className="min-h-8 px-3 py-1 text-xs"
+                                onClick={() => setProjectToPay(project)}
+                              >
+                                Record Payment
+                              </Button>
                             ) : (
-                              '—'
+                              <span className="text-xs text-muted">Complete</span>
                             )}
                           </td>
-                          <td className="text-ink">{item.description}</td>
-                          <td className="text-right font-medium text-emerald-700 whitespace-nowrap">
-                            +{txInfo.originalValue}
-                          </td>
-                          <td className="text-right font-bold text-emerald-900 whitespace-nowrap">
-                            +{txInfo.displayValue}
-                          </td>
-                          <td className="text-xs text-muted">{item.payment_method || 'Bank Transfer'}</td>
-                          <td className="text-center">
-                            <span
-                              className={`inline-block rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
-                                item.payment_status === 'Paid'
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : isPartial
-                                  ? 'bg-amber-100 text-amber-800'
-                                  : 'bg-rose-100 text-rose-800'
-                              }`}
-                            >
-                              {item.payment_status || 'Paid'}
-                            </span>
-                          </td>
-                          {canManage && (
-                            <td className="text-right whitespace-nowrap">
-                              <div className="inline-flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingTransaction(item);
-                                    setShowAddIncomeModal(true);
-                                  }}
-                                  className="text-xs font-semibold text-muted hover:text-ink cursor-pointer"
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setDeletingTransactionId(item.id)}
-                                  className="text-xs font-semibold text-rose-600 hover:text-rose-800 cursor-pointer"
-                                >
-                                  Delete
-                                </button>
-                              </div>
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })
-                  ) : (
+                        )}
+                      </tr>
+                    );
+                  })}
+                  {incomeList.length === 0 && (
                     <tr>
                       <td colSpan={9} className="py-8 text-center text-sm text-muted">
-                        No income records found for this filter.
+                        No orders found for this period or filter.
                       </td>
                     </tr>
                   )}
@@ -974,7 +921,7 @@ export function FinancePage({
             <div className="flex flex-col justify-between gap-4 border-b border-border pb-4 sm:flex-row sm:items-center">
               <div>
                 <h2 className="font-display text-xl font-semibold text-ink">Business Expenses</h2>
-                <p className="text-xs text-muted">Track operating costs in original and display currency ({displayCurrency}).</p>
+                <p className="text-xs text-muted">Track operating costs in USD with project and vendor traceability.</p>
               </div>
 
               <div className="flex items-center gap-3">
@@ -1125,7 +1072,7 @@ export function FinancePage({
               <div>
                 <h2 className="font-display text-xl font-semibold text-ink">Client Balances</h2>
                 <p className="text-xs text-muted">
-                  Who owes Manuscript Heaven money — converted to display currency ({displayCurrency}).
+                  Who owes Manuscript Heaven money. All balances are shown in USD.
                 </p>
               </div>
 
@@ -1216,7 +1163,7 @@ export function FinancePage({
               <div>
                 <h2 className="font-display text-xl font-semibold text-ink">Team Payments</h2>
                 <p className="text-xs text-muted">
-                  Salaries, earnings, advances and employee dues displayed in {displayCurrency}.
+                  Salaries, earnings, advances and employee dues in USD.
                 </p>
               </div>
 
@@ -1441,46 +1388,6 @@ export function FinancePage({
             </div>
           </Card>
         </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* ADD / EDIT INCOME MODAL */}
-      {/* ========================================================================= */}
-      {showAddIncomeModal && (
-        <IncomeFormModal
-          transaction={editingTransaction}
-          projects={projects}
-          clientBalances={clientBalances}
-          onClose={() => {
-            setShowAddIncomeModal(false);
-            setEditingTransaction(null);
-          }}
-          onSave={async (draft, linkToProjectId) => {
-            if (editingTransaction && onUpdateTransaction) {
-              await onUpdateTransaction(editingTransaction.id, draft);
-            } else if (onCreateTransaction) {
-              await onCreateTransaction(draft);
-            }
-
-            // Sync with project if selected
-            if (linkToProjectId && onUpdateProject) {
-              const proj = projects.find((p) => p.id === linkToProjectId);
-              if (proj) {
-                const usdPayment = convertMoney(draft.amount, draft.currency || 'USD', 'USD', draft.exchange_rate);
-                const newPaid = Number(proj.advance_paid || 0) + usdPayment;
-                const total = Number(proj.total_price || 0);
-                await onUpdateProject(proj.id, {
-                  advance_paid: newPaid,
-                  payment_status: newPaid >= total ? 'Fully Paid' : newPaid > 0 ? 'Partially Paid' : 'Not Started',
-                  payment_date: draft.transaction_date,
-                });
-              }
-            }
-
-            setShowAddIncomeModal(false);
-            setEditingTransaction(null);
-          }}
-        />
       )}
 
       {/* ========================================================================= */}
@@ -1900,9 +1807,8 @@ export function FinancePage({
         <QuickProjectPaymentModal
           project={projectToPay}
           onClose={() => setProjectToPay(null)}
-          onSave={async (amount, currencyCode, rate, date, method, notes) => {
+          onSave={async (amount, date, method, notes) => {
             const numAmount = Number(amount);
-            const pkrAmount = currencyCode === 'PKR' ? numAmount : Math.round(numAmount * rate);
 
             // 1. Create income transaction with exact currency & rate
             if (onCreateTransaction) {
@@ -1912,10 +1818,10 @@ export function FinancePage({
                 description: `${projectToPay.client_name} – ${projectToPay.project_title}`,
                 amount: numAmount,
                 original_amount: numAmount,
-                currency: currencyCode,
-                exchange_rate: rate,
-                amount_pkr: pkrAmount,
-                base_amount_pkr: pkrAmount,
+                currency: 'USD',
+                exchange_rate: 1,
+                amount_pkr: numAmount,
+                base_amount_pkr: numAmount,
                 transaction_date: date,
                 client_name: projectToPay.client_name,
                 project_id: projectToPay.id,
@@ -1927,8 +1833,7 @@ export function FinancePage({
 
             // 2. Update project advance paid in base USD
             if (onUpdateProject) {
-              const usdVal = currencyCode === 'USD' ? numAmount : Number((numAmount / rate).toFixed(2));
-              const newPaid = Number(projectToPay.advance_paid || 0) + usdVal;
+              const newPaid = Number(projectToPay.advance_paid || 0) + numAmount;
               const total = Number(projectToPay.total_price || 0);
               await onUpdateProject(projectToPay.id, {
                 advance_paid: newPaid,
@@ -1972,240 +1877,6 @@ export function FinancePage({
 // SUBCOMPONENTS / MODALS
 // =============================================================================
 
-function IncomeFormModal({
-  transaction,
-  projects,
-  clientBalances,
-  onClose,
-  onSave,
-}: {
-  transaction: FinanceTransaction | null;
-  projects: Project[];
-  clientBalances: ClientBalanceSummary[];
-  onClose: () => void;
-  onSave: (draft: FinanceTransactionDraft, linkToProjectId?: string) => Promise<void>;
-}) {
-  const { exchangeRate: globalRate, formatMoney } = useCurrency();
-  const [clientName, setClientName] = useState(transaction?.client_name || '');
-  const [projectId, setProjectId] = useState(transaction?.project_id || '');
-  const [description, setDescription] = useState(transaction?.description || '');
-  const [amount, setAmount] = useState(transaction ? String(transaction.amount) : '');
-  const [currencyCode, setCurrencyCode] = useState<CurrencyCode>(transaction?.currency || 'USD');
-  const [exchangeRate, setExchangeRate] = useState(
-    transaction?.exchange_rate ? String(transaction.exchange_rate) : String(globalRate),
-  );
-  const [date, setDate] = useState(transaction?.transaction_date || new Date().toISOString().slice(0, 10));
-  const [paymentMethod, setPaymentMethod] = useState(transaction?.payment_method || 'Bank Transfer');
-  const [paymentStatus, setPaymentStatus] = useState<'Paid' | 'Partially Paid' | 'Pending'>(
-    (transaction?.payment_status as 'Paid' | 'Partially Paid' | 'Pending') || 'Paid',
-  );
-  const [notes, setNotes] = useState(transaction?.notes || '');
-  const [syncToProject, setSyncToProject] = useState(false);
-  const [error, setError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Filter projects by selected client name
-  const clientProjects = useMemo(() => {
-    if (!clientName.trim()) return projects;
-    return projects.filter(
-      (p) => (p.client_name || '').toLowerCase() === clientName.trim().toLowerCase(),
-    );
-  }, [projects, clientName]);
-
-  function handleSelectProject(projId: string) {
-    setProjectId(projId);
-    const proj = projects.find((p) => p.id === projId);
-    if (proj) {
-      if (!clientName) setClientName(proj.client_name);
-      if (!description) setDescription(`${proj.client_name} – ${proj.project_title}`);
-      if (!amount) {
-        const remaining = Math.max(0, Number(proj.total_price || 0) - Number(proj.advance_paid || 0));
-        if (remaining > 0) setAmount(String(remaining));
-      }
-    }
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!clientName.trim() && !description.trim()) {
-      setError('Please provide a client name or description.');
-      return;
-    }
-    const numAmount = Number(amount);
-    if (isNaN(numAmount) || numAmount <= 0) {
-      setError('Please enter a valid positive amount.');
-      return;
-    }
-
-    const rate = Number(exchangeRate) || globalRate;
-    const finalPkr = currencyCode === 'PKR' ? numAmount : Math.round(numAmount * rate);
-
-    try {
-      setIsSubmitting(true);
-      setError('');
-      await onSave(
-        {
-          type: 'income',
-          category: 'Project Payment',
-          description: description.trim() || `${clientName} Payment`,
-          amount: numAmount,
-          original_amount: numAmount,
-          currency: currencyCode,
-          exchange_rate: rate,
-          amount_pkr: finalPkr,
-          base_amount_pkr: finalPkr,
-          transaction_date: date,
-          client_name: clientName.trim() || null,
-          project_id: projectId || null,
-          payment_method: paymentMethod,
-          payment_status: paymentStatus,
-          notes: notes.trim() || null,
-        },
-        syncToProject ? projectId : undefined,
-      );
-    } catch (err) {
-      setError(errorMessage(err, 'Failed to save income.'));
-      setIsSubmitting(false);
-    }
-  }
-
-  return (
-    <Modal title={transaction ? 'Edit Income' : 'Add Income'} onClose={onClose} width="max-w-lg">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {error && <div className="rounded-md bg-rose-50 p-3 text-sm text-rose-700">{error}</div>}
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          {/* Client * */}
-          <div>
-            <label className="grid gap-1 text-sm font-medium text-ink">
-              <span>Client *</span>
-              <input
-                type="text"
-                list="client-suggestions"
-                required
-                placeholder="e.g. BCH, Shara, Fiverr"
-                value={clientName}
-                onChange={(e) => setClientName(e.target.value)}
-                className="min-h-10 rounded-md border border-border bg-white px-3 text-sm focus:border-gold"
-              />
-              <datalist id="client-suggestions">
-                {clientBalances.map((c) => (
-                  <option key={c.client_name} value={c.client_name} />
-                ))}
-              </datalist>
-            </label>
-          </div>
-
-          {/* Project (Optional) */}
-          <SelectField
-            label="Project (Optional)"
-            value={projectId}
-            onChange={(e) => handleSelectProject(e.target.value)}
-          >
-            <option value="">No specific project</option>
-            {clientProjects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.project_number} - {p.project_title}
-              </option>
-            ))}
-          </SelectField>
-        </div>
-
-        <Field
-          label="Description *"
-          required
-          placeholder="e.g. QAI Reformatting Milestone Payment"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
-
-        {/* Currency & Amount side-by-side */}
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field
-            label="Amount *"
-            type="number"
-            min="0.01"
-            step="any"
-            required
-            placeholder="0.00"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-          />
-
-          <SelectField
-            label="Original Currency *"
-            value={currencyCode}
-            onChange={(e) => setCurrencyCode(e.target.value as CurrencyCode)}
-          >
-            <option value="USD">USD ($)</option>
-            <option value="PKR">PKR (Rs.)</option>
-          </SelectField>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field
-            label="Date *"
-            type="date"
-            required
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
-
-          <SelectField
-            label="Payment Method"
-            value={paymentMethod}
-            onChange={(e) => setPaymentMethod(e.target.value)}
-          >
-            {PAYMENT_METHODS.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </SelectField>
-        </div>
-
-        <SelectField
-          label="Status"
-          value={paymentStatus}
-          onChange={(e) => setPaymentStatus(e.target.value as 'Paid' | 'Partially Paid' | 'Pending')}
-        >
-          <option value="Paid">Paid</option>
-          <option value="Partially Paid">Partially Paid</option>
-          <option value="Pending">Pending</option>
-        </SelectField>
-
-        {projectId && !transaction && (
-          <label className="flex items-center gap-2 text-xs text-ink cursor-pointer pt-1">
-            <input
-              type="checkbox"
-              checked={syncToProject}
-              onChange={(e) => setSyncToProject(e.target.checked)}
-              className="rounded border-border text-gold focus:ring-gold"
-            />
-            <span>Also update project contract advance balance</span>
-          </label>
-        )}
-
-        <TextareaField
-          label="Notes (Optional)"
-          placeholder="Payment transaction details, reference number or notes..."
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-        />
-
-        <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="secondary" onClick={onClose} disabled={isSubmitting}>
-            Cancel
-          </Button>
-          <Button type="submit" variant="primary" disabled={isSubmitting}>
-            {isSubmitting ? 'Saving...' : 'Save Income'}
-          </Button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
 function ExpenseFormModal({
   transaction,
   projects,
@@ -2217,13 +1888,8 @@ function ExpenseFormModal({
   onClose: () => void;
   onSave: (draft: FinanceTransactionDraft) => Promise<void>;
 }) {
-  const { exchangeRate: globalRate } = useCurrency();
   const [description, setDescription] = useState(transaction?.description || '');
   const [amount, setAmount] = useState(transaction ? String(transaction.amount) : '');
-  const [currencyCode, setCurrencyCode] = useState<CurrencyCode>(transaction?.currency || 'USD');
-  const [exchangeRate, setExchangeRate] = useState(
-    transaction?.exchange_rate ? String(transaction.exchange_rate) : String(globalRate),
-  );
   const [category, setCategory] = useState(transaction?.category || 'Software');
   const [date, setDate] = useState(transaction?.transaction_date || new Date().toISOString().slice(0, 10));
   const [paymentMethod, setPaymentMethod] = useState(transaction?.payment_method || 'Card');
@@ -2245,8 +1911,7 @@ function ExpenseFormModal({
       return;
     }
 
-    const rate = Number(exchangeRate) || globalRate;
-    const finalPkr = currencyCode === 'PKR' ? numAmount : Math.round(numAmount * rate);
+    const rate = 1.0;
 
     try {
       setIsSubmitting(true);
@@ -2257,10 +1922,10 @@ function ExpenseFormModal({
         description: description.trim(),
         amount: numAmount,
         original_amount: numAmount,
-        currency: currencyCode,
+        currency: 'USD',
         exchange_rate: rate,
-        amount_pkr: finalPkr,
-        base_amount_pkr: finalPkr,
+        amount_pkr: numAmount,
+        base_amount_pkr: numAmount,
         transaction_date: date,
         payment_method: paymentMethod,
         vendor: vendor.trim() || null,
@@ -2287,10 +1952,9 @@ function ExpenseFormModal({
           onChange={(e) => setDescription(e.target.value)}
         />
 
-        {/* Currency & Amount side-by-side */}
         <div className="grid gap-3 sm:grid-cols-2">
           <Field
-            label="Amount *"
+            label="Amount (USD) *"
             type="number"
             min="0.01"
             step="any"
@@ -2299,15 +1963,12 @@ function ExpenseFormModal({
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
           />
-
-          <SelectField
-            label="Original Currency *"
-            value={currencyCode}
-            onChange={(e) => setCurrencyCode(e.target.value as CurrencyCode)}
-          >
-            <option value="USD">USD ($)</option>
-            <option value="PKR">PKR (Rs.)</option>
-          </SelectField>
+          <div className="grid gap-1.5 text-sm font-medium text-ink">
+            <span>Currency</span>
+            <div className="flex min-h-11 items-center rounded-md border border-border bg-ivory px-3 text-sm font-semibold">
+              USD ($)
+            </div>
+          </div>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
@@ -2393,12 +2054,11 @@ function QuickProjectPaymentModal({
 }: {
   project: Project;
   onClose: () => void;
-  onSave: (amount: string, currencyCode: CurrencyCode, rate: number, date: string, method: string, notes: string) => Promise<void>;
+  onSave: (amount: string, date: string, method: string, notes: string) => Promise<void>;
 }) {
-  const { exchangeRate: globalRate, formatMoney } = useCurrency();
+  const { formatMoney } = useCurrency();
   const remaining = Math.max(0, Number(project.total_price || 0) - Number(project.advance_paid || 0));
   const [amount, setAmount] = useState(String(remaining || project.total_price || ''));
-  const [currencyCode, setCurrencyCode] = useState<CurrencyCode>('USD');
   const [method, setMethod] = useState('Bank Transfer');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState(`Payment for ${project.project_title}`);
@@ -2411,7 +2071,7 @@ function QuickProjectPaymentModal({
           e.preventDefault();
           if (Number(amount) <= 0) return;
           setIsSubmitting(true);
-          await onSave(amount, currencyCode, globalRate, date, method, notes);
+          await onSave(amount, date, method, notes);
         }}
         className="space-y-4"
       >
@@ -2428,7 +2088,7 @@ function QuickProjectPaymentModal({
 
         <div className="grid gap-3 sm:grid-cols-2">
           <Field
-            label="Payment Amount *"
+            label="Payment Amount (USD) *"
             type="number"
             min="0.01"
             step="any"
@@ -2436,15 +2096,12 @@ function QuickProjectPaymentModal({
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
           />
-
-          <SelectField
-            label="Currency *"
-            value={currencyCode}
-            onChange={(e) => setCurrencyCode(e.target.value as CurrencyCode)}
-          >
-            <option value="USD">USD ($)</option>
-            <option value="PKR">PKR (Rs.)</option>
-          </SelectField>
+          <div className="grid gap-1.5 text-sm font-medium text-ink">
+            <span>Currency</span>
+            <div className="flex min-h-11 items-center rounded-md border border-border bg-ivory px-3 text-sm font-semibold">
+              USD ($)
+            </div>
+          </div>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
