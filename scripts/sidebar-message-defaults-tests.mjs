@@ -12,13 +12,14 @@ function assert(condition, message) {
 const layout = fs.readFileSync('src/components/Layout.tsx', 'utf8');
 const messages = fs.readFileSync('src/pages/CommunicationPage.tsx', 'utf8');
 
-console.log('--- Collapsible Sidebar + New Message Defaults ---');
+console.log('--- Permanent Minimizable Sidebar + New Message Defaults ---');
 
 assert(
-  layout.includes('const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(false)') &&
-    layout.includes("desktopSidebarOpen ? 'translate-x-0' : '-translate-x-full'") &&
-    layout.includes("title={desktopSidebarOpen ? 'Close sidebar' : 'Open sidebar'}"),
-  'desktop sidebar is closed by default and can be opened from the header',
+  layout.includes('const [desktopSidebarMinimized, setDesktopSidebarMinimized]') &&
+    layout.includes("desktopSidebarMinimized ? 'w-20' : 'w-72'") &&
+    layout.includes("desktopSidebarMinimized ? 'lg:ml-20' : 'lg:ml-72'") &&
+    layout.includes("title={desktopSidebarMinimized ? 'Expand sidebar' : 'Minimize sidebar'}"),
+  'desktop sidebar remains visible and can switch between full and minimized widths',
 );
 
 assert(
@@ -36,9 +37,10 @@ assert(
 );
 
 assert(
-  layout.includes('<main className="pb-24 lg:pb-0">') &&
-    !layout.includes('lg:ml-72'),
-  'main workspace stays full width while desktop sidebar is closed',
+  layout.includes("localStorage.getItem('mh_desktop_sidebar_minimized') === '1'") &&
+    layout.includes("localStorage.setItem('mh_desktop_sidebar_minimized', minimized ? '1' : '0')") &&
+    !layout.includes('desktopSidebarOpen'),
+  'desktop sidebar minimization preference is persisted without hiding the sidebar',
 );
 
 assert(
