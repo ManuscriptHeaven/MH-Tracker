@@ -365,6 +365,12 @@ const checks = [
 
   // 7. Admin Override Modal in ProjectDetail.tsx
   [
+    'Admin Override exposes only canonical workflow stage targets (no Completed / On Hold / Cancelled lifecycle values)',
+    projectDetailSrc.includes("stg !== 'Completed'") &&
+    projectDetailSrc.includes("stg !== 'On Hold'") &&
+    projectDetailSrc.includes("stg !== 'Cancelled'"),
+  ],
+  [
     'Admin Override requires Reason Summary length >= 10',
     projectDetailSrc.includes('trimmedOverrideReason.length >= 10'),
   ],
