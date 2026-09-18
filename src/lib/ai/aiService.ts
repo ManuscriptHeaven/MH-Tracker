@@ -129,15 +129,29 @@ export class AIService {
   async getDailySummary(): Promise<DailySummary | null> {
     if (!isSupabaseConfigured || !supabase) {
       return {
-        greeting: "Good morning! Welcome to demo mode.",
+        greeting: 'Good morning.',
+        headline: 'No live workspace is connected for this briefing.',
+        generatedAt: new Date().toISOString(),
+        financeVisible: false,
         pendingProjects: { count: 0, items: [] },
         dueToday: { count: 0, items: [] },
+        overdueProjects: { count: 0, items: [] },
         overdueTasks: { count: 0, items: [] },
+        awaitingApprovals: { count: 0, items: [] },
         unreadMessages: 0,
         pendingInvoices: { count: 0, totalAmount: 0 },
+        receivables: 0,
         revenueSummary: { thisMonth: 0, lastMonth: 0, change: 0 },
-        recommendedActions: ["Explore the dashboard"],
-        proactiveInsights: []
+        recommendedActions: [
+          {
+            id: 'open-dashboard',
+            title: 'Review active work',
+            description: 'Open the workspace and review current project priorities.',
+            command: 'Show active projects summary',
+            priority: 'low',
+          },
+        ],
+        proactiveInsights: [],
       };
     }
 
@@ -156,6 +170,33 @@ export class AIService {
     } catch (e) {
       console.error(e);
       return null;
+    }
+  }
+
+  async wasDailySummaryDismissedToday(): Promise<boolean> {
+    if (!isSupabaseConfigured || !supabase) return false;
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return false;
+
+      const today = new Date().toISOString().slice(0, 10);
+      const { data, error } = await supabase
+        .from('ai_daily_summary_dismissals')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('dismissed_date', today)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Failed to read daily summary dismissal:', error);
+        return false;
+      }
+
+      return Boolean(data);
+    } catch (error) {
+      console.error('Failed to check daily summary dismissal:', error);
+      return false;
     }
   }
 
