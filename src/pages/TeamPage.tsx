@@ -1,8 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import {
   Camera,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Clock3,
   CreditCard,
   DollarSign,
   Edit2,
@@ -11,6 +13,7 @@ import {
   Phone,
   Plus,
   Search,
+  Sparkles,
   TrendingUp,
   Users,
   UserPlus,
@@ -180,342 +183,497 @@ export function TeamPage({
     ? compensation.find((c) => c.employee_id === detailModalProfileId)
     : undefined;
 
-  return (
-    <div className="space-y-5 max-w-7xl mx-auto">
-      {/* 1. Sleek Navigation Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white p-3 rounded-xl border border-border">
-        {/* Tab Switcher */}
-        <div className="flex items-center gap-1.5 bg-ivory p-1 rounded-lg border border-border/60">
-          <button
-            type="button"
-            onClick={() => setTab('payroll')}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-bold transition ${
-              tab === 'payroll'
-                ? 'bg-white text-ink shadow-xs'
-                : 'text-muted hover:text-ink'
-            }`}
-          >
-            <DollarSign className="h-3.5 w-3.5 text-gold" />
-            Payroll & Dues
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('directory')}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-bold transition ${
-              tab === 'directory'
-                ? 'bg-white text-ink shadow-xs'
-                : 'text-muted hover:text-ink'
-            }`}
-          >
-            <Users className="h-3.5 w-3.5 text-gold" />
-            Team Directory & Workload
-          </button>
-        </div>
+  const payrollCompletion =
+    payrollStats.totalPayroll > 0
+      ? Math.min(100, Math.round((payrollStats.totalPaid / payrollStats.totalPayroll) * 100))
+      : 100;
+  const unsettledPeople =
+    payrollStats.pendingCount + payrollStats.partiallyPaidCount + payrollStats.overdueCount;
 
-        {/* Global Action Buttons */}
-        {canManagePayroll ? (
-          <div className="flex items-center gap-2">
-            <Button
+  return (
+    <div className="mx-auto max-w-[1480px] space-y-5 px-0.5 pb-8">
+      {/* Team workspace navigation */}
+      <section className="rounded-2xl border border-border bg-white p-2 shadow-xs">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+          <div className="grid grid-cols-2 gap-1 rounded-xl bg-[#f7f4ec] p-1 sm:inline-grid sm:w-auto">
+            <button
               type="button"
-              variant="secondary"
-              onClick={() => {
-                setAddEmployeeError(null);
-                setProvisionSuccess(null);
-                setShowAddEmployeeModal(true);
-              }}
-              className="text-xs py-2 px-3.5 shadow-sm"
+              onClick={() => setTab('payroll')}
+              className={`flex min-h-10 items-center justify-center gap-2 rounded-lg px-3.5 text-xs font-bold transition sm:min-w-[150px] ${
+                tab === 'payroll'
+                  ? 'bg-white text-ink shadow-sm'
+                  : 'text-muted hover:bg-white/70 hover:text-ink'
+              }`}
             >
-              <UserPlus className="h-3.5 w-3.5" />
-              + Add New Employee
-            </Button>
-            <Button
+              <DollarSign className="h-4 w-4 text-gold" />
+              Payroll & Dues
+            </button>
+            <button
               type="button"
-              onClick={() => openAddEntry()}
-              className="text-xs py-2 px-3.5 shadow-sm"
+              onClick={() => setTab('directory')}
+              className={`flex min-h-10 items-center justify-center gap-2 rounded-lg px-3.5 text-xs font-bold transition sm:min-w-[190px] ${
+                tab === 'directory'
+                  ? 'bg-white text-ink shadow-sm'
+                  : 'text-muted hover:bg-white/70 hover:text-ink'
+              }`}
             >
-              <Plus className="h-3.5 w-3.5" />
-              + Add Entry / Bonus / Advance
-            </Button>
+              <Users className="h-4 w-4 text-gold" />
+              Team & Workload
+            </button>
           </div>
-        ) : null}
-      </div>
+
+          {canManagePayroll ? (
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  setAddEmployeeError(null);
+                  setProvisionSuccess(null);
+                  setShowAddEmployeeModal(true);
+                }}
+                className="min-h-10 justify-center px-3 text-xs sm:px-4"
+              >
+                <UserPlus className="h-4 w-4" />
+                Add Employee
+              </Button>
+              <Button
+                type="button"
+                onClick={() => openAddEntry()}
+                className="min-h-10 justify-center px-3 text-xs sm:px-4"
+              >
+                <Plus className="h-4 w-4" />
+                Add Payroll Entry
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      </section>
 
       {provisionSuccess && (
-        <p className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-800">
-          {provisionSuccess}
-        </p>
+        <div className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{provisionSuccess}</span>
+        </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* TAB 1: PAYROLL & DUES (EASY TO USE) */}
-      {/* ========================================================================= */}
       {tab === 'payroll' && (
         <div className="space-y-4">
-          {/* Top Month Selector Banner */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white p-3.5 rounded-xl border border-border">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-muted uppercase tracking-wider">Payroll Period:</span>
-              <div className="flex items-center gap-1 bg-ivory px-2 py-1 rounded-lg border border-border">
-                <button
-                  type="button"
-                  onClick={() => setSelectedMonth(getPreviousMonth(selectedMonth))}
-                  className="p-1 rounded hover:bg-white text-muted hover:text-ink transition"
-                  title="Previous Month"
+          {/* Payroll control bar */}
+          <section className="overflow-hidden rounded-2xl border border-border bg-white shadow-xs">
+            <div className="flex flex-col gap-4 p-4 sm:p-5 xl:flex-row xl:items-center xl:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-gold/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em] text-[#7a5518]">
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Payroll Command Center
+                  </span>
+                  <span className="text-[10px] font-semibold text-muted">
+                    {payrollStats.employeeCount} team members
+                  </span>
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMonth(getPreviousMonth(selectedMonth))}
+                    className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-[#faf9f6] text-muted transition hover:border-gold/60 hover:bg-white hover:text-ink"
+                    title="Previous month"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+
+                  <div className="min-w-[180px] rounded-xl border border-border bg-[#faf9f6] px-4 py-2 text-center sm:min-w-[210px]">
+                    <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-muted">
+                      Payroll Period
+                    </p>
+                    <p className="mt-0.5 font-display text-base font-bold text-ink sm:text-lg">
+                      {formatMonthLabel(selectedMonth)}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMonth(getNextMonth(selectedMonth))}
+                    className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-[#faf9f6] text-muted transition hover:border-gold/60 hover:bg-white hover:text-ink"
+                    title="Next month"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMonth(normalizeMonth())}
+                    className="rounded-lg px-2 py-1.5 text-[10px] font-bold text-[#7a5518] transition hover:bg-gold/10"
+                  >
+                    Jump to current month
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-[minmax(220px,1fr)_150px] xl:w-[470px]">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+                  <input
+                    type="text"
+                    placeholder="Search employee..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="h-11 w-full rounded-xl border border-border bg-[#faf9f6] pl-10 pr-3 text-xs text-ink outline-none transition placeholder:text-muted focus:border-gold focus:bg-white"
+                  />
+                </div>
+                <SelectField
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="h-11 rounded-xl text-xs"
                 >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <span className="font-display font-bold text-sm text-ink px-2">
-                  {formatMonthLabel(selectedMonth)}
+                  <option value="all">All Statuses</option>
+                  <option value="Paid">Paid</option>
+                  <option value="Partially Paid">Partially Paid</option>
+                  <option value="Pending">Pending</option>
+                  <option value="Overdue">Overdue</option>
+                </SelectField>
+              </div>
+            </div>
+          </section>
+
+          {/* Payroll summary */}
+          <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+            <Card className="relative overflow-hidden rounded-2xl border-border bg-white p-4 sm:p-5">
+              <div className="absolute right-0 top-0 h-20 w-20 rounded-bl-[44px] bg-gold/[0.07]" />
+              <div className="relative flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-muted">
+                    Total Payroll
+                  </p>
+                  <p className="mt-2 font-display text-2xl font-bold text-ink sm:text-3xl">
+                    {formatMoney(payrollStats.totalPayroll, 'USD')}
+                  </p>
+                  <p className="mt-1 text-[10px] leading-relaxed text-muted">
+                    {formatMonthLabel(selectedMonth)}
+                  </p>
+                </div>
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gold/15 text-[#7a5518]">
+                  <Wallet className="h-4 w-4" />
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setSelectedMonth(getNextMonth(selectedMonth))}
-                  className="p-1 rounded hover:bg-white text-muted hover:text-ink transition"
-                  title="Next Month"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
+              </div>
+              <div className="relative mt-4 h-1.5 overflow-hidden rounded-full bg-[#eee9dd]">
+                <div
+                  className="h-full rounded-full bg-[#b8954f] transition-all"
+                  style={{ width: `${payrollCompletion}%` }}
+                />
+              </div>
+              <p className="relative mt-2 text-[10px] font-semibold text-muted">
+                {payrollCompletion}% disbursed
+              </p>
+            </Card>
+
+            <Card className="relative overflow-hidden rounded-2xl border-border bg-white p-4 sm:p-5">
+              <div className="absolute right-0 top-0 h-20 w-20 rounded-bl-[44px] bg-emerald-500/[0.06]" />
+              <div className="relative flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-muted">
+                    Paid This Month
+                  </p>
+                  <p className="mt-2 font-display text-2xl font-bold text-emerald-700 sm:text-3xl">
+                    {formatMoney(payrollStats.totalPaid, 'USD')}
+                  </p>
+                  <p className="mt-1 text-[10px] text-muted">
+                    {payrollStats.paidCount} fully settled
+                  </p>
+                </div>
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-700">
+                  <CheckCircle2 className="h-4 w-4" />
+                </span>
+              </div>
+              <div className="relative mt-4 flex items-center gap-2 text-[10px] font-semibold text-emerald-700">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                Payments recorded for selected month
+              </div>
+            </Card>
+
+            <Card className="relative overflow-hidden rounded-2xl border-border bg-white p-4 sm:p-5">
+              <div className="absolute right-0 top-0 h-20 w-20 rounded-bl-[44px] bg-amber-500/[0.07]" />
+              <div className="relative flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-muted">
+                    Outstanding
+                  </p>
+                  <p className={`mt-2 font-display text-2xl font-bold sm:text-3xl ${
+                    payrollStats.totalOutstanding > 0 ? 'text-amber-800' : 'text-ink'
+                  }`}>
+                    {formatMoney(payrollStats.totalOutstanding, 'USD')}
+                  </p>
+                  <p className="mt-1 text-[10px] text-muted">
+                    {unsettledPeople} team member{unsettledPeople === 1 ? '' : 's'} to settle
+                  </p>
+                </div>
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-amber-50 text-amber-700">
+                  <Clock3 className="h-4 w-4" />
+                </span>
+              </div>
+              <p className="relative mt-4 text-[10px] font-semibold text-amber-800">
+                {payrollStats.totalOutstanding > 0 ? 'Action required before payroll closes' : 'All payroll is clear'}
+              </p>
+            </Card>
+
+            <Card className="relative overflow-hidden rounded-2xl border-border bg-white p-4 sm:p-5">
+              <div className="absolute right-0 top-0 h-20 w-20 rounded-bl-[44px] bg-violet-500/[0.06]" />
+              <div className="relative flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-muted">
+                    Advances
+                  </p>
+                  <p className="mt-2 font-display text-2xl font-bold text-violet-800 sm:text-3xl">
+                    {formatMoney(payrollStats.totalAdvances, 'USD')}
+                  </p>
+                  <p className="mt-1 text-[10px] text-muted">
+                    Advances recorded this month
+                  </p>
+                </div>
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-violet-50 text-violet-700">
+                  <CreditCard className="h-4 w-4" />
+                </span>
               </div>
               <button
                 type="button"
-                onClick={() => setSelectedMonth(normalizeMonth())}
-                className="text-[11px] font-semibold text-gold hover:underline px-1"
+                onClick={() => openAddEntry(undefined, 'Advance')}
+                className="relative mt-4 text-[10px] font-bold text-[#7a5518] hover:underline"
               >
-                Current Month
+                Record an advance
               </button>
+            </Card>
+          </section>
+
+          {/* Employee payroll register */}
+          <section className="overflow-hidden rounded-2xl border border-border bg-white shadow-xs">
+            <div className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+              <div>
+                <h2 className="font-display text-lg font-bold text-ink">
+                  Employee Payroll
+                </h2>
+                <p className="mt-0.5 text-[11px] text-muted">
+                  {filteredPayrollRows.length} visible · {payrollStats.paidCount} paid · {unsettledPeople} unsettled
+                </p>
+              </div>
+              {canManagePayroll ? (
+                <button
+                  type="button"
+                  onClick={() => openAddEntry()}
+                  className="inline-flex min-h-9 items-center justify-center gap-2 rounded-xl border border-border bg-[#faf9f6] px-3 text-[11px] font-bold text-ink transition hover:border-gold/60 hover:bg-white"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Bonus / Deduction / Advance
+                </button>
+              ) : null}
             </div>
 
-            {/* Quick Search */}
-            <div className="relative min-w-[200px]">
-              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted" />
-              <input
-                type="text"
-                placeholder="Search team member..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-8 w-full rounded-md border border-border bg-ivory/50 pl-8 pr-3 text-xs focus:bg-white focus:border-gold focus:outline-none"
-              />
-            </div>
-          </div>
+            {/* Desktop register */}
+            <div className="hidden lg:block">
+              <div className="grid grid-cols-[minmax(240px,1.5fr)_0.75fr_0.9fr_0.8fr_0.8fr_0.8fr_110px_190px] items-center gap-3 border-b border-border bg-[#faf9f6] px-5 py-2.5 text-[9px] font-bold uppercase tracking-[0.1em] text-muted">
+                <span>Team Member</span>
+                <span>Base</span>
+                <span>Extras</span>
+                <span>Payable</span>
+                <span>Paid</span>
+                <span>Due</span>
+                <span>Status</span>
+                <span className="text-right">Actions</span>
+              </div>
 
-          {/* 4 Clear Summary Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <Card className="p-3.5 bg-white border-l-4 border-l-gold">
-              <span className="text-[10px] uppercase font-bold text-muted tracking-wider block">Total Payroll</span>
-              <p className="text-xl font-bold text-ink mt-0.5">{formatMoney(payrollStats.totalPayroll, 'USD')}</p>
-              <span className="text-[10px] text-muted">What is owed for {formatMonthLabel(selectedMonth)}</span>
-            </Card>
-
-            <Card className="p-3.5 bg-white border-l-4 border-l-emerald-500">
-              <span className="text-[10px] uppercase font-bold text-muted tracking-wider block">Total Paid</span>
-              <p className="text-xl font-bold text-emerald-700 mt-0.5">{formatMoney(payrollStats.totalPaid, 'USD')}</p>
-              <span className="text-[10px] text-muted">Disbursed this month</span>
-            </Card>
-
-            <Card className="p-3.5 bg-white border-l-4 border-l-amber-500">
-              <span className="text-[10px] uppercase font-bold text-amber-900 tracking-wider block">Outstanding Dues</span>
-              <p className={`text-xl font-extrabold mt-0.5 ${payrollStats.totalOutstanding > 0 ? 'text-amber-900' : 'text-muted'}`}>
-                {formatMoney(payrollStats.totalOutstanding, 'USD')}
-              </p>
-              <span className="text-[10px] text-muted">
-                {payrollStats.totalOutstanding === 0 ? 'All cleared' : 'Remaining to disburse'}
-              </span>
-            </Card>
-
-            <Card className="p-3.5 bg-white border-l-4 border-l-purple-500">
-              <span className="text-[10px] uppercase font-bold text-muted tracking-wider block">Advances</span>
-              <p className="text-xl font-bold text-purple-800 mt-0.5">{formatMoney(payrollStats.totalAdvances, 'USD')}</p>
-              <span className="text-[10px] text-muted">Active loans/advances</span>
-            </Card>
-          </div>
-
-          {/* Clean Main Table */}
-          <Card className="p-0 bg-white overflow-hidden">
-            <div className="px-4 py-3 border-b border-border bg-ivory/30 flex items-center justify-between">
-              <span className="font-bold text-xs text-ink">
-                Team Member Payrolls ({filteredPayrollRows.length})
-              </span>
-              <SelectField
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="h-7 text-[11px] w-32"
-              >
-                <option value="all">All Statuses</option>
-                <option value="Paid">Paid</option>
-                <option value="Partially Paid">Partially Paid</option>
-                <option value="Pending">Pending</option>
-                <option value="Overdue">Overdue</option>
-              </SelectField>
-            </div>
-
-            {/* Desktop Table */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="text-muted border-b border-border bg-ivory/10">
-                  <tr>
-                    <th className="py-2.5 px-4 font-bold">Employee</th>
-                    <th className="py-2.5 font-bold">Base Pay</th>
-                    <th className="py-2.5 font-bold">Commissions & Extra</th>
-                    <th className="py-2.5 font-bold">Total Payable</th>
-                    <th className="py-2.5 font-bold">Total Paid</th>
-                    <th className="py-2.5 font-bold">Outstanding</th>
-                    <th className="py-2.5 font-bold">Status</th>
-                    <th className="py-2.5 px-4 text-right font-bold">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {filteredPayrollRows.length ? (
-                    filteredPayrollRows.map((row) => (
-                      <tr key={row.profile.id} className="hover:bg-ivory/20 transition">
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-2.5">
-                            <UserAvatar profile={row.profile} size="sm" showRoleRing />
-                            <div>
-                              <p className="font-bold text-ink">{row.profile.full_name}</p>
-                              <p className="text-[10px] text-muted capitalize">{row.profile.role}</p>
+              <div className="divide-y divide-border">
+                {filteredPayrollRows.length ? (
+                  filteredPayrollRows.map((row) => {
+                    const extras = row.projectEarnings + row.bonuses + row.otherEarnings;
+                    return (
+                      <div
+                        key={row.profile.id}
+                        className="grid grid-cols-[minmax(240px,1.5fr)_0.75fr_0.9fr_0.8fr_0.8fr_0.8fr_110px_190px] items-center gap-3 px-5 py-4 transition hover:bg-[#fcfbf8]"
+                      >
+                        <div className="flex min-w-0 items-center gap-3">
+                          <UserAvatar profile={row.profile} size="sm" showRoleRing />
+                          <div className="min-w-0">
+                            <p className="truncate text-xs font-bold text-ink">{row.profile.full_name}</p>
+                            <div className="mt-0.5 flex items-center gap-1.5">
+                              <span className="truncate text-[10px] capitalize text-muted">
+                                {row.profile.role.replace('_', ' ')}
+                              </span>
+                              <span className="text-[9px] text-muted/60">·</span>
+                              <span className="text-[9px] text-muted">
+                                {row.entriesCount} entr{row.entriesCount === 1 ? 'y' : 'ies'}
+                              </span>
                             </div>
                           </div>
-                        </td>
+                        </div>
 
-                        <td className="py-3 font-semibold text-charcoal">
+                        <p className="text-xs font-semibold text-charcoal">
                           {formatMoney(row.baseSalary, 'USD')}
-                        </td>
+                        </p>
 
-                        <td className="py-3 text-emerald-700 font-semibold">
-                          {row.projectEarnings + row.bonuses > 0
-                            ? `+${formatMoney(row.projectEarnings + row.bonuses, 'USD')}`
-                            : '—'}
+                        <div>
+                          <p className={`text-xs font-semibold ${extras > 0 ? 'text-emerald-700' : 'text-muted'}`}>
+                            {extras > 0 ? '+' + formatMoney(extras, 'USD') : '—'}
+                          </p>
                           {row.deductions > 0 ? (
-                            <span className="block text-[10px] text-danger">-{formatMoney(row.deductions, 'USD')} ded.</span>
+                            <p className="mt-0.5 text-[9px] font-semibold text-rose-700">
+                              −{formatMoney(row.deductions, 'USD')} deduction
+                            </p>
                           ) : null}
-                        </td>
+                        </div>
 
-                        <td className="py-3 font-bold text-ink">{formatMoney(row.totalPayable, 'USD')}</td>
+                        <p className="font-display text-sm font-bold text-ink">
+                          {formatMoney(row.totalPayable, 'USD')}
+                        </p>
 
-                        <td className="py-3 font-bold text-emerald-700">{formatMoney(row.totalPaid, 'USD')}</td>
+                        <p className="text-xs font-bold text-emerald-700">
+                          {formatMoney(row.totalPaid, 'USD')}
+                        </p>
 
-                        <td className="py-3">
-                          <span
-                            className={`font-extrabold ${
-                              row.outstanding > 0 ? 'text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200' : 'text-muted'
-                            }`}
-                          >
-                            {formatMoney(row.outstanding, 'USD')}
-                          </span>
-                        </td>
+                        <p className={`text-xs font-extrabold ${
+                          row.outstanding > 0 ? 'text-amber-800' : 'text-muted'
+                        }`}>
+                          {formatMoney(row.outstanding, 'USD')}
+                        </p>
 
-                        <td className="py-3">
-                          <PayrollStatusBadge status={row.status} />
-                        </td>
+                        <PayrollStatusBadge status={row.status} />
 
-                        <td className="py-3 px-4 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            {canManagePayroll && row.outstanding > 0 ? (
-                              <button
-                                type="button"
-                                onClick={() => openRecordPayment(row.profile.id, row.outstanding)}
-                                className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-[11px] px-2.5 py-1 rounded shadow-xs transition"
-                                title={`Record payment for ${row.profile.full_name}`}
-                              >
-                                Pay {formatMoney(row.outstanding, 'USD')}
-                              </button>
-                            ) : null}
+                        <div className="flex items-center justify-end gap-1.5">
+                          {canManagePayroll && row.outstanding > 0 ? (
                             <button
                               type="button"
-                              onClick={() => setDetailModalProfileId(row.profile.id)}
-                              className="bg-ivory hover:bg-white text-ink border border-border font-semibold text-[11px] px-2.5 py-1 rounded transition"
-                              title="View Ledger & History"
+                              onClick={() => openRecordPayment(row.profile.id, row.outstanding)}
+                              className="min-h-8 rounded-lg bg-emerald-700 px-2.5 text-[10px] font-bold text-white transition hover:bg-emerald-800"
                             >
-                              Ledger
+                              Pay {formatMoney(row.outstanding, 'USD')}
                             </button>
-                            {canManagePayroll ? (
-                              <button
-                                type="button"
-                                onClick={() => openEditSalary(row.profile.id)}
-                                className="p-1 text-muted hover:text-gold rounded hover:bg-ivory transition"
-                                title="Edit salary configuration"
-                              >
-                                <Edit2 className="h-3.5 w-3.5" />
-                              </button>
-                            ) : null}
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={8} className="py-8 text-center text-muted">
-                        No team payroll records found.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Mobile Card List */}
-            <div className="block md:hidden divide-y divide-border">
-              {filteredPayrollRows.map((row) => (
-                <div key={row.profile.id} className="p-3.5 space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <UserAvatar profile={row.profile} size="sm" showRoleRing />
-                      <div>
-                        <p className="font-bold text-ink text-xs">{row.profile.full_name}</p>
-                        <p className="text-[10px] text-muted capitalize">{row.profile.role}</p>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => setDetailModalProfileId(row.profile.id)}
+                            className="grid h-8 w-8 place-items-center rounded-lg border border-border bg-white text-muted transition hover:border-gold/60 hover:text-ink"
+                            title="Open payroll ledger"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </button>
+                          {canManagePayroll ? (
+                            <button
+                              type="button"
+                              onClick={() => openEditSalary(row.profile.id)}
+                              className="grid h-8 w-8 place-items-center rounded-lg border border-border bg-white text-muted transition hover:border-gold/60 hover:text-[#7a5518]"
+                              title="Edit compensation"
+                            >
+                              <Edit2 className="h-3.5 w-3.5" />
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
-                    </div>
-                    <PayrollStatusBadge status={row.status} />
+                    );
+                  })
+                ) : (
+                  <div className="px-5 py-12 text-center">
+                    <Users className="mx-auto h-7 w-7 text-muted/40" />
+                    <p className="mt-2 text-sm font-semibold text-ink">No payroll records found</p>
+                    <p className="mt-1 text-xs text-muted">Try another employee name or payroll status.</p>
                   </div>
-
-                  <div className="grid grid-cols-3 gap-2 bg-ivory/50 p-2 rounded border border-border text-[11px]">
-                    <div>
-                      <span className="text-muted block text-[10px]">Payable</span>
-                      <span className="font-bold text-ink">{formatMoney(row.totalPayable, 'USD')}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted block text-[10px]">Paid</span>
-                      <span className="font-bold text-emerald-700">{formatMoney(row.totalPaid, 'USD')}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted block text-[10px]">Due</span>
-                      <span className={`font-bold ${row.outstanding > 0 ? 'text-amber-900' : 'text-muted'}`}>
-                        {formatMoney(row.outstanding, 'USD')}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-end gap-2 pt-1">
-                    {canManagePayroll && row.outstanding > 0 ? (
-                      <button
-                        type="button"
-                        onClick={() => openRecordPayment(row.profile.id, row.outstanding)}
-                        className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs px-3 py-1 rounded shadow-xs"
-                      >
-                        Pay {formatMoney(row.outstanding, 'USD')}
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => setDetailModalProfileId(row.profile.id)}
-                      className="bg-ivory hover:bg-white text-ink border border-border font-semibold text-xs px-2.5 py-1 rounded"
-                    >
-                      Ledger
-                    </button>
-                    {canManagePayroll ? (
-                      <button
-                        type="button"
-                        onClick={() => openEditSalary(row.profile.id)}
-                        className="p-1 text-muted hover:text-gold border border-border rounded"
-                      >
-                        <Edit2 className="h-3 w-3" />
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
+                )}
+              </div>
             </div>
-          </Card>
+
+            {/* Tablet / mobile payroll cards */}
+            <div className="grid gap-3 p-3 sm:p-4 lg:hidden">
+              {filteredPayrollRows.length ? (
+                filteredPayrollRows.map((row) => {
+                  const extras = row.projectEarnings + row.bonuses + row.otherEarnings;
+                  return (
+                    <article
+                      key={row.profile.id}
+                      className="rounded-2xl border border-border bg-[#fcfbf8] p-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <UserAvatar profile={row.profile} size="sm" showRoleRing />
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-bold text-ink">{row.profile.full_name}</p>
+                            <p className="mt-0.5 text-[10px] capitalize text-muted">
+                              {row.profile.role.replace('_', ' ')} · {row.entriesCount} payroll entr{row.entriesCount === 1 ? 'y' : 'ies'}
+                            </p>
+                          </div>
+                        </div>
+                        <PayrollStatusBadge status={row.status} />
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <div className="rounded-xl border border-border bg-white p-2.5">
+                          <p className="text-[9px] font-bold uppercase tracking-wider text-muted">Payable</p>
+                          <p className="mt-1 text-sm font-bold text-ink">{formatMoney(row.totalPayable, 'USD')}</p>
+                        </div>
+                        <div className="rounded-xl border border-border bg-white p-2.5">
+                          <p className="text-[9px] font-bold uppercase tracking-wider text-muted">Paid</p>
+                          <p className="mt-1 text-sm font-bold text-emerald-700">{formatMoney(row.totalPaid, 'USD')}</p>
+                        </div>
+                        <div className="rounded-xl border border-border bg-white p-2.5">
+                          <p className="text-[9px] font-bold uppercase tracking-wider text-muted">Outstanding</p>
+                          <p className={`mt-1 text-sm font-bold ${row.outstanding > 0 ? 'text-amber-800' : 'text-muted'}`}>
+                            {formatMoney(row.outstanding, 'USD')}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-border bg-white p-2.5">
+                          <p className="text-[9px] font-bold uppercase tracking-wider text-muted">Extras</p>
+                          <p className={`mt-1 text-sm font-bold ${extras > 0 ? 'text-emerald-700' : 'text-muted'}`}>
+                            {extras > 0 ? '+' + formatMoney(extras, 'USD') : '—'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+                        <div className="text-[10px] text-muted">
+                          Base <span className="font-bold text-ink">{formatMoney(row.baseSalary, 'USD')}</span>
+                          {row.deductions > 0 ? (
+                            <span className="ml-2 font-semibold text-rose-700">
+                              · −{formatMoney(row.deductions, 'USD')} deduction
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {canManagePayroll && row.outstanding > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => openRecordPayment(row.profile.id, row.outstanding)}
+                              className="min-h-9 rounded-lg bg-emerald-700 px-3 text-[10px] font-bold text-white"
+                            >
+                              Pay {formatMoney(row.outstanding, 'USD')}
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => setDetailModalProfileId(row.profile.id)}
+                            className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-white text-muted"
+                            title="Open payroll ledger"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                          {canManagePayroll ? (
+                            <button
+                              type="button"
+                              onClick={() => openEditSalary(row.profile.id)}
+                              className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-white text-muted"
+                              title="Edit compensation"
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })
+              ) : (
+                <div className="py-10 text-center text-xs text-muted">
+                  No payroll records match the current filters.
+                </div>
+              )}
+            </div>
+          </section>
         </div>
       )}
 
