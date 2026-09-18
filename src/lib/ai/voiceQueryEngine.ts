@@ -14,6 +14,7 @@ import { isClientRole, isManagerRole, firstName } from '../utils';
 import { formatDate, parseNaturalDate, todayInput, addDays } from '../date';
 import { aiUnderstandingEngine } from './aiUnderstandingEngine';
 import { buildPageContext } from './aiPageContext';
+import { runProjectCreationWizard } from './projectCreationWizard';
 
 export class VoiceQueryEngine {
   private static instance: VoiceQueryEngine;
@@ -116,6 +117,45 @@ export class VoiceQueryEngine {
           return resolvedResult;
         }
       }
+    }
+
+    // ==========================================
+    // 0C. HANDLE PROJECT CREATION WIZARD
+    // ==========================================
+    if (this.memory.pendingProjectCreation) {
+      if (/\b(cancel|stop|never mind|nevermind|abort)\b/i.test(lower)) {
+        this.memory.pendingProjectCreation = null;
+        return {
+          success: true,
+          toolName: 'create_project',
+          spokenText: 'Project creation cancelled. No project was created.',
+          displayText: '🛑 **Project creation cancelled.** No changes were made.',
+        };
+      }
+
+      const wizard = runProjectCreationWizard(
+        q,
+        ctx,
+        this.memory.pendingProjectCreation.draft,
+        this.memory.pendingProjectCreation.requestedFields,
+      );
+
+      if (wizard.completed && wizard.result.pendingAction) {
+        this.memory.pendingProjectCreation = null;
+        this.memory.pendingAction = wizard.result.pendingAction;
+      } else if (wizard.result.success) {
+        this.memory.pendingProjectCreation = {
+          draft: wizard.draft,
+          requestedFields: wizard.missing,
+          startedAt: this.memory.pendingProjectCreation.startedAt,
+        };
+      } else {
+        this.memory.pendingProjectCreation = null;
+      }
+
+      this.updateMemory(wizard.result, q);
+      this.logExecution(ctx, q, wizard.result.toolName, wizard.result.success, wizard.result.error);
+      return wizard.result;
     }
 
     // ==========================================
@@ -403,7 +443,7 @@ export class VoiceQueryEngine {
 
     // ----------------------------------------------------
     // 0. CREATE PROJECT INTENT
-    // e.g. "Add a new project named as Good One Client BCH", "Create a project called Good One for BCH", "New project Good One for BCH"
+    // Guided wizard: core project fields are collected before preview.
     // ----------------------------------------------------
     if (
       (lower.startsWith('add a new project') ||
@@ -421,102 +461,20 @@ export class VoiceQueryEngine {
       !lower.includes('note') &&
       !lower.includes('revision')
     ) {
-      if (isClientRole(ctx.currentProfile.role)) {
-        return {
-          success: false,
-          toolName: 'create_project',
-          error: 'permission_denied',
-          spokenText: "I can't create projects with client permissions.",
-          displayText: '🔒 Project creation is restricted for client accounts.',
+      const wizard = runProjectCreationWizard(q, ctx);
+
+      if (wizard.completed && wizard.result.pendingAction) {
+        this.memory.pendingProjectCreation = null;
+        this.memory.pendingAction = wizard.result.pendingAction;
+      } else if (wizard.result.success) {
+        this.memory.pendingProjectCreation = {
+          draft: wizard.draft,
+          requestedFields: wizard.missing,
+          startedAt: new Date().toISOString(),
         };
       }
 
-      // Extract client name
-      let clientName = this.extractClientFromQuery(lower, ctx) || '';
-      if (!clientName) {
-        const clientMatch = q.match(/(?:for\s+client|client|for)\s+[:\-]?\s*([a-zA-Z0-9\s]+?)(?:\s+(?:due|with|priced|genre|service)|\s*$)/i);
-        if (clientMatch && clientMatch[1]) {
-          clientName = clientMatch[1].trim();
-        }
-      }
-      if (!clientName) clientName = 'Manuscript Client';
-
-      // Extract project title
-      let projectTitle = '';
-      const namedAsMatch = q.match(/(?:named\s+as|named|called|title|titled)\s+[:\-]?\s*([^,\n]+?)(?:\s+(?:for\s+)?client|\s+client|\s+due|\s+with|\s+priced|\s*$)/i);
-      if (namedAsMatch && namedAsMatch[1]) {
-        projectTitle = namedAsMatch[1].trim();
-      } else {
-        // Match "create project <title> for [client] <client>"
-        const inlineTitleMatch = q.match(/^(?:add|create|start|new)\s+(?:a\s+)?(?:new\s+)?project\s+[:\-]?\s*([a-zA-Z0-9\s]+?)(?:\s+(?:for\s+client|client|for)\s+([a-zA-Z0-9\s]+))/i);
-        if (inlineTitleMatch && inlineTitleMatch[1]) {
-          projectTitle = inlineTitleMatch[1].trim();
-        } else {
-          projectTitle = q
-            .replace(/^(?:add|create|start|new)\s+(?:a\s+)?(?:new\s+)?project\s*(?:named\s+as|called|named|title|:\s*)?/i, '')
-            .replace(/(?:for\s+client|client|for)\s+[a-zA-Z0-9\s]+$/i, '')
-            .trim();
-        }
-      }
-
-      // Clean up common noise
-      projectTitle = projectTitle.replace(/^(?:named\s+as|called|named|title)\s+/i, '').trim();
-
-      if (!projectTitle || projectTitle.length < 2) {
-        projectTitle = `New Project for ${clientName}`;
-      }
-
-      // Extract price if specified (e.g. "$500", "500 dollars")
-      const priceMatch = lower.match(/(?:\$|rs\.?|usd)?\s*(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:dollars|\$|usd|total)?/i);
-      const totalPrice = priceMatch ? parseFloat(priceMatch[1].replace(/,/g, '')) : 0;
-
-      // Extract due date if specified
-      const dateMatch = lower.match(/(?:due\s+|by\s+|on\s+)?(tomorrow|friday|monday|tuesday|wednesday|thursday|saturday|sunday|\b[a-zA-Z]+\s+\d{1,2}(?:st|nd|rd|th)?(?:\s*,\s*\d{4})?|\b\d{4}-\d{2}-\d{2}\b)/i);
-      const dueDate = dateMatch ? parseNaturalDate(dateMatch[1]) : addDays(14);
-
-      // Extract assignee if specified
-      const targetEmp = this.extractEmployeeFromQuery(lower, ctx);
-      const targetEmpProfile = targetEmp ? ctx.data.profiles.find((p) => p.full_name === targetEmp) : null;
-
-      const preview: AIActionPreview = {
-        actionId: `act-${Date.now()}`,
-        toolName: 'create_project',
-        category: 'high_risk',
-        title: 'Create New Project',
-        description: `Create new project "${projectTitle}" for client ${clientName}`,
-        targetType: 'project',
-        targetTitle: projectTitle,
-        clientName: clientName,
-        changes: [
-          { field: 'title', label: 'Project Title', newValue: projectTitle },
-          { field: 'client', label: 'Client', newValue: clientName },
-          { field: 'service', label: 'Service Type', newValue: 'Print + eBook' },
-          ...(dueDate ? [{ field: 'due_date', label: 'Due Date', newValue: formatDate(dueDate) }] : []),
-          ...(totalPrice ? [{ field: 'price', label: 'Total Price', newValue: ctx.formatMoney(totalPrice) }] : []),
-          ...(targetEmpProfile ? [{ field: 'assigned_to', label: 'Assigned To', newValue: targetEmpProfile.full_name }] : []),
-        ],
-        payload: {
-          projectTitle,
-          clientName,
-          serviceType: 'Print + eBook',
-          totalPrice,
-          dueDate,
-          assignedToId: targetEmpProfile?.id,
-        },
-        confirmButtonText: 'Create Project',
-        cancelButtonText: 'Cancel',
-        spokenPrompt: `Create new project "${projectTitle}" for client ${clientName}? Confirm?`,
-      };
-
-      this.memory.pendingAction = preview;
-
-      return {
-        success: true,
-        toolName: 'create_project',
-        spokenText: preview.spokenPrompt,
-        displayText: `I will create the new project **"${projectTitle}"** for client **${clientName}**${dueDate ? ` (Due: **${formatDate(dueDate)}**)` : ''}.\n\nConfirm?`,
-        pendingAction: preview,
-      };
+      return wizard.result;
     }
 
     // ----------------------------------------------------

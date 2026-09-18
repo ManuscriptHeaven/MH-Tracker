@@ -643,24 +643,67 @@ export async function runVoiceAssistantTests() {
   assert(Boolean(!res33.success && res33.error === 'permission_denied'), 'Test 33: RBAC - Employee denied payroll modification');
   console.log(`   Assistant (Denied): "${res33.spokenText}"`);
 
-  // TEST 34: Create New Project Intent (Fix for user issue "Add a new project named as Good One Client BCH")
+  // TEST 34: Guided Project Creation Wizard
   voiceQueryEngine.clearMemory();
   const res34a = await voiceQueryEngine.processQuery('Add a new project named as Good One Client BCH', createAdminCtx());
   assert(
     Boolean(
       res34a.success &&
-      res34a.pendingAction &&
-      res34a.pendingAction.toolName === 'create_project' &&
-      res34a.pendingAction.payload.projectTitle === 'Good One' &&
-      res34a.pendingAction.payload.clientName === 'BCH',
+      !res34a.pendingAction &&
+      res34a.displayText.includes('Still needed') &&
+      res34a.displayText.includes('Service type') &&
+      res34a.displayText.includes('Total price (USD)') &&
+      res34a.displayText.includes('Due date')
     ),
-    'Test 34a: "Add a new project named as Good One Client BCH" correctly generates create_project preview',
+    'Test 34a: Incomplete project command asks for missing core fields instead of guessing defaults',
   );
-  console.log(`   User: "Add a new project named as Good One Client BCH"\n   Assistant (Preview): "${res34a.spokenText}"`);
 
-  const res34b = await voiceQueryEngine.processQuery('Yes', createAdminCtx());
-  assert(Boolean(res34b.success && res34b.spokenText.includes('has been created')), 'Test 34b: Verbal confirmation "Yes" creates project');
-  console.log(`   Assistant (Executed): "${res34b.spokenText}"`);
+  const res34b = await voiceQueryEngine.processQuery(
+    'Service Print Formatting, $1200, due September 30, assign Zain, priority urgent',
+    createAdminCtx(),
+  );
+  assert(
+    Boolean(
+      res34b.success &&
+      res34b.pendingAction &&
+      res34b.pendingAction.toolName === 'create_project' &&
+      res34b.pendingAction.payload.projectTitle === 'Good One' &&
+      res34b.pendingAction.payload.clientName === 'BCH' &&
+      res34b.pendingAction.payload.serviceType === 'Print Formatting' &&
+      res34b.pendingAction.payload.totalPrice === 1200 &&
+      res34b.pendingAction.payload.requiresPrint === true &&
+      res34b.pendingAction.payload.requiresEbook === false &&
+      res34b.pendingAction.payload.assignedToId === employeeProfile.id &&
+      res34b.pendingAction.payload.priority === 'Urgent'
+    ),
+    'Test 34b: Follow-up completes project wizard and produces canonical preview',
+  );
+
+  const res34c = await voiceQueryEngine.processQuery('Yes', createAdminCtx());
+  assert(
+    Boolean(res34c.success && res34c.spokenText.includes('has been created')),
+    'Test 34c: Confirmation creates the guided project',
+  );
+
+  voiceQueryEngine.clearMemory();
+  const res34d = await voiceQueryEngine.processQuery(
+    'Create project Atlas 2 for client BCH, service Print + eBook, $1500, due October 15, assign Zain, priority high',
+    createAdminCtx(),
+  );
+  assert(
+    Boolean(
+      res34d.success &&
+      res34d.pendingAction &&
+      res34d.pendingAction.payload.projectTitle === 'Atlas 2' &&
+      res34d.pendingAction.payload.serviceType === 'Print + eBook' &&
+      res34d.pendingAction.payload.requiresPrint === true &&
+      res34d.pendingAction.payload.requiresEbook === true &&
+      res34d.pendingAction.payload.totalPrice === 1500 &&
+      res34d.pendingAction.payload.priority === 'High'
+    ),
+    'Test 34d: Complete one-line project command goes directly to confirmation preview',
+  );
+  console.log(`   Assistant (Wizard Preview): "${res34b.spokenText}"`);
 
   // TEST 35: Duplicate Project Intent
   voiceQueryEngine.clearMemory();
