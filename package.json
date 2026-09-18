@@ -11,7 +11,7 @@
     "test:voice": "npx --yes tsx scripts/test-voice-assistant.mjs",
     "test:tasks-v2": "node scripts/task-management-v2-static-tests.mjs",
     "test:critical-repair": "node scripts/critical-action-repair-tests.mjs",
-    "test": "npx --yes tsx scripts/timeline-tests.mjs && npx --yes tsx scripts/test-voice-assistant.mjs && node scripts/task-management-v2-static-tests.mjs && node scripts/critical-action-repair-tests.mjs && node scripts/finance-auto-revenue-tests.mjs && node scripts/invoice-versioning-tests.mjs && node scripts/messages-ui-tests.mjs && node scripts/dashboard-responsive-tests.mjs && node scripts/ai-command-center-tests.mjs && node scripts/ai-project-wizard-tests.mjs && npx --yes tsx scripts/ai-daily-briefing-tests.mjs && npx --yes tsx scripts/ai-client-communication-tests.mjs",
+    "test": "npx --yes tsx scripts/timeline-tests.mjs && npx --yes tsx scripts/test-voice-assistant.mjs && node scripts/task-management-v2-static-tests.mjs && node scripts/critical-action-repair-tests.mjs && node scripts/finance-auto-revenue-tests.mjs && node scripts/invoice-versioning-tests.mjs && node scripts/messages-ui-tests.mjs && node scripts/dashboard-responsive-tests.mjs && node scripts/ai-command-center-tests.mjs && node scripts/ai-project-wizard-tests.mjs && npx --yes tsx scripts/ai-daily-briefing-tests.mjs && npx --yes tsx scripts/ai-client-communication-tests.mjs && node scripts/client-payroll-fix-tests.mjs",
     "test:finance": "node scripts/finance-auto-revenue-tests.mjs",
     "test:invoice": "node scripts/invoice-versioning-tests.mjs",
     "test:messages": "node scripts/messages-ui-tests.mjs",
@@ -19,7 +19,8 @@
     "test:ai-command-center": "node scripts/ai-command-center-tests.mjs",
     "test:ai-project-wizard": "node scripts/ai-project-wizard-tests.mjs",
     "test:ai-daily-briefing": "npx --yes tsx scripts/ai-daily-briefing-tests.mjs",
-    "test:ai-client-communication": "npx --yes tsx scripts/ai-client-communication-tests.mjs"
+    "test:ai-client-communication": "npx --yes tsx scripts/ai-client-communication-tests.mjs",
+    "test:client-payroll-fix": "node scripts/client-payroll-fix-tests.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
