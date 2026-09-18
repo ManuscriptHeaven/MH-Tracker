@@ -88,7 +88,13 @@ export default function App() {
   }
   async function deleteProject(project: Project) {
     if (!window.confirm(`Delete "${project.project_title}"? This cannot be undone.`)) return;
-    await tracker.deleteProject(project.id); setSelectedProject(null);
+    try {
+      await tracker.deleteProject(project.id);
+      setSelectedProject(null);
+      setToast({ message: 'Project deleted successfully.', tone: 'success' });
+    } catch (error) {
+      setToast({ message: errorMessage(error, 'Project could not be deleted.'), tone: 'error' });
+    }
   }
   async function updateSelectedProject(updates: Partial<Project>) {
     if (selectedProjectFresh) await tracker.updateProject(selectedProjectFresh.id, updates);
@@ -310,6 +316,7 @@ export default function App() {
             setToast({ message: 'Administrative workflow override recorded.', tone: 'success' });
           } catch (err) {
             setToast({ message: errorMessage(err, 'Admin override failed.'), tone: 'error' });
+            throw err;
           }
         }}
       />
