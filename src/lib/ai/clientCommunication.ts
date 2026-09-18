@@ -42,8 +42,9 @@ function resolveProject(query: string, ctx: AIToolContext): { project?: Project;
   const lower = query.toLowerCase();
   const visible = ctx.visibleProjects || [];
 
-  if (ctx.selectedProject && /\b(this project|current project|this client)\b/i.test(query)) {
-    const selected = visible.find((project) => project.id === ctx.selectedProject?.id);
+  const selectedProject = (ctx as any).selectedProject as Project | null | undefined;
+  if (selectedProject && /\b(this project|current project|this client)\b/i.test(query)) {
+    const selected = visible.find((project) => project.id === selectedProject.id);
     if (selected) return { project: selected };
   }
 
