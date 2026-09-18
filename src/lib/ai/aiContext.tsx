@@ -14,6 +14,7 @@ import { aiService } from './aiService';
 import { voiceService } from './voiceService';
 import { voiceQueryEngine } from './voiceQueryEngine';
 import { wakeWordService } from './wakeWordService';
+import { buildDailyBriefing } from './dailyBriefing';
 import { useCurrency } from '../currency';
 
 function isPersistentConversationId(value?: string | null) {
@@ -101,6 +102,7 @@ interface AIContextType {
   speakText: (text: string) => Promise<void>;
   stopSpeaking: () => void;
   clearVoiceError: () => void;
+  refreshDailyBriefing: () => void;
 }
 
 const AIContext = createContext<AIContextType | undefined>(undefined);
@@ -174,6 +176,7 @@ export function AIProvider({
   activeViewRef.current = activeView;
   const selectedProjectRef = useRef<any>(selectedProject);
   selectedProjectRef.current = selectedProject;
+  const dailyPopupCheckRef = useRef<string | null>(null);
 
   // Persist audit logs
   useEffect(() => {
@@ -184,7 +187,51 @@ export function AIProvider({
     }
   }, [auditLogs]);
 
-  // Initialize initial greeting or load user settings
+  const refreshDailyBriefing = useCallback(() => {
+    const current = trackerRef.current;
+    if (!current?.currentProfile || !current?.data) return;
+
+    setDailySummary(
+      buildDailyBriefing({
+        data: current.data,
+        visibleProjects: current.visibleProjects || current.data.projects || [],
+        visibleTasks: current.visibleTasks || current.data.tasks || [],
+        currentProfile: current.currentProfile,
+      }),
+    );
+  }, []);
+
+  // Keep the deterministic daily briefing synced to live Tracker data.
+  useEffect(() => {
+    refreshDailyBriefing();
+  }, [
+    tracker.data,
+    tracker.visibleProjects,
+    tracker.visibleTasks,
+    tracker.currentProfile?.id,
+    refreshDailyBriefing,
+  ]);
+
+  // Show the briefing once per day unless this user dismissed it.
+  useEffect(() => {
+    const userId = tracker.currentProfile?.id;
+    if (!userId) return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const checkKey = userId + ':' + today;
+    if (dailyPopupCheckRef.current === checkKey) return;
+    dailyPopupCheckRef.current = checkKey;
+    setShowDailyPopup(false);
+
+    void (async () => {
+      const dismissed = await aiService.wasDailySummaryDismissedToday();
+      if (!dismissed) {
+        setShowDailyPopup(true);
+      }
+    })();
+  }, [tracker.currentProfile?.id]);
+
+  // Initialize user settings and saved conversation history.
   useEffect(() => {
     async function init() {
       const loadedSettings = await aiService.getUserSettings();
@@ -192,11 +239,6 @@ export function AIProvider({
       voiceService.setMuted(Boolean(loadedSettings.isMuted));
       if (loadedSettings.voiceLanguage) {
         voiceService.setLanguage(loadedSettings.voiceLanguage);
-      }
-
-      const summary = await aiService.getDailySummary();
-      if (summary) {
-        setDailySummary(summary);
       }
 
       const userId = trackerRef.current?.currentProfile?.id;
@@ -747,6 +789,7 @@ export function AIProvider({
     speakText,
     stopSpeaking,
     clearVoiceError,
+    refreshDailyBriefing,
   };
 
   return <AIContext.Provider value={value}>{children}</AIContext.Provider>;
