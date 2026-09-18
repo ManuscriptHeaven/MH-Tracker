@@ -255,7 +255,7 @@ export default function App() {
     {activeView === 'dashboard' && !isClient && <DashboardPage projects={visibleProjects} profiles={tracker.data.profiles} canViewPayments={tracker.canManageAll} canManageProjects={tracker.canManageAll} currentProfileId={tracker.currentProfile.id} onAddProject={openAddProject} onSelectProject={setSelectedProject} />}
     {activeView === 'ai_assistant' && tracker.canManageAll && (
       <ErrorBoundary>
-        <AIAssistantPage projects={visibleProjects} />
+        <AIAssistantPage projects={visibleProjects} currentProfile={tracker.currentProfile} />
       </ErrorBoundary>
     )}
     {activeView === 'projects' && isClient && <ClientProjectsPage projects={visibleProjects} searchTerm={searchTerm} onSelectProject={setSelectedProject} />}

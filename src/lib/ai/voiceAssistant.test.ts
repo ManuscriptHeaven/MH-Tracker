@@ -154,8 +154,8 @@ export async function runVoiceAssistantTests() {
       progress_percentage: 50,
       waiting_on: 'Client',
       created_by: adminProfile.id,
-      created_at: '2026-08-01T00:00:00Z',
-      updated_at: '2026-08-15T00:00:00Z',
+      created_at: `${todayInput()}T00:00:00Z`,
+      updated_at: `${todayInput()}T00:00:00Z`,
     },
     {
       id: 'proj-4',
@@ -347,15 +347,22 @@ export async function runVoiceAssistantTests() {
     ],
   };
 
-  const createAdminCtx = (currency: 'USD' | 'PKR' = 'USD'): AIToolContext => ({
+  const createAdminCtx = (_legacyCurrency: 'USD' | 'PKR' = 'USD'): AIToolContext => ({
     currentProfile: adminProfile,
     data: mockData,
     visibleProjects: testProjects,
     visibleTasks: mockData.tasks,
-    displayCurrency: currency,
-    exchangeRate: 277.5,
-    formatMoney: (amount: number | null | undefined) => (currency === 'USD' ? `$${Number(amount || 0).toLocaleString('en-US')}` : `Rs. ${Math.round(Number(amount || 0) * (currency === 'PKR' ? 1 : 277.5)).toLocaleString('en-US')} PKR`),
-    convertMoney: (amount: number | null | undefined, from = 'USD', to = currency) => (from === to ? Number(amount || 0) : to === 'PKR' ? Number(amount || 0) * 277.5 : Number(amount || 0) / 277.5),
+    displayCurrency: 'USD',
+    exchangeRate: 1,
+    formatMoney: (amount: number | null | undefined) =>
+      `$${Number(amount || 0).toLocaleString('en-US')}`,
+    convertMoney: (amount: number | null | undefined, from = 'USD', to = 'USD') => {
+      const numeric = Number(amount || 0);
+      if (from === to) return numeric;
+      if (from === 'PKR' && to === 'USD') return numeric / 277.5;
+      if (from === 'USD' && to === 'PKR') return numeric * 277.5;
+      return numeric;
+    },
   });
 
   const createEmployeeCtx = (): AIToolContext => ({
@@ -456,9 +463,17 @@ export async function runVoiceAssistantTests() {
   console.log(`   Admin tasks: "${res12Admin.spokenText}"`);
   console.log(`   Employee tasks: "${res12Emp.spokenText}"`);
 
-  // TEST 13: Finance income query (Admin authorized)
+  // TEST 13: Finance order-revenue query (Admin authorized)
   const res13 = await voiceQueryEngine.processQuery("What's our income this month?", createAdminCtx());
-  assert(res13.success && res13.spokenText.includes('income'), 'Test 13: Income this month (Admin)');
+  assert(
+    Boolean(
+      res13.success &&
+        res13.spokenText.includes('Order revenue') &&
+        (res13.data as any)?.orderRevenue === 800 &&
+        (res13.data as any)?.expenses === 300
+    ),
+    'Test 13: Automatic order revenue and expenses this month (Admin)',
+  );
   console.log(`   Assistant: "${res13.spokenText}"`);
 
   // TEST 14: Client receivables query (Admin authorized)
@@ -466,10 +481,13 @@ export async function runVoiceAssistantTests() {
   assert(res14.success && (res14.spokenText.includes('owe') || res14.spokenText.includes('balance')), 'Test 14: Client receivables (Admin)');
   console.log(`   Assistant: "${res14.spokenText}"`);
 
-  // TEST 15: Currency awareness (PKR conversion)
+  // TEST 15: Finance is USD-only even if a legacy caller asks for PKR display
   const res15PKR = await voiceQueryEngine.processQuery("What's our income this month?", createAdminCtx('PKR'));
-  assert(res15PKR.success && res15PKR.spokenText.includes('Rs.'), 'Test 15: Currency formatting (PKR)');
-  console.log(`   Assistant (PKR): "${res15PKR.spokenText}"`);
+  assert(
+    res15PKR.success && res15PKR.spokenText.includes('$') && !res15PKR.spokenText.includes('Rs.'),
+    'Test 15: Finance formatting remains USD-only',
+  );
+  console.log(`   Assistant (USD-only): "${res15PKR.spokenText}"`);
 
   // TEST 16: RBAC Security — Employee accessing company finance -> Denied
   const res16 = await voiceQueryEngine.processQuery("What's our income this month?", createEmployeeCtx());
@@ -576,12 +594,33 @@ export async function runVoiceAssistantTests() {
   assert(Boolean(res29b.success && res29b.spokenText.includes('moved to')), 'Test 29b: Deadline change confirmed');
   console.log(`   Assistant (Executed): "${res29b.spokenText}"`);
 
-  // TEST 30: Record Income / Expense
+  // TEST 30: Record client payment against the project balance (not manual revenue)
   voiceQueryEngine.clearMemory();
   const res30a = await voiceQueryEngine.processQuery('Record a $100 payment from BCH', createAdminCtx());
-  assert(Boolean(res30a.success && res30a.pendingAction && res30a.pendingAction.payload.amount === 100), 'Test 30a: Record income preview');
+  assert(
+    Boolean(
+      res30a.success &&
+        res30a.pendingAction &&
+        res30a.pendingAction.toolName === 'record_project_payment' &&
+        res30a.pendingAction.payload.amount === 100 &&
+        res30a.pendingAction.targetTitle === 'Magazine 2'
+    ),
+    'Test 30a: Project-payment preview resolves BCH to its unpaid project',
+  );
   const res30b = await voiceQueryEngine.processQuery('Sure', createAdminCtx());
-  assert(Boolean(res30b.success && res30b.spokenText.includes('income for Client Payment')), 'Test 30b: Income recorded');
+  assert(
+    Boolean(
+      res30b.success &&
+        res30b.spokenText.includes('Magazine 2') &&
+        res30b.spokenText.includes('$900')
+    ),
+    'Test 30b: Confirmed payment updates the project balance semantics',
+  );
+  const res30c = await voiceQueryEngine.processQuery('Record $300 income', createAdminCtx());
+  assert(
+    Boolean(!res30c.success && res30c.error === 'manual_income_disabled' && !res30c.pendingAction),
+    'Test 30c: Manual income is disabled because revenue is automatic from orders',
+  );
   console.log(`   Assistant (Executed): "${res30b.spokenText}"`);
 
   // TEST 31: Record Payroll Payment

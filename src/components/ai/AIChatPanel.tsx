@@ -5,10 +5,9 @@ import {
   SendHorizontal,
   Volume2,
   VolumeX,
-  Trash2,
+  Plus,
   X,
   Sparkles,
-  Bot,
   RotateCcw,
   History,
   MessageSquare,
@@ -44,7 +43,7 @@ export function AIChatPanel() {
 
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-scroll to bottom of messages
   useEffect(() => {
@@ -64,13 +63,14 @@ export function AIChatPanel() {
 
   const handleSend = () => {
     if (input.trim() && !isProcessing) {
-      const text = input;
+      const text = input.trim();
       setInput('');
-      sendMessage(text);
+      if (inputRef.current) inputRef.current.style.height = 'auto';
+      void sendMessage(text);
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -86,19 +86,19 @@ export function AIChatPanel() {
   };
 
   const quickQuestions = [
-    'How many projects are in revision?',
-    'Assign QAI revision to Zain',
-    'Put Book 2 on hold',
-    'Create a task for Zain to check the print PDF',
+    'How many projects are overdue?',
+    'What projects are waiting for client approval?',
+    'Which employee has the most active projects?',
     'How much do clients owe us?',
-    'Record a $100 payment from BCH',
+    'Show order revenue and expenses this month',
+    'Create a task for Zain to check the print PDF tomorrow',
   ];
 
   return (
     <div
       className={cn(
         'fixed z-[59] bottom-0 right-0 lg:bottom-20 lg:right-6 inset-0 lg:inset-auto',
-        'w-full lg:w-[440px] h-full lg:h-[600px] lg:max-h-[85vh]',
+        'w-full lg:w-[460px] h-full lg:h-[640px] lg:max-h-[86vh]',
         'flex flex-col lg:rounded-2xl overflow-hidden shadow-2xl',
         'bg-linen text-ink border-0 lg:border border-gold/30',
         'transition-all duration-300 transform origin-bottom-right',
@@ -113,11 +113,12 @@ export function AIChatPanel() {
           <div>
             <div className="flex items-center gap-1.5">
               <span className="font-display font-semibold text-sm text-linen">MH AI Assistant</span>
-              <span className="px-1.5 py-0.2 text-[9px] font-semibold bg-gold/20 text-gold rounded tracking-wider uppercase">
-                Phase 2 Safe Actions
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-300">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                Live Data
               </span>
             </div>
-            <p className="text-[10px] text-linen/60">Voice Assistant with Safe Actions & Previews</p>
+            <p className="text-[10px] text-linen/60">Live workspace answers · confirmation-protected actions</p>
           </div>
         </div>
 
@@ -135,14 +136,14 @@ export function AIChatPanel() {
             {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
           </button>
 
-          {/* Clear History */}
+          {/* Start Fresh Chat (history remains saved) */}
           <button
             onClick={clearConversation}
-            title="Clear conversation"
-            aria-label="Clear conversation"
+            title="Start fresh chat"
+            aria-label="Start fresh chat"
             className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-linen/60 transition hover:bg-white/10 hover:text-linen"
           >
-            <Trash2 className="w-4 h-4" />
+            <Plus className="w-4 h-4" />
           </button>
 
           {/* Close Panel */}
@@ -200,10 +201,10 @@ export function AIChatPanel() {
                 <Sparkles className="w-7 h-7 text-gold" />
               </div>
               <h3 className="text-base font-display font-semibold text-ink mb-1">
-                Hi! Ask or command anything.
+                What should we work on?
               </h3>
               <p className="text-xs text-muted max-w-[300px] mb-5">
-                Speak naturally or type. I'll preview every write action for your confirmation.
+                Ask about live Tracker data or preview an action. Nothing changes until you confirm a write.
               </p>
 
               {/* Quick Action Pills */}
@@ -336,15 +337,19 @@ export function AIChatPanel() {
 
           {/* Text Input Fallback */}
           <div className="flex-1 relative flex items-center bg-linen rounded-xl border border-border focus-within:border-gold focus-within:ring-1 focus-within:ring-gold transition">
-            <input
+            <textarea
               ref={inputRef}
-              type="text"
+              rows={1}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                setInput(e.target.value);
+                e.currentTarget.style.height = 'auto';
+                e.currentTarget.style.height = Math.min(e.currentTarget.scrollHeight, 112) + 'px';
+              }}
               onKeyDown={handleKeyDown}
               placeholder={isListening ? 'Listening to your voice...' : 'Type or speak a question or action...'}
               disabled={isProcessing}
-              className="w-full bg-transparent border-none focus:outline-none focus:ring-0 py-2.5 pl-3 pr-2 text-xs sm:text-sm text-ink placeholder:text-muted"
+              className="max-h-28 min-h-10 w-full resize-none bg-transparent py-2.5 pl-3 pr-2 text-xs leading-5 text-ink outline-none placeholder:text-muted sm:text-sm"
             />
 
             <button
@@ -361,8 +366,8 @@ export function AIChatPanel() {
 
         {/* Quick follow-up hint below input */}
         <div className="flex items-center justify-between mt-2 text-[10px] text-muted px-1">
-          <span>Phase 2: Safe Actions + Previews</span>
-          <span>Permission Verified</span>
+          <span>Enter to send · Shift+Enter for new line</span>
+          <span>Writes require confirmation</span>
         </div>
       </div>
     </div>

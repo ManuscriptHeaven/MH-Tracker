@@ -13,8 +13,51 @@ import type {
 import { aiService } from './aiService';
 import { voiceService } from './voiceService';
 import { voiceQueryEngine } from './voiceQueryEngine';
-import { wakeWordService, playWakeChime } from './wakeWordService';
+import { wakeWordService } from './wakeWordService';
 import { useCurrency } from '../currency';
+
+function isPersistentConversationId(value?: string | null) {
+  return Boolean(
+    value &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value),
+  );
+}
+
+function titleFromPrompt(text: string) {
+  const compact = text.trim().replace(/\s+/g, ' ');
+  return compact.length > 56 ? `${compact.slice(0, 53)}...` : compact || 'New Conversation';
+}
+
+function persistentMessageMetadata(message: AIMessage['metadata']): AIMessage['metadata'] {
+  if (!message) return {};
+  return {
+    toolUsed: message.toolUsed,
+    actionStatus: message.actionStatus,
+    invoice: message.invoice,
+    suggestedFollowUps: message.suggestedFollowUps,
+  };
+}
+
+function suggestedFollowUpsForResult(result: AIToolResult): string[] {
+  switch (result.toolName) {
+    case 'get_overdue_projects':
+      return ['Which clients?', 'Who is assigned to them?', 'What is due today?'];
+    case 'get_pending_approvals':
+      return ['Which clients are waiting?', 'What is overdue?', 'Show projects in revision'];
+    case 'get_client_receivables':
+      return ['Who owes the most?', 'Show order revenue and expenses this month', 'Show invoice summary'];
+    case 'get_finance_summary':
+      return ['Who owes us money?', 'How much do we owe the team?', 'Show invoice summary'];
+    case 'get_employee_workload':
+      return ['Who has overdue work?', 'Show active projects summary', 'What is due this week?'];
+    case 'get_projects_in_revision':
+      return ['Which ones?', 'Who is working on them?', 'What is due this week?'];
+    case 'get_project_summary':
+      return ['What is overdue?', 'What is due today?', 'What is waiting for client approval?'];
+    default:
+      return [];
+  }
+}
 
 interface AIContextType {
   isOpen: boolean;
@@ -155,6 +198,20 @@ export function AIProvider({
       if (summary) {
         setDailySummary(summary);
       }
+
+      const userId = trackerRef.current?.currentProfile?.id;
+      if (userId) {
+        const loadedConversations = await aiService.loadConversations(userId);
+        setConversations(loadedConversations);
+
+        if (loadedConversations.length > 0 && !activeConvoRef.current) {
+          const latest = loadedConversations[0];
+          setActiveConversationId(latest.id);
+          activeConvoRef.current = latest.id;
+          const loadedMessages = await aiService.loadMessages(latest.id);
+          setMessages(loadedMessages);
+        }
+      }
     }
 
     init();
@@ -224,22 +281,39 @@ export function AIProvider({
   const minimizeChat = useCallback((min: boolean) => setIsChatMinimized(min), []);
 
   const switchConversation = useCallback(async (id: string) => {
+    voiceQueryEngine.clearMemory();
+    voiceService.stopSpeaking();
+    setPendingAction(null);
+    setVoiceError(null);
     setActiveConversationId(id);
+    activeConvoRef.current = id;
+
+    if (isPersistentConversationId(id)) {
+      const loaded = await aiService.loadMessages(id);
+      setMessages(loaded);
+    } else {
+      setMessages([]);
+    }
   }, []);
 
   const startNewConversation = useCallback(() => {
     voiceQueryEngine.clearMemory();
-    const newId = `conv-${Date.now()}`;
-    setActiveConversationId(newId);
+    voiceService.stopSpeaking();
+    setActiveConversationId(null);
+    activeConvoRef.current = null;
     setMessages([]);
     setPendingAction(null);
     setVoiceError(null);
     if (!isOpen) openChat();
   }, [isOpen, openChat]);
 
+  // Historical chats are preserved in Supabase. "Clear" starts a fresh chat
+  // instead of deleting the audit/history trail.
   const clearConversation = useCallback(() => {
     voiceQueryEngine.clearMemory();
     voiceService.stopSpeaking();
+    setActiveConversationId(null);
+    activeConvoRef.current = null;
     setMessages([]);
     setPendingAction(null);
     setVoiceError(null);
@@ -377,8 +451,20 @@ export function AIProvider({
 
       let convoId = activeConvoRef.current;
       if (!convoId) {
-        convoId = `conv-${Date.now()}`;
+        const userId = trackerRef.current?.currentProfile?.id;
+        const created = userId
+          ? await aiService.createConversation(userId, titleFromPrompt(text))
+          : null;
+
+        if (created) {
+          convoId = created.id;
+          setConversations((prev) => [created, ...prev.filter((item) => item.id !== created.id)]);
+        } else {
+          convoId = `conv-${Date.now()}`;
+        }
+
         setActiveConversationId(convoId);
+        activeConvoRef.current = convoId;
       }
 
       const userMsgId = `msg-${Date.now()}`;
@@ -393,6 +479,10 @@ export function AIProvider({
       setMessages((prev) => [...prev, userMsg]);
       setIsProcessing(true);
       setVoiceError(null);
+
+      if (isPersistentConversationId(convoId)) {
+        await aiService.saveMessage(convoId, 'user', text, {});
+      }
 
       try {
         const toolCtx = getToolContext();
@@ -424,11 +514,28 @@ export function AIProvider({
             disambiguation: result.disambiguation,
             auditLog: result.auditLog,
             invoice: result.invoice,
+            suggestedFollowUps: suggestedFollowUpsForResult(result),
           },
           createdAt: new Date().toISOString(),
         };
 
         setMessages((prev) => [...prev, assistantMsg]);
+
+        if (isPersistentConversationId(convoId)) {
+          await aiService.saveMessage(
+            convoId,
+            'assistant',
+            assistantMsg.content,
+            persistentMessageMetadata(assistantMsg.metadata),
+          );
+          await aiService.touchConversation(convoId);
+          const now = new Date().toISOString();
+          setConversations((prev) =>
+            prev
+              .map((item) => (item.id === convoId ? { ...item, updatedAt: now } : item))
+              .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()),
+          );
+        }
 
         // Speak response if voice TTS is enabled and not muted
         if (settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
@@ -444,6 +551,10 @@ export function AIProvider({
           createdAt: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, errorMsg]);
+        if (isPersistentConversationId(convoId)) {
+          await aiService.saveMessage(convoId, 'assistant', errorMsg.content, {});
+          await aiService.touchConversation(convoId);
+        }
       } finally {
         setIsProcessing(false);
       }
@@ -457,7 +568,19 @@ export function AIProvider({
       setPendingAction(null);
       voiceQueryEngine.setPendingAction(null);
 
-      let convoId = activeConvoRef.current || `conv-${Date.now()}`;
+      let convoId = activeConvoRef.current;
+      if (!convoId) {
+        const userId = trackerRef.current?.currentProfile?.id;
+        const created = userId
+          ? await aiService.createConversation(userId, 'AI action')
+          : null;
+        convoId = created?.id || `conv-${Date.now()}`;
+        if (created) {
+          setConversations((prev) => [created, ...prev.filter((item) => item.id !== created.id)]);
+        }
+        setActiveConversationId(convoId);
+        activeConvoRef.current = convoId;
+      }
 
       try {
         const toolCtx = getToolContext();
@@ -483,6 +606,16 @@ export function AIProvider({
 
         setMessages((prev) => [...prev, assistantMsg]);
 
+        if (isPersistentConversationId(convoId)) {
+          await aiService.saveMessage(
+            convoId,
+            'assistant',
+            assistantMsg.content,
+            persistentMessageMetadata(assistantMsg.metadata),
+          );
+          await aiService.touchConversation(convoId);
+        }
+
         if (settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
           voiceService.speak(result.spokenText || result.displayText, settingsRef.current.voiceLanguage);
         }
@@ -495,6 +628,10 @@ export function AIProvider({
           createdAt: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, errorMsg]);
+        if (isPersistentConversationId(convoId)) {
+          await aiService.saveMessage(convoId, 'assistant', errorMsg.content, {});
+          await aiService.touchConversation(convoId);
+        }
       } finally {
         setIsProcessing(false);
       }
@@ -520,6 +657,16 @@ export function AIProvider({
     };
 
     setMessages((prev) => [...prev, cancelMsg]);
+
+    if (isPersistentConversationId(convoId)) {
+      void aiService.saveMessage(
+        convoId,
+        'assistant',
+        cancelMsg.content,
+        persistentMessageMetadata(cancelMsg.metadata),
+      );
+      void aiService.touchConversation(convoId);
+    }
 
     if (settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
       voiceService.speak('Action cancelled.', settingsRef.current.voiceLanguage);
