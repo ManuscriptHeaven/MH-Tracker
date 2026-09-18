@@ -15,6 +15,8 @@ import {
   MessageSquare,
   MoreHorizontal,
   PackageCheck,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Search,
   Settings,
@@ -22,7 +24,6 @@ import {
   Users,
   Volume2,
   VolumeX,
-  X,
 } from 'lucide-react';
 import { roleLabels } from '../lib/constants';
 import { initials, cn, firstName, isClientRole, isManagerRole } from '../lib/utils';
@@ -192,7 +193,14 @@ export function Layout({
   onOpenConversation?: (conversationId: string) => void;
 }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(false);
+  const [desktopSidebarMinimized, setDesktopSidebarMinimized] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return localStorage.getItem('mh_desktop_sidebar_minimized') === '1';
+    } catch {
+      return false;
+    }
+  });
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
   const [soundActive, setSoundActive] = useState<boolean>(() => isSoundEnabled());
   const { canInstall, promptInstall } = usePwaInstall();
@@ -202,6 +210,16 @@ export function Layout({
   const displayName = firstName(currentProfile.full_name);
   const unreadMessagesInfo = getUnreadMessagesInfo(currentProfile, data);
   const unreadNotificationsCount = notifications.filter((n) => !n.is_read).length;
+
+  function setDesktopSidebarMinimizedPersisted(minimized: boolean) {
+    setDesktopSidebarMinimized(minimized);
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem('mh_desktop_sidebar_minimized', minimized ? '1' : '0');
+    } catch {
+      // Ignore storage failures; the sidebar still works for the current session.
+    }
+  }
 
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => ({
     projects_group: false,
@@ -283,35 +301,37 @@ export function Layout({
 
   return (
     <div className="min-h-screen bg-linen text-ink">
-      {desktopSidebarOpen ? (
-        <button
-          type="button"
-          aria-label="Close sidebar"
-          onClick={() => setDesktopSidebarOpen(false)}
-          className="no-print fixed inset-0 z-30 hidden bg-black/25 backdrop-blur-[1px] lg:block"
-        />
-      ) : null}
-
       <aside
         className={cn(
-          'no-print fixed left-0 top-0 z-40 hidden h-screen w-72 border-r border-border bg-ink text-white shadow-2xl transition-transform duration-200 lg:block',
-          desktopSidebarOpen ? 'translate-x-0' : '-translate-x-full',
+          'no-print fixed left-0 top-0 z-40 hidden h-screen border-r border-border bg-ink text-white shadow-2xl transition-[width] duration-200 lg:block',
+          desktopSidebarMinimized ? 'w-20' : 'w-72',
         )}
       >
+        <button
+          type="button"
+          onClick={() => setDesktopSidebarMinimizedPersisted(!desktopSidebarMinimized)}
+          className="absolute -right-3 top-5 z-10 grid h-7 w-7 place-items-center rounded-full border border-border bg-white text-ink shadow-md transition hover:border-gold hover:bg-gold"
+          title={desktopSidebarMinimized ? 'Expand sidebar' : 'Minimize sidebar'}
+          aria-label={desktopSidebarMinimized ? 'Expand sidebar' : 'Minimize sidebar'}
+        >
+          {desktopSidebarMinimized ? <PanelLeftOpen className="h-3.5 w-3.5" /> : <PanelLeftClose className="h-3.5 w-3.5" />}
+        </button>
+
         <div className="flex h-full flex-col">
-          <div className="flex items-center justify-between gap-3 border-b border-white/10 p-5">
-            <ManuscriptHeavenLogo variant="full" darkTheme />
-            <button
-              type="button"
-              onClick={() => setDesktopSidebarOpen(false)}
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 text-white/70 transition hover:bg-white/10 hover:text-white"
-              title="Close sidebar"
-            >
-              <X className="h-4 w-4" />
-            </button>
+          <div
+            className={cn(
+              'flex items-center border-b border-white/10',
+              desktopSidebarMinimized ? 'justify-center px-2 py-4' : 'justify-between gap-3 p-5',
+            )}
+          >
+            <ManuscriptHeavenLogo
+              variant={desktopSidebarMinimized ? 'monogram' : 'full'}
+              size={desktopSidebarMinimized ? 'sm' : 'md'}
+              darkTheme
+            />
           </div>
 
-          <nav className="flex-1 space-y-1.5 overflow-y-auto px-4 py-5">
+          <nav className={cn('flex-1 space-y-1.5 overflow-y-auto py-5', desktopSidebarMinimized ? 'px-2' : 'px-4')}>
             {visibleNavEntries.map((entry) => {
               if (entry.type === 'single') {
                 const Icon = entry.icon;
@@ -321,23 +341,27 @@ export function Layout({
                 return (
                   <button
                     key={entry.id}
-                    onClick={() => {
-                      setActiveView(entry.id);
-                      setDesktopSidebarOpen(false);
-                    }}
+                    onClick={() => setActiveView(entry.id)}
                     className={cn(
-                      'flex w-full items-center justify-between rounded-md px-3 py-2.5 text-left text-sm font-medium transition',
+                      'relative flex w-full items-center rounded-md py-2.5 text-left text-sm font-medium transition',
+                      desktopSidebarMinimized ? 'justify-center px-2' : 'justify-between px-3',
                       active ? 'bg-gold text-ink font-semibold shadow-xs' : 'text-white/75 hover:bg-white/10 hover:text-white',
                     )}
+                    title={desktopSidebarMinimized ? entry.label : undefined}
+                    aria-label={desktopSidebarMinimized ? entry.label : undefined}
                   >
-                    <span className="flex items-center gap-3">
-                      <Icon className="h-4 w-4" />
-                      {entry.label}
+                    <span className={cn('flex items-center', desktopSidebarMinimized ? 'justify-center' : 'gap-3')}>
+                      <Icon className="h-4 w-4 shrink-0" />
+                      {!desktopSidebarMinimized ? entry.label : null}
                     </span>
                     {isComm && unreadMessagesInfo.totalUnreadCount > 0 ? (
-                      <span className="rounded-full bg-gold px-2 py-0.5 text-[10px] font-bold text-ink">
-                        {unreadMessagesInfo.totalUnreadCount}
-                      </span>
+                      desktopSidebarMinimized ? (
+                        <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-gold ring-2 ring-ink" />
+                      ) : (
+                        <span className="rounded-full bg-gold px-2 py-0.5 text-[10px] font-bold text-ink">
+                          {unreadMessagesInfo.totalUnreadCount}
+                        </span>
+                      )
                     ) : null}
                   </button>
                 );
@@ -352,29 +376,39 @@ export function Layout({
                   <button
                     type="button"
                     onClick={() => {
+                      if (desktopSidebarMinimized) {
+                        setDesktopSidebarMinimizedPersisted(false);
+                        setExpandedGroups((prev) => ({ ...prev, [entry.id]: true }));
+                        return;
+                      }
                       const nextExpanded = !isExpanded;
                       setExpandedGroups((prev) => ({ ...prev, [entry.id]: nextExpanded }));
                     }}
                     className={cn(
-                      'flex w-full items-center justify-between rounded-md px-3 py-2.5 text-left text-sm font-medium transition',
+                      'flex w-full items-center rounded-md py-2.5 text-left text-sm font-medium transition',
+                      desktopSidebarMinimized ? 'justify-center px-2' : 'justify-between px-3',
                       isGroupActive
                         ? 'bg-white/15 text-white font-semibold'
                         : 'text-white/75 hover:bg-white/10 hover:text-white',
                     )}
+                    title={desktopSidebarMinimized ? `${entry.label} — expand sidebar` : undefined}
+                    aria-label={desktopSidebarMinimized ? `${entry.label} — expand sidebar` : undefined}
                   >
-                    <span className="flex items-center gap-3">
-                      <GroupIcon className={cn('h-4 w-4', isGroupActive ? 'text-gold' : 'text-white/70')} />
-                      {entry.label}
+                    <span className={cn('flex items-center', desktopSidebarMinimized ? 'justify-center' : 'gap-3')}>
+                      <GroupIcon className={cn('h-4 w-4 shrink-0', isGroupActive ? 'text-gold' : 'text-white/70')} />
+                      {!desktopSidebarMinimized ? entry.label : null}
                     </span>
-                    <ChevronDown
-                      className={cn(
-                        'h-4 w-4 text-white/50 transition-transform duration-200',
-                        isExpanded ? 'rotate-180 text-gold' : 'rotate-0',
-                      )}
-                    />
+                    {!desktopSidebarMinimized ? (
+                      <ChevronDown
+                        className={cn(
+                          'h-4 w-4 text-white/50 transition-transform duration-200',
+                          isExpanded ? 'rotate-180 text-gold' : 'rotate-0',
+                        )}
+                      />
+                    ) : null}
                   </button>
 
-                  {isExpanded && (
+                  {!desktopSidebarMinimized && isExpanded && (
                     <div className="ml-4 my-1 space-y-1 border-l border-white/15 pl-3">
                       {entry.children.map((child) => {
                         const ChildIcon = child.icon;
@@ -383,10 +417,7 @@ export function Layout({
                         return (
                           <button
                             key={child.id}
-                            onClick={() => {
-                              setActiveView(child.id);
-                              setDesktopSidebarOpen(false);
-                            }}
+                            onClick={() => setActiveView(child.id)}
                             className={cn(
                               'flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-xs font-medium transition',
                               childActive
@@ -409,54 +440,63 @@ export function Layout({
           </nav>
 
           {canInstall ? (
-            <div className="px-4 pb-2">
+            <div className={cn('pb-2', desktopSidebarMinimized ? 'px-2' : 'px-4')}>
               <button
                 onClick={promptInstall}
-                className="flex w-full items-center justify-center gap-2 rounded-lg border border-gold/40 bg-gold/15 py-2.5 text-xs font-semibold text-gold transition hover:bg-gold/25"
+                className={cn(
+                  'flex w-full items-center justify-center rounded-lg border border-gold/40 bg-gold/15 py-2.5 text-xs font-semibold text-gold transition hover:bg-gold/25',
+                  desktopSidebarMinimized ? 'px-2' : 'gap-2 px-3',
+                )}
+                title={desktopSidebarMinimized ? 'Install MH Tracker' : undefined}
+                aria-label={desktopSidebarMinimized ? 'Install MH Tracker' : undefined}
               >
-                <Download className="h-4 w-4" />
-                Install MH Tracker
+                <Download className="h-4 w-4 shrink-0" />
+                {!desktopSidebarMinimized ? 'Install MH Tracker' : null}
               </button>
             </div>
           ) : null}
 
-          <div className="border-t border-white/10 p-4">
+          <div className={cn('border-t border-white/10', desktopSidebarMinimized ? 'p-2' : 'p-4')}>
             <button
               type="button"
               onClick={() => setIsAvatarModalOpen(true)}
-              className="flex w-full items-center gap-3 rounded-lg bg-white/10 p-3 text-left transition hover:bg-white/15 group relative"
-              title="Click to update Display Picture & Profile"
+              className={cn(
+                'group relative flex w-full items-center rounded-lg bg-white/10 text-left transition hover:bg-white/15',
+                desktopSidebarMinimized ? 'justify-center p-2' : 'gap-3 p-3',
+              )}
+              title={desktopSidebarMinimized ? `${displayName} — profile` : 'Click to update Display Picture & Profile'}
+              aria-label={desktopSidebarMinimized ? `${displayName} — profile` : undefined}
             >
               <div className="relative">
-                <UserAvatar profile={currentProfile} size="md" showRoleRing showStatusDot />
+                <UserAvatar profile={currentProfile} size={desktopSidebarMinimized ? 'sm' : 'md'} showRoleRing showStatusDot />
                 <span className="absolute -bottom-1 -right-1 grid h-4 w-4 place-items-center rounded-full bg-gold text-[9px] font-bold text-ink shadow-sm group-hover:scale-110 transition-transform">
                   <Camera className="h-2.5 w-2.5" />
                 </span>
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold flex items-center justify-between">
-                  {displayName}
-                  <span className="text-[10px] text-gold font-normal opacity-0 group-hover:opacity-100 transition-opacity">Edit DP</span>
-                </p>
-                <p className="truncate text-xs text-white/60">{roleLabels[currentProfile.role]}</p>
-              </div>
+              {!desktopSidebarMinimized ? (
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold flex items-center justify-between">
+                    {displayName}
+                    <span className="text-[10px] text-gold font-normal opacity-0 group-hover:opacity-100 transition-opacity">Edit DP</span>
+                  </p>
+                  <p className="truncate text-xs text-white/60">{roleLabels[currentProfile.role]}</p>
+                </div>
+              ) : null}
             </button>
           </div>
         </div>
       </aside>
 
-      <main className="pb-24 lg:pb-0">
+      <main
+        className={cn(
+          'pb-24 transition-[margin] duration-200 lg:pb-0',
+          desktopSidebarMinimized ? 'lg:ml-20' : 'lg:ml-72',
+        )}
+      >
         <header className="no-print sticky top-0 z-20 border-b border-border bg-linen/95 px-3 py-3 backdrop-blur sm:px-4 sm:py-4 lg:px-8">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
-                <IconButton
-                  title={desktopSidebarOpen ? 'Close sidebar' : 'Open sidebar'}
-                  onClick={() => setDesktopSidebarOpen((value) => !value)}
-                  className="hidden lg:inline-flex"
-                >
-                  {desktopSidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-                </IconButton>
                 <div className="min-w-0">
                   <p className="text-xs sm:text-sm font-medium text-muted">Welcome back, {displayName}</p>
                   <h1 className="truncate font-display text-xl sm:text-2xl lg:text-3xl font-semibold text-ink">
