@@ -1626,7 +1626,7 @@ export function CommunicationPage({
   ════════════════════════════════════════════════════ */
 
   const contextPanel = (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden bg-[#fcfbf8]">
       {/* Header */}
       <div className="shrink-0 flex items-center justify-between border-b border-border bg-white px-5 py-4">
         <h3 className="text-xs font-bold uppercase tracking-wider text-muted">Conversation Info</h3>
