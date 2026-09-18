@@ -13,6 +13,7 @@ import {
   Mic,
   MicOff,
   Plus,
+  RefreshCw,
   SendHorizontal,
   ShieldCheck,
   Sparkles,
@@ -80,6 +81,8 @@ export function AIAssistantPage({
     activeConversationId,
     switchConversation,
     startNewConversation,
+    dailySummary,
+    refreshDailyBriefing,
   } = useAIContext();
 
   const { formatMoney } = useCurrency();
@@ -350,6 +353,109 @@ export function AIAssistantPage({
           </button>
         </div>
       </section>
+
+      {dailySummary ? (
+        <section className="rounded-2xl border border-gold/30 bg-white p-4 shadow-xs sm:p-5">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-gold/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em] text-[#7a5518]">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Today’s AI Briefing
+                </span>
+                <button
+                  type="button"
+                  onClick={refreshDailyBriefing}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-semibold text-muted transition hover:bg-linen hover:text-ink"
+                  title="Refresh daily briefing"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  Refresh
+                </button>
+              </div>
+              <h2 className="mt-3 font-display text-lg font-bold text-ink sm:text-xl">
+                {dailySummary.headline}
+              </h2>
+              <p className="mt-1 text-xs text-muted">
+                {dailySummary.overdueProjects.count} overdue · {dailySummary.dueToday.count} due today ·{' '}
+                {dailySummary.awaitingApprovals.count} awaiting approval · {dailySummary.overdueTasks.count} overdue tasks
+              </p>
+
+              {dailySummary.proactiveInsights.length > 0 ? (
+                <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  {dailySummary.proactiveInsights.slice(0, 3).map((insight) => (
+                    <div
+                      key={insight.type + '-' + (insight.relatedId || insight.title)}
+                      className={cn(
+                        'rounded-xl border p-3',
+                        insight.severity === 'critical'
+                          ? 'border-rose-200 bg-rose-50'
+                          : insight.severity === 'warning'
+                            ? 'border-amber-200 bg-amber-50'
+                            : 'border-blue-200 bg-blue-50',
+                      )}
+                    >
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle
+                          className={cn(
+                            'mt-0.5 h-3.5 w-3.5 shrink-0',
+                            insight.severity === 'critical'
+                              ? 'text-rose-700'
+                              : insight.severity === 'warning'
+                                ? 'text-amber-700'
+                                : 'text-blue-700',
+                          )}
+                        />
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-bold text-ink">{insight.title}</p>
+                          <p className="mt-0.5 line-clamp-2 text-[10px] leading-relaxed text-muted">
+                            {insight.description}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
+                  No urgent blockers detected in your current workspace.
+                </div>
+              )}
+            </div>
+
+            <div className="w-full xl:max-w-sm">
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
+                Recommended Next
+              </p>
+              <div className="mt-2 space-y-2">
+                {dailySummary.recommendedActions.slice(0, 3).map((action) => (
+                  <button
+                    key={action.id}
+                    type="button"
+                    onClick={() => void sendMessage(action.command)}
+                    className="group flex w-full items-center gap-2 rounded-xl border border-border bg-[#fcfbf8] px-3 py-2.5 text-left transition hover:border-gold/60 hover:bg-gold/[0.045]"
+                  >
+                    <span
+                      className={cn(
+                        'h-2 w-2 shrink-0 rounded-full',
+                        action.priority === 'high'
+                          ? 'bg-rose-500'
+                          : action.priority === 'medium'
+                            ? 'bg-amber-500'
+                            : 'bg-emerald-500',
+                      )}
+                    />
+                    <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-ink">
+                      {action.title}
+                    </span>
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted/50 group-hover:text-[#7a5518]" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       {/* Live business brief */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
