@@ -1,44 +1,93 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, CalendarClock, CheckCircle2, CircleDollarSign, Clock3, FolderOpen, Plus } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronRight,
+  CircleDollarSign,
+  Clock3,
+  FolderOpen,
+  Plus,
+  RotateCcw,
+  SlidersHorizontal,
+  Sparkles,
+} from 'lucide-react';
 import { StatusBadge } from '../components/Badges';
 import { ProjectTimelineCompact } from '../components/ProjectTimeline';
 import { Button, Card, SelectField } from '../components/ui';
 import { UserAvatar } from '../components/UserAvatar';
 import { closedStatuses } from '../lib/constants';
-import { isDueThisWeek, isDueToday, isOverdue, formatDate, deadlineClass, deadlineLabel } from '../lib/date';
-import { firstName, initials, isClientRole } from '../lib/utils';
+import { isDueToday, isOverdue, formatDate, deadlineClass, deadlineLabel } from '../lib/date';
+import { firstName, isClientRole } from '../lib/utils';
 import { useCurrency } from '../lib/currency';
 import type { Profile, Project } from '../lib/types';
+
+type QuickFilter =
+  | 'all'
+  | 'mine'
+  | 'in_progress'
+  | 'awaiting_approval'
+  | 'revision'
+  | 'today'
+  | 'overdue'
+  | 'completed';
 
 function profileName(profiles: Profile[], id?: string | null) {
   const profile = profiles.find((item) => item.id === id);
   return profile ? firstName(profile.full_name) : 'Unassigned';
 }
 
-function StatCard({
+function uniqueValues(values: Array<string | null | undefined>) {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))].sort((a, b) =>
+    a.localeCompare(b),
+  );
+}
+
+function SummaryCard({
   label,
   value,
+  helper,
   icon: Icon,
   tone,
+  onClick,
 }: {
   label: string;
   value: string | number;
+  helper: string;
   icon: typeof FolderOpen;
   tone: string;
+  onClick?: () => void;
 }) {
-  return (
-    <Card className="min-h-32">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-sm font-medium text-muted">{label}</p>
-          <p className="mt-3 text-3xl font-bold text-ink">{value}</p>
+  const body = (
+    <>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">{label}</p>
+          <p className="mt-1.5 font-display text-2xl font-bold text-ink sm:text-3xl">{value}</p>
         </div>
-        <div className={`grid h-11 w-11 place-items-center rounded-md ${tone}`}>
-          <Icon className="h-5 w-5" />
+        <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${tone}`}>
+          <Icon className="h-4.5 w-4.5" />
         </div>
       </div>
-    </Card>
+      <div className="mt-3 flex items-center justify-between gap-2 border-t border-border/60 pt-2.5">
+        <p className="truncate text-[11px] text-muted">{helper}</p>
+        {onClick ? <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted" /> : null}
+      </div>
+    </>
   );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="rounded-2xl border border-border bg-white p-4 text-left shadow-xs transition hover:-translate-y-0.5 hover:border-gold/50 hover:shadow-soft active:translate-y-0"
+      >
+        {body}
+      </button>
+    );
+  }
+
+  return <div className="rounded-2xl border border-border bg-white p-4 shadow-xs">{body}</div>;
 }
 
 export function DashboardPage({
@@ -59,36 +108,72 @@ export function DashboardPage({
   onSelectProject: (project: Project) => void;
 }) {
   const { formatMoney } = useCurrency();
-  const [quickFilter, setQuickFilter] = useState<'all' | 'mine' | 'in_progress' | 'awaiting_approval' | 'revision' | 'today' | 'overdue' | 'completed'>('all');
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
   const [assignedTo, setAssignedTo] = useState('all');
   const [status, setStatus] = useState('all');
   const [client, setClient] = useState('all');
   const [priority, setPriority] = useState('all');
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
-  const allActiveProjects = projects
-    .filter((project) => !closedStatuses.includes(project.status))
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  const isRevision = (project: Project) =>
+    project.status === 'In Revision' || project.stage_status === 'REVISION_ACTIVE';
 
-  const isRevision = (project: Project) => project.status === 'In Revision' || project.stage_status === 'REVISION_ACTIVE';
-  const isAwaitingApproval = (project: Project) => (project.status === 'Awaiting Client Approval' || project.stage_status === 'PAUSED_CLIENT_REVIEW') && project.stage_status !== 'REVISION_ACTIVE';
-  const isInProgress = (project: Project) => project.status === 'In Progress' || project.status === 'Active' || project.status === 'Final Delivery';
-  const isCompleted = (project: Project) => project.status === 'Completed' || project.status === 'Delivered';
+  const isAwaitingApproval = (project: Project) =>
+    (project.status === 'Awaiting Client Approval' ||
+      project.stage_status === 'PAUSED_CLIENT_REVIEW') &&
+    project.stage_status !== 'REVISION_ACTIVE';
 
-  const scopedProjects = useMemo(() => allActiveProjects.filter((project) =>
-    (assignedTo === 'all' || project.assigned_to === assignedTo) &&
-    (status === 'all' || project.status === status) &&
-    (client === 'all' || project.client_name === client) &&
-    (priority === 'all' || project.priority === priority),
-  ), [allActiveProjects, assignedTo, status, client, priority]);
+  const isInProgress = (project: Project) =>
+    project.status === 'In Progress' ||
+    project.status === 'Active' ||
+    project.status === 'Final Delivery';
 
-  const scopedAllProjects = useMemo(() => projects.filter((project) =>
-    (assignedTo === 'all' || project.assigned_to === assignedTo) &&
-    (status === 'all' || project.status === status) &&
-    (client === 'all' || project.client_name === client) &&
-    (priority === 'all' || project.priority === priority),
-  ), [projects, assignedTo, status, client, priority]);
+  const isCompleted = (project: Project) =>
+    project.status === 'Completed' || project.status === 'Delivered';
 
-  const activeProjects = scopedAllProjects.filter((project) => {
+  const activeBase = useMemo(
+    () =>
+      projects
+        .filter((project) => !closedStatuses.includes(project.status))
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+    [projects],
+  );
+
+  const filteredAllProjects = useMemo(
+    () =>
+      projects.filter(
+        (project) =>
+          (assignedTo === 'all' || project.assigned_to === assignedTo) &&
+          (status === 'all' || project.status === status) &&
+          (client === 'all' || project.client_name === client) &&
+          (priority === 'all' || project.priority === priority),
+      ),
+    [projects, assignedTo, status, client, priority],
+  );
+
+  const filteredActiveProjects = useMemo(
+    () =>
+      activeBase.filter(
+        (project) =>
+          (assignedTo === 'all' || project.assigned_to === assignedTo) &&
+          (status === 'all' || project.status === status) &&
+          (client === 'all' || project.client_name === client) &&
+          (priority === 'all' || project.priority === priority),
+      ),
+    [activeBase, assignedTo, status, client, priority],
+  );
+
+  const inProgressProjects = filteredActiveProjects.filter(isInProgress);
+  const awaitingApprovalProjects = filteredActiveProjects.filter(isAwaitingApproval);
+  const inRevisionProjects = filteredActiveProjects.filter(isRevision);
+  const overdueProjects = filteredActiveProjects.filter(isOverdue);
+  const dueTodayProjects = filteredActiveProjects.filter(isDueToday);
+  const completedProjects = filteredAllProjects.filter(isCompleted);
+  const myProjects = filteredActiveProjects.filter(
+    (project) => project.assigned_to === currentProfileId,
+  );
+
+  const visibleProjects = filteredAllProjects.filter((project) => {
     if (quickFilter === 'completed') return isCompleted(project);
     if (closedStatuses.includes(project.status)) return false;
     if (quickFilter === 'mine') return project.assigned_to === currentProfileId;
@@ -100,200 +185,423 @@ export function DashboardPage({
     return true;
   });
 
-  const inProgressProjects = scopedProjects.filter(isInProgress);
-  const awaitingApprovalProjects = scopedProjects.filter(isAwaitingApproval);
-  const inRevisionProjects = scopedProjects.filter(isRevision);
-  const overdueProjects = scopedProjects.filter(isOverdue);
-  const dueTodayProjects = scopedProjects.filter(isDueToday);
-  const completedProjects = scopedAllProjects.filter(isCompleted);
+  const pendingPayments = filteredActiveProjects.reduce(
+    (total, project) => total + Number(project.remaining_balance || 0),
+    0,
+  );
 
-  const pendingPayments = scopedProjects.reduce((total, project) => total + Number(project.remaining_balance || 0), 0);
-  const urgentProjects = scopedProjects
+  const urgentProjects = filteredActiveProjects
     .filter((project) => project.priority === 'Urgent' || isOverdue(project) || isDueToday(project))
+    .sort((a, b) => {
+      const aOverdue = isOverdue(a) ? 1 : 0;
+      const bOverdue = isOverdue(b) ? 1 : 0;
+      if (aOverdue !== bOverdue) return bOverdue - aOverdue;
+      return new Date(a.due_date || '9999-12-31').getTime() - new Date(b.due_date || '9999-12-31').getTime();
+    })
     .slice(0, 5);
 
-  const workload = profiles.filter((profile) => !isClientRole(profile.role) && (assignedTo === 'all' || profile.id === assignedTo)).map((profile) => {
-    const assigned = scopedProjects.filter((project) => project.assigned_to === profile.id);
-    return {
-      profile,
-      active: assigned.length,
-      overdue: assigned.filter(isOverdue).length,
-    };
-  });
+  const workload = profiles
+    .filter(
+      (profile) =>
+        !isClientRole(profile.role) && (assignedTo === 'all' || profile.id === assignedTo),
+    )
+    .map((profile) => {
+      const assigned = filteredActiveProjects.filter(
+        (project) => project.assigned_to === profile.id,
+      );
+      return {
+        profile,
+        active: assigned.length,
+        overdue: assigned.filter(isOverdue).length,
+      };
+    })
+    .filter(({ active, overdue }) => active > 0 || overdue > 0)
+    .sort((a, b) => b.active - a.active);
+
+  const quickFilters: Array<{ id: QuickFilter; label: string; count: number }> = [
+    { id: 'all', label: 'Active', count: filteredActiveProjects.length },
+    { id: 'in_progress', label: 'In Progress', count: inProgressProjects.length },
+    { id: 'awaiting_approval', label: 'Awaiting Approval', count: awaitingApprovalProjects.length },
+    { id: 'revision', label: 'In Revision', count: inRevisionProjects.length },
+    { id: 'today', label: 'Due Today', count: dueTodayProjects.length },
+    { id: 'overdue', label: 'Overdue', count: overdueProjects.length },
+    { id: 'completed', label: 'Completed', count: completedProjects.length },
+    { id: 'mine', label: 'My Projects', count: myProjects.length },
+  ];
+
+  const hasAdvancedFilters =
+    assignedTo !== 'all' || status !== 'all' || client !== 'all' || priority !== 'all';
+
+  const activeAdvancedFilterCount = [assignedTo, status, client, priority].filter(
+    (value) => value !== 'all',
+  ).length;
+
+  function clearFilters() {
+    setAssignedTo('all');
+    setStatus('all');
+    setClient('all');
+    setPriority('all');
+    setQuickFilter('all');
+  }
+
+  const statusOptions = uniqueValues(projects.map((project) => project.status));
+  const clientOptions = uniqueValues(projects.map((project) => project.client_name));
+  const priorityOptions = uniqueValues(projects.map((project) => project.priority));
+  const teamProfiles = profiles.filter((profile) => !isClientRole(profile.role));
 
   return (
-    <div className="space-y-6">
-      <Card className="p-4 sm:p-6">
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-thin">
-          {([
-            ['all', 'Active Projects', scopedProjects.length],
-            ['in_progress', 'In Progress', inProgressProjects.length],
-            ['awaiting_approval', 'Awaiting Client Approval', awaitingApprovalProjects.length],
-            ['revision', 'In Revision', inRevisionProjects.length],
-            ['today', 'Due Today', dueTodayProjects.length],
-            ['overdue', 'Overdue', overdueProjects.length],
-            ['completed', 'Completed', completedProjects.length],
-            ['mine', 'My Projects', scopedProjects.filter((p) => p.assigned_to === currentProfileId).length],
-          ] as const).map(([id, label, count]) => {
-            return <Button key={id} type="button" variant={quickFilter === id ? 'primary' : 'secondary'} onClick={() => setQuickFilter(id as typeof quickFilter)} className="shrink-0 text-xs sm:text-sm py-1.5 px-3">{label} ({count})</Button>;
-          })}
-        </div>
-        <div className="mt-3 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
-          <SelectField label="Assigned To" value={assignedTo} onChange={(event) => setAssignedTo(event.target.value)}><option value="all">All Team Members</option>{profiles.filter((profile) => !isClientRole(profile.role)).map((profile) => <option key={profile.id} value={profile.id}>{profile.full_name}</option>)}</SelectField>
-          <SelectField label="Status" value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">All Statuses</option>{[...new Set(scopedAllProjects.map((project) => project.status))].map((item) => <option key={item} value={item}>{item}</option>)}</SelectField>
-          <SelectField label="Client" value={client} onChange={(event) => setClient(event.target.value)}><option value="all">All Clients</option>{[...new Set(scopedAllProjects.map((project) => project.client_name))].map((item) => <option key={item} value={item}>{item}</option>)}</SelectField>
-          <SelectField label="Priority" value={priority} onChange={(event) => setPriority(event.target.value)}><option value="all">All Priorities</option>{[...new Set(scopedAllProjects.map((project) => project.priority))].map((item) => <option key={item} value={item}>{item}</option>)}</SelectField>
-        </div>
-      </Card>
-      <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-        <StatCard label="Active Projects" value={scopedProjects.length} icon={FolderOpen} tone="bg-blue-50 text-info" />
-        <StatCard label="In Progress" value={inProgressProjects.length} icon={FolderOpen} tone="bg-amber-50 text-amber-800" />
-        <StatCard label="Awaiting Client Approval" value={awaitingApprovalProjects.length} icon={Clock3} tone="bg-purple-50 text-purple-700" />
-        <StatCard label="In Revision" value={inRevisionProjects.length} icon={FolderOpen} tone="bg-orange-50 text-orange-700" />
-        <StatCard label="Due Today" value={dueTodayProjects.length} icon={Clock3} tone="bg-orange-50 text-warning" />
-        <StatCard label="Overdue" value={overdueProjects.length} icon={AlertTriangle} tone="bg-red-50 text-danger" />
-        <StatCard
-          label="Completed"
-          value={completedProjects.length}
-          icon={CheckCircle2}
-          tone="bg-green-50 text-success"
+    <div className="space-y-5 sm:space-y-6">
+      {/* Compact dashboard summary */}
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <SummaryCard
+          label="Active Projects"
+          value={filteredActiveProjects.length}
+          helper="Current open workload"
+          icon={FolderOpen}
+          tone="bg-blue-50 text-blue-700"
+          onClick={() => setQuickFilter('all')}
+        />
+        <SummaryCard
+          label="Awaiting Approval"
+          value={awaitingApprovalProjects.length}
+          helper="Waiting on client review"
+          icon={Clock3}
+          tone="bg-purple-50 text-purple-700"
+          onClick={() => setQuickFilter('awaiting_approval')}
+        />
+        <SummaryCard
+          label="Overdue"
+          value={overdueProjects.length}
+          helper={dueTodayProjects.length ? `${dueTodayProjects.length} also due today` : 'Needs attention'}
+          icon={AlertTriangle}
+          tone="bg-rose-50 text-rose-700"
+          onClick={() => setQuickFilter('overdue')}
         />
         {canViewPayments ? (
-          <StatCard
+          <SummaryCard
             label="Pending Payments"
             value={formatMoney(pendingPayments, 'USD')}
+            helper="Outstanding on active work"
             icon={CircleDollarSign}
-            tone="bg-gold/20 text-ink"
+            tone="bg-gold/15 text-[#7a5518]"
           />
-        ) : null}
+        ) : (
+          <SummaryCard
+            label="Completed"
+            value={completedProjects.length}
+            helper="Delivered projects"
+            icon={CheckCircle2}
+            tone="bg-emerald-50 text-emerald-700"
+            onClick={() => setQuickFilter('completed')}
+          />
+        )}
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.4fr_0.8fr]">
-        <Card className="p-4 sm:p-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="font-display text-xl sm:text-2xl font-semibold">Open Projects</h2>
-              <p className="text-xs sm:text-sm text-muted">
-                Showing {activeProjects.length} matching open project{activeProjects.length === 1 ? '' : 's'}, newest first.
-              </p>
+      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.7fr)]">
+        {/* Active Projects */}
+        <Card className="overflow-hidden rounded-2xl p-0">
+          <div className="border-b border-border px-4 py-4 sm:px-5 lg:px-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="font-display text-xl font-semibold text-ink sm:text-2xl">
+                    Active Projects
+                  </h2>
+                  {hasAdvancedFilters ? (
+                    <span className="rounded-full bg-gold/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#7a5518]">
+                      {activeAdvancedFilterCount} filter{activeAdvancedFilterCount === 1 ? '' : 's'}
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-0.5 text-xs text-muted sm:text-sm">
+                  {visibleProjects.length} project{visibleProjects.length === 1 ? '' : 's'} match the current view.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setMobileFiltersOpen((value) => !value)}
+                  className="lg:hidden"
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                  Filters
+                  {activeAdvancedFilterCount ? (
+                    <span className="rounded-full bg-ink px-1.5 py-0.5 text-[10px] text-white">
+                      {activeAdvancedFilterCount}
+                    </span>
+                  ) : null}
+                </Button>
+                {canManageProjects ? (
+                  <Button onClick={onAddProject} className="px-3">
+                    <Plus className="h-4 w-4" />
+                    <span className="hidden xs:inline">Add Project</span>
+                  </Button>
+                ) : null}
+              </div>
             </div>
-            {canManageProjects ? (
-              <Button onClick={onAddProject} className="self-start sm:self-auto text-xs py-2 px-3">
-                <Plus className="h-4 w-4" />
-                Add Project
-              </Button>
-            ) : null}
+
+            {/* Quick filters sit directly above the project list */}
+            <div className="mt-4 -mx-1 flex gap-2 overflow-x-auto px-1 pb-1 scrollbar-thin">
+              {quickFilters.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setQuickFilter(item.id)}
+                  className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition sm:text-[13px] ${
+                    quickFilter === item.id
+                      ? 'border-ink bg-ink text-white shadow-xs'
+                      : 'border-border bg-white text-muted hover:border-gold/60 hover:text-ink'
+                  }`}
+                >
+                  {item.label}
+                  <span
+                    className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] ${
+                      quickFilter === item.id ? 'bg-white/15 text-white' : 'bg-linen text-muted'
+                    }`}
+                  >
+                    {item.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {/* Advanced filters: always visible on desktop, collapsible on mobile/tablet */}
+            <div
+              className={`mt-4 rounded-xl border border-border/80 bg-[#faf9f6] p-3 ${
+                mobileFiltersOpen ? 'block' : 'hidden'
+              } lg:block`}
+            >
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <SelectField
+                  label="Assigned To"
+                  value={assignedTo}
+                  onChange={(event) => setAssignedTo(event.target.value)}
+                  className="bg-white"
+                >
+                  <option value="all">All Team Members</option>
+                  {teamProfiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.full_name}
+                    </option>
+                  ))}
+                </SelectField>
+
+                <SelectField
+                  label="Status"
+                  value={status}
+                  onChange={(event) => setStatus(event.target.value)}
+                  className="bg-white"
+                >
+                  <option value="all">All Statuses</option>
+                  {statusOptions.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </SelectField>
+
+                <SelectField
+                  label="Client"
+                  value={client}
+                  onChange={(event) => setClient(event.target.value)}
+                  className="bg-white"
+                >
+                  <option value="all">All Clients</option>
+                  {clientOptions.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </SelectField>
+
+                <SelectField
+                  label="Priority"
+                  value={priority}
+                  onChange={(event) => setPriority(event.target.value)}
+                  className="bg-white"
+                >
+                  <option value="all">All Priorities</option>
+                  {priorityOptions.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </SelectField>
+              </div>
+
+              {hasAdvancedFilters ? (
+                <div className="mt-3 flex justify-end border-t border-border/60 pt-3">
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-muted transition hover:bg-white hover:text-ink"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Clear filters
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
 
-          <div className="mt-5 hidden md:block overflow-x-auto">
-            <table className="w-full min-w-[900px] border-separate border-spacing-0 text-left text-sm">
-              <thead>
-                <tr className="text-xs uppercase tracking-[0.12em] text-muted">
-                  <th className="border-b border-border pb-3">Project</th>
-                  <th className="border-b border-border pb-3">Client</th>
-                  <th className="border-b border-border pb-3">Assigned</th>
-                  <th className="border-b border-border pb-3">Status</th>
-                  <th className="border-b border-border pb-3">Timeline</th>
-                  <th className="border-b border-border pb-3">Due</th>
+          {/* Desktop project table */}
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full min-w-[820px] border-separate border-spacing-0 text-left text-sm">
+              <thead className="bg-[#fcfbf8]">
+                <tr className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
+                  <th className="border-b border-border px-5 py-3">Project</th>
+                  <th className="border-b border-border px-3 py-3">Client</th>
+                  <th className="border-b border-border px-3 py-3">Assigned</th>
+                  <th className="border-b border-border px-3 py-3">Status</th>
+                  <th className="border-b border-border px-3 py-3">Timeline</th>
+                  <th className="border-b border-border px-5 py-3">Due</th>
                 </tr>
               </thead>
               <tbody>
-                {activeProjects.length ? activeProjects.map((project) => (
-                  <tr
-                    key={project.id}
-                    className="cursor-pointer transition hover:bg-ivory"
-                    onClick={() => onSelectProject(project)}
-                  >
-                    <td className="border-b border-border/70 py-3">
-                      <p className="font-semibold">{project.project_title}</p>
-                      <p className="text-xs text-muted">{project.project_number}</p>
-                    </td>
-                    <td className="border-b border-border/70 py-3">{project.client_name}</td>
-                    <td className="border-b border-border/70 py-3">{profileName(profiles, project.assigned_to)}</td>
-                    <td className="border-b border-border/70 py-3">
-                      <StatusBadge status={project.status} />
-                    </td>
-                    <td className="border-b border-border/70 py-3">
-                      <ProjectTimelineCompact project={project} />
-                    </td>
-                    <td className="border-b border-border/70 py-3">
-                      <p className={deadlineClass(project)}>{deadlineLabel(project)}</p>
-                      <p className="text-xs text-muted">{formatDate(project.due_date)}</p>
+                {visibleProjects.length ? (
+                  visibleProjects.map((project) => (
+                    <tr
+                      key={project.id}
+                      className="group cursor-pointer transition hover:bg-gold/[0.045]"
+                      onClick={() => onSelectProject(project)}
+                    >
+                      <td className="border-b border-border/60 px-5 py-3.5">
+                        <p className="font-semibold text-ink group-hover:text-[#7a5518]">
+                          {project.project_title}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-muted">{project.project_number}</p>
+                      </td>
+                      <td className="border-b border-border/60 px-3 py-3.5 text-sm">
+                        {project.client_name}
+                      </td>
+                      <td className="border-b border-border/60 px-3 py-3.5 text-sm">
+                        {profileName(profiles, project.assigned_to)}
+                      </td>
+                      <td className="border-b border-border/60 px-3 py-3.5">
+                        <StatusBadge status={project.status} />
+                      </td>
+                      <td className="border-b border-border/60 px-3 py-3.5">
+                        <ProjectTimelineCompact project={project} />
+                      </td>
+                      <td className="border-b border-border/60 px-5 py-3.5">
+                        <p className={`text-xs font-semibold ${deadlineClass(project)}`}>
+                          {deadlineLabel(project)}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-muted">{formatDate(project.due_date)}</p>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={6} className="px-5 py-12 text-center">
+                      <div className="mx-auto max-w-xs">
+                        <FolderOpen className="mx-auto h-8 w-8 text-muted/30" />
+                        <p className="mt-2 text-sm font-semibold text-ink">No matching projects</p>
+                        <p className="mt-1 text-xs text-muted">
+                          Adjust the filters above to see more projects.
+                        </p>
+                        {(hasAdvancedFilters || quickFilter !== 'all') && (
+                          <button
+                            type="button"
+                            onClick={clearFilters}
+                            className="mt-3 text-xs font-semibold text-[#7a5518] hover:underline"
+                          >
+                            Reset project filters
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
-                )) : <tr><td colSpan={6} className="py-8 text-center text-muted">No projects match these filters.</td></tr>}
+                )}
               </tbody>
             </table>
           </div>
 
-          <div className="mt-4 block md:hidden space-y-3">
-            {activeProjects.length ? (
-              activeProjects.map((project) => (
-                <div
+          {/* Mobile project cards */}
+          <div className="space-y-3 bg-[#faf9f6]/60 p-3 md:hidden">
+            {visibleProjects.length ? (
+              visibleProjects.map((project) => (
+                <button
+                  type="button"
                   key={project.id}
-                  className="rounded-xl border border-border bg-white p-4 shadow-xs space-y-3 transition hover:border-gold/60"
+                  onClick={() => onSelectProject(project)}
+                  className="w-full rounded-2xl border border-border bg-white p-4 text-left shadow-xs transition active:scale-[0.99]"
                 >
-                  <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <h3 className="font-semibold text-ink text-base truncate">{project.project_title}</h3>
-                      <p className="text-xs text-muted mt-0.5">{project.project_number} · {project.client_name}</p>
+                      <h3 className="truncate text-sm font-bold text-ink">{project.project_title}</h3>
+                      <p className="mt-0.5 truncate text-[11px] text-muted">
+                        {project.project_number} · {project.client_name}
+                      </p>
                     </div>
                     <StatusBadge status={project.status} />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-border/60">
+                  <div className="mt-3">
+                    <ProjectTimelineCompact project={project} />
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-3 border-t border-border/60 pt-3">
                     <div>
-                      <p className="text-[10px] uppercase tracking-wider text-muted font-semibold">Assigned</p>
-                      <p className="font-medium text-ink mt-0.5">{profileName(profiles, project.assigned_to)}</p>
+                      <p className="text-[9px] font-bold uppercase tracking-wider text-muted">Assigned</p>
+                      <p className="mt-1 text-xs font-semibold text-ink">
+                        {profileName(profiles, project.assigned_to)}
+                      </p>
                     </div>
-                    <div>
-                      <p className="text-[10px] uppercase tracking-wider text-muted font-semibold">Due</p>
-                      <p className={`text-xs font-semibold mt-0.5 ${deadlineClass(project)}`}>
+                    <div className="text-right">
+                      <p className="text-[9px] font-bold uppercase tracking-wider text-muted">Due</p>
+                      <p className={`mt-1 text-xs font-semibold ${deadlineClass(project)}`}>
                         {deadlineLabel(project)}
                       </p>
                     </div>
                   </div>
 
-                  <div className="pt-1">
-                    <ProjectTimelineCompact project={project} />
+                  <div className="mt-3 flex items-center justify-between border-t border-border/60 pt-2.5 text-[11px] font-semibold text-[#7a5518]">
+                    <span>Open project</span>
+                    <ChevronRight className="h-4 w-4" />
                   </div>
-
-                  <div className="pt-2 border-t border-border/60 flex items-center justify-end">
-                    <Button
-                      type="button"
-                      onClick={() => onSelectProject(project)}
-                      className="w-full text-xs py-2"
-                    >
-                      Open Project
-                    </Button>
-                  </div>
-                </div>
+                </button>
               ))
             ) : (
-              <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted">
-                No projects match these filters.
-              </p>
+              <div className="rounded-2xl border border-dashed border-border bg-white p-8 text-center">
+                <FolderOpen className="mx-auto h-8 w-8 text-muted/30" />
+                <p className="mt-2 text-sm font-semibold text-ink">No matching projects</p>
+                <p className="mt-1 text-xs text-muted">Try a different filter.</p>
+              </div>
             )}
           </div>
         </Card>
 
-        <div className="space-y-6">
-          <Card className="p-4 sm:p-6">
-            <h2 className="font-display text-xl sm:text-2xl font-semibold">Urgent Projects</h2>
-            <div className="mt-4 space-y-3">
+        {/* Secondary dashboard rail */}
+        <div className="space-y-5">
+          <Card className="rounded-2xl p-4 sm:p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="font-display text-lg font-semibold text-ink sm:text-xl">Needs Attention</h2>
+                <p className="mt-0.5 text-xs text-muted">Overdue, due today, or urgent work.</p>
+              </div>
+              <div className="grid h-9 w-9 place-items-center rounded-xl bg-rose-50 text-rose-700">
+                <AlertTriangle className="h-4 w-4" />
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-2.5">
               {urgentProjects.length ? (
                 urgentProjects.map((project) => (
                   <button
                     key={project.id}
+                    type="button"
                     onClick={() => onSelectProject(project)}
-                    className="w-full rounded-xl border border-border bg-white p-3.5 text-left transition hover:border-gold shadow-xs active:scale-[0.99]"
+                    className="w-full rounded-xl border border-border bg-white p-3.5 text-left transition hover:border-gold/60 hover:shadow-xs"
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-ink">{project.project_title}</p>
-                        <p className="text-xs text-muted">{project.client_name}</p>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-ink">{project.project_title}</p>
+                        <p className="mt-0.5 truncate text-[11px] text-muted">{project.client_name}</p>
                       </div>
-                      <span className={`text-xs font-semibold ${deadlineClass(project)}`}>
+                      <span className={`shrink-0 text-[11px] font-semibold ${deadlineClass(project)}`}>
                         {deadlineLabel(project)}
                       </span>
                     </div>
@@ -303,34 +611,51 @@ export function DashboardPage({
                   </button>
                 ))
               ) : (
-                <p className="rounded-md border border-dashed border-border p-4 text-sm text-muted">
-                  No urgent projects right now.
-                </p>
+                <div className="rounded-xl border border-dashed border-border bg-[#faf9f6] p-5 text-center">
+                  <Sparkles className="mx-auto h-5 w-5 text-gold" />
+                  <p className="mt-2 text-sm font-semibold text-ink">Nothing urgent</p>
+                  <p className="mt-1 text-xs text-muted">No projects need immediate attention.</p>
+                </div>
               )}
             </div>
           </Card>
 
           {canManageProjects ? (
-            <Card className="p-4 sm:p-6">
-              <h2 className="font-display text-xl sm:text-2xl font-semibold">Workload</h2>
-              <div className="mt-4 space-y-3">
-                {workload.map(({ profile, active, overdue }) => (
-                  <div key={profile.id} className="flex items-center gap-3">
-                    <UserAvatar profile={profile} size="sm" showRoleRing />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-semibold">{profile.full_name}</p>
-                      <p className="text-xs text-muted">
-                        {active} active | {overdue} overdue
-                      </p>
+            <Card className="rounded-2xl p-4 sm:p-5">
+              <div>
+                <h2 className="font-display text-lg font-semibold text-ink sm:text-xl">Team Workload</h2>
+                <p className="mt-0.5 text-xs text-muted">Active projects currently assigned.</p>
+              </div>
+
+              <div className="mt-4 space-y-3.5">
+                {workload.length ? (
+                  workload.slice(0, 6).map(({ profile, active, overdue }) => (
+                    <div key={profile.id} className="flex items-center gap-3">
+                      <UserAvatar profile={profile} size="sm" showRoleRing />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="truncate text-xs font-semibold text-ink">{profile.full_name}</p>
+                          <span className="shrink-0 text-[10px] font-semibold text-muted">{active} active</span>
+                        </div>
+                        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-linen">
+                          <div
+                            className="h-full rounded-full bg-gold"
+                            style={{ width: `${Math.min(Math.max(active, 1) * 16, 100)}%` }}
+                          />
+                        </div>
+                        {overdue > 0 ? (
+                          <p className="mt-1 text-[10px] font-semibold text-rose-600">
+                            {overdue} overdue
+                          </p>
+                        ) : null}
+                      </div>
                     </div>
-                    <div className="h-2 w-24 overflow-hidden rounded-full bg-ivory">
-                      <div
-                        className="h-full rounded-full bg-gold"
-                        style={{ width: `${Math.min(active * 20, 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
+                  ))
+                ) : (
+                  <p className="rounded-xl border border-dashed border-border p-4 text-center text-xs text-muted">
+                    No active assignments for the current filters.
+                  </p>
+                )}
               </div>
             </Card>
           ) : null}
