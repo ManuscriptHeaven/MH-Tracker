@@ -564,32 +564,26 @@ export function CommunicationPage({
   const [pendingAttachments, setPendingAttachments] = useState<
     { file_name: string; file_url: string; file_type: string; file_size: number }[]
   >([]);
-  const [showNewMsg, setShowNewMsg] = useState(false);
+  const [showNewMsg, setShowNewMsg] = useState(() => !isClient);
   const [createTaskMessage, setCreateTaskMessage] = useState<ChatMessage | null>(null);
   const [activeConvTab, setActiveConvTab] = useState<ConvTab>('chat');
   const [contextPanelOpen, setContextPanelOpen] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('list');
   // sidebar collapse state
-  const [dmsCollapsed, setDmsCollapsed] = useState(false);
-  const [projectsCollapsed, setProjectsCollapsed] = useState(false);
+  const [dmsCollapsed, setDmsCollapsed] = useState(true);
+  const [projectsCollapsed, setProjectsCollapsed] = useState(true);
   const [channelsCollapsed, setChannelsCollapsed] = useState(true);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const emojiRef = useRef<HTMLDivElement | null>(null);
 
-  /* ── Auto-select first conversation ── */
-  useEffect(() => {
-    if (!activeConversationId && allConversations.length > 0) {
-      setActiveConversationId(allConversations[0].id);
-    }
-  }, [allConversations, activeConversationId]);
-
   /* ── Jump to specific conversation from notification ── */
   useEffect(() => {
     if (!jumpToConversationId) return;
     const conv = allConversations.find(c => c.id === jumpToConversationId);
     if (!conv) return;
+    setShowNewMsg(false);
     setActiveConversationId(jumpToConversationId);
     setActiveConvTab('chat');
     setMobilePanel('chat');
@@ -701,6 +695,7 @@ export function CommunicationPage({
 
   /* ── Navigation handlers ── */
   async function selectConversation(convId: string) {
+    setShowNewMsg(false);
     setActiveConversationId(convId);
     setActiveProjectId(null);
     setActiveConvTab('chat');
@@ -709,6 +704,7 @@ export function CommunicationPage({
   }
 
   async function selectProjectConv(projectId: string, mode: 'internal' | 'client') {
+    setShowNewMsg(false);
     setActiveProjectId(projectId);
     setProjectConvMode(mode);
     setActiveConvTab('chat');
@@ -721,6 +717,7 @@ export function CommunicationPage({
   }
 
   async function selectChannel(channelName: string) {
+    setShowNewMsg(false);
     const existing = allConversations.find(c => c.type === 'team_channel' && c.name === channelName);
     if (existing) {
       setActiveConversationId(existing.id);
@@ -732,6 +729,7 @@ export function CommunicationPage({
   }
 
   async function selectDM(userId: string) {
+    setShowNewMsg(false);
     try {
       const conv = await onGetOrCreateDM(userId);
       setActiveConversationId(conv.id);
@@ -1610,11 +1608,29 @@ export function CommunicationPage({
           )}
         </>
       ) : (
-        <div className="flex flex-1 items-center justify-center text-center p-8">
-          <div>
-            <MessageSquare className="mx-auto h-14 w-14 text-muted/25 mb-3" />
-            <h3 className="font-display text-lg font-bold text-ink">Select a conversation</h3>
-            <p className="text-xs text-muted max-w-xs mt-1">Choose a conversation from the left panel to begin.</p>
+        <div className="flex flex-1 items-center justify-center p-8 text-center">
+          <div className="max-w-sm">
+            <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-gold/15 text-[#7a5518]">
+              <MessageSquare className="h-6 w-6" />
+            </div>
+            <h3 className="mt-4 font-display text-lg font-bold text-ink">
+              {isClient ? 'Choose a conversation' : 'New Message'}
+            </h3>
+            <p className="mt-1 text-xs leading-relaxed text-muted">
+              {isClient
+                ? 'Choose one of your project conversations to continue.'
+                : 'Start a fresh direct message, project conversation, or team channel. Previous chats stay closed until you choose one.'}
+            </p>
+            {!isClient ? (
+              <button
+                type="button"
+                onClick={() => setShowNewMsg(true)}
+                className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-xl bg-gold px-4 text-xs font-bold text-ink transition hover:bg-gold/90"
+              >
+                <Plus className="h-4 w-4" />
+                Compose New Message
+              </button>
+            ) : null}
           </div>
         </div>
       )}
