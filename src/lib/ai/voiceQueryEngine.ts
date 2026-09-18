@@ -105,7 +105,7 @@ export class VoiceQueryEngine {
       const isNegative = /\b(no|cancel|don't do it|dont do it|stop|never mind|nevermind|abort)\b/i.test(lower);
 
       if (isAffirmative) {
-        const action = this.memory.pendingAction;
+        const action = pending;
         this.memory.pendingAction = null;
         const result = await this.executeAction(action, ctx);
         this.logExecution(ctx, q, action.toolName, result.success, result.error);
@@ -113,7 +113,7 @@ export class VoiceQueryEngine {
       }
 
       if (isNegative) {
-        const action = this.memory.pendingAction;
+        const action = pending;
         this.memory.pendingAction = null;
         const result: AIToolResult = {
           success: true,
