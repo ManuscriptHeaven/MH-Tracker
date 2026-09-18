@@ -417,67 +417,196 @@ export async function execute_create_project(
     projectTitle: string;
     clientName: string;
     clientEmail?: string;
-    serviceType?: string;
+    serviceType: string;
+    requiresPrint: boolean;
+    requiresEbook: boolean;
     genre?: string;
-    totalPrice?: number;
+    totalPrice: number;
     advancePaid?: number;
-    dueDate?: string;
+    startDate: string;
+    dueDate: string;
     assignedToId?: string;
     projectManagerId?: string;
+    priority?: 'Low' | 'Normal' | 'High' | 'Urgent';
     notes?: string;
   },
   ctx: AIToolContext,
 ): Promise<AIToolResult> {
-  if (isClientRole(ctx.currentProfile.role)) {
+  if (!isManagerRole(ctx.currentProfile.role)) {
     return {
       success: false,
       toolName: 'create_project',
       error: 'permission_denied',
-      spokenText: "I can't create projects with client permissions.",
-      displayText: "🔒 Project creation is restricted for client accounts.",
+      spokenText: "I can't create projects with your current permissions.",
+      displayText: '🔒 Project creation is restricted to Admin and Project Manager roles.',
     };
   }
 
-  const assignedProfile = payload.assignedToId ? ctx.data.profiles.find((p) => p.id === payload.assignedToId) : null;
-  const assignedName = assignedProfile ? firstName(assignedProfile.full_name) : 'the team';
+  const projectTitle = payload.projectTitle?.trim();
+  const clientName = payload.clientName?.trim();
+  const serviceType = payload.serviceType?.trim();
+  const totalPrice = Number(payload.totalPrice);
+  const advancePaid = Math.max(0, Number(payload.advancePaid || 0));
+  const startDate = payload.startDate || todayInput();
+  const dueDate = payload.dueDate;
+
+  if (!projectTitle || !clientName || !serviceType || !dueDate || !Number.isFinite(totalPrice)) {
+    return {
+      success: false,
+      toolName: 'create_project',
+      error: 'project_fields_required',
+      spokenText: 'The project is missing required setup information. Please restart the project creation wizard.',
+      displayText:
+        '❌ **Project setup is incomplete.** Project title, client, service type, total price, and due date are required.',
+    };
+  }
+
+  if (totalPrice < 0 || advancePaid > totalPrice) {
+    return {
+      success: false,
+      toolName: 'create_project',
+      error: 'project_payment_values_invalid',
+      spokenText: 'The project price or advance amount is invalid.',
+      displayText: '❌ Total price must be zero or greater, and advance paid cannot exceed total price.',
+    };
+  }
+
+  if (typeof payload.requiresPrint !== 'boolean' || typeof payload.requiresEbook !== 'boolean') {
+    return {
+      success: false,
+      toolName: 'create_project',
+      error: 'project_capabilities_required',
+      spokenText: 'Print and eBook requirements must be confirmed before creating the project.',
+      displayText: '❌ Print/eBook capabilities are required for canonical project creation.',
+    };
+  }
+
+  if (!payload.requiresPrint && !payload.requiresEbook) {
+    return {
+      success: false,
+      toolName: 'create_project',
+      error: 'project_capabilities_invalid',
+      spokenText: 'The project must require Print, eBook, or both.',
+      displayText: '❌ A project must require Print, eBook, or both.',
+    };
+  }
+
+  const knownClientProject = (ctx.data.projects || ctx.visibleProjects).find(
+    (project) =>
+      (project.client_name || '').toLowerCase() === clientName.toLowerCase() &&
+      Boolean(project.client_email),
+  );
+  const clientEmail = payload.clientEmail?.trim() || knownClientProject?.client_email || '';
+
+  const assignedProfile = payload.assignedToId
+    ? ctx.data.profiles.find((profile) => profile.id === payload.assignedToId)
+    : null;
+  const assignedName = assignedProfile ? firstName(assignedProfile.full_name) : 'Unassigned';
+
+  const managerProfile = payload.projectManagerId
+    ? ctx.data.profiles.find((profile) => profile.id === payload.projectManagerId)
+    : null;
+  const fallbackManagerId =
+    ctx.currentProfile.role === 'project_manager' || ctx.currentProfile.role === 'manager'
+      ? ctx.currentProfile.id
+      : null;
+  const projectManagerId = payload.projectManagerId || fallbackManagerId;
 
   try {
     let createdProject: any = null;
     if (ctx.trackerMutations?.createProject) {
       createdProject = await ctx.trackerMutations.createProject({
-        project_title: payload.projectTitle,
-        client_name: payload.clientName,
-        client_email: payload.clientEmail || `${payload.clientName.toLowerCase().replace(/\s+/g, '')}@client.com`,
-        service_type: (payload.serviceType as any) || 'Print + eBook',
-        genre: payload.genre || 'General Non-Fiction',
-        trim_size: '6 x 9',
-        page_count: 200,
-        word_count: 50000,
-        platform: 'KDP',
-        start_date: todayInput(),
-        due_date: payload.dueDate || addDays(14),
-        total_price: payload.totalPrice || 0,
-        advance_paid: payload.advancePaid || 0,
-        status: 'In Progress',
+        client_name: clientName,
+        client_email: clientEmail,
+        project_title: projectTitle,
+        service_type: serviceType,
+        requires_print: payload.requiresPrint,
+        requires_ebook: payload.requiresEbook,
+        genre: payload.genre || '',
+        trim_size: '',
+        page_count: 0,
+        word_count: 0,
+        image_count: 0,
+        platform: 'Amazon KDP',
         assigned_to: payload.assignedToId || null,
-        project_manager: payload.projectManagerId || ctx.currentProfile.id,
+        project_manager: projectManagerId,
+        priority: payload.priority || 'Normal',
+        start_date: startDate,
+        due_date: dueDate,
+        internal_deadline: dueDate,
+        delivery_date: null,
+        status: 'Files Required',
         general_notes: payload.notes || 'Created via AI Assistant',
+        internal_notes: '',
+        client_instructions: '',
+        qa_notes: '',
+        delivery_notes: '',
+        source_file_link: '',
+        drive_folder_link: '',
+        client_brief_link: '',
+        proof_pdf_link: '',
+        final_print_pdf_link: '',
+        final_ebook_link: '',
+        cover_file_link: '',
+        other_links: '',
+        total_price: totalPrice,
+        advance_paid: advancePaid,
+        payment_status:
+          totalPrice > 0 && advancePaid >= totalPrice
+            ? 'Fully Paid'
+            : advancePaid > 0
+              ? 'Advance Paid'
+              : 'Not Started',
+        payment_date: advancePaid > 0 ? todayInput() : null,
+        payment_notes: advancePaid > 0 ? 'Advance recorded during AI project creation.' : '',
       });
     }
 
     const audit = createAuditLog(
       ctx,
-      `Created project: "${payload.projectTitle}" for ${payload.clientName}`,
+      'Created project: "' + projectTitle + '" for ' + clientName,
       'project',
       createdProject?.id,
-      payload.projectTitle,
+      projectTitle,
       null,
-      `Client: ${payload.clientName}`,
+      'Client: ' + clientName,
       'success',
     );
 
-    const spoken = `Done. Project "${payload.projectTitle}" for ${payload.clientName} has been created.`;
-    const display = `### ✅ Project Created Successfully\n\n• **Project:** **${payload.projectTitle}**\n• **Client:** **${payload.clientName}**\n• **Service:** ${payload.serviceType || 'Print + eBook'}\n${payload.dueDate ? `• **Due Date:** ${formatDate(payload.dueDate)}\n` : ''}${payload.totalPrice ? `• **Total Price:** ${ctx.formatMoney(payload.totalPrice)}\n` : ''}• **Status:** In Progress`;
+    const spoken =
+      'Done. Project "' +
+      projectTitle +
+      '" for ' +
+      clientName +
+      ' has been created and starts in Files Received.';
+    const display =
+      '### ✅ Project Created Successfully\n\n' +
+      '• **Project:** **' +
+      projectTitle +
+      '**\n' +
+      '• **Client:** **' +
+      clientName +
+      '**\n' +
+      '• **Service:** ' +
+      serviceType +
+      '\n' +
+      '• **Total Price:** ' +
+      ctx.formatMoney(totalPrice, 'USD') +
+      '\n' +
+      '• **Due Date:** ' +
+      formatDate(dueDate) +
+      '\n' +
+      '• **Priority:** ' +
+      (payload.priority || 'Normal') +
+      '\n' +
+      '• **Assigned To:** ' +
+      assignedName +
+      '\n' +
+      '• **Project Manager:** ' +
+      (managerProfile?.full_name ||
+        (projectManagerId === ctx.currentProfile.id ? ctx.currentProfile.full_name : 'Not assigned')) +
+      '\n' +
+      '• **Workflow:** Files Received';
 
     return {
       success: true,
@@ -485,6 +614,7 @@ export async function execute_create_project(
       spokenText: spoken,
       displayText: display,
       auditLog: audit,
+      data: createdProject || undefined,
     };
   } catch (err: any) {
     const errorMsg = err?.message || 'Failed to create project.';
@@ -492,9 +622,19 @@ export async function execute_create_project(
       success: false,
       toolName: 'create_project',
       error: errorMsg,
-      spokenText: `I couldn't create the project. ${errorMsg}`,
-      displayText: `❌ Failed to create project: ${errorMsg}`,
-      auditLog: createAuditLog(ctx, `Create project failed: "${payload.projectTitle}"`, 'project', undefined, payload.projectTitle, null, null, 'failed', errorMsg),
+      spokenText: "I couldn't create the project. " + errorMsg,
+      displayText: '❌ Failed to create project: ' + errorMsg,
+      auditLog: createAuditLog(
+        ctx,
+        'Create project failed: "' + projectTitle + '"',
+        'project',
+        undefined,
+        projectTitle,
+        null,
+        null,
+        'failed',
+        errorMsg,
+      ),
     };
   }
 }
