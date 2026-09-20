@@ -865,9 +865,8 @@ export function CommunicationPage({
       setShowMentionPopover(false);
     } catch (err) {
       console.error('Send failed:', err);
-      setCommunicationError(
-        err instanceof Error ? err.message : 'Message was not sent. Your draft has been kept so you can retry.',
-      );
+      const reason = err instanceof Error ? err.message : 'The message could not be delivered.';
+      setCommunicationError(`Failed to send — ${reason} Your draft and attachments are still here so you can retry.`);
     } finally {
       setIsSending(false);
     }
