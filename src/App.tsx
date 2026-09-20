@@ -290,6 +290,7 @@ export default function App() {
         onToggleReaction={tracker.toggleReaction}
         onMarkRead={tracker.markConversationRead}
         onGetOrCreateDM={tracker.getOrCreateDM}
+        onGetOrCreateTeamChannel={tracker.getOrCreateTeamChannel}
         onGetOrCreateProjectConversation={tracker.getOrCreateProjectConversation}
         onOpenProject={openProjectById}
         onCreateTask={async (draft) => { await tracker.createTask(draft); }}
