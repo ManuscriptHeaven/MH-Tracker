@@ -3671,7 +3671,7 @@ export function useTracker() {
       void markConversationRead(conversationId);
       return newMessage;
     },
-    [currentProfile, data.profiles, markConversationRead, mode],
+    [currentProfile, data.profiles, mode],
   );
 
   const getMessageAttachmentUrl = useCallback(
