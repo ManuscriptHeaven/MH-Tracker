@@ -1422,7 +1422,7 @@ export function useTracker() {
     return () => {
       supabaseClient.removeChannel(subscription);
     };
-  }, [currentProfile, mode]);
+  }, [currentProfile, loadSupabaseData, mode]);
 
   useEffect(() => {
     const supabaseClient = supabase;
