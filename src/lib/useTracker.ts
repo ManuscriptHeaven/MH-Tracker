@@ -1283,7 +1283,7 @@ export function useTracker() {
         supabaseClient.removeChannel(subscription);
       }
     };
-  }, [currentProfile, loadSupabaseData, mode]);
+  }, [currentProfile, mode]);
 
   useEffect(() => {
     const supabaseClient = supabase;
