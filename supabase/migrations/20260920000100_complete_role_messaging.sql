@@ -6,6 +6,7 @@
 -- Existing Phase 6 access functions are owned by this hardened role.
 -- PostgreSQL 17 role memberships can disallow SET ROLE even with ADMIN OPTION,
 -- so temporarily enable SET for this migration transaction and restore it below.
+grant create on schema public to phase6_app_security_owner;
 grant phase6_app_security_owner to postgres with set true;
 set role phase6_app_security_owner;
 
@@ -199,5 +200,6 @@ begin
 end
 $block$;
 
--- Restore the hardened membership setting after the migration.
+-- Restore the hardened role/schema settings after the migration.
 grant phase6_app_security_owner to postgres with set false;
+revoke create on schema public from phase6_app_security_owner;
