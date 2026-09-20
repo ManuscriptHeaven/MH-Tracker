@@ -631,13 +631,6 @@ export function CommunicationPage({
     }
   }, [activeConversationId, messages.length, activeConvTab]);
 
-  // Keep last_read_at current while the conversation is actually open.
-  // This powers unread counters and sender-side Read indicators in real time.
-  useEffect(() => {
-    if (!displayedConv || activeConvTab !== 'chat' || mobilePanel !== 'chat') return;
-    void onMarkRead(displayedConv.id).catch(() => {});
-  }, [activeConvTab, activeMessages.length, displayedConv?.id, mobilePanel, onMarkRead]);
-
   /* ── Close emoji/menu on outside click ── */
   useEffect(() => {
     function handle(e: MouseEvent) {
@@ -677,6 +670,13 @@ export function CommunicationPage({
       .filter(m => m.conversation_id === displayedConv.id)
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   }, [messages, displayedConv, isClient]);
+
+  // Keep last_read_at current while the conversation is actually open.
+  // This powers unread counters and sender-side Read indicators in real time.
+  useEffect(() => {
+    if (!displayedConv || activeConvTab !== 'chat' || mobilePanel !== 'chat') return;
+    void onMarkRead(displayedConv.id).catch(() => {});
+  }, [activeConvTab, activeMessages.length, displayedConv?.id, mobilePanel, onMarkRead]);
 
   /* ── Attachments for current conversation ── */
   const convAttachments = useMemo(() => {
