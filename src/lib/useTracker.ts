@@ -1283,7 +1283,7 @@ export function useTracker() {
         supabaseClient.removeChannel(subscription);
       }
     };
-  }, [currentProfile, mode]);
+  }, [currentProfile, loadSupabaseData, mode]);
 
   useEffect(() => {
     const supabaseClient = supabase;
@@ -1292,21 +1292,36 @@ export function useTracker() {
       return undefined;
     }
 
-    // Realtime chat message and reaction synchronization
+    // Realtime synchronization for cross-panel messaging.
+    // The corresponding tables are included in the Supabase Realtime publication
+    // by the complete_role_messaging migration.
     const subscription = supabaseClient
       .channel(`realtime-chat-sync:${currentProfile.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'conversations' },
+        (payload) => {
+          const conversation = payload.new as Conversation;
+          if (!conversation?.id) return;
+          setData((prev) => ({
+            ...prev,
+            conversations: (prev.conversations || []).some((item) => item.id === conversation.id)
+              ? prev.conversations
+              : [...(prev.conversations || []), conversation],
+          }));
+        },
+      )
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
         (payload) => {
           const newMsg = payload.new as ChatMessage;
-          if (!newMsg || !newMsg.id) return;
+          if (!newMsg?.id) return;
 
           setData((prev) => {
             const exists = (prev.messages || []).some((m) => m.id === newMsg.id);
             if (exists) return prev;
 
-            // Trigger sound and voice alert if message was sent by another user
             if (newMsg.sender_id !== currentProfile.id) {
               const sender = (prev.profiles || []).find((p) => p.id === newMsg.sender_id);
               const senderName = sender?.full_name || 'Team Member';
@@ -1324,25 +1339,71 @@ export function useTracker() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'conversation_members' },
         (payload) => {
+          const eventType = payload.eventType;
           const updatedMember = payload.new as ConversationMember;
-          if (!updatedMember || !updatedMember.id) return;
+          const previousMember = payload.old as ConversationMember;
+          const member = eventType === 'DELETE' ? previousMember : updatedMember;
+          if (!member?.id) return;
 
           setData((prev) => {
             const members = prev.conversationMembers || [];
-            const idx = members.findIndex(
-              (m) =>
-                m.id === updatedMember.id ||
-                (m.conversation_id === updatedMember.conversation_id && m.user_id === updatedMember.user_id),
-            );
-
-            if (idx >= 0) {
-              const next = [...members];
-              next[idx] = updatedMember;
-              return { ...prev, conversationMembers: next };
+            if (eventType === 'DELETE') {
+              return {
+                ...prev,
+                conversationMembers: members.filter((item) => item.id !== member.id),
+              };
             }
 
-            return { ...prev, conversationMembers: [...members, updatedMember] };
+            const idx = members.findIndex(
+              (item) =>
+                item.id === member.id ||
+                (item.conversation_id === member.conversation_id && item.user_id === member.user_id),
+            );
+            if (idx >= 0) {
+              const next = [...members];
+              next[idx] = member;
+              return { ...prev, conversationMembers: next };
+            }
+            return { ...prev, conversationMembers: [...members, member] };
           });
+
+          // A newly-created DM is inserted before its membership rows. When this
+          // user's membership arrives, refresh once so the conversation itself
+          // and any first message are immediately available in this panel.
+          if (
+            (eventType === 'INSERT' || eventType === 'DELETE') &&
+            member.user_id === currentProfile.id
+          ) {
+            void loadSupabaseData(currentProfile);
+          }
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'message_attachments' },
+        (payload) => {
+          const attachment = payload.new as MessageAttachment;
+          if (!attachment?.id) return;
+          setData((prev) => ({
+            ...prev,
+            messageAttachments: (prev.messageAttachments || []).some((item) => item.id === attachment.id)
+              ? prev.messageAttachments
+              : [...(prev.messageAttachments || []), attachment],
+          }));
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'message_mentions' },
+        (payload) => {
+          const mention = payload.new as MessageMention;
+          if (!mention?.id) return;
+          setData((prev) => ({
+            ...prev,
+            messageMentions: (prev.messageMentions || []).some((item) => item.id === mention.id)
+              ? prev.messageMentions
+              : [...(prev.messageMentions || []), mention],
+          }));
         },
       )
       .on(
@@ -3766,6 +3827,68 @@ export function useTracker() {
     [currentProfile, data.conversations, ensureScopedConversationSelfMembership, mode],
   );
 
+  const getOrCreateTeamChannel = useCallback(
+    async (channelName: string) => {
+      if (!currentProfile) throw new Error('Not logged in.');
+      if (isClientRole(currentProfile.role)) throw new Error('Team channels are only available to team members.');
+
+      const cleanName = channelName.trim().toLowerCase();
+      if (!cleanName) throw new Error('Channel name is required.');
+
+      if (supabase && mode === 'supabase') {
+        const { data: conversationId, error } = await supabase.rpc('phase6_get_or_create_team_channel', {
+          p_name: cleanName,
+        });
+        if (error) throw error;
+        if (!conversationId) throw new Error('Team channel RPC returned no conversation ID.');
+
+        await loadSupabaseData(currentProfile);
+        const now = new Date().toISOString();
+        return {
+          id: String(conversationId),
+          type: 'team_channel',
+          name: cleanName,
+          created_by: currentProfile.id,
+          created_at: now,
+          updated_at: now,
+        } as Conversation;
+      }
+
+      const existing = (data.conversations || []).find(
+        (conversation) => conversation.type === 'team_channel' && conversation.name === cleanName,
+      );
+      if (existing) return existing;
+
+      const now = new Date().toISOString();
+      const conversationId = createUuid();
+      const conversation: Conversation = {
+        id: conversationId,
+        type: 'team_channel',
+        name: cleanName,
+        created_by: currentProfile.id,
+        created_at: now,
+        updated_at: now,
+      };
+      const members: ConversationMember[] = (data.profiles || [])
+        .filter((profile) => !isClientRole(profile.role) && profile.status !== 'inactive')
+        .map((profile) => ({
+          id: createUuid(),
+          conversation_id: conversationId,
+          user_id: profile.id,
+          last_read_at: now,
+          created_at: now,
+        }));
+
+      setData((prev) => ({
+        ...prev,
+        conversations: [...(prev.conversations || []), conversation],
+        conversationMembers: [...(prev.conversationMembers || []), ...members],
+      }));
+      return conversation;
+    },
+    [currentProfile, data.conversations, data.profiles, loadSupabaseData, mode],
+  );
+
   const getOrCreateDM = useCallback(
     async (otherUserId: string) => {
       if (!currentProfile) throw new Error('Not logged in.');
@@ -3887,6 +4010,7 @@ export function useTracker() {
     markConversationRead,
     getOrCreateProjectConversation,
     getOrCreateTaskConversation,
+    getOrCreateTeamChannel,
     getOrCreateDM,
   };
 }
