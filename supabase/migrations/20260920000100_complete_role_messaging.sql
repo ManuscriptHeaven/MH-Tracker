@@ -4,6 +4,9 @@
 -- employee/junior_assistant => employee class
 
 -- Existing Phase 6 access functions are owned by this hardened role.
+-- PostgreSQL 17 role memberships can disallow SET ROLE even with ADMIN OPTION,
+-- so temporarily enable SET for this migration transaction and restore it below.
+grant phase6_app_security_owner to postgres with set true;
 set role phase6_app_security_owner;
 
 create or replace function public.phase6_can_access_conversation(p_conversation_id uuid)
@@ -195,3 +198,6 @@ begin
   end loop;
 end
 $block$;
+
+-- Restore the hardened membership setting after the migration.
+grant phase6_app_security_owner to postgres with set false;
