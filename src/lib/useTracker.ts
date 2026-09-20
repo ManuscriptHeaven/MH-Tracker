@@ -3881,16 +3881,36 @@ export function useTracker() {
       }
 
       if (supabase && mode === 'supabase') {
-        const { data: created, error } = await supabase
-          .from('conversations')
-          .insert({ type, project_id: projectId, created_by: currentProfile.id })
-          .select()
-          .single();
+        const { data: conversationId, error } = await supabase.rpc(
+          'phase6_get_or_create_project_conversation',
+          {
+            p_project_id: projectId,
+            p_is_internal: isInternal,
+          },
+        );
         if (error) throw error;
-        if (!created) throw new Error('Project conversation insert returned no row.');
-        const confirmed = created as Conversation;
-        await ensureScopedConversationSelfMembership(confirmed.id);
-        setData((prev) => ({ ...prev, conversations: [...(prev.conversations || []), confirmed] }));
+        if (!conversationId) throw new Error('Project conversation RPC returned no conversation ID.');
+
+        const now = new Date().toISOString();
+        const confirmed: Conversation = {
+          id: String(conversationId),
+          type,
+          project_id: projectId,
+          task_id: null,
+          name: null,
+          created_by: currentProfile.id,
+          created_at: now,
+          updated_at: now,
+        };
+
+        setData((prev) => ({
+          ...prev,
+          conversations: (prev.conversations || []).some((conversation) => conversation.id === confirmed.id)
+            ? prev.conversations
+            : [...(prev.conversations || []), confirmed],
+        }));
+
+        await loadSupabaseData(currentProfile);
         return confirmed;
       }
 
@@ -3903,7 +3923,7 @@ export function useTracker() {
 
       return newConv;
     },
-    [currentProfile, data.conversations, ensureScopedConversationSelfMembership, mode],
+    [currentProfile, data.conversations, ensureScopedConversationSelfMembership, loadSupabaseData, mode],
   );
 
   const getOrCreateTaskConversation = useCallback(
