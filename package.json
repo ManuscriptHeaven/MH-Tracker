@@ -11,7 +11,7 @@
     "test:voice": "npx --yes tsx scripts/test-voice-assistant.mjs",
     "test:tasks-v2": "node scripts/task-management-v2-static-tests.mjs",
     "test:critical-repair": "node scripts/critical-action-repair-tests.mjs",
-    "test": "npx --yes tsx scripts/timeline-tests.mjs && npx --yes tsx scripts/test-voice-assistant.mjs && node scripts/task-management-v2-static-tests.mjs && node scripts/critical-action-repair-tests.mjs && node scripts/finance-auto-revenue-tests.mjs && node scripts/invoice-versioning-tests.mjs && node scripts/messages-ui-tests.mjs && node scripts/dashboard-responsive-tests.mjs && node scripts/ai-command-center-tests.mjs && node scripts/ai-project-wizard-tests.mjs && npx --yes tsx scripts/ai-daily-briefing-tests.mjs && npx --yes tsx scripts/ai-client-communication-tests.mjs && node scripts/client-payroll-fix-tests.mjs && node scripts/team-payroll-ui-tests.mjs && node scripts/sidebar-message-defaults-tests.mjs && node scripts/startup-loading-tests.mjs && node scripts/role-messaging-reliability-tests.mjs && node scripts/messaging-completion-tests.mjs",
+    "test": "npx --yes tsx scripts/timeline-tests.mjs && npx --yes tsx scripts/test-voice-assistant.mjs && node scripts/task-management-v2-static-tests.mjs && node scripts/critical-action-repair-tests.mjs && node scripts/finance-auto-revenue-tests.mjs && node scripts/invoice-versioning-tests.mjs && node scripts/messages-ui-tests.mjs && node scripts/dashboard-responsive-tests.mjs && node scripts/ai-command-center-tests.mjs && node scripts/ai-project-wizard-tests.mjs && npx --yes tsx scripts/ai-daily-briefing-tests.mjs && npx --yes tsx scripts/ai-client-communication-tests.mjs && node scripts/client-payroll-fix-tests.mjs && node scripts/team-payroll-ui-tests.mjs && node scripts/sidebar-message-defaults-tests.mjs && node scripts/startup-loading-tests.mjs && node scripts/role-messaging-reliability-tests.mjs && node scripts/messaging-completion-tests.mjs && node scripts/project-window-messaging-tests.mjs",
     "test:finance": "node scripts/finance-auto-revenue-tests.mjs",
     "test:invoice": "node scripts/invoice-versioning-tests.mjs",
     "test:messages": "node scripts/messages-ui-tests.mjs",
@@ -25,7 +25,8 @@
     "test:sidebar-message-defaults": "node scripts/sidebar-message-defaults-tests.mjs",
     "test:startup-loading": "node scripts/startup-loading-tests.mjs",
     "test:role-messaging": "node scripts/role-messaging-reliability-tests.mjs",
-    "test:messaging-completion": "node scripts/messaging-completion-tests.mjs"
+    "test:messaging-completion": "node scripts/messaging-completion-tests.mjs",
+    "test:project-window-messaging": "node scripts/project-window-messaging-tests.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

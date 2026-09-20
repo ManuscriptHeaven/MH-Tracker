@@ -34,12 +34,13 @@ export function ProjectDiscussionChat({
     parentMessageId?: string | null,
   ) => Promise<ChatMessage>;
   onGetOrCreateProjectConversation: (projectId: string, isInternal: boolean) => Promise<Conversation>;
-  onMarkRead?: (conversationId: string) => void;
+  onMarkRead?: (conversationId: string) => Promise<void> | void;
 }) {
   const [activeConv, setActiveConv] = useState<Conversation | null>(null);
   const [inputMsg, setInputMsg] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isLoadingConv, setIsLoadingConv] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const type = isInternal ? 'project_internal' : 'project_client';
@@ -61,12 +62,20 @@ export function ProjectDiscussionChat({
     async function initConversation() {
       setIsLoadingConv(true);
       try {
+        setChatError(null);
         const conv = await onGetOrCreateProjectConversation(projectId, isInternal);
         if (!isCancelled) {
           setActiveConv(conv);
         }
       } catch (err) {
         console.error('Failed to get/create project conversation:', err);
+        if (!isCancelled) {
+          setChatError(
+            err instanceof Error
+              ? err.message
+              : 'Could not open this project discussion.',
+          );
+        }
       } finally {
         if (!isCancelled) {
           setIsLoadingConv(false);
@@ -92,7 +101,9 @@ export function ProjectDiscussionChat({
   // Auto-mark conversation as read when viewing it or receiving new messages
   useEffect(() => {
     if (activeConv && onMarkRead) {
-      onMarkRead(activeConv.id);
+      Promise.resolve(onMarkRead(activeConv.id)).catch((err) => {
+        console.warn('Could not update project chat read receipt:', err);
+      });
     }
   }, [activeConv, projectMessages.length, onMarkRead]);
 
@@ -105,7 +116,9 @@ export function ProjectDiscussionChat({
     const text = inputMsg.trim();
     if (!text || isSending) return;
 
+    setChatError(null);
     let targetConv = activeConv;
+
     if (!targetConv) {
       try {
         setIsLoadingConv(true);
@@ -113,21 +126,33 @@ export function ProjectDiscussionChat({
         setActiveConv(targetConv);
       } catch (err) {
         console.error('Failed to init conversation before send:', err);
-        setIsLoadingConv(false);
+        setChatError(
+          err instanceof Error
+            ? err.message
+            : 'Could not open this project discussion. Your message has not been sent.',
+        );
         return;
+      } finally {
+        setIsLoadingConv(false);
       }
-      setIsLoadingConv(false);
     }
 
-    if (!targetConv) return;
+    if (!targetConv) {
+      setChatError('Could not open this project discussion. Your message has not been sent.');
+      return;
+    }
 
     try {
       setIsSending(true);
-      setInputMsg('');
       await onSendMessage(targetConv.id, text);
+      setInputMsg('');
     } catch (err) {
       console.error('Failed to send project message:', err);
-      setInputMsg(text); // Restore on error
+      setChatError(
+        err instanceof Error
+          ? `Failed to send — ${err.message}`
+          : 'Failed to send this message. Your draft is still here so you can retry.',
+      );
     } finally {
       setIsSending(false);
     }
@@ -184,6 +209,19 @@ export function ProjectDiscussionChat({
           {projectMessages.length} message{projectMessages.length === 1 ? '' : 's'}
         </span>
       </div>
+
+      {chatError ? (
+        <div className="flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-800">
+          <span>{chatError}</span>
+          <button
+            type="button"
+            onClick={() => setChatError(null)}
+            className="shrink-0 font-bold text-red-700 hover:text-red-900"
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
 
       {/* Messages Feed */}
       <div className="space-y-3 max-h-72 min-h-[140px] overflow-y-auto pr-1 rounded-lg border border-border bg-white/70 p-3">
@@ -291,7 +329,10 @@ export function ProjectDiscussionChat({
               : `Write a message to ${clientName || 'the client'}...`
           }
           value={inputMsg}
-          onChange={(e) => setInputMsg(e.target.value)}
+          onChange={(e) => {
+            setInputMsg(e.target.value);
+            if (chatError) setChatError(null);
+          }}
           onKeyDown={handleKeyDown}
           disabled={isSending}
           className="flex-1 rounded-md border border-border bg-white px-3 py-2 text-xs text-ink outline-none transition focus:border-gold disabled:opacity-50"
@@ -299,10 +340,10 @@ export function ProjectDiscussionChat({
         <Button
           className="min-h-9 text-xs px-3.5 py-1"
           onClick={handleSend}
-          disabled={isSending || !inputMsg.trim()}
+          disabled={isSending || isLoadingConv || !inputMsg.trim()}
         >
           <Send className="h-3.5 w-3.5" />
-          {isSending ? 'Sending...' : 'Send'}
+          {isSending ? 'Sending...' : isLoadingConv ? 'Connecting...' : 'Send'}
         </Button>
       </div>
     </div>
