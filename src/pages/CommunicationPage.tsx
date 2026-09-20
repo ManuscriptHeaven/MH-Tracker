@@ -4,6 +4,8 @@ import {
   AtSign,
   BellOff,
   Calendar,
+  Check,
+  CheckCheck,
   CheckSquare,
   ChevronDown,
   ChevronRight,
@@ -14,6 +16,7 @@ import {
   FolderKanban,
   Hash,
   Info,
+  LoaderCircle,
   Lock,
   MessageSquare,
   MoreHorizontal,
@@ -31,6 +34,7 @@ import type {
   ChatMessage,
   Conversation,
   ConversationMember,
+  MessageAttachment,
   Priority,
   Profile,
   Project,
@@ -55,9 +59,10 @@ interface CommunicationPageProps {
   onSendMessage: (
     conversationId: string,
     body: string,
-    attachments?: { file_name: string; file_url: string; file_type: string; file_size: number }[],
+    attachments?: { file: File; file_name: string; file_type: string; file_size: number }[],
     parentMessageId?: string | null,
   ) => Promise<ChatMessage>;
+  onGetAttachmentUrl: (attachment: MessageAttachment) => Promise<string>;
   onToggleReaction: (messageId: string, emoji: string) => Promise<void>;
   onMarkRead: (conversationId: string) => Promise<void>;
   onGetOrCreateDM: (otherUserId: string) => Promise<Conversation>;
@@ -78,6 +83,21 @@ const TEAM_CHANNELS = [
   { name: 'qc', desc: 'Final quality control and proof checking' },
   { name: 'announcements', desc: 'Important project and office announcements' },
 ];
+
+const MAX_MESSAGE_FILE_BYTES = 50 * 1024 * 1024;
+const MAX_MESSAGE_ATTACHMENTS = 5;
+const MESSAGE_FILE_ACCEPT = [
+  '.pdf', '.doc', '.docx', '.rtf', '.txt',
+  '.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg',
+  '.zip', '.rar', '.7z',
+  '.indd', '.idml', '.psd', '.ai', '.eps',
+  '.epub', '.mobi',
+  '.xls', '.xlsx', '.csv',
+  '.ppt', '.pptx',
+].join(',');
+const ALLOWED_MESSAGE_FILE_EXTENSIONS = new Set(
+  MESSAGE_FILE_ACCEPT.split(',').map((item) => item.replace('.', '')),
+);
 
 type FilterMode = 'all' | 'unread' | 'mentions';
 type ConvTab = 'chat' | 'files' | 'tasks' | 'details';
@@ -479,6 +499,7 @@ export function CommunicationPage({
   projects,
   profiles,
   onSendMessage,
+  onGetAttachmentUrl,
   onToggleReaction,
   onMarkRead,
   onGetOrCreateDM,
@@ -564,7 +585,7 @@ export function CommunicationPage({
   const [menuMsgId, setMenuMsgId] = useState<string | null>(null);
   const [showMentionPopover, setShowMentionPopover] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<
-    { file_name: string; file_url: string; file_type: string; file_size: number }[]
+    { file: File; file_name: string; file_type: string; file_size: number }[]
   >([]);
   const [showNewMsg, setShowNewMsg] = useState(() => !isClient);
   const [createTaskMessage, setCreateTaskMessage] = useState<ChatMessage | null>(null);
@@ -577,6 +598,7 @@ export function CommunicationPage({
   const [channelsCollapsed, setChannelsCollapsed] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [communicationError, setCommunicationError] = useState<string | null>(null);
+  const [attachmentOpeningId, setAttachmentOpeningId] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -649,6 +671,13 @@ export function CommunicationPage({
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   }, [messages, displayedConv, isClient]);
 
+  // Keep last_read_at current while the conversation is actually open.
+  // This powers unread counters and sender-side Read indicators in real time.
+  useEffect(() => {
+    if (!displayedConv || activeConvTab !== 'chat' || mobilePanel !== 'chat') return;
+    void onMarkRead(displayedConv.id).catch(() => {});
+  }, [activeConvTab, activeMessages.length, displayedConv?.id, mobilePanel, onMarkRead]);
+
   /* ── Attachments for current conversation ── */
   const convAttachments = useMemo(() => {
     if (!displayedConv) return [];
@@ -695,6 +724,52 @@ export function CommunicationPage({
     if (name.toLowerCase().includes(sl)) return true;
     const last = lastMsgFor(conv.id);
     return !!(last && last.body.toLowerCase().includes(sl));
+  }
+
+  function deliveryLabel(message: ChatMessage) {
+    if (message.sender_id !== currentProfile.id) return null;
+    const recipients = conversationMembers.filter(
+      (member) => member.conversation_id === message.conversation_id && member.user_id !== currentProfile.id,
+    );
+    if (recipients.length === 0) return 'Sent';
+
+    const messageTime = new Date(message.created_at).getTime();
+    const readCount = recipients.filter(
+      (member) => member.last_read_at && new Date(member.last_read_at).getTime() >= messageTime,
+    ).length;
+
+    if (readCount === 0) return 'Sent';
+    if (recipients.length === 1 || readCount === recipients.length) return 'Read';
+    return `Read by ${readCount}`;
+  }
+
+  async function openAttachment(attachment: MessageAttachment) {
+    setCommunicationError(null);
+    setAttachmentOpeningId(attachment.id);
+    const popup = window.open('about:blank', '_blank');
+    if (popup) popup.opener = null;
+
+    try {
+      const url = await onGetAttachmentUrl(attachment);
+      if (popup) {
+        popup.location.href = url;
+      } else {
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+    } catch (err) {
+      popup?.close();
+      setCommunicationError(
+        err instanceof Error ? err.message : 'Could not open this attachment.',
+      );
+    } finally {
+      setAttachmentOpeningId(null);
+    }
   }
 
   /* ── Navigation handlers ── */
@@ -790,9 +865,8 @@ export function CommunicationPage({
       setShowMentionPopover(false);
     } catch (err) {
       console.error('Send failed:', err);
-      setCommunicationError(
-        err instanceof Error ? err.message : 'Message was not sent. Your draft has been kept so you can retry.',
-      );
+      const reason = err instanceof Error ? err.message : 'The message could not be delivered.';
+      setCommunicationError(`Failed to send — ${reason} Your draft has been kept, including any attachments, so you can retry.`);
     } finally {
       setIsSending(false);
     }
@@ -800,16 +874,50 @@ export function CommunicationPage({
 
   /* ── File attachment ── */
   function handleFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
-    const files = event.target.files;
-    if (!files || files.length === 0) return;
-    const file = files[0];
-    setPendingAttachments(prev => [...prev, {
-      file_name: file.name,
-      file_url: URL.createObjectURL(file),
-      file_type: file.name.split('.').pop() || 'file',
-      file_size: file.size,
-    }]);
+    const selected = Array.from(event.target.files || []);
     event.target.value = '';
+    if (selected.length === 0) return;
+
+    const remainingSlots = Math.max(0, MAX_MESSAGE_ATTACHMENTS - pendingAttachments.length);
+    if (remainingSlots === 0) {
+      setCommunicationError(`You can attach up to ${MAX_MESSAGE_ATTACHMENTS} files to one message.`);
+      return;
+    }
+
+    const accepted: { file: File; file_name: string; file_type: string; file_size: number }[] = [];
+    const problems: string[] = [];
+
+    for (const file of selected.slice(0, remainingSlots)) {
+      const extension = file.name.includes('.') ? file.name.split('.').pop()!.toLowerCase() : '';
+      if (!ALLOWED_MESSAGE_FILE_EXTENSIONS.has(extension)) {
+        problems.push(`${file.name}: unsupported file type`);
+        continue;
+      }
+      if (file.size > MAX_MESSAGE_FILE_BYTES) {
+        problems.push(`${file.name}: larger than 50 MB`);
+        continue;
+      }
+      if (file.size <= 0) {
+        problems.push(`${file.name}: empty file`);
+        continue;
+      }
+
+      accepted.push({
+        file,
+        file_name: file.name,
+        file_type: extension || 'file',
+        file_size: file.size,
+      });
+    }
+
+    if (selected.length > remainingSlots) {
+      problems.push(`Only the first ${remainingSlots} file${remainingSlots === 1 ? '' : 's'} could be added.`);
+    }
+
+    if (accepted.length > 0) {
+      setPendingAttachments((prev) => [...prev, ...accepted]);
+    }
+    setCommunicationError(problems.length > 0 ? problems.join(' · ') : null);
   }
 
   /* ── New message open ── */
@@ -1215,6 +1323,8 @@ export function CommunicationPage({
                     const sender = profiles.find(p => p.id === msg.sender_id);
                     const isMe = msg.sender_id === currentProfile.id;
                     const reactions = messageReactions.filter(r => r.message_id === msg.id);
+                    const msgAttachments = messageAttachments.filter((attachment) => attachment.message_id === msg.id);
+                    const delivery = deliveryLabel(msg);
                     const replyParent = msg.parent_message_id ? activeMessages.find(m => m.id === msg.parent_message_id) : null;
                     const isHovered = hoveredMessageId === msg.id;
                     const showEmojiPicker = emojiPickerMsgId === msg.id;
@@ -1256,21 +1366,39 @@ export function CommunicationPage({
                             <p className="whitespace-pre-wrap">{msg.body}</p>
 
                             {/* Attachments in bubble */}
-                            {msg.attachments && msg.attachments.length > 0 && (
+                            {msgAttachments.length > 0 && (
                               <div className="mt-2 space-y-1.5 border-t border-white/20 pt-2">
-                                {msg.attachments.map(att => (
+                                {msgAttachments.map((att) => (
                                   <div key={att.id} className="flex items-center justify-between rounded bg-white/10 px-2 py-1.5 text-[11px]">
-                                    <span className="flex items-center gap-1.5 truncate">
+                                    <span className="flex min-w-0 items-center gap-1.5">
                                       <FileText className="h-3.5 w-3.5 shrink-0" />
                                       <span className="truncate">{att.file_name}</span>
-                                      <span className="text-muted">{formatFileSize(att.file_size)}</span>
+                                      <span className="shrink-0 opacity-70">{formatFileSize(att.file_size)}</span>
                                     </span>
-                                    <a href={att.file_url} target="_blank" rel="noopener noreferrer" className="ml-2 font-bold underline text-gold">Open</a>
+                                    <button
+                                      type="button"
+                                      onClick={() => void openAttachment(att)}
+                                      disabled={attachmentOpeningId === att.id}
+                                      className="ml-2 shrink-0 font-bold underline text-gold disabled:opacity-50"
+                                    >
+                                      {attachmentOpeningId === att.id ? 'Opening…' : 'Open'}
+                                    </button>
                                   </div>
                                 ))}
                               </div>
                             )}
                           </div>
+
+                          {isMe && delivery ? (
+                            <div className="flex items-center justify-end gap-1 text-[10px] font-medium text-muted">
+                              {delivery.startsWith('Read') ? (
+                                <CheckCheck className="h-3 w-3 text-gold" />
+                              ) : (
+                                <Check className="h-3 w-3" />
+                              )}
+                              <span>{delivery}</span>
+                            </div>
+                          ) : null}
 
                           {/* Reactions */}
                           {Object.keys(reactionGroups).length > 0 && (
@@ -1374,7 +1502,8 @@ export function CommunicationPage({
                   {pendingAttachments.map((att, i) => (
                     <span key={i} className="inline-flex items-center gap-1.5 rounded-md border border-border bg-white px-2 py-1 text-xs font-medium">
                       <Paperclip className="h-3 w-3 text-gold" />
-                      {att.file_name}
+                      <span>{att.file_name}</span>
+                      <span className="text-[10px] text-muted">{formatFileSize(att.file_size)}</span>
                       <button onClick={() => setPendingAttachments(prev => prev.filter((_, idx) => idx !== i))} className="text-muted hover:text-danger ml-0.5">
                         <X className="h-3 w-3" />
                       </button>
@@ -1420,7 +1549,14 @@ export function CommunicationPage({
                   <div className="flex items-end gap-1.5 px-3 py-2.5">
                     <label className="cursor-pointer shrink-0 rounded p-1.5 text-muted hover:text-ink hover:bg-black/5 transition">
                       <Paperclip className="h-4 w-4" />
-                      <input type="file" onChange={handleFileUpload} className="hidden" />
+                      <input
+                        type="file"
+                        multiple
+                        accept={MESSAGE_FILE_ACCEPT}
+                        onChange={handleFileUpload}
+                        disabled={isSending || pendingAttachments.length >= MAX_MESSAGE_ATTACHMENTS}
+                        className="hidden"
+                      />
                     </label>
                     <button
                       type="button"
@@ -1459,12 +1595,21 @@ export function CommunicationPage({
                       disabled={isSending || (!messageInput.trim() && pendingAttachments.length === 0)}
                       className="shrink-0 flex min-h-10 items-center gap-1.5 rounded-xl bg-gold px-4 py-2 text-xs font-bold text-ink hover:bg-gold/90 transition disabled:opacity-40"
                     >
-                      <Send className="h-3.5 w-3.5" />
-                      <span className="hidden sm:inline">{isSending ? 'Sending…' : 'Send'}</span>
+                      {isSending ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                      <span className="hidden sm:inline">
+                        {isSending
+                          ? pendingAttachments.length > 0
+                            ? 'Uploading…'
+                            : 'Sending…'
+                          : 'Send'}
+                      </span>
                     </button>
                   </div>
                 </div>
-                <p className="mx-auto mt-1.5 max-w-5xl px-1 text-[10px] text-muted/60">Enter to send · Shift+Enter for a new line · @ to mention</p>
+                <div className="mx-auto mt-1.5 flex max-w-5xl flex-wrap items-center justify-between gap-2 px-1 text-[10px] text-muted/60">
+                  <span>Enter to send · Shift+Enter for a new line · @ to mention</span>
+                  <span>Private files · up to 5 · 50 MB each</span>
+                </div>
               </div>
             </div>
           )}
@@ -1504,14 +1649,14 @@ export function CommunicationPage({
                             </p>
                           </div>
                         </div>
-                        <a
-                          href={att.file_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="shrink-0 ml-3 text-xs font-bold text-gold hover:underline"
+                        <button
+                          type="button"
+                          onClick={() => void openAttachment(att)}
+                          disabled={attachmentOpeningId === att.id}
+                          className="shrink-0 ml-3 text-xs font-bold text-gold hover:underline disabled:opacity-50"
                         >
-                          Open
-                        </a>
+                          {attachmentOpeningId === att.id ? 'Opening…' : 'Open'}
+                        </button>
                       </div>
                     );
                   })}

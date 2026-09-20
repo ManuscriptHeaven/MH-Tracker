@@ -92,6 +92,17 @@ function createUuid() {
   );
 }
 
+function sanitizeMessageFileName(fileName: string) {
+  const clean = fileName
+    .normalize('NFKC')
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[-.]+|[-.]+$/g, '')
+    .slice(0, 120);
+
+  return clean || 'attachment';
+}
+
 function calculateBalance(totalPrice: number, advancePaid: number) {
   return Math.max(Number(totalPrice || 0) - Number(advancePaid || 0), 0);
 }
@@ -3533,34 +3544,15 @@ export function useTracker() {
     async (
       conversationId: string,
       body: string,
-      attachments?: { file_name: string; file_url: string; file_type: string; file_size: number }[],
+      attachments?: { file: File; file_name: string; file_type: string; file_size: number }[],
       parentMessageId?: string | null,
     ) => {
       if (!currentProfile) throw new Error('Not logged in.');
       const now = new Date().toISOString();
       const messageId = createUuid();
-      const newAttachments: MessageAttachment[] = (attachments || []).map((a) => ({
-        id: createUuid(),
-        message_id: messageId,
-        file_name: a.file_name,
-        file_url: a.file_url,
-        file_type: a.file_type,
-        file_size: a.file_size,
-        created_at: now,
-      }));
-
-      const newMessage: ChatMessage = {
-        id: messageId,
-        conversation_id: conversationId,
-        sender_id: currentProfile.id,
-        body: body.trim(),
-        parent_message_id: parentMessageId || null,
-        created_at: now,
-        updated_at: now,
-        attachments: newAttachments,
-        reactions: [],
-        mentions: [],
-      };
+      const requestedAttachments = attachments || [];
+      const uploadedPaths: string[] = [];
+      let newAttachments: MessageAttachment[] = [];
 
       const mentionMatches = body.match(/@([A-Za-z0-9_]+)/g);
       const mentionedUserIds: string[] = [];
@@ -3578,54 +3570,135 @@ export function useTracker() {
       }
 
       if (supabase && mode === 'supabase') {
-        const { error: insertError } = await supabase.from('messages').insert({
-            id: messageId,
-            conversation_id: conversationId,
-            sender_id: currentProfile.id,
-            body: body.trim(),
-            parent_message_id: parentMessageId || null,
-            created_at: now,
-            updated_at: now,
+        try {
+          for (const attachment of requestedAttachments) {
+            const attachmentId = createUuid();
+            const safeName = sanitizeMessageFileName(attachment.file_name);
+            const storagePath = `${conversationId}/${currentProfile.id}/${messageId}-${attachmentId}-${safeName}`;
+
+            const { error: uploadError } = await supabase.storage
+              .from('message-files')
+              .upload(storagePath, attachment.file, {
+                cacheControl: '3600',
+                contentType: attachment.file.type || 'application/octet-stream',
+                upsert: false,
+              });
+
+            if (uploadError) throw uploadError;
+            uploadedPaths.push(storagePath);
+
+            newAttachments.push({
+              id: attachmentId,
+              message_id: messageId,
+              file_name: attachment.file_name,
+              file_url: '',
+              file_type: attachment.file_type,
+              file_size: attachment.file_size,
+              storage_path: storagePath,
+              created_at: now,
+            });
+          }
+
+          const { error: sendError } = await supabase.rpc('phase6_send_message', {
+            p_message_id: messageId,
+            p_conversation_id: conversationId,
+            p_body: body.trim(),
+            p_parent_message_id: parentMessageId || null,
+            p_attachments: newAttachments.map((attachment) => ({
+              id: attachment.id,
+              file_name: attachment.file_name,
+              file_url: '',
+              file_type: attachment.file_type,
+              file_size: attachment.file_size,
+              storage_path: attachment.storage_path,
+            })),
+            p_mentioned_user_ids: mentionedUserIds,
           });
 
-        if (insertError) throw insertError;
-
-        if (attachments && attachments.length > 0) {
-          const { error: attachmentError } = await supabase.from('message_attachments').insert(
-              newAttachments.map((a) => ({
-                id: a.id,
-                message_id: messageId,
-                file_name: a.file_name,
-                file_url: a.file_url,
-                file_type: a.file_type,
-                file_size: a.file_size,
-              })),
-          );
-          if (attachmentError) throw attachmentError;
+          if (sendError) throw sendError;
+        } catch (sendError) {
+          if (uploadedPaths.length > 0) {
+            const { error: cleanupError } = await supabase.storage.from('message-files').remove(uploadedPaths);
+            if (cleanupError) {
+              console.warn('Could not clean up failed message uploads:', cleanupError);
+            }
+          }
+          throw sendError;
         }
-
-        if (mentionedUserIds.length > 0) {
-          const { error: mentionError } = await supabase.from('message_mentions').insert(
-              mentionedUserIds.map((uid) => ({
-                message_id: messageId,
-                user_id: uid,
-              })),
-          );
-          if (mentionError) throw mentionError;
-        }
+      } else {
+        newAttachments = requestedAttachments.map((attachment) => ({
+          id: createUuid(),
+          message_id: messageId,
+          file_name: attachment.file_name,
+          file_url: typeof URL !== 'undefined' ? URL.createObjectURL(attachment.file) : '',
+          file_type: attachment.file_type,
+          file_size: attachment.file_size,
+          storage_path: null,
+          created_at: now,
+        }));
       }
 
-      setData((prev) => ({
-        ...prev,
-        messages: [...(prev.messages || []), newMessage],
-        messageAttachments: [...(prev.messageAttachments || []), ...newAttachments],
-      }));
+      const newMessage: ChatMessage = {
+        id: messageId,
+        conversation_id: conversationId,
+        sender_id: currentProfile.id,
+        body: body.trim(),
+        parent_message_id: parentMessageId || null,
+        created_at: now,
+        updated_at: now,
+        attachments: newAttachments,
+        reactions: [],
+        mentions: [],
+      };
+
+      setData((prev) => {
+        const existingMessages = prev.messages || [];
+        const existingAttachments = prev.messageAttachments || [];
+        return {
+          ...prev,
+          messages: existingMessages.some((message) => message.id === messageId)
+            ? existingMessages
+            : [...existingMessages, newMessage],
+          messageAttachments: [
+            ...existingAttachments,
+            ...newAttachments.filter(
+              (attachment) => !existingAttachments.some((existing) => existing.id === attachment.id),
+            ),
+          ],
+        };
+      });
 
       void markConversationRead(conversationId);
-
       return newMessage;
     },
     [currentProfile, data.profiles, mode],
+  );
+
+  const getMessageAttachmentUrl = useCallback(
+    async (attachment: MessageAttachment) => {
+      if (attachment.storage_path) {
+        if (!supabase || mode !== 'supabase') {
+          throw new Error('Private attachment storage is unavailable in demo mode.');
+        }
+
+        const { data: signed, error: signedError } = await supabase.storage
+          .from('message-files')
+          .createSignedUrl(attachment.storage_path, 600);
+
+        if (signedError) throw signedError;
+        if (!signed?.signedUrl) throw new Error('Could not create a secure attachment link.');
+        return signed.signedUrl;
+      }
+
+      if (attachment.file_url && !attachment.file_url.startsWith('blob:')) {
+        return attachment.file_url;
+      }
+
+      throw new Error(
+        'This older attachment was saved only in the sender browser and is no longer downloadable. Please ask the sender to re-upload it.',
+      );
+    },
+    [mode],
   );
 
   const toggleReaction = useCallback(
@@ -3678,24 +3751,67 @@ export function useTracker() {
       if (!currentProfile) return;
       const now = new Date().toISOString();
 
+      if (supabase && mode === 'supabase') {
+        const { data: membership, error } = await supabase
+          .from('conversation_members')
+          .upsert(
+            {
+              conversation_id: conversationId,
+              user_id: currentProfile.id,
+              last_read_at: now,
+            },
+            { onConflict: 'conversation_id,user_id' },
+          )
+          .select()
+          .single();
+
+        if (error) throw error;
+        if (!membership) throw new Error('Conversation read receipt returned no membership row.');
+
+        const confirmed = membership as ConversationMember;
+        setData((prev) => {
+          const members = prev.conversationMembers || [];
+          const index = members.findIndex(
+            (member) => member.conversation_id === conversationId && member.user_id === currentProfile.id,
+          );
+          return {
+            ...prev,
+            conversationMembers: index >= 0
+              ? members.map((member, memberIndex) => memberIndex === index ? confirmed : member)
+              : [...members, confirmed],
+          };
+        });
+        return;
+      }
+
       setData((prev) => {
         const members = prev.conversationMembers || [];
         const existing = members.find(
-          (m) => m.conversation_id === conversationId && m.user_id === currentProfile.id,
+          (member) => member.conversation_id === conversationId && member.user_id === currentProfile.id,
         );
+        if (existing) {
+          return {
+            ...prev,
+            conversationMembers: members.map((member) =>
+              member.id === existing.id ? { ...member, last_read_at: now } : member,
+            ),
+          };
+        }
 
-        return existing
-          ? { ...prev, conversationMembers: members.map((m) => (m.id === existing.id ? { ...m, last_read_at: now } : m)) }
-          : prev;
+        return {
+          ...prev,
+          conversationMembers: [
+            ...members,
+            {
+              id: createUuid(),
+              conversation_id: conversationId,
+              user_id: currentProfile.id,
+              last_read_at: now,
+              created_at: now,
+            },
+          ],
+        };
       });
-
-      if (supabase && mode === 'supabase') {
-        const { error } = await supabase.from('conversation_members')
-          .update({ last_read_at: now })
-          .eq('conversation_id', conversationId)
-          .eq('user_id', currentProfile.id);
-        if (error) throw error;
-      }
     },
     [currentProfile, mode],
   );
@@ -4006,6 +4122,7 @@ export function useTracker() {
     restoreFinanceTransaction,
     saveFinanceBudget,
     sendMessage,
+    getMessageAttachmentUrl,
     toggleReaction,
     markConversationRead,
     getOrCreateProjectConversation,

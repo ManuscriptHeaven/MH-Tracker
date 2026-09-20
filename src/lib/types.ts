@@ -839,6 +839,7 @@ export interface MessageAttachment {
   file_url: string;
   file_type: string;
   file_size: number;
+  storage_path?: string | null;
   created_at: string;
 }
 
