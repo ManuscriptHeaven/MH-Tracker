@@ -3751,24 +3751,67 @@ export function useTracker() {
       if (!currentProfile) return;
       const now = new Date().toISOString();
 
+      if (supabase && mode === 'supabase') {
+        const { data: membership, error } = await supabase
+          .from('conversation_members')
+          .upsert(
+            {
+              conversation_id: conversationId,
+              user_id: currentProfile.id,
+              last_read_at: now,
+            },
+            { onConflict: 'conversation_id,user_id' },
+          )
+          .select()
+          .single();
+
+        if (error) throw error;
+        if (!membership) throw new Error('Conversation read receipt returned no membership row.');
+
+        const confirmed = membership as ConversationMember;
+        setData((prev) => {
+          const members = prev.conversationMembers || [];
+          const index = members.findIndex(
+            (member) => member.conversation_id === conversationId && member.user_id === currentProfile.id,
+          );
+          return {
+            ...prev,
+            conversationMembers: index >= 0
+              ? members.map((member, memberIndex) => memberIndex === index ? confirmed : member)
+              : [...members, confirmed],
+          };
+        });
+        return;
+      }
+
       setData((prev) => {
         const members = prev.conversationMembers || [];
         const existing = members.find(
-          (m) => m.conversation_id === conversationId && m.user_id === currentProfile.id,
+          (member) => member.conversation_id === conversationId && member.user_id === currentProfile.id,
         );
+        if (existing) {
+          return {
+            ...prev,
+            conversationMembers: members.map((member) =>
+              member.id === existing.id ? { ...member, last_read_at: now } : member,
+            ),
+          };
+        }
 
-        return existing
-          ? { ...prev, conversationMembers: members.map((m) => (m.id === existing.id ? { ...m, last_read_at: now } : m)) }
-          : prev;
+        return {
+          ...prev,
+          conversationMembers: [
+            ...members,
+            {
+              id: createUuid(),
+              conversation_id: conversationId,
+              user_id: currentProfile.id,
+              last_read_at: now,
+              created_at: now,
+            },
+          ],
+        };
       });
-
-      if (supabase && mode === 'supabase') {
-        const { error } = await supabase.from('conversation_members')
-          .update({ last_read_at: now })
-          .eq('conversation_id', conversationId)
-          .eq('user_id', currentProfile.id);
-        if (error) throw error;
-      }
     },
     [currentProfile, mode],
   );
