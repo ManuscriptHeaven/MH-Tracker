@@ -88,7 +88,7 @@ export function TeamPage({
   onAddEmployee?: (employeeData: { fullName: string; email: string; phone?: string; role: Role }) => Promise<string>;
 }) {
   const { formatMoney, convertMoney, displayCurrency } = useCurrency();
-  const [tab, setTab] = useState<Tab>('payroll');
+  const [tab, setTab] = useState<Tab>(() => canManagePayroll ? 'payroll' : 'directory');
   const [selectedMonth, setSelectedMonth] = useState<string>(() => normalizeMonth());
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -195,19 +195,21 @@ export function TeamPage({
       {/* Team workspace navigation */}
       <section className="rounded-2xl border border-border bg-white p-2 shadow-xs">
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-          <div className="grid grid-cols-2 gap-1 rounded-xl bg-[#f7f4ec] p-1 sm:inline-grid sm:w-auto">
-            <button
-              type="button"
-              onClick={() => setTab('payroll')}
-              className={`flex min-h-10 items-center justify-center gap-2 rounded-lg px-3.5 text-xs font-bold transition sm:min-w-[150px] ${
-                tab === 'payroll'
-                  ? 'bg-white text-ink shadow-sm'
-                  : 'text-muted hover:bg-white/70 hover:text-ink'
-              }`}
-            >
-              <DollarSign className="h-4 w-4 text-gold" />
-              Payroll & Dues
-            </button>
+          <div className={`grid gap-1 rounded-xl bg-[#f7f4ec] p-1 sm:inline-grid sm:w-auto ${canManagePayroll ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            {canManagePayroll ? (
+              <button
+                type="button"
+                onClick={() => setTab('payroll')}
+                className={`flex min-h-10 items-center justify-center gap-2 rounded-lg px-3.5 text-xs font-bold transition sm:min-w-[150px] ${
+                  tab === 'payroll'
+                    ? 'bg-white text-ink shadow-sm'
+                    : 'text-muted hover:bg-white/70 hover:text-ink'
+                }`}
+              >
+                <DollarSign className="h-4 w-4 text-gold" />
+                Payroll & Dues
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => setTab('directory')}
@@ -257,7 +259,7 @@ export function TeamPage({
         </div>
       )}
 
-      {tab === 'payroll' && (
+      {canManagePayroll && tab === 'payroll' && (
         <div className="space-y-4">
           {/* Payroll control bar */}
           <section className="overflow-hidden rounded-2xl border border-border bg-white shadow-xs">
@@ -741,19 +743,21 @@ export function TeamPage({
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-2 border-t border-border text-xs">
-                  <span className="text-muted">
-                    Salary: <strong className="text-ink">{formatMoney(pay?.monthly_salary || 0, 'USD')}</strong>
-                  </span>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => setDetailModalProfileId(profile.id)}
-                    className="text-[11px] py-1 px-2.5"
-                  >
-                    <Eye className="h-3 w-3" /> View Ledger
-                  </Button>
-                </div>
+                {canManagePayroll ? (
+                  <div className="flex items-center justify-between pt-2 border-t border-border text-xs">
+                    <span className="text-muted">
+                      Salary: <strong className="text-ink">{formatMoney(pay?.monthly_salary || 0, 'USD')}</strong>
+                    </span>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => setDetailModalProfileId(profile.id)}
+                      className="text-[11px] py-1 px-2.5"
+                    >
+                      <Eye className="h-3 w-3" /> View Ledger
+                    </Button>
+                  </div>
+                ) : null}
               </Card>
             ))}
           </div>
