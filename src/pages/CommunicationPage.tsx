@@ -866,7 +866,7 @@ export function CommunicationPage({
     } catch (err) {
       console.error('Send failed:', err);
       const reason = err instanceof Error ? err.message : 'The message could not be delivered.';
-      setCommunicationError(`Failed to send — ${reason} Your draft and attachments are still here so you can retry.`);
+      setCommunicationError(`Failed to send — ${reason} Your draft has been kept, including any attachments, so you can retry.`);
     } finally {
       setIsSending(false);
     }
