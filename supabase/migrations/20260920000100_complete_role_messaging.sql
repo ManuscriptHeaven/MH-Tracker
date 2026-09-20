@@ -3,6 +3,9 @@
 -- admin/project_manager/manager => manager class
 -- employee/junior_assistant => employee class
 
+-- Existing Phase 6 access functions are owned by this hardened role.
+set role phase6_app_security_owner;
+
 create or replace function public.phase6_can_access_conversation(p_conversation_id uuid)
 returns boolean
 language sql
@@ -117,23 +120,21 @@ begin
       from public.conversations c
      where c.type = 'team_channel'
     on conflict (conversation_id, user_id) do nothing;
-  else
-    delete from public.conversation_members cm
-     using public.conversations c
-     where cm.conversation_id = c.id
-       and c.type = 'team_channel'
-       and cm.user_id = new.id;
   end if;
 
   return new;
 end
 $function$;
 
+reset role;
+
 drop trigger if exists phase6_profiles_team_channel_membership on public.profiles;
 create trigger phase6_profiles_team_channel_membership
 after insert or update of role, status on public.profiles
 for each row
 execute function public.phase6_sync_team_channel_membership();
+
+set role phase6_app_security_owner;
 
 -- Create the standard team channels once.
 insert into public.conversations(type, name, created_by)
@@ -162,6 +163,8 @@ where c.type = 'team_channel'
   and p.status = 'active'
   and p.role::text in ('admin', 'project_manager', 'manager', 'employee', 'junior_assistant')
 on conflict (conversation_id, user_id) do nothing;
+
+reset role;
 
 -- Ensure the records used by the messaging UI participate in Supabase Realtime.
 do $block$
