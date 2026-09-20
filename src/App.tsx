@@ -287,6 +287,7 @@ export default function App() {
         profiles={tracker.data.profiles}
         tasks={tracker.data.tasks}
         onSendMessage={tracker.sendMessage}
+        onGetAttachmentUrl={tracker.getMessageAttachmentUrl}
         onToggleReaction={tracker.toggleReaction}
         onMarkRead={tracker.markConversationRead}
         onGetOrCreateDM={tracker.getOrCreateDM}
