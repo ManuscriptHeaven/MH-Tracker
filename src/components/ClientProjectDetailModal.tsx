@@ -108,7 +108,7 @@ export function ClientProjectDetailModal({
   onSendMessage?: (
     conversationId: string,
     body: string,
-    attachments?: { file_name: string; file_url: string; file_type: string; file_size: number }[],
+    attachments?: { file: File; file_name: string; file_type: string; file_size: number }[],
     parentMessageId?: string | null,
   ) => Promise<ChatMessage>;
   onGetOrCreateProjectConversation?: (projectId: string, isInternal: boolean) => Promise<Conversation>;
