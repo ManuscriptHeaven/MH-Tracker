@@ -42,7 +42,7 @@ begin
     return v_client_id;
   end if;
 
-  select count(*), min(p.id)
+  select count(*), (array_agg(p.id order by p.id))[1]
     into v_match_count, v_client_id
     from public.profiles p
    where p.role::text = 'client'
@@ -188,7 +188,7 @@ execute function public.phase6_sync_project_client_access();
 -- Repair existing projects only when there is no existing portal access and
 -- the project email maps to exactly one active client profile.
 with unique_client_emails as (
-  select lower(pg_catalog.btrim(p.email)) as email, min(p.id) as client_id
+  select lower(pg_catalog.btrim(p.email)) as email, (array_agg(p.id order by p.id))[1] as client_id
   from public.profiles p
   where p.role::text = 'client'
     and p.status = 'active'
