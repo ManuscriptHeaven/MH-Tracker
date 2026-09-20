@@ -61,6 +61,7 @@ interface CommunicationPageProps {
   onToggleReaction: (messageId: string, emoji: string) => Promise<void>;
   onMarkRead: (conversationId: string) => Promise<void>;
   onGetOrCreateDM: (otherUserId: string) => Promise<Conversation>;
+  onGetOrCreateTeamChannel: (channelName: string) => Promise<Conversation>;
   onGetOrCreateProjectConversation: (projectId: string, isInternal: boolean) => Promise<Conversation>;
   onOpenProject?: (projectId: string) => void;
   onCreateTask?: (draft: TaskDraft) => Promise<void>;
@@ -481,6 +482,7 @@ export function CommunicationPage({
   onToggleReaction,
   onMarkRead,
   onGetOrCreateDM,
+  onGetOrCreateTeamChannel,
   onGetOrCreateProjectConversation,
   onOpenProject,
   onCreateTask,
@@ -573,6 +575,8 @@ export function CommunicationPage({
   const [dmsCollapsed, setDmsCollapsed] = useState(true);
   const [projectsCollapsed, setProjectsCollapsed] = useState(true);
   const [channelsCollapsed, setChannelsCollapsed] = useState(true);
+  const [isSending, setIsSending] = useState(false);
+  const [communicationError, setCommunicationError] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -709,27 +713,34 @@ export function CommunicationPage({
     setProjectConvMode(mode);
     setActiveConvTab('chat');
     setMobilePanel('chat');
+    setCommunicationError(null);
     try {
       const conv = await onGetOrCreateProjectConversation(projectId, mode === 'internal');
       setActiveConversationId(conv.id);
       await onMarkRead(conv.id);
-    } catch {}
+    } catch (err) {
+      setCommunicationError(err instanceof Error ? err.message : 'Could not open the project conversation.');
+    }
   }
 
   async function selectChannel(channelName: string) {
     setShowNewMsg(false);
-    const existing = allConversations.find(c => c.type === 'team_channel' && c.name === channelName);
-    if (existing) {
-      setActiveConversationId(existing.id);
+    setCommunicationError(null);
+    try {
+      const conv = await onGetOrCreateTeamChannel(channelName);
+      setActiveConversationId(conv.id);
       setActiveProjectId(null);
       setActiveConvTab('chat');
       setMobilePanel('chat');
-      try { await onMarkRead(existing.id); } catch {}
+      await onMarkRead(conv.id);
+    } catch (err) {
+      setCommunicationError(err instanceof Error ? err.message : 'Could not open the team channel.');
     }
   }
 
   async function selectDM(userId: string) {
     setShowNewMsg(false);
+    setCommunicationError(null);
     try {
       const conv = await onGetOrCreateDM(userId);
       setActiveConversationId(conv.id);
@@ -737,31 +748,54 @@ export function CommunicationPage({
       setActiveConvTab('chat');
       setMobilePanel('chat');
       await onMarkRead(conv.id);
-    } catch {}
+    } catch (err) {
+      setCommunicationError(err instanceof Error ? err.message : 'Could not open the direct message.');
+    }
   }
 
   async function switchProjectConvMode(mode: 'internal' | 'client') {
     if (!activeProjectId) return;
     setProjectConvMode(mode);
+    setCommunicationError(null);
     try {
       const conv = await onGetOrCreateProjectConversation(activeProjectId, mode === 'internal');
       setActiveConversationId(conv.id);
       await onMarkRead(conv.id);
-    } catch {}
+    } catch (err) {
+      setCommunicationError(err instanceof Error ? err.message : 'Could not switch the project conversation.');
+    }
   }
 
   /* ── Send message ── */
   async function handleSend() {
-    if (!displayedConv || (!messageInput.trim() && pendingAttachments.length === 0)) return;
+    if (
+      isSending ||
+      !displayedConv ||
+      (!messageInput.trim() && pendingAttachments.length === 0)
+    ) return;
+
     const body = messageInput;
     const atts = pendingAttachments;
     const replyId = replyingToMessage?.id || null;
-    setMessageInput('');
-    setPendingAttachments([]);
-    setReplyingToMessage(null);
-    setShowMentionPopover(false);
-    try { await onSendMessage(displayedConv.id, body, atts, replyId); }
-    catch (err) { console.error('Send failed:', err); }
+
+    setIsSending(true);
+    setCommunicationError(null);
+    try {
+      await onSendMessage(displayedConv.id, body, atts, replyId);
+      // Clear the draft only after Supabase confirms the send. Failed sends
+      // remain in the composer so the user can retry without losing text.
+      setMessageInput('');
+      setPendingAttachments([]);
+      setReplyingToMessage(null);
+      setShowMentionPopover(false);
+    } catch (err) {
+      console.error('Send failed:', err);
+      setCommunicationError(
+        err instanceof Error ? err.message : 'Message was not sent. Your draft has been kept so you can retry.',
+      );
+    } finally {
+      setIsSending(false);
+    }
   }
 
   /* ── File attachment ── */
@@ -1402,6 +1436,7 @@ export function CommunicationPage({
                       value={messageInput}
                       onChange={e => {
                         setMessageInput(e.target.value);
+                        if (communicationError) setCommunicationError(null);
                         if (e.target.value.endsWith('@')) setShowMentionPopover(true);
                         e.currentTarget.style.height = 'auto';
                         e.currentTarget.style.height = `${Math.min(e.currentTarget.scrollHeight, 128)}px`;
@@ -1421,11 +1456,11 @@ export function CommunicationPage({
                     />
                     <button
                       onClick={handleSend}
-                      disabled={!messageInput.trim() && pendingAttachments.length === 0}
+                      disabled={isSending || (!messageInput.trim() && pendingAttachments.length === 0)}
                       className="shrink-0 flex min-h-10 items-center gap-1.5 rounded-xl bg-gold px-4 py-2 text-xs font-bold text-ink hover:bg-gold/90 transition disabled:opacity-40"
                     >
                       <Send className="h-3.5 w-3.5" />
-                      <span className="hidden sm:inline">Send</span>
+                      <span className="hidden sm:inline">{isSending ? 'Sending…' : 'Send'}</span>
                     </button>
                   </div>
                 </div>
@@ -1815,6 +1850,19 @@ export function CommunicationPage({
             </button>
           )}
         </div>
+
+        {communicationError ? (
+          <div className="shrink-0 flex items-center justify-between gap-3 border-b border-red-200 bg-red-50 px-4 py-2.5 text-xs text-red-800">
+            <span>{communicationError}</span>
+            <button
+              type="button"
+              onClick={() => setCommunicationError(null)}
+              className="shrink-0 font-bold text-red-700 hover:text-red-900"
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
 
         {/* ── BODY: THREE PANELS ── */}
         <div className="flex flex-1 min-h-0 overflow-hidden">
