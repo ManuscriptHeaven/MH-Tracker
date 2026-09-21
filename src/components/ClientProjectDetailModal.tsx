@@ -154,6 +154,13 @@ export function ClientProjectDetailModal({
   const summary = useMemo(() => getTimelineSummary(project), [project]);
   const milestones = useMemo(() => getTimelineMilestones(project), [project]);
   const milestoneToApprove = useMemo(() => approvalMilestoneForStage(summary.stage), [summary.stage]);
+  const canApproveCurrentStage =
+    milestoneToApprove !== null &&
+    project.workflow_stage_status_key === 'awaiting_client' &&
+    project.workflow_waiting_on_key === 'client';
+  const revisionInProgress =
+    project.workflow_stage_status_key === 'revision_active' ||
+    project.workflow_waiting_on_key === 'team';
 
   const projectInitialFiles = useMemo(
     () => initialFiles.filter((file) => file.project_id === project.id),
@@ -343,7 +350,7 @@ export function ClientProjectDetailModal({
 
           <div className="flex flex-col sm:flex-row flex-wrap gap-2 shrink-0 w-full sm:w-auto">
             {/* Only show Approve when waiting on client, not during an active revision */}
-            {milestoneToApprove && summary.waitingOn === 'Client' ? (
+            {canApproveCurrentStage ? (
               <Button type="button" onClick={handleApprove} disabled={isApproving} className="w-full sm:w-auto py-3 px-4 text-sm font-bold bg-success hover:bg-green-700 text-white shadow-xs">
                 <CheckCircle2 className="h-4 w-4" />
                 {isApproving ? 'Approving...' : approvalLabel(milestoneToApprove)}
@@ -353,7 +360,7 @@ export function ClientProjectDetailModal({
             {milestoneToApprove ? (
               <Button
                 type="button"
-                variant={milestoneToApprove && summary.waitingOn === 'Client' ? 'secondary' : 'primary'}
+                variant={canApproveCurrentStage ? 'secondary' : 'primary'}
                 onClick={() => onRequestRevision(project.id)}
                 className="w-full sm:w-auto py-3 px-4 text-sm font-semibold"
               >
@@ -363,6 +370,18 @@ export function ClientProjectDetailModal({
             ) : null}
           </div>
         </div>
+
+        {revisionInProgress && milestoneToApprove ? (
+          <div className="mt-4 flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+            <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-blue-700" />
+            <div>
+              <p className="font-semibold">Revision is still with the Manuscript Heaven team.</p>
+              <p className="mt-0.5 text-xs leading-5 text-blue-800">
+                Approval will become available after the team submits the revised proof for your review.
+              </p>
+            </div>
+          </div>
+        ) : null}
 
         {/* Pending Stage Skip Request Alert */}
         {(() => {
