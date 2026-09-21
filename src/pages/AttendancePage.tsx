@@ -5,6 +5,7 @@ import {
   Coffee,
   Download,
   History,
+  Laptop2,
   LogIn,
   LogOut,
   PauseCircle,
@@ -12,6 +13,7 @@ import {
   PlayCircle,
   TimerReset,
   Users,
+  WifiOff,
 } from 'lucide-react';
 import { Button, Card, Field, TextareaField } from '../components/ui';
 import { roleLabels } from '../lib/constants';
@@ -24,6 +26,7 @@ type Props = {
   sessions: AttendanceSession[];
   breaks: AttendanceBreak[];
   canManageAll: boolean;
+  desktopAttendanceCapable: boolean;
   onClockIn: (note?: string) => Promise<AttendanceSession>;
   onClockOut: (note?: string) => Promise<AttendanceSession>;
   onStartBreak: () => Promise<AttendanceBreak>;
@@ -61,20 +64,40 @@ function startOfWeek(date: Date) {
   return copy;
 }
 
-function getBreakSeconds(session: AttendanceSession, breaks: AttendanceBreak[], nowMs: number) {
-  return breaks
-    .filter((item) => item.session_id === session.id)
-    .reduce((total, item) => {
-      const start = new Date(item.started_at).getTime();
-      const end = item.ended_at ? new Date(item.ended_at).getTime() : nowMs;
-      return total + Math.max(0, Math.floor((end - start) / 1000));
-    }, 0);
+const APP_PRESENCE_STALE_MS = 90_000;
+
+function isPresenceFresh(session: AttendanceSession | null, nowMs: number) {
+  if (!session?.last_app_heartbeat_at) return false;
+  const heartbeat = new Date(session.last_app_heartbeat_at).getTime();
+  return Number.isFinite(heartbeat) && nowMs - heartbeat <= APP_PRESENCE_STALE_MS;
 }
 
 function getSessionSeconds(session: AttendanceSession, breaks: AttendanceBreak[], nowMs: number) {
+  if (typeof session.verified_seconds === 'number') {
+    const base = Math.max(0, Number(session.verified_seconds || 0));
+    if (session.status !== 'active' || !session.last_app_heartbeat_at) return base;
+
+    const hasActiveBreak = breaks.some(
+      (item) => item.session_id === session.id && !item.ended_at,
+    );
+    if (hasActiveBreak || !isPresenceFresh(session, nowMs)) return base;
+
+    const heartbeat = new Date(session.last_app_heartbeat_at).getTime();
+    const liveTail = Math.max(0, Math.floor((nowMs - heartbeat) / 1000));
+    return base + Math.min(liveTail, 30);
+  }
+
+  // Legacy/demo fallback for records created before verified app-presence accounting.
   const start = new Date(session.clock_in).getTime();
   const end = session.clock_out ? new Date(session.clock_out).getTime() : nowMs;
-  return Math.max(0, Math.floor((end - start) / 1000) - getBreakSeconds(session, breaks, nowMs));
+  const breakSeconds = breaks
+    .filter((item) => item.session_id === session.id)
+    .reduce((total, item) => {
+      const breakStart = new Date(item.started_at).getTime();
+      const breakEnd = item.ended_at ? new Date(item.ended_at).getTime() : nowMs;
+      return total + Math.max(0, Math.floor((breakEnd - breakStart) / 1000));
+    }, 0);
+  return Math.max(0, Math.floor((end - start) / 1000) - breakSeconds);
 }
 
 function dateTimeLocalValue(value: string) {
@@ -89,6 +112,7 @@ export function AttendancePage({
   sessions,
   breaks,
   canManageAll,
+  desktopAttendanceCapable,
   onClockIn,
   onClockOut,
   onStartBreak,
@@ -161,7 +185,7 @@ export function AttendancePage({
   }
 
   function exportCsv() {
-    const rows = [['Name', 'Role', 'Clock In', 'Clock Out', 'Net Hours', 'Note', 'Correction Reason']];
+    const rows = [['Name', 'Role', 'Clock In', 'Clock Out', 'Verified App Hours', 'Note', 'Correction Reason']];
     const cutoff =
       teamWindow === 'today'
         ? new Date(new Date(nowMs).setHours(0, 0, 0, 0)).getTime()
@@ -203,7 +227,16 @@ export function AttendancePage({
     setError(null);
   }
 
-  const currentStatus = activeSession ? (activeBreak ? 'On break' : 'Working') : 'Off duty';
+  const appConnected = isPresenceFresh(activeSession, nowMs);
+  const currentStatus = !desktopAttendanceCapable
+    ? 'Laptop required'
+    : activeSession
+      ? activeBreak
+        ? 'On break'
+        : appConnected
+          ? 'Working · Verified'
+          : 'App closed · Time paused'
+      : 'Off duty';
 
   return (
     <div className="mx-auto max-w-[1480px] space-y-5 pb-8">
@@ -213,8 +246,8 @@ export function AttendancePage({
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-gold">Office Attendance</p>
             <h2 className="mt-1 font-display text-2xl font-semibold sm:text-3xl">Time & Attendance</h2>
             <p className="mt-2 max-w-2xl text-sm text-white/65">
-              Clock in when you start, use Break when you step away, and clock out when your office day ends.
-              Times are recorded by the server and shown in your local time.
+              Verified office time now counts only while MH Tracker remains open on a laptop or desktop.
+              Close the app and credited time pauses automatically; reopen it and tracking resumes without counting the gap.
             </p>
           </div>
 
@@ -224,7 +257,17 @@ export function AttendancePage({
                 <p className="text-xs text-white/55">Current status</p>
                 <p className="mt-1 text-lg font-bold">{currentStatus}</p>
               </div>
-              <span className={`h-3 w-3 rounded-full ${activeSession ? (activeBreak ? 'bg-amber-400' : 'bg-emerald-400') : 'bg-white/30'}`} />
+              <span className={`h-3 w-3 rounded-full ${
+                !desktopAttendanceCapable
+                  ? 'bg-rose-400'
+                  : activeBreak
+                    ? 'bg-amber-400'
+                    : activeSession && appConnected
+                      ? 'bg-emerald-400'
+                      : activeSession
+                        ? 'bg-slate-400'
+                        : 'bg-white/30'
+              }`} />
             </div>
             <p className="mt-3 font-mono text-3xl font-bold tracking-tight text-gold">
               {activeSession ? formatTimer(getSessionSeconds(activeSession, myBreaks, nowMs)) : '00:00:00'}
@@ -232,7 +275,11 @@ export function AttendancePage({
             {activeSession ? (
               <p className="mt-1 text-xs text-white/55">
                 Clocked in {new Date(activeSession.clock_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                {activeBreak ? ' · break active' : ''}
+                {activeBreak
+                  ? ' · break active'
+                  : appConnected
+                    ? ' · MH Tracker connected'
+                    : ' · app presence lost, timer paused'}
               </p>
             ) : (
               <p className="mt-1 text-xs text-white/55">No active office session.</p>
@@ -253,7 +300,7 @@ export function AttendancePage({
             <TimerReset className="h-5 w-5 text-gold" />
             <div>
               <h3 className="font-display text-xl font-semibold text-ink">My office session</h3>
-              <p className="text-xs text-muted">One active session at a time. Active breaks are excluded from worked time.</p>
+              <p className="text-xs text-muted">Verified time is earned only while MH Tracker is open on desktop. Breaks and app-closed gaps are excluded automatically.</p>
             </div>
           </div>
 
@@ -261,7 +308,7 @@ export function AttendancePage({
             {!activeSession ? (
               <Button
                 type="button"
-                disabled={busy}
+                disabled={busy || !desktopAttendanceCapable}
                 onClick={() => void run(async () => { await onClockIn(note.trim()); setNote(''); })}
                 className="min-h-12 w-full"
               >
@@ -294,6 +341,26 @@ export function AttendancePage({
               </>
             )}
           </div>
+
+          {!desktopAttendanceCapable ? (
+            <div className="mt-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+              <Laptop2 className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-semibold">Verified attendance requires a laptop or desktop.</p>
+                <p className="mt-0.5 text-xs leading-5">Mobile can be used to review attendance, but it does not start or earn verified office time.</p>
+              </div>
+            </div>
+          ) : null}
+
+          {activeSession && !activeBreak && !appConnected && desktopAttendanceCapable ? (
+            <div className="mt-4 flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+              <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-semibold">App presence is paused.</p>
+                <p className="mt-0.5 text-xs leading-5">The session remains clocked in, but no additional time is credited until MH Tracker reconnects.</p>
+              </div>
+            </div>
+          ) : null}
 
           <div className="mt-4">
             <TextareaField
@@ -333,7 +400,7 @@ export function AttendancePage({
       <Card className="overflow-hidden p-0">
         <div className="border-b border-border px-4 py-4 sm:px-5">
           <h3 className="font-display text-xl font-semibold text-ink">My attendance history</h3>
-          <p className="text-xs text-muted">Recent sessions with breaks already deducted from net office time.</p>
+          <p className="text-xs text-muted">Recent sessions show verified MH Tracker time; breaks and app-closed gaps are excluded.</p>
         </div>
         <div className="divide-y divide-border">
           {mySessions.slice(0, 20).map((session) => {
@@ -377,7 +444,7 @@ export function AttendancePage({
                   <Users className="h-5 w-5 text-gold" />
                   <h3 className="font-display text-xl font-semibold text-ink">Team attendance today</h3>
                 </div>
-                <p className="mt-1 text-xs text-muted">Live office status, today’s net time, and month-to-date hours.</p>
+                <p className="mt-1 text-xs text-muted">Live verified app presence, today’s credited time, and month-to-date hours.</p>
               </div>
             </div>
 
@@ -389,6 +456,14 @@ export function AttendancePage({
                 const personBreak = personActive
                   ? personBreaks.find((item) => item.session_id === personActive.id && !item.ended_at) || null
                   : null;
+                const personConnected = isPresenceFresh(personActive, nowMs);
+                const personStatus = personActive
+                  ? personBreak
+                    ? 'On break'
+                    : personConnected
+                      ? 'Working'
+                      : 'App closed'
+                  : 'Off duty';
                 const personToday = personSessions
                   .filter((session) => localDayKey(session.clock_in) === todayKey)
                   .reduce((total, session) => total + getSessionSeconds(session, personBreaks, nowMs), 0);
@@ -403,8 +478,16 @@ export function AttendancePage({
                         <p className="truncate text-sm font-bold text-ink">{profile.full_name}</p>
                         <p className="mt-0.5 text-[10px] text-muted">{roleLabels[profile.role]}</p>
                       </div>
-                      <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${personActive ? (personBreak ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800') : 'bg-stone-100 text-stone-600'}`}>
-                        {personActive ? (personBreak ? 'On break' : 'Working') : 'Off duty'}
+                      <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${
+                        personActive
+                          ? personBreak
+                            ? 'bg-amber-100 text-amber-800'
+                            : personConnected
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-slate-100 text-slate-700'
+                          : 'bg-stone-100 text-stone-600'
+                      }`}>
+                        {personStatus}
                       </span>
                     </div>
                     <div className="mt-4 grid grid-cols-2 gap-2">
@@ -419,7 +502,9 @@ export function AttendancePage({
                     </div>
                     <p className="mt-3 text-[10px] text-muted">
                       {personActive
-                        ? `In since ${new Date(personActive.clock_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                        ? personConnected || personBreak
+                          ? `Clocked in ${new Date(personActive.clock_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                          : `Time paused · last app signal ${personActive.last_app_heartbeat_at ? new Date(personActive.last_app_heartbeat_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'not received'}`
                         : 'Not currently clocked in'}
                     </p>
                   </article>
@@ -476,7 +561,13 @@ export function AttendancePage({
                             <Pencil className="h-3 w-3" /> Correct
                           </Button>
                         ) : (
-                          <span className="text-[10px] text-muted">{session.status === 'active' ? 'Live' : 'Recorded'}</span>
+                          <span className="text-[10px] text-muted">
+                            {session.status === 'active'
+                              ? isPresenceFresh(session, nowMs)
+                                ? 'Verified live'
+                                : 'Paused'
+                              : 'Recorded'}
+                          </span>
                         )}
                       </div>
                     </div>
@@ -493,7 +584,7 @@ export function AttendancePage({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h3 className="font-display text-xl font-semibold text-ink">Correct attendance record</h3>
-                <p className="mt-1 text-xs text-muted">Admin corrections are audit-marked and require a reason.</p>
+                <p className="mt-1 text-xs text-muted">Admin corrections are audit-marked and require a reason. Correcting the session window does not fabricate verified app-presence time.</p>
               </div>
               <button type="button" className="text-sm font-bold text-muted" onClick={() => setEditing(null)}>✕</button>
             </div>
