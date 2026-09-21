@@ -119,7 +119,6 @@ export function ProjectDetail({
   onArchiveProject,
   onDelete,
   onUpdateProject,
-  onAdvanceWorkflowStage,
   onCompleteFinalDelivery,
   onAddNote,
   onAddRevision,
@@ -158,7 +157,6 @@ export function ProjectDetail({
   onArchiveProject?: () => void;
   onDelete?: () => void;
   onUpdateProject: (updates: ProjectMetadataUpdate) => Promise<void>;
-  onAdvanceWorkflowStage: () => Promise<void>;
   onCompleteFinalDelivery: (note?: string) => Promise<void>;
   onAddNote: (noteType: NoteType, note: string) => Promise<void>;
   onAddRevision: (note: string, status: RevisionStatus) => Promise<void>;
