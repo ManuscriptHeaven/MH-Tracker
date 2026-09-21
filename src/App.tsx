@@ -380,6 +380,8 @@ export default function App() {
         revisionActivity={tracker.data.revisionActivity}
         activities={tracker.data.activityLogs}
         initialFiles={tracker.data.projectInitialFiles}
+        clientReminders={tracker.data.projectClientReminders}
+        delayMetrics={tracker.data.projectDelayMetrics?.find((item) => item.project_id === selectedProjectFresh.id)}
         tasks={tracker.data.tasks}
         currentProfile={tracker.currentProfile}
         canManageAll={tracker.canManageAll}
@@ -389,7 +391,6 @@ export default function App() {
         onArchiveProject={() => onRequestArchive(selectedProjectFresh)}
         onDelete={() => onRequestArchive(selectedProjectFresh)}
         onUpdateProject={updateSelectedProject}
-        onAdvanceWorkflowStage={() => tracker.advanceWorkflowStage(selectedProjectFresh.id)}
         onCompleteFinalDelivery={(note) => tracker.completeFinalDelivery(selectedProjectFresh.id, note)}
         onAddNote={async (noteType, note) => { await tracker.addNote(selectedProjectFresh.id, noteType, note); }}
         onAddRevision={async (note, status) => { await tracker.addRevision(selectedProjectFresh.id, note, status); }}
@@ -397,6 +398,7 @@ export default function App() {
         onUpdateRevisionItem={tracker.updateRevisionItem}
         onUploadRevisedProof={tracker.uploadRevisedProof}
         onGetInitialFileUrl={tracker.getProjectInitialFileUrl}
+        onResolveClientReminder={tracker.resolveClientReminder}
         conversations={tracker.data.conversations}
         messages={tracker.data.messages}
         onSendMessage={tracker.sendMessage}
