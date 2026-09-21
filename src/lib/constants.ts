@@ -16,9 +16,9 @@ import type {
 export const roleLabels: Record<Role, string> = {
   admin: 'Admin',
   manager: 'Manager',
-  project_manager: 'Project Manager',
-  employee: 'Employee / Designer',
-  junior_assistant: 'Junior Assistant',
+  project_manager: 'Manager',
+  employee: 'Book Formatter',
+  junior_assistant: 'Team Member',
   client: 'Client',
 };
 
