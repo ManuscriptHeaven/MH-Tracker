@@ -579,17 +579,23 @@ export function projectedFinalDueDate(project: TimelineProject, now: Date = new 
     null;
   if (!base) return estimatedFinalDueDate(project);
 
+  const stage = normalizeStage(project.current_stage || project.status);
+  const waitingForInitialFiles =
+    stage === 'Files Received' &&
+    (project.workflow_stage_status_key === 'pending' || project.stage_status === 'PENDING');
   const waitingForClient =
+    waitingForInitialFiles ||
     project.workflow_waiting_on_key === 'client' ||
     project.waiting_on === 'Client' ||
     project.workflow_stage_status_key === 'awaiting_client' ||
     project.stage_status === 'PAUSED_CLIENT_REVIEW';
+  const waitStartedAt = project.stage_started_at || (waitingForInitialFiles ? project.created_at : null);
 
-  if (!waitingForClient || !project.stage_started_at) {
+  if (!waitingForClient || !waitStartedAt) {
     return base.slice(0, 10);
   }
 
-  const waitStarted = new Date(project.stage_started_at).getTime();
+  const waitStarted = new Date(waitStartedAt).getTime();
   const baseMs = new Date(base).getTime();
   if (!Number.isFinite(waitStarted) || !Number.isFinite(baseMs)) return base.slice(0, 10);
 
@@ -612,9 +618,11 @@ export function getProjectClockSnapshot(project: TimelineProject, now: Date = ne
     (project.workflow_stage_status_key === 'pending' || project.stage_status === 'PENDING');
 
   if (pendingFiles) {
+    const startedAt = project.stage_started_at || project.created_at;
+    const started = startedAt ? new Date(startedAt).getTime() : Number.NaN;
     return {
       mode: 'waiting_files',
-      seconds: null,
+      seconds: Number.isFinite(started) ? Math.max(0, Math.floor((now.getTime() - started) / 1000)) : 0,
       isOverdue: false,
       label: 'Waiting for client files',
       projectedFinalDueDate: projectedFinalDueDate(project, now),
