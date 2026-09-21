@@ -11,11 +11,13 @@ import {
   FolderOpen,
   History,
   Layers,
+  LoaderCircle,
   MessageSquare,
   Paperclip,
   Plus,
   Send,
   ShieldCheck,
+  UploadCloud,
   User,
   Users,
   X,
@@ -35,6 +37,7 @@ import type {
   Conversation,
   Profile,
   Project,
+  ProjectInitialFile,
   ProjectNote,
   RevisionAttachment,
   RevisionItem,
@@ -43,6 +46,7 @@ import type {
 } from '../lib/types';
 import { cn, firstName } from '../lib/utils';
 import { ProjectDiscussionChat } from './ProjectDiscussionChat';
+import { StageClock } from './StageClock';
 
 function approvalMilestoneForStage(stage: string): ApprovalMilestone | null {
   // Accept both normalized stage names and legacy status strings
@@ -74,6 +78,14 @@ function revisionLabel(milestone: ApprovalMilestone | null) {
   return 'Request Revision';
 }
 
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB';
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+const INITIAL_FILE_ACCEPT = '.doc,.docx,.pdf,.rtf,.txt,.indd,.idml,.psd,.ai,.eps,.jpg,.jpeg,.png,.tif,.tiff,.zip,.rar,.7z,.epub,.mobi,.xls,.xlsx,.csv,.ppt,.pptx';
+
 export function ClientProjectDetailModal({
   project,
   profiles,
@@ -83,12 +95,15 @@ export function ClientProjectDetailModal({
   revisionItems,
   revisionAttachments,
   activities,
+  initialFiles = [],
   currentProfile,
   conversations = [],
   messages = [],
   onSendMessage,
   onGetOrCreateProjectConversation,
   onMarkRead,
+  onSubmitInitialFiles,
+  onGetInitialFileUrl,
   onClose,
   onApproveMilestone,
   onRequestRevision,
@@ -102,6 +117,7 @@ export function ClientProjectDetailModal({
   revisionItems: RevisionItem[];
   revisionAttachments: RevisionAttachment[];
   activities: ActivityLog[];
+  initialFiles?: ProjectInitialFile[];
   currentProfile?: Profile;
   conversations?: Conversation[];
   messages?: ChatMessage[];
@@ -113,6 +129,8 @@ export function ClientProjectDetailModal({
   ) => Promise<ChatMessage>;
   onGetOrCreateProjectConversation?: (projectId: string, isInternal: boolean) => Promise<Conversation>;
   onMarkRead?: (conversationId: string) => void;
+  onSubmitInitialFiles?: (projectId: string, files: File[], note?: string) => Promise<unknown>;
+  onGetInitialFileUrl?: (file: ProjectInitialFile) => Promise<string>;
   onClose: () => void;
   onApproveMilestone: (projectId: string, milestone: ApprovalMilestone) => Promise<void>;
   onRequestRevision: (projectId: string) => void;
@@ -120,10 +138,23 @@ export function ClientProjectDetailModal({
 }) {
   const [activeTab, setActiveTab] = useState<'overview' | 'files' | 'messages' | 'revisions' | 'activity'>('overview');
   const [isApproving, setIsApproving] = useState(false);
+  const [initialUploadFiles, setInitialUploadFiles] = useState<File[]>([]);
+  const [initialUploadNote, setInitialUploadNote] = useState('');
+  const [isSubmittingInitialFiles, setIsSubmittingInitialFiles] = useState(false);
+  const [initialFileError, setInitialFileError] = useState<string | null>(null);
+  const [openingInitialFileId, setOpeningInitialFileId] = useState<string | null>(null);
 
   const summary = useMemo(() => getTimelineSummary(project), [project]);
   const milestones = useMemo(() => getTimelineMilestones(project), [project]);
   const milestoneToApprove = useMemo(() => approvalMilestoneForStage(summary.stage), [summary.stage]);
+
+  const projectInitialFiles = useMemo(
+    () => initialFiles.filter((file) => file.project_id === project.id),
+    [initialFiles, project.id],
+  );
+  const waitingForInitialFiles =
+    project.workflow_stage_key === 'files_received' &&
+    (project.workflow_stage_status_key === 'pending' || project.stage_status === 'PENDING');
 
   const assignedEmployee = useMemo(
     () => profiles.find((p) => p.id === project.assigned_to),
@@ -228,6 +259,41 @@ export function ClientProjectDetailModal({
         .sort((a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime()),
     [revisionRequests, project.id],
   );
+
+  async function handleSubmitInitialFiles() {
+    if (!onSubmitInitialFiles || initialUploadFiles.length === 0) return;
+    setInitialFileError(null);
+    try {
+      setIsSubmittingInitialFiles(true);
+      await onSubmitInitialFiles(project.id, initialUploadFiles, initialUploadNote);
+      setInitialUploadFiles([]);
+      setInitialUploadNote('');
+    } catch (error) {
+      setInitialFileError(
+        error instanceof Error ? error.message : 'Files could not be submitted. Please try again.',
+      );
+    } finally {
+      setIsSubmittingInitialFiles(false);
+    }
+  }
+
+  async function openInitialFile(file: ProjectInitialFile) {
+    if (!onGetInitialFileUrl) return;
+    setInitialFileError(null);
+    setOpeningInitialFileId(file.id);
+    const popup = window.open('about:blank', '_blank');
+    if (popup) popup.opener = null;
+    try {
+      const url = await onGetInitialFileUrl(file);
+      if (popup) popup.location.href = url;
+      else window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      popup?.close();
+      setInitialFileError(error instanceof Error ? error.message : 'Could not open this file.');
+    } finally {
+      setOpeningInitialFileId(null);
+    }
+  }
 
   async function handleApprove() {
     if (!milestoneToApprove) return;
@@ -347,7 +413,7 @@ export function ClientProjectDetailModal({
           </div>
           <div className="rounded-lg border border-border bg-white p-3">
             <span className="text-xs font-medium text-muted">Due Date</span>
-            <p className="mt-1 text-sm font-semibold text-ink">{summary.dueDate ? formatDate(summary.dueDate) : formatDate(project.due_date)}</p>
+            <p className="mt-1 text-sm font-semibold text-ink">{summary.finalDueDate ? formatDate(summary.finalDueDate) : 'Not set'}</p>
           </div>
           <div className="rounded-lg border border-border bg-white p-3">
             <span className="text-xs font-medium text-muted">Progress</span>
@@ -359,6 +425,10 @@ export function ClientProjectDetailModal({
               {summary.waitingOn === 'Client' ? 'Your Approval Needed' : summary.waitingOn === 'Manuscript Heaven' ? 'Manuscript Heaven Team' : summary.waitingOn}
             </p>
           </div>
+        </div>
+
+        <div className="mt-4">
+          <StageClock project={project} />
         </div>
 
         {/* Progress Bar */}
@@ -532,6 +602,122 @@ export function ClientProjectDetailModal({
 
         {activeTab === 'files' && (
           <div className="space-y-4">
+            {waitingForInitialFiles && onSubmitInitialFiles ? (
+              <div className="rounded-xl border-2 border-dashed border-gold/50 bg-gold/[0.06] p-4 sm:p-5">
+                <div className="flex items-start gap-3">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gold/20 text-[#7a5518]">
+                    <UploadCloud className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#7a5518]">Action Required</p>
+                    <h4 className="mt-0.5 font-display text-lg font-semibold text-ink">Submit your project files</h4>
+                    <p className="mt-1 text-xs leading-5 text-muted">
+                      As soon as you submit the required files, Files Received will complete automatically and the Design Concept production timer will start.
+                    </p>
+                  </div>
+                </div>
+
+                <label className="mt-4 flex cursor-pointer flex-col items-center justify-center rounded-xl border border-border bg-white px-4 py-5 text-center transition hover:border-gold">
+                  <UploadCloud className="h-6 w-6 text-gold" />
+                  <span className="mt-2 text-sm font-semibold text-ink">Choose project files</span>
+                  <span className="mt-1 text-[11px] text-muted">Up to 10 files · 100 MB each</span>
+                  <input
+                    type="file"
+                    multiple
+                    accept={INITIAL_FILE_ACCEPT}
+                    className="hidden"
+                    disabled={isSubmittingInitialFiles}
+                    onChange={(event) => {
+                      const selected = Array.from(event.target.files || []);
+                      event.target.value = '';
+                      if (selected.length > 10) {
+                        setInitialFileError('You can submit up to 10 files at once.');
+                        return;
+                      }
+                      const tooLarge = selected.find((file) => file.size > 100 * 1024 * 1024);
+                      if (tooLarge) {
+                        setInitialFileError(`${tooLarge.name} is larger than 100 MB.`);
+                        return;
+                      }
+                      setInitialFileError(null);
+                      setInitialUploadFiles(selected);
+                    }}
+                  />
+                </label>
+
+                {initialUploadFiles.length > 0 ? (
+                  <div className="mt-3 space-y-2">
+                    {initialUploadFiles.map((file, index) => (
+                      <div key={`${file.name}-${file.lastModified}-${index}`} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-white px-3 py-2 text-xs">
+                        <span className="min-w-0 truncate font-medium text-ink">{file.name}</span>
+                        <span className="shrink-0 text-muted">{formatBytes(file.size)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                <textarea
+                  value={initialUploadNote}
+                  onChange={(event) => setInitialUploadNote(event.target.value)}
+                  disabled={isSubmittingInitialFiles}
+                  rows={2}
+                  placeholder="Optional note for the Manuscript Heaven team..."
+                  className="mt-3 w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-gold disabled:opacity-60"
+                />
+
+                {initialFileError ? (
+                  <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-800">
+                    {initialFileError}
+                  </div>
+                ) : null}
+
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    type="button"
+                    onClick={() => void handleSubmitInitialFiles()}
+                    disabled={isSubmittingInitialFiles || initialUploadFiles.length === 0}
+                    className="min-w-[190px]"
+                  >
+                    {isSubmittingInitialFiles ? (
+                      <LoaderCircle className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <UploadCloud className="h-4 w-4" />
+                    )}
+                    {isSubmittingInitialFiles ? 'Submitting files...' : 'Submit Files & Start Project'}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            {projectInitialFiles.length > 0 ? (
+              <div className="rounded-lg border border-border bg-white p-4">
+                <h4 className="mb-3 flex items-center gap-2 font-semibold text-ink">
+                  <FolderOpen className="h-4 w-4 text-gold" />
+                  Your Submitted Source Files
+                </h4>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {projectInitialFiles.map((file) => (
+                    <button
+                      key={file.id}
+                      type="button"
+                      onClick={() => void openInitialFile(file)}
+                      disabled={!onGetInitialFileUrl || openingInitialFileId === file.id}
+                      className="flex items-center justify-between gap-3 rounded-md border border-border bg-ivory p-3 text-left text-sm transition hover:border-gold hover:bg-white disabled:opacity-60"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-ink">{file.file_name}</p>
+                        <p className="text-xs text-muted">{formatBytes(file.file_size)} · Submitted {formatDate(file.created_at)}</p>
+                      </div>
+                      {openingInitialFileId === file.id ? (
+                        <LoaderCircle className="h-4 w-4 shrink-0 animate-spin text-gold" />
+                      ) : (
+                        <Download className="h-4 w-4 shrink-0 text-gold" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {fileCategories.length ? (
               fileCategories.map((group) => {
                 const IconComponent = group.icon;
@@ -562,11 +748,11 @@ export function ClientProjectDetailModal({
                   </div>
                 );
               })
-            ) : (
+            ) : projectInitialFiles.length === 0 ? (
               <div className="rounded-lg border border-dashed border-border p-8 text-center text-muted">
                 No files or deliverables have been uploaded for this project yet.
               </div>
-            )}
+            ) : null}
           </div>
         )}
 
