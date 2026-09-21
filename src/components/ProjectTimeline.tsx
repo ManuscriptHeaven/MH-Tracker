@@ -1,6 +1,7 @@
 import { AlertTriangle, Ban, Check, Circle, Pause } from 'lucide-react';
 import { formatDate } from '../lib/date';
 import { cn } from '../lib/utils';
+import { StageClock } from './StageClock';
 import { getTimelineMilestones, getTimelineSummary } from '../lib/timeline';
 import type { Project } from '../lib/types';
 
@@ -66,6 +67,7 @@ export function ProjectTimelineCompact({ project }: { project: Project }) {
       <div className="h-2 overflow-hidden rounded-full bg-ivory">
         <div className="h-full rounded-full bg-gold transition-all" style={{ width: `${summary.progress}%` }} />
       </div>
+      <StageClock project={project} compact />
       <p className="text-xs text-muted">
         {summary.nextMilestone}
         {summary.dueDate ? ` | Due ${formatDate(summary.dueDate)}` : summary.waitingOn === 'Client' ? ' | Paused' : ''}
@@ -117,6 +119,10 @@ export function ProjectTimelinePanel({ project, clientView = false }: { project:
           value={daysRemainingText}
           valueClass={summary.isOverdue ? 'text-danger' : summary.waitingOn === 'Client' ? 'text-amber-800' : undefined}
         />
+      </div>
+
+      <div className="mt-3">
+        <StageClock project={project} />
       </div>
 
       {summary.clientActionRequired ? (
