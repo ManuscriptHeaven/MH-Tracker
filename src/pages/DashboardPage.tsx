@@ -9,7 +9,6 @@ import {
   Plus,
   Sparkles,
 } from 'lucide-react';
-import { StatusBadge } from '../components/Badges';
 import { ProjectTimelineCompact } from '../components/ProjectTimeline';
 import { Button, Card } from '../components/ui';
 import { UserAvatar } from '../components/UserAvatar';
@@ -61,6 +60,51 @@ function finalDueClass(project: Project) {
   if (summary.waitingOn === 'Client') return 'text-violet-700';
   if (summary.isOverdue) return 'text-red-700';
   return 'text-ink';
+}
+
+function CompactProjectStatus({ project }: { project: Project }) {
+  const summary = getTimelineSummary(project);
+  const isRevision =
+    project.status === 'In Revision' || project.stage_status === 'REVISION_ACTIVE';
+  const isDone = project.status === 'Completed' || project.status === 'Delivered';
+  const isOnHold = project.status === 'On Hold';
+
+  const label = isDone
+    ? 'Done'
+    : isOnHold
+      ? 'On Hold'
+      : isRevision
+        ? 'Revision'
+        : summary.waitingOn === 'Client'
+          ? summary.officialStage === 'Files Received'
+            ? 'Client Files'
+            : 'Client Wait'
+          : project.status === 'Final Delivery'
+            ? 'Final'
+            : 'Active';
+
+  const tone = isDone
+    ? 'border-green-200 bg-green-50 text-green-700'
+    : isOnHold
+      ? 'border-slate-200 bg-slate-50 text-slate-600'
+      : isRevision
+        ? 'border-amber-200 bg-amber-50 text-amber-800'
+        : summary.waitingOn === 'Client'
+          ? 'border-violet-200 bg-violet-50 text-violet-700'
+          : project.status === 'Final Delivery'
+            ? 'border-blue-200 bg-blue-50 text-blue-700'
+            : 'border-blue-200 bg-blue-50 text-blue-700';
+
+  return (
+    <span
+      title={project.status}
+      aria-label={`Project status: ${project.status}`}
+      className={`inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border px-2 py-1 text-[10px] font-bold leading-none ${tone}`}
+    >
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-70" />
+      <span>{label}</span>
+    </span>
+  );
 }
 
 function SummaryCard({
@@ -349,10 +393,10 @@ export function DashboardPage({
             <table className="w-full min-w-[760px] table-fixed border-separate border-spacing-0 text-left text-sm">
               <thead className="bg-[#fcfbf8]">
                 <tr className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
-                  <th className="w-[32%] border-b border-border px-5 py-3">Project</th>
-                  <th className="w-[14%] border-b border-border px-3 py-3">Status</th>
-                  <th className="w-[36%] border-b border-border px-3 py-3">Timeline</th>
-                  <th className="w-[18%] border-b border-border px-5 py-3">Due</th>
+                  <th className="w-[30%] border-b border-border px-5 py-3">Project</th>
+                  <th className="w-[10%] border-b border-border px-2 py-3">Status</th>
+                  <th className="w-[45%] border-b border-border px-3 py-3">Timeline</th>
+                  <th className="w-[15%] border-b border-border px-3 py-3">Due</th>
                 </tr>
               </thead>
               <tbody>
@@ -378,13 +422,13 @@ export function DashboardPage({
                           </span>
                         </div>
                       </td>
-                      <td className="border-b border-border/60 px-3 py-3.5">
-                        <StatusBadge status={project.status} />
+                      <td className="border-b border-border/60 px-2 py-4 align-top">
+                        <CompactProjectStatus project={project} />
                       </td>
                       <td className="border-b border-border/60 px-3 py-3.5">
                         <ProjectTimelineCompact project={project} />
                       </td>
-                      <td className="border-b border-border/60 px-5 py-3.5">
+                      <td className="border-b border-border/60 px-3 py-4 align-top">
                         <p className={`text-xs font-semibold ${finalDueClass(project)}`}>
                           {finalDueText(project)}
                         </p>
@@ -443,7 +487,7 @@ export function DashboardPage({
                         {' · '}Assigned to <span className="font-semibold text-charcoal">{profileName(profiles, project.assigned_to)}</span>
                       </p>
                     </div>
-                    <StatusBadge status={project.status} />
+                    <CompactProjectStatus project={project} />
                   </div>
 
                   <div className="mt-3">
