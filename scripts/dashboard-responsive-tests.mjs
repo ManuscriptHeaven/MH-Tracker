@@ -38,7 +38,7 @@ assert(
 assert(
   dashboard.includes('Assigned to <span className="font-semibold text-charcoal">') &&
     dashboard.includes('{project.client_name}') &&
-    dashboard.includes('w-[45%] border-b border-border px-3 py-3">Timeline') &&
+    dashboard.includes('w-[42%] border-b border-border px-4 py-3">Timeline') &&
     dashboard.includes('colSpan={4}'),
   'client and assignee metadata are grouped with the project title so timeline, status, and due columns have more room',
 );
@@ -47,7 +47,7 @@ assert(
   dashboard.includes('function CompactProjectStatus') &&
     dashboard.includes("'Client Wait'") &&
     dashboard.includes("'Client Files'") &&
-    dashboard.includes('w-[10%] border-b border-border px-2 py-3">Status'),
+    dashboard.includes('w-[13%] border-b border-border px-3 py-3">Status'),
   'dashboard uses compact operational status labels so long approval text never consumes timeline space',
 );
 
