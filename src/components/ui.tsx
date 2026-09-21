@@ -155,15 +155,24 @@ export function Modal({
   width?: string;
 }) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4">
-      <section className={cn('max-h-[92vh] w-full overflow-hidden rounded-lg bg-linen shadow-2xl', width)}>
-        <header className="flex items-center justify-between border-b border-border bg-white px-5 py-4">
-          <h2 className="font-display text-xl font-semibold text-ink">{title}</h2>
-          <IconButton title="Close" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-stretch bg-ink/40 p-0 sm:place-items-center sm:p-4">
+      <section
+        className={cn(
+          'max-h-[100dvh] w-full overflow-hidden rounded-none bg-linen shadow-2xl sm:max-h-[92dvh] sm:rounded-lg',
+          width,
+        )}
+      >
+        <header className="flex items-start justify-between gap-3 border-b border-border bg-white px-4 py-3 sm:items-center sm:px-5 sm:py-4">
+          <h2 className="min-w-0 break-words pr-2 font-display text-lg font-semibold leading-tight text-ink sm:text-xl">
+            {title}
+          </h2>
+          <IconButton title="Close" onClick={onClose} className="shrink-0">
             <X className="h-4 w-4" />
           </IconButton>
         </header>
-        <div className="max-h-[calc(92vh-73px)] overflow-y-auto p-5">{children}</div>
+        <div className="max-h-[calc(100dvh-65px)] overflow-x-hidden overflow-y-auto p-3 sm:max-h-[calc(92dvh-73px)] sm:p-5">
+          {children}
+        </div>
       </section>
     </div>
   );
