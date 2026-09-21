@@ -636,7 +636,7 @@ export interface TrackerData {
   revisionNotes: RevisionNote[];
   projectNotes: ProjectNote[];
   activityLogs: ActivityLog[];
-  projectInitialFiles: ProjectInitialFile[];
+  projectInitialFiles?: ProjectInitialFile[];
   notifications: NotificationItem[];
   clientProjectAccess: ClientProjectAccess[];
   tasks: Task[];
