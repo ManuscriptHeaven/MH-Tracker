@@ -317,6 +317,7 @@ export interface Project {
   stage_due_at?: string | null;
   stage_completed_at?: string | null;
   final_due_at?: string | null;
+  original_due_at?: string | null;
   production_time_used?: number;
   client_wait_time?: number;
   revision_count?: number;
@@ -385,6 +386,29 @@ export interface ProjectInitialFile {
   file_size: number;
   storage_path: string;
   created_at: string;
+}
+
+export interface ProjectClientReminder {
+  id: string;
+  project_id: string;
+  workflow_version: number;
+  threshold_hours: 24 | 48 | 72;
+  wait_reason: 'files' | 'approval';
+  stage_key: WorkflowStage;
+  waiting_started_at: string;
+  draft_subject: string;
+  draft_body: string;
+  status: 'pending' | 'sent' | 'dismissed' | 'obsolete';
+  generated_at: string;
+  handled_at: string | null;
+  handled_by: string | null;
+}
+
+export interface ProjectDelayMetrics {
+  project_id: string;
+  production_seconds: number;
+  client_wait_seconds: number;
+  internal_overdue_seconds: number;
 }
 
 export interface ProjectPayment {
@@ -637,6 +661,8 @@ export interface TrackerData {
   projectNotes: ProjectNote[];
   activityLogs: ActivityLog[];
   projectInitialFiles?: ProjectInitialFile[];
+  projectClientReminders?: ProjectClientReminder[];
+  projectDelayMetrics?: ProjectDelayMetrics[];
   notifications: NotificationItem[];
   clientProjectAccess: ClientProjectAccess[];
   tasks: Task[];
