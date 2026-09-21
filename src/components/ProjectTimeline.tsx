@@ -59,19 +59,18 @@ export function ProjectTimelineCompact({ project }: { project: Project }) {
   const summary = getTimelineSummary(project);
 
   return (
-    <div className="min-w-56 space-y-2">
-      <div className="flex items-center justify-between gap-3 text-xs">
-        <span className="font-semibold text-ink">{summary.stage}</span>
-        <TimelineBadge project={project} />
+    <div className="min-w-0 space-y-2">
+      <div className="flex min-w-0 items-center gap-2 text-xs">
+        <span className="min-w-0 flex-1 truncate font-semibold text-ink">{summary.stage}</span>
+        <span className="shrink-0 text-[10px] font-bold text-muted">{summary.progress}%</span>
       </div>
-      <div className="h-2 overflow-hidden rounded-full bg-ivory">
+      <div className="h-1.5 overflow-hidden rounded-full bg-ivory">
         <div className="h-full rounded-full bg-gold transition-all" style={{ width: `${summary.progress}%` }} />
       </div>
-      <StageClock project={project} compact />
-      <p className="text-xs text-muted">
+      <StageClock project={project} compact showFinalDue={false} />
+      <p className="truncate text-[11px] text-muted" title={summary.nextMilestone}>
         {summary.nextMilestone}
-        {summary.dueDate ? ` | Due ${formatDate(summary.dueDate)}` : summary.waitingOn === 'Client' ? ' | Paused' : ''}
-        {summary.finalDueDate && summary.finalDueDate !== summary.dueDate ? ` | Final ${formatDate(summary.finalDueDate)}` : ''}
+        {summary.waitingOn === 'Client' ? ' · Paused for client' : summary.dueDate ? ` · Stage due ${formatDate(summary.dueDate)}` : ''}
       </p>
     </div>
   );

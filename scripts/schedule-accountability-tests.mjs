@@ -100,7 +100,7 @@ assert(
     !dashboard.includes('label="Client"') &&
     !dashboard.includes('label="Priority"') &&
     dashboard.includes('Assigned to <span className="font-semibold text-charcoal">') &&
-    dashboard.includes('w-[45%] border-b border-border px-3 py-3">Timeline'),
+    dashboard.includes('w-[42%] border-b border-border px-4 py-3">Timeline'),
   'dashboard removes redundant advanced filters and combines client/assignee metadata under the project title',
 );
 

@@ -647,103 +647,23 @@ export function ClientPortalPage({
         </aside>
       </section>
 
-      <section className="space-y-4">
-        <div className="flex items-center gap-2">
-          <MessageSquare className="h-5 w-5 text-gold" />
-          <h2 className="font-display text-2xl font-semibold">Revision History</h2>
-        </div>
-        {revisionHistory.length ? (
-          <div className="grid gap-4 xl:grid-cols-2">
-            {revisionHistory.map((request) => {
-              const project = projects.find((item) => item.id === request.project_id);
-              const items = revisionItems.filter((item) => item.revision_request_id === request.id);
-              const attachments = revisionAttachments.filter((attachment) => attachment.revision_request_id === request.id);
-              const clientAttachments = attachments.filter((attachment) => attachment.file_type !== 'revised_proof');
-              const revisedProofs = attachments.filter((attachment) => attachment.file_type === 'revised_proof');
-              const teamResponses = [
-                request.team_response,
-                ...items.map((item) => item.team_response),
-              ].filter((response): response is string => Boolean(response));
-
-              return (
-                <Card key={request.id}>
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-gold">{project?.project_title || 'Project'}</p>
-                      <h3 className="font-display text-xl font-semibold">Revision Request</h3>
-                      <p className="mt-1 text-sm text-muted">
-                        {request.status} | Submitted {formatDate(request.submitted_at.slice(0, 10))}
-                      </p>
-                    </div>
-                    {request.status === 'Ready for Client Review' ? (
-                      <Button type="button" onClick={() => approveRevision(request.id)}>
-                        <CheckCircle2 className="h-4 w-4" />
-                        Approve
-                      </Button>
-                    ) : null}
-                  </div>
-
-                  <div className="mt-4 rounded-md border border-border bg-ivory p-4">
-                    <p className="mb-2 font-semibold">Revision instructions</p>
-                    <p className="whitespace-pre-wrap text-sm leading-6 text-charcoal">{revisionText(request)}</p>
-                  </div>
-
-                  <div className="mt-4 grid gap-4 md:grid-cols-2">
-                    <div className="rounded-md border border-border bg-white p-4">
-                      <p className="mb-2 font-semibold">Uploaded attachments</p>
-                      {clientAttachments.length ? (
-                        <div className="space-y-1">
-                          {clientAttachments.map((attachment) => (
-                            <p key={attachment.id} className="break-all text-sm text-muted">
-                              {fileLabel(attachment)}
-                            </p>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-muted">No client attachments uploaded.</p>
-                      )}
-                    </div>
-
-                    <div className="rounded-md border border-border bg-white p-4">
-                      <p className="mb-2 font-semibold">Revised proof files</p>
-                      {revisedProofs.length ? (
-                        <div className="space-y-1">
-                          {revisedProofs.map((attachment) => (
-                            <p key={attachment.id} className="break-all text-sm text-muted">
-                              {fileLabel(attachment)}
-                            </p>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-muted">No revised proof has been uploaded yet.</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="mt-4 rounded-md border border-border bg-white p-4">
-                    <p className="mb-2 font-semibold">Team response</p>
-                    {teamResponses.length ? (
-                      <div className="space-y-2">
-                        {teamResponses.map((response, index) => (
-                          <p key={`${request.id}-${index}`} className="rounded-md bg-ivory p-3 text-sm leading-6 text-muted">
-                            {response}
-                          </p>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted">The team has not added a response yet.</p>
-                    )}
-                  </div>
-                </Card>
-              );
-            })}
+      <section className="rounded-2xl border border-border bg-white px-4 py-3 shadow-xs sm:px-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gold/10 text-gold">
+              <Repeat2 className="h-4 w-4" />
+            </span>
+            <div className="min-w-0">
+              <p className="font-semibold text-ink">Revision history is now kept inside each project.</p>
+              <p className="mt-0.5 text-xs leading-5 text-muted">
+                Open a project and choose the Revisions tab to see requests, files, team responses, and revised-proof approvals.
+              </p>
+            </div>
           </div>
-        ) : (
-          <EmptyState
-            title="No revision requests"
-            message="Use Request Revision on an active order when you need changes to a proof or preview."
-          />
-        )}
+          <span className="shrink-0 rounded-full bg-ivory px-3 py-1.5 text-xs font-bold text-muted">
+            {revisionRequests.length} total
+          </span>
+        </div>
       </section>
 
       {revisionProjectId ? (

@@ -109,6 +109,7 @@ export function ClientProjectDetailModal({
   onApproveMilestone,
   onRequestRevision,
   onRespondToStageSkip,
+  onRespondToRevision,
 }: {
   project: Project;
   profiles: Profile[];
@@ -136,6 +137,7 @@ export function ClientProjectDetailModal({
   onApproveMilestone: (projectId: string, milestone: ApprovalMilestone) => Promise<void>;
   onRequestRevision: (projectId: string) => void;
   onRespondToStageSkip?: (requestId: string, approved: boolean) => Promise<void>;
+  onRespondToRevision?: (requestId: string) => Promise<void>;
 }) {
   const [activeTab, setActiveTab] = useState<'overview' | 'files' | 'messages' | 'revisions' | 'activity'>('overview');
   const [isApproving, setIsApproving] = useState(false);
@@ -146,6 +148,8 @@ export function ClientProjectDetailModal({
   const [isSubmittingInitialFiles, setIsSubmittingInitialFiles] = useState(false);
   const [initialFileError, setInitialFileError] = useState<string | null>(null);
   const [openingInitialFileId, setOpeningInitialFileId] = useState<string | null>(null);
+  const [approvingRevisionId, setApprovingRevisionId] = useState<string | null>(null);
+  const [revisionApprovalError, setRevisionApprovalError] = useState<string | null>(null);
 
   const summary = useMemo(() => getTimelineSummary(project), [project]);
   const milestones = useMemo(() => getTimelineMilestones(project), [project]);
@@ -877,10 +881,40 @@ export function ClientProjectDetailModal({
                           Stage: {project.current_stage || 'N/A'}
                         </p>
                       </div>
-                      <span className={cn('rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider shrink-0', statusColor)}>
-                        {req.status}
-                      </span>
+                      <div className="flex shrink-0 flex-col items-end gap-2">
+                        <span className={cn('rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider', statusColor)}>
+                          {req.status}
+                        </span>
+                        {req.status === 'Ready for Client Review' && onRespondToRevision ? (
+                          <Button
+                            type="button"
+                            disabled={approvingRevisionId === req.id}
+                            onClick={async () => {
+                              setRevisionApprovalError(null);
+                              setApprovingRevisionId(req.id);
+                              try {
+                                await onRespondToRevision(req.id);
+                              } catch (error) {
+                                setRevisionApprovalError(
+                                  error instanceof Error ? error.message : 'Revised proof could not be approved.',
+                                );
+                              } finally {
+                                setApprovingRevisionId(null);
+                              }
+                            }}
+                            className="min-h-8 px-3 py-1.5 text-[11px]"
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            {approvingRevisionId === req.id ? 'Approving…' : 'Approve Revised Proof'}
+                          </Button>
+                        ) : null}
+                      </div>
                     </div>
+                    {revisionApprovalError && req.status === 'Ready for Client Review' ? (
+                      <div className="mx-4 mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">
+                        {revisionApprovalError}
+                      </div>
+                    ) : null}
 
                     <div className="p-4 space-y-3">
                       {/* Instructions */}

@@ -87,7 +87,7 @@ assert(
 );
 
 assert(
-  projectTimeline.includes('<StageClock project={project} compact />') &&
+  projectTimeline.includes('<StageClock project={project} compact showFinalDue={false} />') &&
     dashboard.includes('<ProjectTimelineCompact project={project} />'),
   'every dashboard project timeline includes a live stage clock',
 );
