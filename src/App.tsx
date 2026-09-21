@@ -365,6 +365,7 @@ export default function App() {
         mode={tracker.mode}
         currentProfile={tracker.currentProfile}
         onUpdateProfile={tracker.updateProfile}
+        onEnterAdminDemo={() => tracker.loginDemo('admin')}
       />
     )}
     {showProjectForm && <ProjectFormModal currentProfile={tracker.currentProfile} profiles={tracker.data.profiles} projects={tracker.data.projects} project={editingProject} canonical={tracker.mode === 'supabase'} onClose={() => { setShowProjectForm(false); setEditingProject(null); }} onSubmit={handleSaveProject} />}
