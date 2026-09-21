@@ -82,7 +82,7 @@ begin
   end if;
 
   v_role := public.phase6_app_actor_class();
-  if v_role not in ('admin','project_manager','employee') then
+  if coalesce(v_role, '') not in ('admin','project_manager','employee') then
     raise exception 'attendance_role_denied' using errcode = '42501';
   end if;
 
@@ -241,7 +241,7 @@ declare
   v_actor uuid := auth.uid();
   v_row public.attendance_sessions;
 begin
-  if v_actor is null or public.phase6_app_actor_class() <> 'admin' then
+  if v_actor is null or coalesce(public.phase6_app_actor_class(), '') <> 'admin' then
     raise exception 'attendance_admin_required' using errcode = '42501';
   end if;
 
