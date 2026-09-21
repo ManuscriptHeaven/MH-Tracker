@@ -7,13 +7,11 @@ import {
   Clock3,
   FolderOpen,
   Plus,
-  RotateCcw,
-  SlidersHorizontal,
   Sparkles,
 } from 'lucide-react';
 import { StatusBadge } from '../components/Badges';
 import { ProjectTimelineCompact } from '../components/ProjectTimeline';
-import { Button, Card, SelectField } from '../components/ui';
+import { Button, Card } from '../components/ui';
 import { UserAvatar } from '../components/UserAvatar';
 import { closedStatuses } from '../lib/constants';
 import { formatDate } from '../lib/date';
@@ -29,18 +27,13 @@ type QuickFilter =
   | 'awaiting_approval'
   | 'revision'
   | 'today'
+  | 'at_risk'
   | 'overdue'
   | 'completed';
 
 function profileName(profiles: Profile[], id?: string | null) {
   const profile = profiles.find((item) => item.id === id);
   return profile ? firstName(profile.full_name) : 'Unassigned';
-}
-
-function uniqueValues(values: Array<string | null | undefined>) {
-  return [...new Set(values.filter((value): value is string => Boolean(value)))].sort((a, b) =>
-    a.localeCompare(b),
-  );
 }
 
 function isStageOverdue(project: Project) {
@@ -50,6 +43,11 @@ function isStageOverdue(project: Project) {
 function isStageDueToday(project: Project) {
   const summary = getTimelineSummary(project);
   return summary.waitingOn === 'Manuscript Heaven' && summary.daysRemaining === 0 && !summary.isOverdue;
+}
+
+function isStageAtRisk(project: Project) {
+  const risk = getTimelineSummary(project).riskLevel;
+  return risk === 'amber' || risk === 'red';
 }
 
 function finalDueText(project: Project) {
@@ -132,11 +130,6 @@ export function DashboardPage({
 }) {
   const { formatMoney } = useCurrency();
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
-  const [assignedTo, setAssignedTo] = useState('all');
-  const [status, setStatus] = useState('all');
-  const [client, setClient] = useState('all');
-  const [priority, setPriority] = useState('all');
-  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   const isRevision = (project: Project) =>
     project.status === 'In Revision' || project.stage_status === 'REVISION_ACTIVE';
@@ -162,34 +155,14 @@ export function DashboardPage({
     [projects],
   );
 
-  const filteredAllProjects = useMemo(
-    () =>
-      projects.filter(
-        (project) =>
-          (assignedTo === 'all' || project.assigned_to === assignedTo) &&
-          (status === 'all' || project.status === status) &&
-          (client === 'all' || project.client_name === client) &&
-          (priority === 'all' || project.priority === priority),
-      ),
-    [projects, assignedTo, status, client, priority],
-  );
-
-  const filteredActiveProjects = useMemo(
-    () =>
-      activeBase.filter(
-        (project) =>
-          (assignedTo === 'all' || project.assigned_to === assignedTo) &&
-          (status === 'all' || project.status === status) &&
-          (client === 'all' || project.client_name === client) &&
-          (priority === 'all' || project.priority === priority),
-      ),
-    [activeBase, assignedTo, status, client, priority],
-  );
+  const filteredAllProjects = projects;
+  const filteredActiveProjects = activeBase;
 
   const inProgressProjects = filteredActiveProjects.filter(isInProgress);
   const awaitingApprovalProjects = filteredActiveProjects.filter(isAwaitingApproval);
   const inRevisionProjects = filteredActiveProjects.filter(isRevision);
   const overdueProjects = filteredActiveProjects.filter(isStageOverdue);
+  const atRiskProjects = filteredActiveProjects.filter(isStageAtRisk);
   const dueTodayProjects = filteredActiveProjects.filter(isStageDueToday);
   const completedProjects = filteredAllProjects.filter(isCompleted);
   const myProjects = filteredActiveProjects.filter(
@@ -204,6 +177,7 @@ export function DashboardPage({
     if (quickFilter === 'awaiting_approval') return isAwaitingApproval(project);
     if (quickFilter === 'revision') return isRevision(project);
     if (quickFilter === 'today') return isStageDueToday(project);
+    if (quickFilter === 'at_risk') return isStageAtRisk(project);
     if (quickFilter === 'overdue') return isStageOverdue(project);
     return true;
   });
@@ -214,11 +188,26 @@ export function DashboardPage({
   );
 
   const urgentProjects = filteredActiveProjects
-    .filter((project) => project.priority === 'Urgent' || isStageOverdue(project) || isStageDueToday(project))
+    .filter(
+      (project) =>
+        project.priority === 'Urgent' ||
+        isStageOverdue(project) ||
+        isStageAtRisk(project) ||
+        isStageDueToday(project),
+    )
     .sort((a, b) => {
       const aOverdue = isStageOverdue(a) ? 1 : 0;
       const bOverdue = isStageOverdue(b) ? 1 : 0;
       if (aOverdue !== bOverdue) return bOverdue - aOverdue;
+      const riskRank = (project: Project) => {
+        const risk = getTimelineSummary(project).riskLevel;
+        if (risk === 'red') return 2;
+        if (risk === 'amber') return 1;
+        return 0;
+      };
+      const aRisk = riskRank(a);
+      const bRisk = riskRank(b);
+      if (aRisk !== bRisk) return bRisk - aRisk;
       const aDue = getTimelineSummary(a).dueDate || getTimelineSummary(a).finalDueDate || '9999-12-31';
       const bDue = getTimelineSummary(b).dueDate || getTimelineSummary(b).finalDueDate || '9999-12-31';
       return new Date(aDue).getTime() - new Date(bDue).getTime();
@@ -226,10 +215,7 @@ export function DashboardPage({
     .slice(0, 5);
 
   const workload = profiles
-    .filter(
-      (profile) =>
-        !isClientRole(profile.role) && (assignedTo === 'all' || profile.id === assignedTo),
-    )
+    .filter((profile) => !isClientRole(profile.role))
     .map((profile) => {
       const assigned = filteredActiveProjects.filter(
         (project) => project.assigned_to === profile.id,
@@ -249,30 +235,15 @@ export function DashboardPage({
     { id: 'awaiting_approval', label: 'Awaiting Approval', count: awaitingApprovalProjects.length },
     { id: 'revision', label: 'In Revision', count: inRevisionProjects.length },
     { id: 'today', label: 'Due Today', count: dueTodayProjects.length },
+    { id: 'at_risk', label: 'At Risk', count: atRiskProjects.length },
     { id: 'overdue', label: 'Overdue', count: overdueProjects.length },
     { id: 'completed', label: 'Completed', count: completedProjects.length },
     { id: 'mine', label: 'My Projects', count: myProjects.length },
   ];
 
-  const hasAdvancedFilters =
-    assignedTo !== 'all' || status !== 'all' || client !== 'all' || priority !== 'all';
-
-  const activeAdvancedFilterCount = [assignedTo, status, client, priority].filter(
-    (value) => value !== 'all',
-  ).length;
-
-  function clearFilters() {
-    setAssignedTo('all');
-    setStatus('all');
-    setClient('all');
-    setPriority('all');
+  function clearQuickFilter() {
     setQuickFilter('all');
   }
-
-  const statusOptions = uniqueValues(projects.map((project) => project.status));
-  const clientOptions = uniqueValues(projects.map((project) => project.client_name));
-  const priorityOptions = uniqueValues(projects.map((project) => project.priority));
-  const teamProfiles = profiles.filter((profile) => !isClientRole(profile.role));
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -332,39 +303,18 @@ export function DashboardPage({
                   <h2 className="font-display text-xl font-semibold text-ink sm:text-2xl">
                     Active Projects
                   </h2>
-                  {hasAdvancedFilters ? (
-                    <span className="rounded-full bg-gold/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#7a5518]">
-                      {activeAdvancedFilterCount} filter{activeAdvancedFilterCount === 1 ? '' : 's'}
-                    </span>
-                  ) : null}
                 </div>
                 <p className="mt-0.5 text-xs text-muted sm:text-sm">
                   {visibleProjects.length} project{visibleProjects.length === 1 ? '' : 's'} match the current view.
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setMobileFiltersOpen((value) => !value)}
-                  className="lg:hidden"
-                >
-                  <SlidersHorizontal className="h-4 w-4" />
-                  Filters
-                  {activeAdvancedFilterCount ? (
-                    <span className="rounded-full bg-ink px-1.5 py-0.5 text-[10px] text-white">
-                      {activeAdvancedFilterCount}
-                    </span>
-                  ) : null}
+              {canManageProjects ? (
+                <Button onClick={onAddProject} className="px-3">
+                  <Plus className="h-4 w-4" />
+                  <span className="hidden xs:inline">Add Project</span>
                 </Button>
-                {canManageProjects ? (
-                  <Button onClick={onAddProject} className="px-3">
-                    <Plus className="h-4 w-4" />
-                    <span className="hidden xs:inline">Add Project</span>
-                  </Button>
-                ) : null}
-              </div>
+              ) : null}
             </div>
 
             {/* Quick filters sit directly above the project list */}
@@ -392,96 +342,17 @@ export function DashboardPage({
               ))}
             </div>
 
-            {/* Advanced filters: always visible on desktop, collapsible on mobile/tablet */}
-            <div
-              className={`mt-4 rounded-xl border border-border/80 bg-[#faf9f6] p-3 ${
-                mobileFiltersOpen ? 'block' : 'hidden'
-              } lg:block`}
-            >
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <SelectField
-                  label="Assigned To"
-                  value={assignedTo}
-                  onChange={(event) => setAssignedTo(event.target.value)}
-                  className="bg-white"
-                >
-                  <option value="all">All Team Members</option>
-                  {teamProfiles.map((profile) => (
-                    <option key={profile.id} value={profile.id}>
-                      {profile.full_name}
-                    </option>
-                  ))}
-                </SelectField>
-
-                <SelectField
-                  label="Status"
-                  value={status}
-                  onChange={(event) => setStatus(event.target.value)}
-                  className="bg-white"
-                >
-                  <option value="all">All Statuses</option>
-                  {statusOptions.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </SelectField>
-
-                <SelectField
-                  label="Client"
-                  value={client}
-                  onChange={(event) => setClient(event.target.value)}
-                  className="bg-white"
-                >
-                  <option value="all">All Clients</option>
-                  {clientOptions.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </SelectField>
-
-                <SelectField
-                  label="Priority"
-                  value={priority}
-                  onChange={(event) => setPriority(event.target.value)}
-                  className="bg-white"
-                >
-                  <option value="all">All Priorities</option>
-                  {priorityOptions.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </SelectField>
-              </div>
-
-              {hasAdvancedFilters ? (
-                <div className="mt-3 flex justify-end border-t border-border/60 pt-3">
-                  <button
-                    type="button"
-                    onClick={clearFilters}
-                    className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-muted transition hover:bg-white hover:text-ink"
-                  >
-                    <RotateCcw className="h-3.5 w-3.5" />
-                    Clear filters
-                  </button>
-                </div>
-              ) : null}
-            </div>
           </div>
 
           {/* Desktop project table */}
           <div className="hidden overflow-x-auto md:block">
-            <table className="w-full min-w-[820px] border-separate border-spacing-0 text-left text-sm">
+            <table className="w-full min-w-[760px] table-fixed border-separate border-spacing-0 text-left text-sm">
               <thead className="bg-[#fcfbf8]">
                 <tr className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
-                  <th className="border-b border-border px-5 py-3">Project</th>
-                  <th className="border-b border-border px-3 py-3">Client</th>
-                  <th className="border-b border-border px-3 py-3">Assigned</th>
-                  <th className="border-b border-border px-3 py-3">Status</th>
-                  <th className="border-b border-border px-3 py-3">Timeline</th>
-                  <th className="border-b border-border px-5 py-3">Due</th>
+                  <th className="w-[32%] border-b border-border px-5 py-3">Project</th>
+                  <th className="w-[14%] border-b border-border px-3 py-3">Status</th>
+                  <th className="w-[36%] border-b border-border px-3 py-3">Timeline</th>
+                  <th className="w-[18%] border-b border-border px-5 py-3">Due</th>
                 </tr>
               </thead>
               <tbody>
@@ -492,17 +363,20 @@ export function DashboardPage({
                       className="group cursor-pointer transition hover:bg-gold/[0.045]"
                       onClick={() => onSelectProject(project)}
                     >
-                      <td className="border-b border-border/60 px-5 py-3.5">
-                        <p className="font-semibold text-ink group-hover:text-[#7a5518]">
+                      <td className="border-b border-border/60 px-5 py-4 align-top">
+                        <p className="text-[15px] font-bold leading-5 text-ink transition group-hover:text-[#7a5518]">
                           {project.project_title}
                         </p>
-                        <p className="mt-0.5 text-[11px] text-muted">{project.project_number}</p>
-                      </td>
-                      <td className="border-b border-border/60 px-3 py-3.5 text-sm">
-                        {project.client_name}
-                      </td>
-                      <td className="border-b border-border/60 px-3 py-3.5 text-sm">
-                        {profileName(profiles, project.assigned_to)}
+                        <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted/80">
+                          {project.project_number}
+                        </p>
+                        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+                          <span className="font-medium text-charcoal">{project.client_name}</span>
+                          <span className="text-border">•</span>
+                          <span className="text-muted">
+                            Assigned to <span className="font-semibold text-charcoal">{profileName(profiles, project.assigned_to)}</span>
+                          </span>
+                        </div>
                       </td>
                       <td className="border-b border-border/60 px-3 py-3.5">
                         <StatusBadge status={project.status} />
@@ -524,22 +398,22 @@ export function DashboardPage({
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="px-5 py-12 text-center">
+                    <td colSpan={4} className="px-5 py-12 text-center">
                       <div className="mx-auto max-w-xs">
                         <FolderOpen className="mx-auto h-8 w-8 text-muted/30" />
                         <p className="mt-2 text-sm font-semibold text-ink">No matching projects</p>
                         <p className="mt-1 text-xs text-muted">
-                          Adjust the filters above to see more projects.
+                          Choose a different project view above.
                         </p>
-                        {(hasAdvancedFilters || quickFilter !== 'all') && (
+                        {quickFilter !== 'all' ? (
                           <button
                             type="button"
-                            onClick={clearFilters}
+                            onClick={clearQuickFilter}
                             className="mt-3 text-xs font-semibold text-[#7a5518] hover:underline"
                           >
-                            Reset project filters
+                            Show all active projects
                           </button>
-                        )}
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -561,8 +435,12 @@ export function DashboardPage({
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <h3 className="truncate text-sm font-bold text-ink">{project.project_title}</h3>
-                      <p className="mt-0.5 truncate text-[11px] text-muted">
-                        {project.project_number} · {project.client_name}
+                      <p className="mt-0.5 truncate text-[10px] font-semibold uppercase tracking-[0.06em] text-muted/80">
+                        {project.project_number}
+                      </p>
+                      <p className="mt-1 truncate text-[11px] text-muted">
+                        <span className="font-medium text-charcoal">{project.client_name}</span>
+                        {' · '}Assigned to <span className="font-semibold text-charcoal">{profileName(profiles, project.assigned_to)}</span>
                       </p>
                     </div>
                     <StatusBadge status={project.status} />
@@ -572,19 +450,11 @@ export function DashboardPage({
                     <ProjectTimelineCompact project={project} />
                   </div>
 
-                  <div className="mt-3 grid grid-cols-2 gap-3 border-t border-border/60 pt-3">
-                    <div>
-                      <p className="text-[9px] font-bold uppercase tracking-wider text-muted">Assigned</p>
-                      <p className="mt-1 text-xs font-semibold text-ink">
-                        {profileName(profiles, project.assigned_to)}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-[9px] font-bold uppercase tracking-wider text-muted">Due</p>
-                      <p className={`mt-1 text-xs font-semibold ${finalDueClass(project)}`}>
-                        {finalDueText(project)}
-                      </p>
-                    </div>
+                  <div className="mt-3 flex items-center justify-between gap-3 border-t border-border/60 pt-3">
+                    <p className="text-[9px] font-bold uppercase tracking-wider text-muted">Projected final due</p>
+                    <p className={`text-xs font-semibold ${finalDueClass(project)}`}>
+                      {finalDueText(project)}
+                    </p>
                   </div>
 
                   <div className="mt-3 flex items-center justify-between border-t border-border/60 pt-2.5 text-[11px] font-semibold text-[#7a5518]">
@@ -609,7 +479,7 @@ export function DashboardPage({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="font-display text-lg font-semibold text-ink sm:text-xl">Needs Attention</h2>
-                <p className="mt-0.5 text-xs text-muted">Overdue, due today, or urgent work.</p>
+                <p className="mt-0.5 text-xs text-muted">Overdue, at risk, due today, or urgent work.</p>
               </div>
               <div className="grid h-9 w-9 place-items-center rounded-xl bg-rose-50 text-rose-700">
                 <AlertTriangle className="h-4 w-4" />
@@ -633,9 +503,13 @@ export function DashboardPage({
                       <span className={`shrink-0 text-[11px] font-semibold ${finalDueClass(project)}`}>
                         {getTimelineSummary(project).isOverdue
                           ? 'Stage overdue'
-                          : getTimelineSummary(project).waitingOn === 'Client'
-                            ? 'Client wait'
-                            : finalDueText(project)}
+                          : getTimelineSummary(project).riskLevel === 'red'
+                            ? 'Critical < 8h'
+                            : getTimelineSummary(project).riskLevel === 'amber'
+                              ? 'At risk < 24h'
+                              : getTimelineSummary(project).waitingOn === 'Client'
+                                ? 'Client wait'
+                                : finalDueText(project)}
                       </span>
                     </div>
                     <div className="mt-3">
@@ -686,7 +560,7 @@ export function DashboardPage({
                   ))
                 ) : (
                   <p className="rounded-xl border border-dashed border-border p-4 text-center text-xs text-muted">
-                    No active assignments for the current filters.
+                    No active assignments right now.
                   </p>
                 )}
               </div>

@@ -37,6 +37,8 @@ import type {
   ProjectMetadataUpdate,
   ProjectPayment,
   ProjectInitialFile,
+  ProjectClientReminder,
+  ProjectDelayMetrics,
   ProjectNote,
   RevisionActivity,
   RevisionAttachment,
@@ -492,7 +494,7 @@ function definedValues<T extends Record<string, unknown>>(value: T): Partial<T> 
 function canonicalSettings(settings?: WorkflowSettings): WorkflowSettings {
   return {
     exclude_weekends: settings?.exclude_weekends ?? true,
-    files_received_days: settings?.files_received_days ?? 2,
+    files_received_days: 0,
     design_concept_days: settings?.design_concept_days ?? 3,
     print_version_days: settings?.print_version_days ?? 5,
     ebook_version_days: settings?.ebook_version_days ?? 5,
@@ -735,6 +737,8 @@ function createEmptyTrackerData(profile: Profile | null = null): TrackerData {
     projectNotes: [],
     activityLogs: [],
     projectInitialFiles: [],
+    projectClientReminders: [],
+    projectDelayMetrics: [],
     notifications: [],
     clientProjectAccess: [],
     tasks: [],
@@ -908,6 +912,19 @@ export function useTracker() {
       supabase.from('project_initial_files').select('*').order('created_at', { ascending: true }),
     );
 
+    const projectClientRemindersPromise = profileIsClient
+      ? emptyResult
+      : safeSelect<ProjectClientReminder>(
+          supabase.from('project_client_reminders').select('*').order('generated_at', { ascending: false }),
+        );
+
+    const projectDelayMetricsPromise = profileIsClient
+      ? emptyResult
+      : requiredSelect<ProjectDelayMetrics>(
+          supabase.rpc('get_project_delay_metrics'),
+          'get_project_delay_metrics()',
+        );
+
     const tasksPromise = profileIsClient
       ? emptyResult
       : safeSelect<Task>(
@@ -997,6 +1014,8 @@ export function useTracker() {
       notesRes,
       activityRes,
       projectInitialFilesRes,
+      projectClientRemindersRes,
+      projectDelayMetricsRes,
       tasksRes,
       taskAssigneesRes,
       taskCommentsRes,
@@ -1028,6 +1047,8 @@ export function useTracker() {
       projectNotesPromise,
       activityPromise,
       projectInitialFilesPromise,
+      projectClientRemindersPromise,
+      projectDelayMetricsPromise,
       tasksPromise,
       taskAssigneesPromise,
       taskCommentsPromise,
@@ -1079,6 +1100,13 @@ export function useTracker() {
       projectNotes: notesRes.data as ProjectNote[],
       activityLogs: activityRes.data as ActivityLog[],
       projectInitialFiles: projectInitialFilesRes.data as ProjectInitialFile[],
+      projectClientReminders: projectClientRemindersRes.data as ProjectClientReminder[],
+      projectDelayMetrics: (projectDelayMetricsRes.data as ProjectDelayMetrics[]).map((item) => ({
+        ...item,
+        production_seconds: Number(item.production_seconds || 0),
+        client_wait_seconds: Number(item.client_wait_seconds || 0),
+        internal_overdue_seconds: Number(item.internal_overdue_seconds || 0),
+      })),
       tasks: (tasksRes.data as Partial<Task>[]).map(normalizeTask),
       taskAssignees: taskAssigneesRes.data as TaskAssignee[],
       taskComments: taskCommentsRes.data as TaskComment[],
@@ -1293,6 +1321,9 @@ export function useTracker() {
         });
         setNotificationToast(notification);
         notifyWithSoundAndVoice('notification', notification.title, notification.message);
+        if (notification.type === 'client_reminder_due' || notification.type === 'client_wait_escalation') {
+          void loadSupabaseData(currentProfile);
+        }
       },
       onUpdated: (notification) => {
         setData((previous) => ({
@@ -1307,7 +1338,7 @@ export function useTracker() {
         supabaseClient.removeChannel(subscription);
       }
     };
-  }, [currentProfile, mode]);
+  }, [currentProfile, loadSupabaseData, mode]);
 
   useEffect(() => {
     const supabaseClient = supabase;
@@ -2469,12 +2500,35 @@ export function useTracker() {
       const project=data.projects.find((item)=>item.id===projectId);
       if(!project) throw new Error('Project not found.');
       if(!workflowClient||mode!=='supabase') throw new Error('Canonical workflow mutations require Supabase mode.');
-      if(fileUrl?.trim()) {
-        const stage=project.workflow_stage_key;
-        const field:keyof ProjectMetadataUpdate= stage==='ebook_version'?'final_ebook_link':stage==='final_delivery'?'final_print_pdf_link':stage==='design_concept'?'cover_file_link':'proof_pdf_link';
-        await updateProject(projectId,{[field]:fileUrl.trim(),...(submissionNote?.trim()?{delivery_notes:submissionNote.trim()}:{})});
+
+      const stage=project.workflow_stage_key;
+      const cleanFileUrl=fileUrl?.trim()||'';
+      const existingDeliverable =
+        stage==='design_concept'||stage==='concept_approval'
+          ? project.cover_file_link||project.proof_pdf_link
+          : stage==='print_version'||stage==='print_approval'
+            ? project.proof_pdf_link||project.final_print_pdf_link
+            : stage==='ebook_version'||stage==='ebook_approval'
+              ? project.final_ebook_link
+              : project.final_print_pdf_link||project.other_links;
+
+      if(!cleanFileUrl&&!existingDeliverable) {
+        throw new Error('Add the required proof or deliverable link before sending this stage to the client.');
       }
-      if(project.workflow_stage_key==='final_delivery')
+
+      if(cleanFileUrl) {
+        const field:keyof ProjectMetadataUpdate=
+          stage==='ebook_version'||stage==='ebook_approval'
+            ? 'final_ebook_link'
+            : stage==='final_delivery'
+              ? 'final_print_pdf_link'
+              : stage==='design_concept'||stage==='concept_approval'
+                ? 'cover_file_link'
+                : 'proof_pdf_link';
+        await updateProject(projectId,{[field]:cleanFileUrl,...(submissionNote?.trim()?{delivery_notes:submissionNote.trim()}:{})});
+      }
+
+      if(stage==='final_delivery')
         await workflowClient.completeFinalDelivery(projectId,requireWorkflowVersion(project),submissionNote?.trim()||null);
       else
         await workflowClient.submitStageForApproval(projectId,requireWorkflowVersion(project),submissionNote?.trim()||null);
@@ -2483,7 +2537,34 @@ export function useTracker() {
     [currentProfile,data.projects,loadSupabaseData,mode,updateProject,workflowClient],
   );
 
-  const requestStageSkip = useCallback(
+  const resolveClientReminder = useCallback(
+    async (reminderId: string, status: 'sent' | 'dismissed') => {
+      if(!currentProfile||isClientRole(currentProfile.role))
+        throw new Error('Only team members can resolve client follow-up reminders.');
+      const reminder=(data.projectClientReminders||[]).find((item)=>item.id===reminderId);
+      if(!reminder) throw new Error('Client reminder not found.');
+      if(!supabase||mode!=='supabase') throw new Error('Reminder updates require Supabase mode.');
+
+      const { data: updated, error: updateError }=await supabase.rpc(
+        'resolve_project_client_reminder',
+        {p_reminder_id:reminderId,p_status:status},
+      );
+      if(updateError) throw updateError;
+      if(!updated) throw new Error('Reminder was not updated. Check project access.');
+
+      await addActivity({
+        project_id: reminder.project_id,
+        action: status==='sent'?'Client reminder sent':'Client reminder dismissed',
+        old_value: 'pending',
+        new_value: `${reminder.threshold_hours}h ${reminder.wait_reason} reminder`,
+      });
+
+      await loadSupabaseData(currentProfile);
+    },
+    [addActivity,currentProfile,data.projectClientReminders,loadSupabaseData,mode],
+  );
+
+    const requestStageSkip = useCallback(
     async (projectId: string, stage: OfficialTimelineStage, reason: string) => {
       if(!currentProfile||!reason.trim()) throw new Error('Please provide a reason for skipping this stage.');
       const project=data.projects.find((item)=>item.id===projectId);
@@ -2540,6 +2621,10 @@ export function useTracker() {
     if(!currentProfile||!workflowClient||mode!=='supabase') throw new Error('Canonical workflow mutations require Supabase mode.');
     const project=data.projects.find((item)=>item.id===projectId);
     if(!project) throw new Error('Project not found.');
+    if(project.requires_print&&!project.final_print_pdf_link?.trim())
+      throw new Error('Add the final print-ready PDF before completing delivery.');
+    if(project.requires_ebook&&!project.final_ebook_link?.trim())
+      throw new Error('Add the final eBook/EPUB file before completing delivery.');
     await workflowClient.completeFinalDelivery(projectId,requireWorkflowVersion(project),note?.trim()||null);
     await loadSupabaseData(currentProfile);
   },[currentProfile,data.projects,loadSupabaseData,mode,workflowClient]);
@@ -4209,6 +4294,7 @@ export function useTracker() {
     respondToRevisionRequest,
     submitInitialProjectFiles,
     getProjectInitialFileUrl,
+    resolveClientReminder,
     approveProjectMilestone,
     submitStageForApproval,
     advanceWorkflowStage,

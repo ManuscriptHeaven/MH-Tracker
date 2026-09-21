@@ -27,10 +27,20 @@ assert(
 );
 
 assert(
-  dashboard.includes('mobileFiltersOpen') &&
-    dashboard.includes('lg:block') &&
-    dashboard.includes('sm:grid-cols-2 lg:grid-cols-4'),
-  'advanced filters are collapsible on mobile and visible in a responsive desktop grid',
+  !dashboard.includes('mobileFiltersOpen') &&
+    !dashboard.includes('SlidersHorizontal') &&
+    !dashboard.includes('label="Assigned To"') &&
+    !dashboard.includes('label="Client"') &&
+    !dashboard.includes('label="Priority"'),
+  'redundant dashboard advanced filters are removed',
+);
+
+assert(
+  dashboard.includes('Assigned to <span className="font-semibold text-charcoal">') &&
+    dashboard.includes('{project.client_name}') &&
+    dashboard.includes('w-[36%] border-b border-border px-3 py-3">Timeline') &&
+    dashboard.includes('colSpan={4}'),
+  'client and assignee metadata are grouped with the project title so timeline, status, and due columns have more room',
 );
 
 assert(

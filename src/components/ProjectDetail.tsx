@@ -48,6 +48,8 @@ import type {
   Profile,
   Project,
   ProjectInitialFile,
+  ProjectClientReminder,
+  ProjectDelayMetrics,
   ProjectMetadataUpdate,
   ProjectNote,
   RevisionActivity,
@@ -62,6 +64,7 @@ import type {
 import { PaymentBadge, PriorityBadge, RoleBadge, StatusBadge } from './Badges';
 import { ProjectTimelinePanel, TimelineBadge } from './ProjectTimeline';
 import { ProjectDiscussionChat } from './ProjectDiscussionChat';
+import { ScheduleAccountability } from './ScheduleAccountability';
 import { UserAvatar } from './UserAvatar';
 import { Button, Card, Field, Modal, SelectField, TextareaField } from './ui';
 
@@ -105,6 +108,8 @@ export function ProjectDetail({
   revisionActivity,
   activities,
   initialFiles = [],
+  clientReminders = [],
+  delayMetrics,
   tasks,
   currentProfile,
   canManageAll,
@@ -114,7 +119,6 @@ export function ProjectDetail({
   onArchiveProject,
   onDelete,
   onUpdateProject,
-  onAdvanceWorkflowStage,
   onCompleteFinalDelivery,
   onAddNote,
   onAddRevision,
@@ -122,6 +126,7 @@ export function ProjectDetail({
   onUpdateRevisionItem,
   onUploadRevisedProof,
   onGetInitialFileUrl,
+  onResolveClientReminder,
   conversations = [],
   messages = [],
   onSendMessage,
@@ -141,6 +146,8 @@ export function ProjectDetail({
   revisionActivity: RevisionActivity[];
   activities: ActivityLog[];
   initialFiles?: ProjectInitialFile[];
+  clientReminders?: ProjectClientReminder[];
+  delayMetrics?: ProjectDelayMetrics;
   tasks: Task[];
   currentProfile: Profile;
   canManageAll: boolean;
@@ -150,7 +157,6 @@ export function ProjectDetail({
   onArchiveProject?: () => void;
   onDelete?: () => void;
   onUpdateProject: (updates: ProjectMetadataUpdate) => Promise<void>;
-  onAdvanceWorkflowStage: () => Promise<void>;
   onCompleteFinalDelivery: (note?: string) => Promise<void>;
   onAddNote: (noteType: NoteType, note: string) => Promise<void>;
   onAddRevision: (note: string, status: RevisionStatus) => Promise<void>;
@@ -158,6 +164,7 @@ export function ProjectDetail({
   onUpdateRevisionItem: (itemId: string, updates: Partial<RevisionItem>) => Promise<void>;
   onUploadRevisedProof: (requestId: string, file: File) => Promise<void>;
   onGetInitialFileUrl?: (file: ProjectInitialFile) => Promise<string>;
+  onResolveClientReminder?: (reminderId: string, status: 'sent' | 'dismissed') => Promise<void>;
   conversations?: Conversation[];
   messages?: ChatMessage[];
   onSendMessage?: (
@@ -244,15 +251,6 @@ export function ProjectDetail({
     setSubmissionFileUrl(initialUrl);
     setSubmissionNote('');
     setShowSubmitModal(true);
-  };
-
-  const advanceFilesReceived = async () => {
-    setIsSubmittingWorkflow(true);
-    try {
-      await onAdvanceWorkflowStage();
-    } finally {
-      setIsSubmittingWorkflow(false);
-    }
   };
 
   const completeDelivery = async () => {
@@ -451,17 +449,6 @@ export function ProjectDetail({
             {/* Top Workflow & Quick Action Buttons */}
             <div className="flex flex-wrap items-center gap-2 shrink-0">
               {/* Standard Stage Submission Workflow Buttons */}
-              {!isRevisionActive && !isAwaitingClientReview && normStage === 'Files Received' && (
-                <Button
-                  onClick={advanceFilesReceived}
-                  disabled={isSubmittingWorkflow}
-                  className="text-xs py-2 px-3 bg-gold text-white font-semibold hover:bg-gold/90 shadow-xs"
-                >
-                  <Send className="h-3.5 w-3.5" />
-                  Submit Files Received
-                </Button>
-              )}
-
               {!isRevisionActive && !isAwaitingClientReview && normStage === 'Design Concept' && (
                 <Button
                   onClick={openSubmitModal}
@@ -609,6 +596,15 @@ export function ProjectDetail({
             </div>
           ) : null}
         </div>
+
+        <ScheduleAccountability
+          project={project}
+          reminders={clientReminders}
+          metrics={delayMetrics}
+          onSendMessage={onSendMessage}
+          onGetOrCreateProjectConversation={onGetOrCreateProjectConversation}
+          onResolveReminder={onResolveClientReminder}
+        />
 
         {/* ========================================================================= */}
         {/* INTERNAL TABS NAVIGATION */}
@@ -767,17 +763,6 @@ export function ProjectDetail({
 
                     <div className="flex flex-col gap-2">
                       {/* Standard Stage Submission Workflow Buttons */}
-                      {!isRevisionActive && !isAwaitingClientReview && normStage === 'Files Received' && (
-                        <Button
-                          onClick={advanceFilesReceived}
-                          disabled={isSubmittingWorkflow}
-                          className="w-full text-xs py-2 bg-gold text-white font-semibold hover:bg-gold/90"
-                        >
-                          <Send className="h-3.5 w-3.5" />
-                          Submit Files Received
-                        </Button>
-                      )}
-
                       {!isRevisionActive && !isAwaitingClientReview && normStage === 'Design Concept' && (
                         <Button
                           onClick={openSubmitModal}

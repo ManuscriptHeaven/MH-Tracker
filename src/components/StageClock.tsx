@@ -28,11 +28,13 @@ export function StageClock({
       ? 'border-amber-200 bg-amber-50 text-amber-900'
       : clock.mode === 'client_wait'
         ? 'border-violet-200 bg-violet-50 text-violet-900'
-        : clock.isOverdue
+        : clock.riskLevel === 'overdue' || clock.riskLevel === 'red'
           ? 'border-red-200 bg-red-50 text-red-800'
-          : clock.mode === 'production'
-            ? 'border-blue-200 bg-blue-50 text-blue-800'
-            : 'border-border bg-ivory text-muted';
+          : clock.riskLevel === 'amber'
+            ? 'border-amber-200 bg-amber-50 text-amber-900'
+            : clock.mode === 'production'
+              ? 'border-blue-200 bg-blue-50 text-blue-800'
+              : 'border-border bg-ivory text-muted';
 
   const Icon =
     clock.mode === 'waiting_files'
@@ -64,10 +66,15 @@ export function StageClock({
             <span className="shrink-0 text-[9px] uppercase tracking-wide opacity-70">Production paused</span>
           ) : null}
         </div>
+        {clock.riskLabel ? (
+          <p className="mt-1 text-[10px] font-bold uppercase tracking-wide">{clock.riskLabel}</p>
+        ) : null}
         {showFinalDue && clock.projectedFinalDueDate ? (
           <p className="mt-1 text-[10px] font-medium opacity-75">
-            Project due {formatDate(clock.projectedFinalDueDate)}
-            {clock.mode === 'client_wait' || clock.mode === 'waiting_files' ? ' · moving with client wait' : ''}
+            {clock.originalDueDate && clock.originalDueDate !== clock.projectedFinalDueDate
+              ? `Original ${formatDate(clock.originalDueDate)} → Current ${formatDate(clock.projectedFinalDueDate)}`
+              : `Project due ${formatDate(clock.projectedFinalDueDate)}`}
+            {clock.dueShiftDays && clock.dueShiftDays > 0 ? ` · +${clock.dueShiftDays}d` : ''}
           </p>
         ) : null}
       </div>
@@ -94,11 +101,22 @@ export function StageClock({
               Manuscript Heaven production time is paused.
             </p>
           ) : null}
+          {clock.riskLabel ? (
+            <p className="mt-1 text-[11px] font-bold uppercase tracking-[0.08em]">{clock.riskLabel}</p>
+          ) : null}
           {showFinalDue && clock.projectedFinalDueDate ? (
-            <p className="mt-1 text-[11px] font-medium opacity-80">
-              Project due: {formatDate(clock.projectedFinalDueDate)}
-              {clock.mode === 'client_wait' || clock.mode === 'waiting_files' ? ' (auto-shifting)' : ''}
-            </p>
+            <div className="mt-1 space-y-0.5 text-[11px] font-medium opacity-80">
+              {clock.originalDueDate ? (
+                <p>Original due: {formatDate(clock.originalDueDate)}</p>
+              ) : null}
+              <p>
+                Current due: {formatDate(clock.projectedFinalDueDate)}
+                {clock.dueShiftDays && clock.dueShiftDays > 0 ? ` · +${clock.dueShiftDays}d schedule shift` : ''}
+              </p>
+              {clock.mode === 'client_wait' || clock.mode === 'waiting_files' ? (
+                <p>Current due is moving with client wait.</p>
+              ) : null}
+            </div>
           ) : null}
         </div>
       </div>

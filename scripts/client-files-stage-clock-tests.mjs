@@ -96,7 +96,7 @@ assert(
   migration.includes('due_date = case') &&
     migration.includes("p_expected.final_due_at at time zone 'Asia/Karachi'") &&
     timeline.includes('projectedFinalDueDate') &&
-    stageClock.includes('auto-shifting'),
+    stageClock.includes('Current due is moving with client wait.'),
   'canonical and live projected final due dates move with client-caused waiting time',
 );
 
