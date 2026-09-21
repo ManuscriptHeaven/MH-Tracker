@@ -10,6 +10,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { CalendarPage } from './pages/CalendarPage';
 import { TeamPage } from './pages/TeamPage';
+import { AttendancePage } from './pages/AttendancePage';
 import { PaymentsPage } from './pages/PaymentsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { NotificationsPage } from './pages/NotificationsPage';
@@ -300,6 +301,20 @@ export default function App() {
       />
     )}
     {activeView === 'calendar' && <CalendarPage projects={visibleProjects} onSelectProject={setSelectedProject} />}
+    {activeView === 'attendance' && !isClient && (
+      <AttendancePage
+        currentProfile={tracker.currentProfile}
+        profiles={tracker.data.profiles}
+        sessions={tracker.data.attendanceSessions || []}
+        breaks={tracker.data.attendanceBreaks || []}
+        canManageAll={tracker.canManageAll}
+        onClockIn={tracker.clockInAttendance}
+        onClockOut={tracker.clockOutAttendance}
+        onStartBreak={tracker.startAttendanceBreak}
+        onEndBreak={tracker.endAttendanceBreak}
+        onAdjustSession={tracker.adjustAttendanceSession}
+      />
+    )}
     {activeView === 'team' && (
       <TeamPage
         currentProfile={tracker.currentProfile}
