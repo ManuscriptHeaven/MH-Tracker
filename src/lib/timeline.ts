@@ -197,6 +197,75 @@ export function timelineUpdateForStage(project: TimelineProject, stage: Timeline
 
 type TimelineProject = Partial<Project | ProjectDraft>;
 
+const canonicalStageDisplay: Record<string, OfficialTimelineStage> = {
+  files_received: 'Files Received',
+  design_concept: 'Design Concept',
+  concept_approval: 'Concept Approval',
+  print_version: 'Print Version',
+  print_approval: 'Print Approval',
+  ebook_version: 'Ebook Version',
+  ebook_approval: 'Ebook Approval',
+  final_delivery: 'Final Delivery',
+};
+
+function withCanonicalWorkflowProjection<T extends TimelineProject>(project: T): T {
+  const stageKey = project.workflow_stage_key;
+  const statusKey = project.workflow_stage_status_key;
+  const waitingKey = project.workflow_waiting_on_key;
+  if (!stageKey || !statusKey || !waitingKey || !canonicalStageDisplay[stageKey]) return { ...project } as T;
+
+  const next = { ...project } as T;
+  const stage = canonicalStageDisplay[stageKey];
+  next.current_stage = stage as T['current_stage'];
+
+  next.stage_status = (
+    statusKey === 'active' ? 'ACTIVE'
+      : statusKey === 'revision_active' ? 'REVISION_ACTIVE'
+        : statusKey === 'awaiting_client' ? 'PAUSED_CLIENT_REVIEW'
+          : statusKey === 'pending' ? 'PENDING'
+            : statusKey === 'skipped' ? 'SKIPPED'
+              : 'COMPLETED'
+  ) as T['stage_status'];
+
+  next.waiting_on = (
+    waitingKey === 'team' ? 'Manuscript Heaven'
+      : waitingKey === 'client' ? 'Client'
+        : 'None'
+  ) as T['waiting_on'];
+
+  const lifecycle = project.project_status;
+  if (lifecycle === 'completed') {
+    next.status = 'Completed' as T['status'];
+    next.timeline_status = 'Completed' as T['timeline_status'];
+  } else if (lifecycle === 'on_hold') {
+    next.status = 'On Hold' as T['status'];
+    next.timeline_status = 'On Hold' as T['timeline_status'];
+  } else if (lifecycle === 'cancelled') {
+    next.status = 'Cancelled' as T['status'];
+    next.timeline_status = 'Cancelled' as T['timeline_status'];
+  } else if (lifecycle === 'archived') {
+    next.status = 'Archived' as T['status'];
+    next.timeline_status = 'Paused' as T['timeline_status'];
+  } else if (stageKey === 'files_received' && statusKey === 'pending') {
+    next.status = 'Waiting for Files' as T['status'];
+    next.timeline_status = 'Paused' as T['timeline_status'];
+  } else if (statusKey === 'awaiting_client') {
+    next.status = 'Awaiting Client Approval' as T['status'];
+    next.timeline_status = 'Paused' as T['timeline_status'];
+  } else if (statusKey === 'revision_active') {
+    next.status = 'In Revision' as T['status'];
+    next.timeline_status = 'Revision Required' as T['timeline_status'];
+  } else if (stageKey === 'final_delivery' && statusKey === 'active') {
+    next.status = 'Final Delivery' as T['status'];
+    next.timeline_status = 'Active' as T['timeline_status'];
+  } else {
+    next.status = 'Active' as T['status'];
+    next.timeline_status = statusKey === 'active' ? 'Active' as T['timeline_status'] : 'Paused' as T['timeline_status'];
+  }
+
+  return next;
+}
+
 export type ApprovalMilestone = 'concept' | 'print' | 'ebook';
 
 export type TimelineHealth =
@@ -580,6 +649,7 @@ export function originalProjectDueDate(project: TimelineProject): string | null 
 }
 
 export function projectedFinalDueDate(project: TimelineProject, now: Date = new Date()): string | null {
+  project = withCanonicalWorkflowProjection(project);
   const base =
     project.final_due_at ||
     project.final_delivery_date ||
@@ -635,6 +705,7 @@ export interface ProjectClockSnapshot {
 }
 
 export function getProjectClockSnapshot(project: TimelineProject, now: Date = new Date()): ProjectClockSnapshot {
+  project = withCanonicalWorkflowProjection(project);
   const stage = normalizeStage(project.current_stage || project.status);
   const pendingFiles =
     stage === 'Files Received' &&
@@ -752,7 +823,7 @@ export function deriveProjectTimeline<T extends TimelineProject>(
   project: T,
   options: { syncStatus?: boolean } = {},
 ): T {
-  const next = { ...project } as T;
+  const next = withCanonicalWorkflowProjection(project);
   const syncStatus = Boolean(options.syncStatus);
   const settings = getWorkflowSettings(next);
 
