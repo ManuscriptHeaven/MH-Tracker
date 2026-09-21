@@ -376,7 +376,7 @@ export function getStageDurationDays(
 
   switch (norm) {
     case 'Files Received':
-      return settings.files_received_days ?? 2;
+      return 0;
     case 'Design Concept':
       return isRevision
         ? (settings.design_concept_revision_days ?? 2)
@@ -559,16 +559,129 @@ export function estimatedFinalDueDate(project: TimelineProject): string | null {
   if (project.final_delivery_date) return project.final_delivery_date.slice(0, 10);
   if (project.due_date) return project.due_date.slice(0, 10);
 
+  // Files Received is a client-owned action and does not consume production time.
   const startDate = project.files_received_date || project.start_date || todayInput();
   const settings = getWorkflowSettings(project);
   const totalDays =
-    (settings.files_received_days ?? 2) +
     (settings.design_concept_days ?? 3) +
     (settings.print_version_days ?? 5) +
     (settings.ebook_version_days ?? 5) +
     (settings.final_delivery_days ?? 2);
 
   return calculateStageDueDate(startDate, totalDays, settings);
+}
+
+export function projectedFinalDueDate(project: TimelineProject, now: Date = new Date()): string | null {
+  const base =
+    project.final_due_at ||
+    project.final_delivery_date ||
+    project.due_date ||
+    null;
+  if (!base) return estimatedFinalDueDate(project);
+
+  const waitingForClient =
+    project.workflow_waiting_on_key === 'client' ||
+    project.waiting_on === 'Client' ||
+    project.workflow_stage_status_key === 'awaiting_client' ||
+    project.stage_status === 'PAUSED_CLIENT_REVIEW';
+
+  if (!waitingForClient || !project.stage_started_at) {
+    return base.slice(0, 10);
+  }
+
+  const waitStarted = new Date(project.stage_started_at).getTime();
+  const baseMs = new Date(base).getTime();
+  if (!Number.isFinite(waitStarted) || !Number.isFinite(baseMs)) return base.slice(0, 10);
+
+  const elapsed = Math.max(0, now.getTime() - waitStarted);
+  return new Date(baseMs + elapsed).toISOString().slice(0, 10);
+}
+
+export interface ProjectClockSnapshot {
+  mode: 'waiting_files' | 'production' | 'client_wait' | 'inactive';
+  seconds: number | null;
+  isOverdue: boolean;
+  label: string;
+  projectedFinalDueDate: string | null;
+}
+
+export function getProjectClockSnapshot(project: TimelineProject, now: Date = new Date()): ProjectClockSnapshot {
+  const stage = normalizeStage(project.current_stage || project.status);
+  const pendingFiles =
+    stage === 'Files Received' &&
+    (project.workflow_stage_status_key === 'pending' || project.stage_status === 'PENDING');
+
+  if (pendingFiles) {
+    return {
+      mode: 'waiting_files',
+      seconds: null,
+      isOverdue: false,
+      label: 'Waiting for client files',
+      projectedFinalDueDate: projectedFinalDueDate(project, now),
+    };
+  }
+
+  const waitingForClient =
+    project.workflow_waiting_on_key === 'client' ||
+    project.waiting_on === 'Client' ||
+    project.workflow_stage_status_key === 'awaiting_client' ||
+    project.stage_status === 'PAUSED_CLIENT_REVIEW';
+
+  if (waitingForClient && project.stage_started_at) {
+    const started = new Date(project.stage_started_at).getTime();
+    const seconds = Number.isFinite(started)
+      ? Math.max(0, Math.floor((now.getTime() - started) / 1000))
+      : 0;
+    return {
+      mode: 'client_wait',
+      seconds,
+      isOverdue: false,
+      label: 'Client wait',
+      projectedFinalDueDate: projectedFinalDueDate(project, now),
+    };
+  }
+
+  const productionActive =
+    project.workflow_waiting_on_key === 'team' ||
+    project.waiting_on === 'Manuscript Heaven' ||
+    project.workflow_stage_status_key === 'active' ||
+    project.workflow_stage_status_key === 'revision_active' ||
+    project.stage_status === 'ACTIVE' ||
+    project.stage_status === 'REVISION_ACTIVE';
+
+  if (productionActive && project.stage_due_at) {
+    const due = new Date(project.stage_due_at).getTime();
+    if (Number.isFinite(due)) {
+      const diffSeconds = Math.floor((due - now.getTime()) / 1000);
+      return {
+        mode: 'production',
+        seconds: Math.abs(diffSeconds),
+        isOverdue: diffSeconds < 0,
+        label: diffSeconds < 0 ? 'Overdue' : 'Remaining',
+        projectedFinalDueDate: projectedFinalDueDate(project, now),
+      };
+    }
+  }
+
+  return {
+    mode: 'inactive',
+    seconds: null,
+    isOverdue: false,
+    label: 'No active clock',
+    projectedFinalDueDate: projectedFinalDueDate(project, now),
+  };
+}
+
+export function formatClockDuration(totalSeconds: number | null): string {
+  if (totalSeconds === null || !Number.isFinite(totalSeconds)) return '—';
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
 }
 
 export function deriveProjectTimeline<T extends TimelineProject>(
@@ -638,7 +751,18 @@ export function deriveProjectTimeline<T extends TimelineProject>(
   next.current_stage = normStage as TimelineStage;
   next.progress_percentage = timelineProgressByStage[next.current_stage as TimelineStage] || 10;
 
-  if (isClientApprovalStage(next.current_stage)) {
+  const waitingForInitialFiles =
+    next.current_stage === 'Files Received' &&
+    (next.workflow_stage_status_key === 'pending' || next.stage_status === 'PENDING');
+
+  if (waitingForInitialFiles) {
+    next.status = 'Waiting for Files';
+    next.stage_status = 'PENDING';
+    next.timeline_status = 'Paused';
+    next.waiting_on = 'Client';
+    next.client_action_required = 'Upload the required project files';
+    next.stage_due_at = null;
+  } else if (isClientApprovalStage(next.current_stage)) {
     if (next.stage_status === 'REVISION_ACTIVE') {
       next.status = 'In Revision';
       next.timeline_status = 'Revision Required';
@@ -662,8 +786,8 @@ export function deriveProjectTimeline<T extends TimelineProject>(
             : 'Review and approve the eBook version';
       next.stage_due_at = null; // Production clock is paused
     }
-  } else {
-    // Production Stage: Files Received, Design Concept, Print Version, Ebook Version, Final Delivery
+  } else if (!waitingForInitialFiles) {
+    // Production Stage: Design Concept, Print Version, Ebook Version, Final Delivery
     next.stage_status = 'ACTIVE';
     next.timeline_status = 'Active';
     next.waiting_on = 'Manuscript Heaven';
@@ -715,7 +839,9 @@ export function nextMilestoneForProject(project: TimelineProject): string {
 
   switch (stage) {
     case 'Files Received':
-      return 'Complete initial file setup';
+      return derived.stage_status === 'PENDING'
+        ? 'Client to submit required project files'
+        : 'Verify received files and begin Design Concept';
     case 'Design Concept':
       return 'Complete Design Concept & send for approval';
     case 'Concept Approval':
@@ -756,7 +882,7 @@ export function getTimelineSummary(project: TimelineProject): TimelineSummary {
   const timelineStatus = derived.timeline_status || 'Active';
 
   const dueDate = deadlineForStage(derived);
-  const finalDueDate = estimatedFinalDueDate(derived);
+  const finalDueDate = projectedFinalDueDate(derived);
 
   let daysRemaining: number | null = null;
   let isOverdue = false;
