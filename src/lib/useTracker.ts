@@ -2545,22 +2545,12 @@ export function useTracker() {
       if(!reminder) throw new Error('Client reminder not found.');
       if(!supabase||mode!=='supabase') throw new Error('Reminder updates require Supabase mode.');
 
-      const handledAt=new Date().toISOString();
-      const { data: updated, error: updateError }=await supabase
-        .from('project_client_reminders')
-        .update({status,handled_at:handledAt,handled_by:currentProfile.id})
-        .eq('id',reminderId)
-        .select()
-        .maybeSingle();
+      const { data: updated, error: updateError }=await supabase.rpc(
+        'resolve_project_client_reminder',
+        {p_reminder_id:reminderId,p_status:status},
+      );
       if(updateError) throw updateError;
       if(!updated) throw new Error('Reminder was not updated. Check project access.');
-
-      setData((previous)=>({
-        ...previous,
-        projectClientReminders:(previous.projectClientReminders||[]).map((item)=>
-          item.id===reminderId ? updated as ProjectClientReminder : item
-        ),
-      }));
 
       await addActivity({
         project_id: reminder.project_id,
@@ -2568,8 +2558,10 @@ export function useTracker() {
         old_value: 'pending',
         new_value: `${reminder.threshold_hours}h ${reminder.wait_reason} reminder`,
       });
+
+      await loadSupabaseData(currentProfile);
     },
-    [addActivity,currentProfile,data.projectClientReminders,mode],
+    [addActivity,currentProfile,data.projectClientReminders,loadSupabaseData,mode],
   );
 
     const requestStageSkip = useCallback(
