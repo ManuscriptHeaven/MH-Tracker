@@ -589,7 +589,7 @@ export function projectedFinalDueDate(project: TimelineProject, now: Date = new 
     project.waiting_on === 'Client' ||
     project.workflow_stage_status_key === 'awaiting_client' ||
     project.stage_status === 'PAUSED_CLIENT_REVIEW';
-  const waitStartedAt = project.stage_started_at || (waitingForInitialFiles ? project.created_at : null);
+  const waitStartedAt = project.stage_started_at || (waitingForInitialFiles ? (project as Partial<Project>).created_at || project.start_date : null);
 
   if (!waitingForClient || !waitStartedAt) {
     return base.slice(0, 10);
@@ -618,7 +618,7 @@ export function getProjectClockSnapshot(project: TimelineProject, now: Date = ne
     (project.workflow_stage_status_key === 'pending' || project.stage_status === 'PENDING');
 
   if (pendingFiles) {
-    const startedAt = project.stage_started_at || project.created_at;
+    const startedAt = project.stage_started_at || (project as Partial<Project>).created_at || project.start_date;
     const started = startedAt ? new Date(startedAt).getTime() : Number.NaN;
     return {
       mode: 'waiting_files',
@@ -967,7 +967,7 @@ export function createStageHistoryEntry(
     project_id: project.id,
     stage: project.current_stage || 'Files Received',
     status: project.stage_status || 'ACTIVE',
-    started_at: project.stage_started_at || project.created_at || now,
+    started_at: project.stage_started_at || (project as Partial<Project>).created_at || project.start_date || now,
     paused_at: project.stage_status === 'PAUSED_CLIENT_REVIEW' ? now : null,
     due_at: project.stage_due_at || null,
     active_seconds: project.production_time_used || 0,
