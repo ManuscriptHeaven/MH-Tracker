@@ -74,9 +74,9 @@ function taskDeadlineTone(task: Task) {
 
 function SummaryCard({ label, value, colorClass }: { label: string; value: number; colorClass?: string }) {
   return (
-    <div className="rounded-xl border border-border bg-white p-4 shadow-sm transition hover:shadow-md">
-      <p className="text-xs font-semibold uppercase tracking-wider text-muted">{label}</p>
-      <p className={`mt-2 text-3xl font-extrabold ${colorClass || 'text-ink'}`}>{value}</p>
+    <div className="min-w-0 rounded-xl border border-border bg-white p-3 shadow-sm transition hover:shadow-md sm:p-4">
+      <p className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted sm:text-xs">{label}</p>
+      <p className={`mt-1.5 text-2xl font-extrabold sm:mt-2 sm:text-3xl ${colorClass || 'text-ink'}`}>{value}</p>
     </div>
   );
 }
@@ -263,14 +263,14 @@ export function TasksPage({
   }, [personalTasks]);
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-4 sm:space-y-6">
       {/* Top Banner / Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-border bg-gradient-to-r from-ink via-ink/95 to-ink/90 p-6 text-white shadow-md">
+      <div className="flex flex-col gap-4 rounded-2xl border border-border bg-gradient-to-r from-ink via-ink/95 to-ink/90 p-4 text-white shadow-md sm:flex-row sm:items-center sm:justify-between sm:p-6">
         <div>
           <p className="text-xs font-semibold uppercase tracking-widest text-gold">
             {mode === 'personal' ? 'Personal Workspace' : 'Team Workspace'}
           </p>
-          <h2 className="mt-1 font-display text-3xl font-bold tracking-tight">
+          <h2 className="mt-1 font-display text-2xl font-bold tracking-tight sm:text-3xl">
             {mode === 'personal' ? 'My Tasks' : 'Team Tasks'}
           </h2>
           <p className="mt-1 text-sm text-white/70">
@@ -286,7 +286,7 @@ export function TasksPage({
             setFormError(null);
             setShowAddModal(true);
           }}
-          className="shadow-md hover:scale-[1.02] active:scale-[0.98] transition"
+          className="w-full shadow-md transition hover:scale-[1.02] active:scale-[0.98] sm:w-auto"
         >
           <Plus className="h-4 w-4" />
           Add Task
@@ -294,7 +294,7 @@ export function TasksPage({
       </div>
 
       {/* Summary Metrics Row */}
-      <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-5">
+      <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-4 xl:grid-cols-5">
         <SummaryCard label="Open" value={counts.open} />
         <SummaryCard label="Due Today" value={counts.dueToday} colorClass="text-orange-600" />
         <SummaryCard label="Overdue" value={counts.overdue} colorClass="text-rose-600" />
@@ -303,9 +303,10 @@ export function TasksPage({
       </section>
 
       {/* Filter and Control Bar */}
-      <div className="flex flex-col gap-4 rounded-xl border border-border bg-white p-4 shadow-sm xl:flex-row xl:items-center xl:justify-between">
+      <div className="min-w-0 rounded-xl border border-border bg-white p-3 shadow-sm sm:p-4">
+        <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         {/* Quick Filter Tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
+        <div className="-mx-1 flex min-w-0 snap-x items-center gap-1.5 overflow-x-auto px-1 pb-1 scrollbar-thin">
           {([
             ['all', 'All', counts.all],
             ['mine', 'My Tasks', personalTasks.filter((task) => task.assigned_to === currentProfile.id || taskAssignees.some((item) => item.task_id === task.id && item.profile_id === currentProfile.id)).length],
@@ -320,7 +321,7 @@ export function TasksPage({
                 key={id}
                 type="button"
                 onClick={() => setQuickFilter(id)}
-                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold whitespace-nowrap shrink-0 transition ${
+                className={`flex shrink-0 snap-start items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold transition ${
                   active
                     ? 'bg-ink text-white shadow-sm'
                     : 'bg-ivory text-charcoal hover:bg-gold/15 hover:text-ink'
@@ -340,12 +341,12 @@ export function TasksPage({
         </div>
 
         {/* Filters & Sorting Controls */}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="grid min-w-0 grid-cols-1 gap-2.5 sm:grid-cols-2 xl:flex xl:flex-wrap xl:items-center xl:gap-3">
           {mode === 'team' ? (
               <SelectField
                 value={employeeFilter}
                 onChange={(event) => setEmployeeFilter(event.target.value)}
-                className="w-full sm:w-44 text-xs"
+                className="w-full min-w-0 text-xs sm:w-full xl:w-44"
               >
                 <option value="all">All Employees</option>
                 {teamProfiles.map((profile) => (
@@ -356,16 +357,16 @@ export function TasksPage({
               </SelectField>
           ) : null}
 
-          <SelectField value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)} className="w-full sm:w-44 text-xs">
+          <SelectField value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)} className="w-full min-w-0 text-xs sm:w-full xl:w-44">
             <option value="all">All Projects</option>
             {projects.map((proj) => <option key={proj.id} value={proj.id}>{proj.project_number}</option>)}
           </SelectField>
-          <SelectField value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)} className="w-full sm:w-36 text-xs">
+          <SelectField value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)} className="w-full min-w-0 text-xs sm:w-full xl:w-36">
             <option value="all">All Priorities</option>
             {priorityOptions.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
           </SelectField>
 
-          <div className="flex items-center gap-2 min-w-44">
+          <div className="flex min-w-0 items-center gap-2 sm:col-span-2 xl:col-span-1 xl:min-w-44">
             <span className="text-xs font-medium text-muted">Sort:</span>
             <SelectField
               value={sortBy}
@@ -381,6 +382,7 @@ export function TasksPage({
           </div>
         </div>
       </div>
+      </div>
 
       {/* Task List */}
       {filteredTasks.length ? (
@@ -393,11 +395,11 @@ export function TasksPage({
             return (
               <div
                 key={task.id}
-                className="group relative overflow-hidden rounded-xl border border-border bg-white p-5 shadow-sm transition duration-200 hover:border-gold/50 hover:shadow-md"
+                className="group relative min-w-0 overflow-hidden rounded-xl border border-border bg-white p-3.5 shadow-sm transition duration-200 hover:border-gold/50 hover:shadow-md sm:p-5"
               >
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   {/* Left Main Information */}
-                  <div className="flex items-start gap-3.5 min-w-0 flex-1">
+                  <div className="flex min-w-0 flex-1 items-start gap-2.5 sm:gap-3.5">
                     {/* Status Dot */}
                     <div className="mt-1.5 flex shrink-0 items-center justify-center">
                       <span className={`h-3 w-3 rounded-full shadow-sm ${dotColor}`} />
@@ -406,7 +408,7 @@ export function TasksPage({
                     <div className="min-w-0 flex-1">
                       {/* Header line: Title, Priority, Due Date */}
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-display text-lg font-bold text-ink leading-tight">
+                        <h3 className="min-w-0 break-words font-display text-base font-bold leading-tight text-ink sm:text-lg">
                           {task.title}
                         </h3>
                         <PriorityBadge priority={task.priority} />
@@ -416,12 +418,12 @@ export function TasksPage({
                       </div>
 
                       {/* Subtitle line: Project Number & Title */}
-                      <p className="mt-1 text-xs font-medium text-muted">
+                      <p className="mt-1 min-w-0 text-xs font-medium text-muted">
                         {project ? (
-                          <span className="inline-flex items-center gap-1 font-semibold text-charcoal">
+                          <span className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 font-semibold text-charcoal">
                             <span>{project.project_number}</span>
                             <span>·</span>
-                            <span>{project.project_title}</span>
+                            <span className="min-w-0 break-words">{project.project_title}</span>
                           </span>
                         ) : (
                           <span>No project</span>
@@ -430,7 +432,7 @@ export function TasksPage({
 
                       {/* Description Snippet */}
                       {task.description ? (
-                        <p className="mt-2.5 whitespace-pre-wrap text-sm leading-relaxed text-charcoal/90 bg-ivory/60 rounded-lg p-3 border border-border/40">
+                        <p className="mt-2.5 break-words whitespace-pre-wrap rounded-lg border border-border/40 bg-ivory/60 p-3 text-sm leading-relaxed text-charcoal/90">
                           {task.description}
                         </p>
                       ) : null}
@@ -449,8 +451,8 @@ export function TasksPage({
                 </div>
 
                 {/* Card Footer Divider & Action Controls */}
-                <div className="mt-4 pt-3 border-t border-border/60 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between text-xs">
-                  <div className="flex flex-wrap items-center gap-4 text-muted">
+                <div className="mt-4 flex flex-col gap-3 border-t border-border/60 pt-3 text-xs lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-muted">
                     {mode === 'team' ? (
                       <p>
                         Assigned: <strong className="text-ink">{profileName(profiles, task.assigned_to)}</strong>
@@ -465,17 +467,17 @@ export function TasksPage({
                     ) : null}
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button type="button" variant="secondary" onClick={() => setSelectedTaskId(task.id)} className="h-8 px-2.5 text-xs gap-1">
+                  <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+                    <Button type="button" variant="secondary" onClick={() => setSelectedTaskId(task.id)} className="h-9 w-full gap-1 px-2.5 text-xs sm:h-8 sm:w-auto">
                       <ListChecks className="h-3.5 w-3.5" />Details
                     </Button>
                     {/* Status Dropdown */}
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-muted font-medium">Status:</span>
+                    <div className="col-span-2 flex min-w-0 items-center gap-1.5 sm:col-span-1">
+                      <span className="shrink-0 text-muted font-medium">Status:</span>
                       <SelectField
                         value={task.status}
                         onChange={(e) => onUpdateTask(task.id, { status: e.target.value as TaskStatus })}
-                        className="py-1 text-xs h-8 bg-ivory font-medium"
+                        className="h-9 min-w-0 flex-1 bg-ivory py-1 text-xs font-medium sm:h-8 sm:w-36"
                       >
                         {taskStatuses.map((st) => (
                           <option key={st} value={st}>
@@ -491,7 +493,7 @@ export function TasksPage({
                         type="button"
                         variant="secondary"
                         onClick={() => onSelectProject(project)}
-                        className="h-8 px-2.5 text-xs gap-1"
+                        className="h-9 w-full gap-1 px-2.5 text-xs sm:h-8 sm:w-auto"
                       >
                         Open Project
                         <ExternalLink className="h-3 w-3" />
@@ -503,7 +505,7 @@ export function TasksPage({
                       type="button"
                       variant={task.status === 'Done' ? 'secondary' : 'primary'}
                       onClick={() => onUpdateTask(task.id, { status: task.status === 'Done' ? 'To Do' : 'Done' })}
-                      className="h-8 px-3 text-xs"
+                      className="h-9 w-full px-3 text-xs sm:h-8 sm:w-auto"
                     >
                       <CheckCircle2 className="h-3.5 w-3.5" />
                       {task.status === 'Done' ? 'Reopen' : 'Done'}
@@ -535,9 +537,9 @@ export function TasksPage({
 
       {/* Task Creation Modal */}
       {showAddModal ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-xl rounded-2xl border border-border bg-white p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
-            <div className="flex items-center justify-between border-b border-border pb-4">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/60 p-0 backdrop-blur-sm sm:items-center sm:p-4">
+          <div className="flex max-h-[100dvh] w-full max-w-xl flex-col overflow-hidden rounded-t-2xl border border-border bg-white shadow-2xl animate-in fade-in zoom-in duration-200 sm:max-h-[92dvh] sm:rounded-2xl">
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border p-4 sm:items-center sm:px-6 sm:py-5">
               <div>
                 <h3 className="font-display text-xl font-bold text-ink">Add Task</h3>
                 <p className="text-xs text-muted">
@@ -555,7 +557,7 @@ export function TasksPage({
               </button>
             </div>
 
-            <form onSubmit={submitTask} className="mt-4 space-y-4">
+            <form onSubmit={submitTask} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
               <Field
                 label="Task Title"
                 required
@@ -652,11 +654,11 @@ export function TasksPage({
 
               {formError ? <p className="rounded-md bg-rose-50 p-3 text-xs font-semibold text-rose-600 border border-rose-200">{formError}</p> : null}
 
-              <div className="flex items-center justify-end gap-3 border-t border-border pt-4">
-                <Button type="button" variant="secondary" onClick={() => setShowAddModal(false)}>
+              <div className="grid grid-cols-2 gap-2 border-t border-border pt-4 sm:flex sm:items-center sm:justify-end sm:gap-3">
+                <Button type="button" variant="secondary" onClick={() => setShowAddModal(false)} className="w-full sm:w-auto">
                   Cancel
                 </Button>
-                <Button type="submit" disabled={isSaving}>
+                <Button type="submit" disabled={isSaving} className="w-full sm:w-auto">
                   {isSaving ? 'Creating...' : 'Create Task'}
                 </Button>
               </div>
