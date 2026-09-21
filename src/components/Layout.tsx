@@ -4,6 +4,7 @@ import {
   CalendarDays,
   Camera,
   CheckSquare,
+  Clock3,
   ChevronDown,
   CreditCard,
   Download,
@@ -47,6 +48,7 @@ export type ViewKey =
   | 'team_tasks'
   | 'communication'
   | 'calendar'
+  | 'attendance'
   | 'notifications'
   | 'team'
   | 'clients'
@@ -61,6 +63,7 @@ const viewHeaderTitles: Record<ViewKey, string> = {
   projects: 'Projects Overview',
   delivered: 'Delivered Projects',
   calendar: 'Calendar & Deadlines',
+  attendance: 'Time & Attendance',
   my_tasks: 'My Tasks',
   team_tasks: 'Team Tasks',
   communication: 'Messages',
@@ -125,6 +128,7 @@ const navStructure: NavEntry[] = [
       { id: 'team_tasks', label: 'Team Tasks', icon: Users, managersOnly: true },
     ],
   },
+  { id: 'attendance', label: 'Attendance', icon: Clock3, type: 'single' },
   { id: 'communication', label: 'Messages', icon: MessageSquare, type: 'single' },
   { id: 'notifications', label: 'Notifications', icon: Bell, type: 'single' },
   {
@@ -287,6 +291,7 @@ export function Layout({
         { id: 'dashboard', label: 'Home', icon: Home },
         { id: 'projects', label: 'Projects', icon: FolderKanban },
         { id: 'my_tasks', label: 'Tasks', icon: CheckSquare },
+        { id: 'attendance', label: 'Time', icon: Clock3 },
         canManageAll
           ? { id: 'team', label: 'Team', icon: Users }
           : {
