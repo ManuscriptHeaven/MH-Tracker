@@ -27,6 +27,7 @@ type QuickFilter =
   | 'awaiting_approval'
   | 'revision'
   | 'today'
+  | 'at_risk'
   | 'overdue'
   | 'completed';
 
@@ -42,6 +43,11 @@ function isStageOverdue(project: Project) {
 function isStageDueToday(project: Project) {
   const summary = getTimelineSummary(project);
   return summary.waitingOn === 'Manuscript Heaven' && summary.daysRemaining === 0 && !summary.isOverdue;
+}
+
+function isStageAtRisk(project: Project) {
+  const risk = getTimelineSummary(project).riskLevel;
+  return risk === 'amber' || risk === 'red';
 }
 
 function finalDueText(project: Project) {
@@ -156,6 +162,7 @@ export function DashboardPage({
   const awaitingApprovalProjects = filteredActiveProjects.filter(isAwaitingApproval);
   const inRevisionProjects = filteredActiveProjects.filter(isRevision);
   const overdueProjects = filteredActiveProjects.filter(isStageOverdue);
+  const atRiskProjects = filteredActiveProjects.filter(isStageAtRisk);
   const dueTodayProjects = filteredActiveProjects.filter(isStageDueToday);
   const completedProjects = filteredAllProjects.filter(isCompleted);
   const myProjects = filteredActiveProjects.filter(
@@ -170,6 +177,7 @@ export function DashboardPage({
     if (quickFilter === 'awaiting_approval') return isAwaitingApproval(project);
     if (quickFilter === 'revision') return isRevision(project);
     if (quickFilter === 'today') return isStageDueToday(project);
+    if (quickFilter === 'at_risk') return isStageAtRisk(project);
     if (quickFilter === 'overdue') return isStageOverdue(project);
     return true;
   });
@@ -180,11 +188,26 @@ export function DashboardPage({
   );
 
   const urgentProjects = filteredActiveProjects
-    .filter((project) => project.priority === 'Urgent' || isStageOverdue(project) || isStageDueToday(project))
+    .filter(
+      (project) =>
+        project.priority === 'Urgent' ||
+        isStageOverdue(project) ||
+        isStageAtRisk(project) ||
+        isStageDueToday(project),
+    )
     .sort((a, b) => {
       const aOverdue = isStageOverdue(a) ? 1 : 0;
       const bOverdue = isStageOverdue(b) ? 1 : 0;
       if (aOverdue !== bOverdue) return bOverdue - aOverdue;
+      const riskRank = (project: Project) => {
+        const risk = getTimelineSummary(project).riskLevel;
+        if (risk === 'red') return 2;
+        if (risk === 'amber') return 1;
+        return 0;
+      };
+      const aRisk = riskRank(a);
+      const bRisk = riskRank(b);
+      if (aRisk !== bRisk) return bRisk - aRisk;
       const aDue = getTimelineSummary(a).dueDate || getTimelineSummary(a).finalDueDate || '9999-12-31';
       const bDue = getTimelineSummary(b).dueDate || getTimelineSummary(b).finalDueDate || '9999-12-31';
       return new Date(aDue).getTime() - new Date(bDue).getTime();
@@ -212,6 +235,7 @@ export function DashboardPage({
     { id: 'awaiting_approval', label: 'Awaiting Approval', count: awaitingApprovalProjects.length },
     { id: 'revision', label: 'In Revision', count: inRevisionProjects.length },
     { id: 'today', label: 'Due Today', count: dueTodayProjects.length },
+    { id: 'at_risk', label: 'At Risk', count: atRiskProjects.length },
     { id: 'overdue', label: 'Overdue', count: overdueProjects.length },
     { id: 'completed', label: 'Completed', count: completedProjects.length },
     { id: 'mine', label: 'My Projects', count: myProjects.length },
@@ -455,7 +479,7 @@ export function DashboardPage({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="font-display text-lg font-semibold text-ink sm:text-xl">Needs Attention</h2>
-                <p className="mt-0.5 text-xs text-muted">Overdue, due today, or urgent work.</p>
+                <p className="mt-0.5 text-xs text-muted">Overdue, at risk, due today, or urgent work.</p>
               </div>
               <div className="grid h-9 w-9 place-items-center rounded-xl bg-rose-50 text-rose-700">
                 <AlertTriangle className="h-4 w-4" />
@@ -479,9 +503,13 @@ export function DashboardPage({
                       <span className={`shrink-0 text-[11px] font-semibold ${finalDueClass(project)}`}>
                         {getTimelineSummary(project).isOverdue
                           ? 'Stage overdue'
-                          : getTimelineSummary(project).waitingOn === 'Client'
-                            ? 'Client wait'
-                            : finalDueText(project)}
+                          : getTimelineSummary(project).riskLevel === 'red'
+                            ? 'Critical < 8h'
+                            : getTimelineSummary(project).riskLevel === 'amber'
+                              ? 'At risk < 24h'
+                              : getTimelineSummary(project).waitingOn === 'Client'
+                                ? 'Client wait'
+                                : finalDueText(project)}
                       </span>
                     </div>
                     <div className="mt-3">
