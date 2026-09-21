@@ -21,6 +21,11 @@ export const WORKFLOW_DOMAIN_MESSAGES = {
   workflow_lifecycle_reason_required: 'A meaningful reason is required to cancel or archive this project.',
   workflow_invalid_configuration: 'The workflow configuration is incomplete or invalid.',
   workflow_admin_reason_required: 'An administrative override requires a reason summary (at least 10 characters) and a detailed explanation.',
+  workflow_missing_concept_deliverable: 'Add a design concept proof or deliverable link before sending this stage to the client.',
+  workflow_missing_print_proof: 'Add the print proof before sending this stage to the client.',
+  workflow_missing_ebook_proof: 'Add the eBook/EPUB proof before sending this stage to the client.',
+  workflow_missing_final_print_file: 'Add the final print-ready PDF before completing delivery.',
+  workflow_missing_final_ebook_file: 'Add the final eBook/EPUB file before completing delivery.',
   legacy_workflow_trigger_conflict: 'A legacy database trigger changed workflow data during the canonical action. The project was not changed.',
 } as const;
 
