@@ -112,6 +112,15 @@ function sanitizeProjectSourceFileName(fileName: string) {
   return sanitizeMessageFileName(fileName).slice(0, 100);
 }
 
+function isDesktopAttendanceClient() {
+  if (typeof navigator === 'undefined' || typeof window === 'undefined') return true;
+  const nav = navigator as Navigator & { userAgentData?: { mobile?: boolean } };
+  if (nav.userAgentData?.mobile) return false;
+  if (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)) return false;
+  return true;
+}
+
+
 function calculateBalance(totalPrice: number, advancePaid: number) {
   return Math.max(Number(totalPrice || 0) - Number(advancePaid || 0), 0);
 }
@@ -4318,6 +4327,9 @@ export function useTracker() {
   const clockInAttendance = useCallback(async (note = '') => {
     if (!currentProfile) throw new Error('Not logged in.');
     if (isClientRole(currentProfile.role)) throw new Error('Client accounts do not use team attendance.');
+    if (!isDesktopAttendanceClient()) {
+      throw new Error('Verified attendance can only be started from MH Tracker on a laptop or desktop.');
+    }
 
     if (supabase && mode === 'supabase') {
       const { data: session, error: clockError } = await supabase.rpc('attendance_clock_in', { p_note: note });
@@ -4343,12 +4355,108 @@ export function useTracker() {
       note,
       adjusted_by: null,
       adjustment_reason: null,
+      verified_seconds: 0,
+      last_app_heartbeat_at: now,
+      presence_client_kind: 'desktop_web',
       created_at: now,
       updated_at: now,
     };
     setData((previous) => ({ ...previous, attendanceSessions: [session, ...(previous.attendanceSessions || [])] }));
     return session;
   }, [currentProfile, mode]);
+
+
+  const recordAttendanceHeartbeat = useCallback(async () => {
+    if (!currentProfile || isClientRole(currentProfile.role)) return null;
+    if (!isDesktopAttendanceClient()) return null;
+
+    if (supabase && mode === 'supabase') {
+      const { data: session, error: heartbeatError } = await supabase.rpc('attendance_record_heartbeat', {
+        p_client_kind: 'desktop_web',
+      });
+      if (heartbeatError) {
+        const message = errorMessage(heartbeatError, '').toLowerCase();
+        if (message.includes('attendance_not_clocked_in')) return null;
+        throw heartbeatError;
+      }
+      if (!session) return null;
+
+      const confirmed = session as AttendanceSession;
+      setData((previous) => ({
+        ...previous,
+        attendanceSessions: (previous.attendanceSessions || []).map((item) =>
+          item.id === confirmed.id ? confirmed : item,
+        ),
+      }));
+      return confirmed;
+    }
+
+    const now = new Date().toISOString();
+    let updated: AttendanceSession | null = null;
+    setData((previous) => ({
+      ...previous,
+      attendanceSessions: (previous.attendanceSessions || []).map((item) => {
+        if (item.user_id !== currentProfile.id || item.status !== 'active') return item;
+        const previousHeartbeat = item.last_app_heartbeat_at ? new Date(item.last_app_heartbeat_at).getTime() : NaN;
+        const nowMs = Date.now();
+        const elapsed = Number.isFinite(previousHeartbeat)
+          ? Math.max(0, Math.floor((nowMs - previousHeartbeat) / 1000))
+          : 0;
+        const hasActiveBreak = (previous.attendanceBreaks || []).some(
+          (attendanceBreak) => attendanceBreak.session_id === item.id && !attendanceBreak.ended_at,
+        );
+        updated = {
+          ...item,
+          verified_seconds: Number(item.verified_seconds || 0) + (!hasActiveBreak && elapsed <= 90 ? elapsed : 0),
+          last_app_heartbeat_at: now,
+          presence_client_kind: 'desktop_web',
+          updated_at: now,
+        };
+        return updated;
+      }),
+    }));
+    return updated;
+  }, [currentProfile, mode]);
+
+  useEffect(() => {
+    if (!currentProfile || isClientRole(currentProfile.role) || !isDesktopAttendanceClient()) return undefined;
+
+    const activeSessionId = (data.attendanceSessions || []).find(
+      (session) => session.user_id === currentProfile.id && session.status === 'active',
+    )?.id;
+
+    if (!activeSessionId) return undefined;
+
+    let cancelled = false;
+    const pulse = async () => {
+      if (cancelled || !navigator.onLine) return;
+      try {
+        await recordAttendanceHeartbeat();
+      } catch (heartbeatError) {
+        console.warn('Attendance heartbeat failed:', heartbeatError);
+      }
+    };
+
+    void pulse();
+    const intervalId = window.setInterval(() => void pulse(), 30_000);
+    const onOnline = () => void pulse();
+    const onPageShow = () => void pulse();
+    window.addEventListener('online', onOnline);
+    window.addEventListener('pageshow', onPageShow);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('pageshow', onPageShow);
+    };
+  }, [
+    currentProfile,
+    data.attendanceSessions?.find(
+      (session) => session.user_id === currentProfile?.id && session.status === 'active',
+    )?.id,
+    recordAttendanceHeartbeat,
+  ]);
 
   const startAttendanceBreak = useCallback(async () => {
     if (!currentProfile) throw new Error('Not logged in.');
@@ -4357,6 +4465,7 @@ export function useTracker() {
       const { data: attendanceBreak, error: breakError } = await supabase.rpc('attendance_start_break');
       if (breakError) throw breakError;
       if (!attendanceBreak) throw new Error('Break start did not return a record.');
+      await refreshAttendance();
       setData((previous) => ({
         ...previous,
         attendanceBreaks: [
@@ -4383,7 +4492,7 @@ export function useTracker() {
     };
     setData((previous) => ({ ...previous, attendanceBreaks: [attendanceBreak, ...(previous.attendanceBreaks || [])] }));
     return attendanceBreak;
-  }, [currentProfile, data.attendanceBreaks, data.attendanceSessions, mode]);
+  }, [currentProfile, data.attendanceBreaks, data.attendanceSessions, mode, refreshAttendance]);
 
   const endAttendanceBreak = useCallback(async () => {
     if (!currentProfile) throw new Error('Not logged in.');
@@ -4392,6 +4501,7 @@ export function useTracker() {
       const { data: attendanceBreak, error: breakError } = await supabase.rpc('attendance_end_break');
       if (breakError) throw breakError;
       if (!attendanceBreak) throw new Error('Break end did not return a record.');
+      await refreshAttendance();
       setData((previous) => ({
         ...previous,
         attendanceBreaks: (previous.attendanceBreaks || []).map((item) =>
@@ -4409,7 +4519,7 @@ export function useTracker() {
       attendanceBreaks: (previous.attendanceBreaks || []).map((item) => item.id === active.id ? ended : item),
     }));
     return ended;
-  }, [currentProfile, data.attendanceBreaks, mode]);
+  }, [currentProfile, data.attendanceBreaks, mode, refreshAttendance]);
 
   const clockOutAttendance = useCallback(async (note = '') => {
     if (!currentProfile) throw new Error('Not logged in.');
@@ -4624,6 +4734,8 @@ export function useTracker() {
     getOrCreateTeamChannel,
     getOrCreateDM,
     refreshAttendance,
+    recordAttendanceHeartbeat,
+    desktopAttendanceCapable: isDesktopAttendanceClient(),
     clockInAttendance,
     clockOutAttendance,
     startAttendanceBreak,
