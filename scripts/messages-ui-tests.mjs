@@ -49,8 +49,10 @@ assert(
 );
 
 assert(
-  login.includes('1-Click Demo Showcase'),
-  'Login page remains the single intentional demo showcase location',
+  login.includes('!isSupabaseConfigured ?') &&
+    login.includes('Admin Demo Preview') &&
+    !login.includes('1-Click Demo Showcase'),
+  'production login hides demo access while local development keeps an admin-only preview',
 );
 
 assert(
