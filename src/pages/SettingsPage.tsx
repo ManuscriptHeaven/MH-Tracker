@@ -14,9 +14,11 @@ export function SettingsPage({
   mode,
   currentProfile,
   onUpdateProfile,
+  onEnterAdminDemo,
 }: {
   mode: 'demo' | 'supabase';
   currentProfile?: Profile;
+  onEnterAdminDemo?: () => void;
   onUpdateProfile?: (
     profileId: string,
     updates: { full_name?: string; avatar_url?: string | null; phone?: string | null }
@@ -66,7 +68,7 @@ export function SettingsPage({
     'Run supabase/time-aware-production-timeline.sql',
     'Create admin in Supabase Auth',
     'Add admin profile row',
-    'Add employees and roles',
+    'Add team members and roles',
     'Add Cloudflare Pages & Supabase Secrets (GEMINI_API_KEY, GROQ_API_KEY)',
     'Deploy with npm run build and dist output',
   ];
@@ -108,6 +110,23 @@ export function SettingsPage({
           </div>
         </Card>
       )}
+
+      {currentProfile?.role === 'admin' && onEnterAdminDemo ? (
+        <Card className="border-gold/30 bg-gradient-to-r from-white to-gold/5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="font-display text-xl font-semibold text-ink">Admin Demo Preview</h2>
+              <p className="mt-1 text-sm text-muted">
+                Demo mode is available only from the authenticated Admin settings area. Team members do not see demo access.
+              </p>
+            </div>
+            <Button type="button" variant="secondary" onClick={onEnterAdminDemo} className="w-full sm:w-auto">
+              Open Admin Demo
+            </Button>
+          </div>
+        </Card>
+      ) : null}
+
       {/* Workflow Stage Allocations Settings */}
       <Card>
         <div className="flex items-center gap-2 mb-2">
@@ -280,7 +299,7 @@ export function SettingsPage({
               <ShieldCheck className="h-5 w-5 text-gold" />
               <div>
                 <p className="font-semibold">Role-Based Access</p>
-                <p className="text-sm text-muted">Employees see assigned projects. Admin and managers see all projects.</p>
+                <p className="text-sm text-muted">Book formatters and team members see assigned projects. Admin and managers see all projects.</p>
               </div>
             </div>
             <div className="flex items-center gap-3 rounded-md border border-border bg-ivory p-4">
