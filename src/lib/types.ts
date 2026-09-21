@@ -206,6 +206,28 @@ export interface Profile {
   created_at: string;
 }
 
+export interface AttendanceSession {
+  id: string;
+  user_id: string;
+  clock_in: string;
+  clock_out: string | null;
+  status: 'active' | 'completed';
+  note: string;
+  adjusted_by?: string | null;
+  adjustment_reason?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AttendanceBreak {
+  id: string;
+  session_id: string;
+  user_id: string;
+  started_at: string;
+  ended_at: string | null;
+  created_at: string;
+}
+
 export type SalaryType = 'Monthly' | 'Per Project' | 'Per Task';
 
 export interface EmployeeCompensation {
@@ -676,6 +698,8 @@ export interface TrackerData {
   revisionActivity: RevisionActivity[];
   employeeCompensation: EmployeeCompensation[];
   employeeLedger: EmployeeLedgerEntry[];
+  attendanceSessions?: AttendanceSession[];
+  attendanceBreaks?: AttendanceBreak[];
   workflowSettings?: WorkflowSettings;
   stageHistory?: StageHistoryEntry[];
   stageSkipRequests?: StageSkipRequest[];

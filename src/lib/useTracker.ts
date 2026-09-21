@@ -22,6 +22,8 @@ import {
 import type {
   ActivityLog,
   AdminWorkflowOverrideLog,
+  AttendanceBreak,
+  AttendanceSession,
   ClientInviteDraft,
   ClientProjectAccess,
   EmployeeCompensation,
@@ -752,6 +754,8 @@ function createEmptyTrackerData(profile: Profile | null = null): TrackerData {
     revisionActivity: [],
     employeeCompensation: [],
     employeeLedger: [],
+    attendanceSessions: [],
+    attendanceBreaks: [],
     stageSkipRequests: [],
     financeTransactions: [],
     financeBudgets: [],
@@ -985,6 +989,24 @@ export function useTracker() {
       : isEmployee
         ? safeSelect<EmployeeLedgerEntry>(supabase.from('employee_ledger').select('*').eq('employee_id', profile.id).order('paid_at', { ascending: false }))
         : emptyResult;
+    const attendanceSessionsPromise = profileIsClient
+      ? emptyResult
+      : safeSelect<AttendanceSession>(
+          supabase
+            .from('attendance_sessions')
+            .select('*')
+            .gte('clock_in', new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString())
+            .order('clock_in', { ascending: false }),
+        );
+    const attendanceBreaksPromise = profileIsClient
+      ? emptyResult
+      : safeSelect<AttendanceBreak>(
+          supabase
+            .from('attendance_breaks')
+            .select('*')
+            .gte('started_at', new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString())
+            .order('started_at', { ascending: false }),
+        );
     const financeTransactionsPromise = canManage
       ? safeSelect<FinanceTransaction>(supabase.from('finance_transactions').select('*').order('transaction_date', { ascending: false }))
       : emptyResult;
@@ -1029,6 +1051,8 @@ export function useTracker() {
       stageSkipsRes,
       employeeCompensationRes,
       employeeLedgerRes,
+      attendanceSessionsRes,
+      attendanceBreaksRes,
       financeTransactionsRes,
       financeBudgetsRes,
       invoiceVersionsRes,
@@ -1062,6 +1086,8 @@ export function useTracker() {
       stageSkipsPromise,
       employeeCompensationPromise,
       employeeLedgerPromise,
+      attendanceSessionsPromise,
+      attendanceBreaksPromise,
       financeTransactionsPromise,
       financeBudgetsPromise,
       invoiceVersionsPromise,
@@ -1127,6 +1153,8 @@ export function useTracker() {
       })),
       employeeCompensation: employeeCompensationRes.data as EmployeeCompensation[],
       employeeLedger: employeeLedgerRes.data as EmployeeLedgerEntry[],
+      attendanceSessions: attendanceSessionsRes.data as AttendanceSession[],
+      attendanceBreaks: attendanceBreaksRes.data as AttendanceBreak[],
       financeTransactions: financeTransactionsRes.data as FinanceTransaction[],
       financeBudgets: financeBudgetsRes.data as FinanceBudget[],
       invoices: (invoiceVersionsRes.data as InvoiceVersionRow[]).map(normalizeInvoiceVersion),
@@ -4260,6 +4288,256 @@ export function useTracker() {
     [currentProfile, data.conversationMembers, data.conversations, loadSupabaseData, mode],
   );
 
+
+  const refreshAttendance = useCallback(async () => {
+    if (!currentProfile) return;
+    if (supabase && mode === 'supabase') {
+      const sessionsQuery = safeSelect<AttendanceSession>(
+        supabase
+          .from('attendance_sessions')
+          .select('*')
+          .gte('clock_in', new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString())
+          .order('clock_in', { ascending: false }),
+      );
+      const breaksQuery = safeSelect<AttendanceBreak>(
+        supabase
+          .from('attendance_breaks')
+          .select('*')
+          .gte('started_at', new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString())
+          .order('started_at', { ascending: false }),
+      );
+      const [sessionsRes, breaksRes] = await Promise.all([sessionsQuery, breaksQuery]);
+      setData((previous) => ({
+        ...previous,
+        attendanceSessions: sessionsRes.data,
+        attendanceBreaks: breaksRes.data,
+      }));
+    }
+  }, [currentProfile, mode]);
+
+  const clockInAttendance = useCallback(async (note = '') => {
+    if (!currentProfile) throw new Error('Not logged in.');
+    if (isClientRole(currentProfile.role)) throw new Error('Client accounts do not use team attendance.');
+
+    if (supabase && mode === 'supabase') {
+      const { data: session, error: clockError } = await supabase.rpc('attendance_clock_in', { p_note: note });
+      if (clockError) throw clockError;
+      if (!session) throw new Error('Clock-in did not return an attendance session.');
+      setData((previous) => ({
+        ...previous,
+        attendanceSessions: [
+          session as AttendanceSession,
+          ...(previous.attendanceSessions || []).filter((item) => item.id !== (session as AttendanceSession).id),
+        ],
+      }));
+      return session as AttendanceSession;
+    }
+
+    const now = new Date().toISOString();
+    const session: AttendanceSession = {
+      id: createId('attendance'),
+      user_id: currentProfile.id,
+      clock_in: now,
+      clock_out: null,
+      status: 'active',
+      note,
+      adjusted_by: null,
+      adjustment_reason: null,
+      created_at: now,
+      updated_at: now,
+    };
+    setData((previous) => ({ ...previous, attendanceSessions: [session, ...(previous.attendanceSessions || [])] }));
+    return session;
+  }, [currentProfile, mode]);
+
+  const startAttendanceBreak = useCallback(async () => {
+    if (!currentProfile) throw new Error('Not logged in.');
+
+    if (supabase && mode === 'supabase') {
+      const { data: attendanceBreak, error: breakError } = await supabase.rpc('attendance_start_break');
+      if (breakError) throw breakError;
+      if (!attendanceBreak) throw new Error('Break start did not return a record.');
+      setData((previous) => ({
+        ...previous,
+        attendanceBreaks: [
+          attendanceBreak as AttendanceBreak,
+          ...(previous.attendanceBreaks || []).filter((item) => item.id !== (attendanceBreak as AttendanceBreak).id),
+        ],
+      }));
+      return attendanceBreak as AttendanceBreak;
+    }
+
+    const session = (data.attendanceSessions || []).find((item) => item.user_id === currentProfile.id && item.status === 'active');
+    if (!session) throw new Error('Clock in before starting a break.');
+    if ((data.attendanceBreaks || []).some((item) => item.session_id === session.id && !item.ended_at)) {
+      throw new Error('A break is already active.');
+    }
+    const now = new Date().toISOString();
+    const attendanceBreak: AttendanceBreak = {
+      id: createId('attendance-break'),
+      session_id: session.id,
+      user_id: currentProfile.id,
+      started_at: now,
+      ended_at: null,
+      created_at: now,
+    };
+    setData((previous) => ({ ...previous, attendanceBreaks: [attendanceBreak, ...(previous.attendanceBreaks || [])] }));
+    return attendanceBreak;
+  }, [currentProfile, data.attendanceBreaks, data.attendanceSessions, mode]);
+
+  const endAttendanceBreak = useCallback(async () => {
+    if (!currentProfile) throw new Error('Not logged in.');
+
+    if (supabase && mode === 'supabase') {
+      const { data: attendanceBreak, error: breakError } = await supabase.rpc('attendance_end_break');
+      if (breakError) throw breakError;
+      if (!attendanceBreak) throw new Error('Break end did not return a record.');
+      setData((previous) => ({
+        ...previous,
+        attendanceBreaks: (previous.attendanceBreaks || []).map((item) =>
+          item.id === (attendanceBreak as AttendanceBreak).id ? attendanceBreak as AttendanceBreak : item,
+        ),
+      }));
+      return attendanceBreak as AttendanceBreak;
+    }
+
+    const active = (data.attendanceBreaks || []).find((item) => item.user_id === currentProfile.id && !item.ended_at);
+    if (!active) throw new Error('No active break found.');
+    const ended = { ...active, ended_at: new Date().toISOString() };
+    setData((previous) => ({
+      ...previous,
+      attendanceBreaks: (previous.attendanceBreaks || []).map((item) => item.id === active.id ? ended : item),
+    }));
+    return ended;
+  }, [currentProfile, data.attendanceBreaks, mode]);
+
+  const clockOutAttendance = useCallback(async (note = '') => {
+    if (!currentProfile) throw new Error('Not logged in.');
+
+    if (supabase && mode === 'supabase') {
+      const { data: session, error: clockError } = await supabase.rpc('attendance_clock_out', { p_note: note || null });
+      if (clockError) throw clockError;
+      if (!session) throw new Error('Clock-out did not return an attendance session.');
+      await refreshAttendance();
+      return session as AttendanceSession;
+    }
+
+    const active = (data.attendanceSessions || []).find((item) => item.user_id === currentProfile.id && item.status === 'active');
+    if (!active) throw new Error('No active attendance session found.');
+    const now = new Date().toISOString();
+    const ended = { ...active, clock_out: now, status: 'completed' as const, note: note.trim() || active.note, updated_at: now };
+    setData((previous) => ({
+      ...previous,
+      attendanceSessions: (previous.attendanceSessions || []).map((item) => item.id === active.id ? ended : item),
+      attendanceBreaks: (previous.attendanceBreaks || []).map((item) =>
+        item.session_id === active.id && !item.ended_at ? { ...item, ended_at: now } : item,
+      ),
+    }));
+    return ended;
+  }, [currentProfile, data.attendanceSessions, mode, refreshAttendance]);
+
+  const adjustAttendanceSession = useCallback(async (
+    sessionId: string,
+    clockIn: string,
+    clockOut: string,
+    reason: string,
+  ) => {
+    if (!currentProfile || currentProfile.role !== 'admin') {
+      throw new Error('Only Admin can correct attendance records.');
+    }
+    if (!reason.trim()) throw new Error('A correction reason is required.');
+
+    if (supabase && mode === 'supabase') {
+      const { data: session, error: adjustError } = await supabase.rpc('attendance_admin_adjust_session', {
+        p_session_id: sessionId,
+        p_clock_in: clockIn,
+        p_clock_out: clockOut,
+        p_reason: reason.trim(),
+      });
+      if (adjustError) throw adjustError;
+      if (!session) throw new Error('Attendance correction returned no record.');
+      setData((previous) => ({
+        ...previous,
+        attendanceSessions: (previous.attendanceSessions || []).map((item) =>
+          item.id === sessionId ? session as AttendanceSession : item,
+        ),
+      }));
+      return session as AttendanceSession;
+    }
+
+    const now = new Date().toISOString();
+    let updated: AttendanceSession | null = null;
+    setData((previous) => ({
+      ...previous,
+      attendanceSessions: (previous.attendanceSessions || []).map((item) => {
+        if (item.id !== sessionId || item.status !== 'completed') return item;
+        updated = {
+          ...item,
+          clock_in: clockIn,
+          clock_out: clockOut,
+          adjusted_by: currentProfile.id,
+          adjustment_reason: reason.trim(),
+          updated_at: now,
+        };
+        return updated;
+      }),
+    }));
+    if (!updated) throw new Error('Completed attendance record not found.');
+    return updated;
+  }, [currentProfile, mode]);
+
+  useEffect(() => {
+    const supabaseClient = supabase;
+    if (!supabaseClient || mode !== 'supabase' || !currentProfile || isClientRole(currentProfile.role)) {
+      return undefined;
+    }
+
+    const upsertSession = (session: AttendanceSession) => {
+      if (!session?.id) return;
+      setData((previous) => {
+        const list = previous.attendanceSessions || [];
+        const index = list.findIndex((item) => item.id === session.id);
+        if (index < 0) return { ...previous, attendanceSessions: [session, ...list] };
+        const next = [...list];
+        next[index] = session;
+        return { ...previous, attendanceSessions: next };
+      });
+    };
+
+    const upsertBreak = (attendanceBreak: AttendanceBreak) => {
+      if (!attendanceBreak?.id) return;
+      setData((previous) => {
+        const list = previous.attendanceBreaks || [];
+        const index = list.findIndex((item) => item.id === attendanceBreak.id);
+        if (index < 0) return { ...previous, attendanceBreaks: [attendanceBreak, ...list] };
+        const next = [...list];
+        next[index] = attendanceBreak;
+        return { ...previous, attendanceBreaks: next };
+      });
+    };
+
+    const subscription = supabaseClient
+      .channel(`attendance-sync:${currentProfile.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'attendance_sessions' }, (payload) => {
+        upsertSession(payload.new as AttendanceSession);
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'attendance_sessions' }, (payload) => {
+        upsertSession(payload.new as AttendanceSession);
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'attendance_breaks' }, (payload) => {
+        upsertBreak(payload.new as AttendanceBreak);
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'attendance_breaks' }, (payload) => {
+        upsertBreak(payload.new as AttendanceBreak);
+      })
+      .subscribe();
+
+    return () => {
+      supabaseClient.removeChannel(subscription);
+    };
+  }, [currentProfile, mode]);
+
+
   return {
     mode,
     currentProfile,
@@ -4345,5 +4623,11 @@ export function useTracker() {
     getOrCreateTaskConversation,
     getOrCreateTeamChannel,
     getOrCreateDM,
+    refreshAttendance,
+    clockInAttendance,
+    clockOutAttendance,
+    startAttendanceBreak,
+    endAttendanceBreak,
+    adjustAttendanceSession,
   };
 }
