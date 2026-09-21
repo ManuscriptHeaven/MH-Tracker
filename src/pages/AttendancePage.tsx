@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { Button, Card, Field, TextareaField } from '../components/ui';
 import { roleLabels } from '../lib/constants';
-import { firstName, isClientRole } from '../lib/utils';
+import { isClientRole } from '../lib/utils';
 import type { AttendanceBreak, AttendanceSession, Profile } from '../lib/types';
 
 type Props = {
@@ -315,16 +315,16 @@ export function AttendancePage({
         </Card>
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-2">
-          {[
-            ['Today', formatDuration(todaySeconds), CalendarDays],
-            ['This week', formatDuration(weekSeconds), History],
-            ['This month', formatDuration(monthSeconds), TimerReset],
-            ['Days worked', String(daysWorked), CheckCircle2],
-          ].map(([label, value, Icon]) => (
-            <Card key={String(label)} className="min-w-0 p-4">
+          {([
+            { label: 'Today', value: formatDuration(todaySeconds), icon: CalendarDays },
+            { label: 'This week', value: formatDuration(weekSeconds), icon: History },
+            { label: 'This month', value: formatDuration(monthSeconds), icon: TimerReset },
+            { label: 'Days worked', value: String(daysWorked), icon: CheckCircle2 },
+          ] as const).map(({ label, value, icon: Icon }) => (
+            <Card key={label} className="min-w-0 p-4">
               <Icon className="h-4 w-4 text-gold" />
-              <p className="mt-3 text-[10px] font-bold uppercase tracking-wider text-muted">{String(label)}</p>
-              <p className="mt-1 truncate text-xl font-extrabold text-ink">{String(value)}</p>
+              <p className="mt-3 text-[10px] font-bold uppercase tracking-wider text-muted">{label}</p>
+              <p className="mt-1 truncate text-xl font-extrabold text-ink">{value}</p>
             </Card>
           ))}
         </div>
