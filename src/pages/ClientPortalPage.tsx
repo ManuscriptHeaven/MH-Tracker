@@ -17,6 +17,7 @@ import { useMemo, useState } from 'react';
 import { StatusBadge } from '../components/Badges';
 import { TimelineBadge } from '../components/ProjectTimeline';
 import { RevisionRequestModal } from '../components/RevisionRequestModal';
+import { ClientApprovalConfirmDialog } from '../components/ClientApprovalConfirmDialog';
 import { Button, Card, EmptyState } from '../components/ui';
 import { activeClientProjectStatuses, closedStatuses } from '../lib/constants';
 import { formatDate } from '../lib/date';
@@ -436,6 +437,13 @@ export function ClientPortalPage({
   onSelectProject?: (project: Project) => void;
 }) {
   const [revisionProjectId, setRevisionProjectId] = useState<string | null>(null);
+  const [pendingApproval, setPendingApproval] = useState<
+    | { kind: 'milestone'; project: Project; milestone: ApprovalMilestone }
+    | { kind: 'revision'; requestId: string; projectTitle: string }
+    | null
+  >(null);
+  const [isConfirmingApproval, setIsConfirmingApproval] = useState(false);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
   const sortedProjects = useMemo(
     () => [...projects].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
     [projects],
@@ -471,20 +479,36 @@ export function ClientPortalPage({
   );
 
   async function approveRevision(requestId: string) {
-    const confirmed = window.confirm('Approve this revised proof and mark it ready to complete?');
-
-    if (confirmed) {
-      await onRespondToRevision(requestId, 'Approved');
-    }
+    const request = revisionRequests.find((item) => item.id === requestId);
+    const project = request ? projects.find((item) => item.id === request.project_id) : null;
+    setApprovalError(null);
+    setPendingApproval({
+      kind: 'revision',
+      requestId,
+      projectTitle: project?.project_title || 'Project',
+    });
   }
 
   async function approveMilestone(project: Project, milestone: ApprovalMilestone) {
-    const label =
-      milestone === 'concept' ? 'design concept' : milestone === 'print' ? 'complete print version' : 'eBook version';
-    const confirmed = window.confirm(`Approve the ${label} for "${project.project_title}"?`);
+    setApprovalError(null);
+    setPendingApproval({ kind: 'milestone', project, milestone });
+  }
 
-    if (confirmed) {
-      await onApproveMilestone(project.id, milestone);
+  async function confirmPendingApproval() {
+    if (!pendingApproval) return;
+    setIsConfirmingApproval(true);
+    setApprovalError(null);
+    try {
+      if (pendingApproval.kind === 'revision') {
+        await onRespondToRevision(pendingApproval.requestId, 'Approved');
+      } else {
+        await onApproveMilestone(pendingApproval.project.id, pendingApproval.milestone);
+      }
+      setPendingApproval(null);
+    } catch (error) {
+      setApprovalError(error instanceof Error ? error.message : 'Approval could not be completed. Please try again.');
+    } finally {
+      setIsConfirmingApproval(false);
     }
   }
 
@@ -728,6 +752,52 @@ export function ClientPortalPage({
           initialProjectId={revisionProjectId}
           onClose={() => setRevisionProjectId(null)}
           onSubmit={onCreateRevisionRequest}
+        />
+      ) : null}
+
+      {pendingApproval ? (
+        <ClientApprovalConfirmDialog
+          title={
+            pendingApproval.kind === 'revision'
+              ? 'Approve Revised Proof'
+              : pendingApproval.milestone === 'concept'
+                ? 'Approve Design Concept'
+                : pendingApproval.milestone === 'print'
+                  ? 'Approve Print Version'
+                  : 'Approve eBook Version'
+          }
+          projectTitle={
+            pendingApproval.kind === 'revision'
+              ? pendingApproval.projectTitle
+              : pendingApproval.project.project_title
+          }
+          actionLabel={
+            pendingApproval.kind === 'revision'
+              ? 'Approve Revised Proof'
+              : pendingApproval.milestone === 'concept'
+                ? 'Approve Design Concept'
+                : pendingApproval.milestone === 'print'
+                  ? 'Approve Print Version'
+                  : 'Approve eBook Version'
+          }
+          description={
+            pendingApproval.kind === 'revision'
+              ? 'Please confirm that you are satisfied with this revised proof.'
+              : pendingApproval.milestone === 'concept'
+                ? 'Please confirm that you are satisfied with the design concept. The project will move to the next production stage.'
+                : pendingApproval.milestone === 'print'
+                  ? 'Please confirm that you are satisfied with the print version. The project will move to the next production stage.'
+                  : 'Please confirm that you are satisfied with the eBook version. The project will move to the next production stage.'
+          }
+          isProcessing={isConfirmingApproval}
+          error={approvalError}
+          onConfirm={confirmPendingApproval}
+          onCancel={() => {
+            if (!isConfirmingApproval) {
+              setPendingApproval(null);
+              setApprovalError(null);
+            }
+          }}
         />
       ) : null}
     </div>

@@ -47,6 +47,7 @@ import type {
 import { cn, firstName } from '../lib/utils';
 import { ProjectDiscussionChat } from './ProjectDiscussionChat';
 import { StageClock } from './StageClock';
+import { ClientApprovalConfirmDialog } from './ClientApprovalConfirmDialog';
 
 function approvalMilestoneForStage(stage: string): ApprovalMilestone | null {
   // Accept both normalized stage names and legacy status strings
@@ -138,6 +139,8 @@ export function ClientProjectDetailModal({
 }) {
   const [activeTab, setActiveTab] = useState<'overview' | 'files' | 'messages' | 'revisions' | 'activity'>('overview');
   const [isApproving, setIsApproving] = useState(false);
+  const [showApprovalConfirm, setShowApprovalConfirm] = useState(false);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
   const [initialUploadFiles, setInitialUploadFiles] = useState<File[]>([]);
   const [initialUploadNote, setInitialUploadNote] = useState('');
   const [isSubmittingInitialFiles, setIsSubmittingInitialFiles] = useState(false);
@@ -297,13 +300,19 @@ export function ClientProjectDetailModal({
 
   async function handleApprove() {
     if (!milestoneToApprove) return;
-    const label = milestoneToApprove === 'concept' ? 'design concept' : milestoneToApprove === 'print' ? 'print version' : 'eBook version';
-    const confirmed = window.confirm(`Are you sure you want to approve the ${label} for "${project.project_title}"?`);
-    if (!confirmed) return;
+    setApprovalError(null);
+    setShowApprovalConfirm(true);
+  }
 
+  async function confirmApproval() {
+    if (!milestoneToApprove) return;
+    setIsApproving(true);
+    setApprovalError(null);
     try {
-      setIsApproving(true);
       await onApproveMilestone(project.id, milestoneToApprove);
+      setShowApprovalConfirm(false);
+    } catch (error) {
+      setApprovalError(error instanceof Error ? error.message : 'Approval could not be completed. Please try again.');
     } finally {
       setIsApproving(false);
     }
@@ -1008,6 +1017,36 @@ export function ClientProjectDetailModal({
           </div>
         )}
       </div>
+
+      {showApprovalConfirm && milestoneToApprove ? (
+        <ClientApprovalConfirmDialog
+          title={
+            milestoneToApprove === 'concept'
+              ? 'Approve Design Concept'
+              : milestoneToApprove === 'print'
+                ? 'Approve Print Version'
+                : 'Approve eBook Version'
+          }
+          projectTitle={project.project_title}
+          actionLabel={approvalLabel(milestoneToApprove)}
+          description={
+            milestoneToApprove === 'concept'
+              ? 'Please confirm that you are satisfied with the design concept. The project will move to the next production stage.'
+              : milestoneToApprove === 'print'
+                ? 'Please confirm that you are satisfied with the print version. The project will move to the next production stage.'
+                : 'Please confirm that you are satisfied with the eBook version. The project will move to the next production stage.'
+          }
+          isProcessing={isApproving}
+          error={approvalError}
+          onConfirm={confirmApproval}
+          onCancel={() => {
+            if (!isApproving) {
+              setShowApprovalConfirm(false);
+              setApprovalError(null);
+            }
+          }}
+        />
+      ) : null}
 
       {/* Footer */}
       <div className="flex justify-end border-t border-border bg-linen p-4">
