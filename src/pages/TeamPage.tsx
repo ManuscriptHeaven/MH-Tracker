@@ -237,7 +237,7 @@ export function TeamPage({
                 className="min-h-10 justify-center px-3 text-xs sm:px-4"
               >
                 <UserPlus className="h-4 w-4" />
-                Add Employee
+                Add Team Member
               </Button>
               <Button
                 type="button"
@@ -575,7 +575,7 @@ export function TeamPage({
                   <div className="px-5 py-12 text-center">
                     <Users className="mx-auto h-7 w-7 text-muted/40" />
                     <p className="mt-2 text-sm font-semibold text-ink">No payroll records found</p>
-                    <p className="mt-1 text-xs text-muted">Try another employee name or payroll status.</p>
+                    <p className="mt-1 text-xs text-muted">Try another team member name or payroll status.</p>
                   </div>
                 )}
               </div>
@@ -846,7 +846,7 @@ export function TeamPage({
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-display text-xl font-semibold flex items-center gap-2">
                 <UserPlus className="h-5 w-5 text-gold" />
-                Add New Employee
+                Add New Team Member
               </h3>
               <button
                 type="button"
@@ -878,7 +878,7 @@ export function TeamPage({
                   setNewEmployeePhone('');
                   setShowAddEmployeeModal(false);
                 } catch (err: any) {
-                  setAddEmployeeError(err.message || 'Failed to add employee.');
+                  setAddEmployeeError(err.message || 'Failed to add team member.');
                 } finally {
                   setAddEmployeeLoading(false);
                 }
@@ -905,9 +905,9 @@ export function TeamPage({
                 value={newEmployeeRole}
                 onChange={(e) => setNewEmployeeRole(e.target.value as Role)}
               >
-                <option value="employee">Employee / Staff Member</option>
-                <option value="project_manager">Project Manager</option>
-                <option value="junior_assistant">Junior Assistant</option>
+                <option value="employee">Book Formatter</option>
+                <option value="project_manager">Manager</option>
+                <option value="junior_assistant">Team Member</option>
               </SelectField>
               <Field
                 label="Phone (optional)"
