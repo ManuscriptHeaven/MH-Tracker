@@ -477,6 +477,15 @@ export default function App() {
           setRevisionModalProjectId(projectId);
           setShowRevisionModal(true);
         }}
+        onRespondToRevision={async (requestId) => {
+          try {
+            await tracker.respondToRevisionRequest(requestId, 'Approved');
+            setToast({ message: 'Revised proof approved successfully.', tone: 'success' });
+          } catch (error) {
+            setToast({ message: errorMessage(error, 'Failed to approve revised proof.'), tone: 'error' });
+            throw error;
+          }
+        }}
         onRespondToStageSkip={async (requestId, approved) => {
           try {
             await tracker.respondToStageSkip(requestId, approved);
