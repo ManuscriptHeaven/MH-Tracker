@@ -36,6 +36,7 @@ import type {
   ProjectLifecycleStatus,
   ProjectMetadataUpdate,
   ProjectPayment,
+  ProjectInitialFile,
   ProjectNote,
   RevisionActivity,
   RevisionAttachment,
@@ -101,6 +102,10 @@ function sanitizeMessageFileName(fileName: string) {
     .slice(0, 120);
 
   return clean || 'attachment';
+}
+
+function sanitizeProjectSourceFileName(fileName: string) {
+  return sanitizeMessageFileName(fileName).slice(0, 100);
 }
 
 function calculateBalance(totalPrice: number, advancePaid: number) {
@@ -729,6 +734,7 @@ function createEmptyTrackerData(profile: Profile | null = null): TrackerData {
     revisionNotes: [],
     projectNotes: [],
     activityLogs: [],
+    projectInitialFiles: [],
     notifications: [],
     clientProjectAccess: [],
     tasks: [],
@@ -898,6 +904,10 @@ export function useTracker() {
       ? emptyResult
       : safeSelect<ActivityLog>(supabase.from('activity_logs').select('*').order('created_at', { ascending: false }));
 
+    const projectInitialFilesPromise = safeSelect<ProjectInitialFile>(
+      supabase.from('project_initial_files').select('*').order('created_at', { ascending: true }),
+    );
+
     const tasksPromise = profileIsClient
       ? emptyResult
       : safeSelect<Task>(
@@ -986,6 +996,7 @@ export function useTracker() {
       revisionsRes,
       notesRes,
       activityRes,
+      projectInitialFilesRes,
       tasksRes,
       taskAssigneesRes,
       taskCommentsRes,
@@ -1016,6 +1027,7 @@ export function useTracker() {
       revisionNotesPromise,
       projectNotesPromise,
       activityPromise,
+      projectInitialFilesPromise,
       tasksPromise,
       taskAssigneesPromise,
       taskCommentsPromise,
@@ -1066,6 +1078,7 @@ export function useTracker() {
       revisionNotes: revisionsRes.data as RevisionNote[],
       projectNotes: notesRes.data as ProjectNote[],
       activityLogs: activityRes.data as ActivityLog[],
+      projectInitialFiles: projectInitialFilesRes.data as ProjectInitialFile[],
       tasks: (tasksRes.data as Partial<Task>[]).map(normalizeTask),
       taskAssignees: taskAssigneesRes.data as TaskAssignee[],
       taskComments: taskCommentsRes.data as TaskComment[],
@@ -2341,6 +2354,101 @@ export function useTracker() {
       await loadSupabaseData(currentProfile);
     },
     [currentProfile,data.projects,data.revisionRequests,loadSupabaseData,mode,workflowClient],
+  );
+
+  const submitInitialProjectFiles = useCallback(
+    async (projectId: string, files: File[], note?: string) => {
+      if (!currentProfile) throw new Error('No signed-in profile found.');
+      if (!isClientRole(currentProfile.role)) {
+        throw new Error('Initial project files must be submitted from the client portal.');
+      }
+      if (!workflowClient || mode !== 'supabase' || !supabase) {
+        throw new Error('Client file submission requires Supabase mode.');
+      }
+
+      const project = data.projects.find((item) => item.id === projectId);
+      if (!project) throw new Error('Project not found.');
+      if (project.workflow_stage_key !== 'files_received' || !['pending', 'active'].includes(project.workflow_stage_status_key || '')) {
+        throw new Error('Initial files can only be submitted while the project is waiting for client files.');
+      }
+      if (!files.length) throw new Error('Choose at least one file to submit.');
+      if (files.length > 10) throw new Error('You can submit up to 10 files at once.');
+
+      const uploadedPaths: string[] = [];
+      const metadata: Array<{
+        id: string;
+        file_name: string;
+        file_type: string;
+        file_size: number;
+        storage_path: string;
+      }> = [];
+
+      try {
+        for (const file of files) {
+          if (file.size <= 0) throw new Error(`${file.name} is empty.`);
+          if (file.size > 100 * 1024 * 1024) {
+            throw new Error(`${file.name} is larger than the 100 MB per-file limit.`);
+          }
+
+          const fileId = createUuid();
+          const safeName = sanitizeProjectSourceFileName(file.name);
+          const storagePath = `${projectId}/${currentProfile.id}/${fileId}-${safeName}`;
+
+          const { error: uploadError } = await supabase.storage
+            .from('project-source-files')
+            .upload(storagePath, file, {
+              cacheControl: '3600',
+              contentType: file.type || 'application/octet-stream',
+              upsert: false,
+            });
+          if (uploadError) throw uploadError;
+
+          uploadedPaths.push(storagePath);
+          metadata.push({
+            id: fileId,
+            file_name: file.name,
+            file_type: file.type || file.name.split('.').pop() || 'file',
+            file_size: file.size,
+            storage_path: storagePath,
+          });
+        }
+
+        const result = await workflowClient.submitInitialFiles(
+          projectId,
+          requireWorkflowVersion(project),
+          metadata,
+          note?.trim() || null,
+        );
+        await loadSupabaseData(currentProfile);
+        return result;
+      } catch (submitError) {
+        if (uploadedPaths.length > 0) {
+          const { error: cleanupError } = await supabase.storage
+            .from('project-source-files')
+            .remove(uploadedPaths);
+          if (cleanupError) {
+            console.warn('Could not clean up failed initial project file uploads:', cleanupError);
+          }
+        }
+        throw submitError;
+      }
+    },
+    [currentProfile, data.projects, loadSupabaseData, mode, workflowClient],
+  );
+
+  const getProjectInitialFileUrl = useCallback(
+    async (file: ProjectInitialFile) => {
+      if (!supabase || mode !== 'supabase') {
+        throw new Error('Private project file storage is unavailable.');
+      }
+      const { data: signed, error: signedError } = await supabase.storage
+        .from('project-source-files')
+        .createSignedUrl(file.storage_path, 600);
+      if (signedError) throw signedError;
+      if (!signed?.signedUrl) throw new Error('Could not create a secure project file link.');
+      return signed.signedUrl;
+    },
+    [mode],
   );
 
   const approveProjectMilestone = useCallback(
@@ -4099,6 +4207,8 @@ export function useTracker() {
     updateRevisionItem,
     uploadRevisedProof,
     respondToRevisionRequest,
+    submitInitialProjectFiles,
+    getProjectInitialFileUrl,
     approveProjectMilestone,
     submitStageForApproval,
     advanceWorkflowStage,

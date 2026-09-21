@@ -16,7 +16,8 @@ import { ProjectTimelineCompact } from '../components/ProjectTimeline';
 import { Button, Card, SelectField } from '../components/ui';
 import { UserAvatar } from '../components/UserAvatar';
 import { closedStatuses } from '../lib/constants';
-import { isDueToday, isOverdue, formatDate, deadlineClass, deadlineLabel } from '../lib/date';
+import { formatDate } from '../lib/date';
+import { getTimelineSummary } from '../lib/timeline';
 import { firstName, isClientRole } from '../lib/utils';
 import { useCurrency } from '../lib/currency';
 import type { Profile, Project } from '../lib/types';
@@ -40,6 +41,28 @@ function uniqueValues(values: Array<string | null | undefined>) {
   return [...new Set(values.filter((value): value is string => Boolean(value)))].sort((a, b) =>
     a.localeCompare(b),
   );
+}
+
+function isStageOverdue(project: Project) {
+  return getTimelineSummary(project).isOverdue;
+}
+
+function isStageDueToday(project: Project) {
+  const summary = getTimelineSummary(project);
+  return summary.waitingOn === 'Manuscript Heaven' && summary.daysRemaining === 0 && !summary.isOverdue;
+}
+
+function finalDueText(project: Project) {
+  const summary = getTimelineSummary(project);
+  if (!summary.finalDueDate) return 'Not set';
+  return formatDate(summary.finalDueDate);
+}
+
+function finalDueClass(project: Project) {
+  const summary = getTimelineSummary(project);
+  if (summary.waitingOn === 'Client') return 'text-violet-700';
+  if (summary.isOverdue) return 'text-red-700';
+  return 'text-ink';
 }
 
 function SummaryCard({
@@ -166,8 +189,8 @@ export function DashboardPage({
   const inProgressProjects = filteredActiveProjects.filter(isInProgress);
   const awaitingApprovalProjects = filteredActiveProjects.filter(isAwaitingApproval);
   const inRevisionProjects = filteredActiveProjects.filter(isRevision);
-  const overdueProjects = filteredActiveProjects.filter(isOverdue);
-  const dueTodayProjects = filteredActiveProjects.filter(isDueToday);
+  const overdueProjects = filteredActiveProjects.filter(isStageOverdue);
+  const dueTodayProjects = filteredActiveProjects.filter(isStageDueToday);
   const completedProjects = filteredAllProjects.filter(isCompleted);
   const myProjects = filteredActiveProjects.filter(
     (project) => project.assigned_to === currentProfileId,
@@ -180,8 +203,8 @@ export function DashboardPage({
     if (quickFilter === 'in_progress') return isInProgress(project);
     if (quickFilter === 'awaiting_approval') return isAwaitingApproval(project);
     if (quickFilter === 'revision') return isRevision(project);
-    if (quickFilter === 'today') return isDueToday(project);
-    if (quickFilter === 'overdue') return isOverdue(project);
+    if (quickFilter === 'today') return isStageDueToday(project);
+    if (quickFilter === 'overdue') return isStageOverdue(project);
     return true;
   });
 
@@ -191,12 +214,14 @@ export function DashboardPage({
   );
 
   const urgentProjects = filteredActiveProjects
-    .filter((project) => project.priority === 'Urgent' || isOverdue(project) || isDueToday(project))
+    .filter((project) => project.priority === 'Urgent' || isStageOverdue(project) || isStageDueToday(project))
     .sort((a, b) => {
-      const aOverdue = isOverdue(a) ? 1 : 0;
-      const bOverdue = isOverdue(b) ? 1 : 0;
+      const aOverdue = isStageOverdue(a) ? 1 : 0;
+      const bOverdue = isStageOverdue(b) ? 1 : 0;
       if (aOverdue !== bOverdue) return bOverdue - aOverdue;
-      return new Date(a.due_date || '9999-12-31').getTime() - new Date(b.due_date || '9999-12-31').getTime();
+      const aDue = getTimelineSummary(a).dueDate || getTimelineSummary(a).finalDueDate || '9999-12-31';
+      const bDue = getTimelineSummary(b).dueDate || getTimelineSummary(b).finalDueDate || '9999-12-31';
+      return new Date(aDue).getTime() - new Date(bDue).getTime();
     })
     .slice(0, 5);
 
@@ -212,7 +237,7 @@ export function DashboardPage({
       return {
         profile,
         active: assigned.length,
-        overdue: assigned.filter(isOverdue).length,
+        overdue: assigned.filter(isStageOverdue).length,
       };
     })
     .filter(({ active, overdue }) => active > 0 || overdue > 0)
@@ -486,10 +511,14 @@ export function DashboardPage({
                         <ProjectTimelineCompact project={project} />
                       </td>
                       <td className="border-b border-border/60 px-5 py-3.5">
-                        <p className={`text-xs font-semibold ${deadlineClass(project)}`}>
-                          {deadlineLabel(project)}
+                        <p className={`text-xs font-semibold ${finalDueClass(project)}`}>
+                          {finalDueText(project)}
                         </p>
-                        <p className="mt-0.5 text-[11px] text-muted">{formatDate(project.due_date)}</p>
+                        <p className="mt-0.5 text-[10px] text-muted">
+                          {getTimelineSummary(project).waitingOn === 'Client'
+                            ? 'Auto-shifts with client wait'
+                            : 'Projected final due'}
+                        </p>
                       </td>
                     </tr>
                   ))
@@ -552,8 +581,8 @@ export function DashboardPage({
                     </div>
                     <div className="text-right">
                       <p className="text-[9px] font-bold uppercase tracking-wider text-muted">Due</p>
-                      <p className={`mt-1 text-xs font-semibold ${deadlineClass(project)}`}>
-                        {deadlineLabel(project)}
+                      <p className={`mt-1 text-xs font-semibold ${finalDueClass(project)}`}>
+                        {finalDueText(project)}
                       </p>
                     </div>
                   </div>
@@ -601,8 +630,12 @@ export function DashboardPage({
                         <p className="truncate text-sm font-semibold text-ink">{project.project_title}</p>
                         <p className="mt-0.5 truncate text-[11px] text-muted">{project.client_name}</p>
                       </div>
-                      <span className={`shrink-0 text-[11px] font-semibold ${deadlineClass(project)}`}>
-                        {deadlineLabel(project)}
+                      <span className={`shrink-0 text-[11px] font-semibold ${finalDueClass(project)}`}>
+                        {getTimelineSummary(project).isOverdue
+                          ? 'Stage overdue'
+                          : getTimelineSummary(project).waitingOn === 'Client'
+                            ? 'Client wait'
+                            : finalDueText(project)}
                       </span>
                     </div>
                     <div className="mt-3">

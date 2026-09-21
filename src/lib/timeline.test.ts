@@ -21,15 +21,16 @@ export function runProductionTimelineTests() {
 
   const now = '2026-08-10';
 
-  // TEST 1: Create project. Expected: Files Received = ACTIVE, Status = Active, 2 production days.
+  // TEST 1: New project waits on client files. Files Received is a client action and consumes 0 production days.
   let project: Partial<Project> = {
     id: 'test-project-1',
     project_title: 'Test Production Book',
-    status: 'Active',
+    status: 'New',
     current_stage: 'Files Received',
-    stage_status: 'ACTIVE',
-    waiting_on: 'Manuscript Heaven',
-    files_received_date: now,
+    stage_status: 'PENDING',
+    workflow_stage_status_key: 'pending',
+    waiting_on: 'None',
+    workflow_waiting_on_key: 'none',
     stage_started_at: now,
     workflow_settings: DEFAULT_WORKFLOW_SETTINGS,
   };
@@ -38,14 +39,14 @@ export function runProductionTimelineTests() {
   let summary = getTimelineSummary(project);
 
   console.assert(summary.officialStage === 'Files Received', 'Test 1 Failed: Stage should be Files Received');
-  console.assert(project.status === 'Active', 'Test 1 Failed: Status should be Active');
-  console.assert(summary.waitingOn === 'Manuscript Heaven', 'Test 1 Failed: Waiting On should be Manuscript Heaven');
-  console.assert(summary.timelineStatus === 'Active', 'Test 1 Failed: Timeline Status should be Active');
+  console.assert(project.status === 'Waiting for Files', 'Test 1 Failed: Status should be Waiting for Files');
+  console.assert(summary.waitingOn === 'Client', 'Test 1 Failed: Waiting On should be Client');
+  console.assert(summary.timelineStatus === 'Paused', 'Test 1 Failed: Timeline should be paused while waiting for client files');
   console.assert(
-    getStageDurationDays('Files Received', project.workflow_settings) === 2,
-    'Test 1 Failed: Allocation should be 2 days',
+    getStageDurationDays('Files Received', project.workflow_settings) === 0,
+    'Test 1 Failed: Files Received should consume 0 production days',
   );
-  console.log('✓ TEST 1 PASSED: Files Received = ACTIVE, Status = Active (2 production days)');
+  console.log('✓ TEST 1 PASSED: Files Received waits on client and consumes 0 production days');
 
   // TEST 2: Complete Files Received. Expected: Design Concept = ACTIVE, Status = In Progress, 3 production days allocated.
   project.current_stage = 'Design Concept';

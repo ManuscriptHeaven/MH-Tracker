@@ -9,6 +9,7 @@ import type {
 
 export const CANONICAL_WORKFLOW_RPCS = [
   'workflow_advance_stage',
+  'workflow_client_submit_files',
   'workflow_submit_stage_for_approval',
   'workflow_client_approve_stage',
   'workflow_submit_client_revision',
@@ -25,6 +26,7 @@ export type CanonicalWorkflowRpc = typeof CANONICAL_WORKFLOW_RPCS[number];
 
 export const CANONICAL_WORKFLOW_RPC_PARAMETERS: Record<CanonicalWorkflowRpc, readonly string[]> = {
   workflow_advance_stage: ['p_project_id','p_expected_workflow_version','p_idempotency_key','p_note'],
+  workflow_client_submit_files: ['p_project_id','p_expected_workflow_version','p_idempotency_key','p_files','p_note'],
   workflow_submit_stage_for_approval: ['p_project_id','p_expected_workflow_version','p_idempotency_key','p_note'],
   workflow_client_approve_stage: ['p_project_id','p_expected_workflow_version','p_idempotency_key','p_note'],
   workflow_submit_client_revision: ['p_project_id','p_expected_workflow_version','p_idempotency_key','p_title','p_instructions','p_description','p_priority'],
@@ -143,6 +145,19 @@ export class CanonicalWorkflowClient {
   advanceStage(projectId: string, version: number, note: string | null = null) {
     return this.mutate('workflow_advance_stage', `${projectId}:${note || ''}`, {
       p_project_id: projectId, p_expected_workflow_version: version, p_note: note,
+    });
+  }
+  submitInitialFiles(
+    projectId: string,
+    version: number,
+    files: Array<{ id: string; file_name: string; file_type: string; file_size: number; storage_path: string }>,
+    note: string | null = null,
+  ) {
+    return this.mutate('workflow_client_submit_files', `${projectId}:${JSON.stringify(files)}:${note || ''}`, {
+      p_project_id: projectId,
+      p_expected_workflow_version: version,
+      p_files: files,
+      p_note: note,
     });
   }
   submitStageForApproval(projectId: string, version: number, note: string | null = null) {

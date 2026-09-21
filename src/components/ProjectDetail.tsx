@@ -47,6 +47,7 @@ import type {
   NoteType,
   Profile,
   Project,
+  ProjectInitialFile,
   ProjectMetadataUpdate,
   ProjectNote,
   RevisionActivity,
@@ -103,6 +104,7 @@ export function ProjectDetail({
   revisionAttachments,
   revisionActivity,
   activities,
+  initialFiles = [],
   tasks,
   currentProfile,
   canManageAll,
@@ -119,6 +121,7 @@ export function ProjectDetail({
   onUpdateRevisionRequest,
   onUpdateRevisionItem,
   onUploadRevisedProof,
+  onGetInitialFileUrl,
   conversations = [],
   messages = [],
   onSendMessage,
@@ -137,6 +140,7 @@ export function ProjectDetail({
   revisionAttachments: RevisionAttachment[];
   revisionActivity: RevisionActivity[];
   activities: ActivityLog[];
+  initialFiles?: ProjectInitialFile[];
   tasks: Task[];
   currentProfile: Profile;
   canManageAll: boolean;
@@ -153,6 +157,7 @@ export function ProjectDetail({
   onUpdateRevisionRequest: (requestId: string, updates: Partial<RevisionRequest>) => Promise<void>;
   onUpdateRevisionItem: (itemId: string, updates: Partial<RevisionItem>) => Promise<void>;
   onUploadRevisedProof: (requestId: string, file: File) => Promise<void>;
+  onGetInitialFileUrl?: (file: ProjectInitialFile) => Promise<string>;
   conversations?: Conversation[];
   messages?: ChatMessage[];
   onSendMessage?: (
@@ -188,6 +193,8 @@ export function ProjectDetail({
   const [overrideError, setOverrideError] = useState<string | null>(null);
   const [isSubmittingWorkflow, setIsSubmittingWorkflow] = useState(false);
   const [quickMsg, setQuickMsg] = useState('');
+  const [openingInitialFileId, setOpeningInitialFileId] = useState<string | null>(null);
+  const [initialFileError, setInitialFileError] = useState<string | null>(null);
   const [activityFilter, setActivityFilter] = useState<'all' | 'client' | 'team' | 'files' | 'status' | 'revisions' | 'system'>('all');
   const [taskFilter, setTaskFilter] = useState<'all' | 'open' | 'in_progress' | 'done'>('all');
 
@@ -196,6 +203,29 @@ export function ProjectDetail({
   const isOverrideReasonValid = trimmedOverrideReason.length >= 10;
   const isOverrideExplanationValid = trimmedOverrideExplanation.length > 0;
   const isOverrideFormValid = isOverrideReasonValid && isOverrideExplanationValid;
+
+  const projectInitialFiles = useMemo(
+    () => initialFiles.filter((file) => file.project_id === project.id),
+    [initialFiles, project.id],
+  );
+
+  async function openInitialFile(file: ProjectInitialFile) {
+    if (!onGetInitialFileUrl) return;
+    setInitialFileError(null);
+    setOpeningInitialFileId(file.id);
+    const popup = window.open('about:blank', '_blank');
+    if (popup) popup.opener = null;
+    try {
+      const url = await onGetInitialFileUrl(file);
+      if (popup) popup.location.href = url;
+      else window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      popup?.close();
+      setInitialFileError(error instanceof Error ? error.message : 'Could not open this client source file.');
+    } finally {
+      setOpeningInitialFileId(null);
+    }
+  }
 
   const hasAmbiguousRevisions = useMemo(() => {
     return hasAmbiguousRevisionRequests(project.id, revisionRequests);
@@ -591,7 +621,7 @@ export function ProjectDetail({
               id: 'files',
               label: 'Files & Deliverables',
               icon: FolderOpen,
-              count: fileCategories.reduce((acc, c) => acc + c.files.length, 0),
+              count: projectInitialFiles.length + fileCategories.reduce((acc, c) => acc + c.files.length, 0),
             },
             {
               id: 'revisions',
@@ -676,7 +706,7 @@ export function ProjectDetail({
                     <Info label="Page Count" value={String(project.page_count || 0)} />
                     <Info label="Word Count" value={project.word_count ? project.word_count.toLocaleString() : '0'} />
                     <Info label="Image Count" value={String(project.image_count || 0)} />
-                    <Info label="Target Due Date" value={formatDate(project.due_date)} />
+                    <Info label="Projected Final Due" value={summary.finalDueDate ? formatDate(summary.finalDueDate) : 'Not set'} />
                     <Info label="Internal Deadline" value={formatDate(project.internal_deadline)} />
                     <Info label="Created Date" value={formatDate(project.created_at)} />
                     <Info label="Last Updated" value={formatDate(project.updated_at)} />
@@ -975,6 +1005,49 @@ export function ProjectDetail({
                 ) : null}
               </div>
 
+              {projectInitialFiles.length > 0 ? (
+                <div className="rounded-xl border border-gold/30 bg-gold/[0.04] p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <h4 className="flex items-center gap-2 font-semibold text-ink">
+                        <FolderOpen className="h-4 w-4 text-gold" />
+                        Client Source Files
+                      </h4>
+                      <p className="mt-0.5 text-xs text-muted">Submitted through the client portal when production started.</p>
+                    </div>
+                    <span className="rounded-full bg-gold/15 px-2 py-1 text-[10px] font-bold text-[#7a5518]">
+                      {projectInitialFiles.length} file{projectInitialFiles.length === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                  {initialFileError ? (
+                    <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                      {initialFileError}
+                    </div>
+                  ) : null}
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {projectInitialFiles.map((file) => (
+                      <button
+                        key={file.id}
+                        type="button"
+                        onClick={() => void openInitialFile(file)}
+                        disabled={!onGetInitialFileUrl || openingInitialFileId === file.id}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-border bg-white p-3 text-left text-xs transition hover:border-gold disabled:opacity-60"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-ink">{file.file_name}</p>
+                          <p className="mt-0.5 text-[10px] text-muted">
+                            {file.file_size >= 1024 * 1024
+                              ? `${(file.file_size / (1024 * 1024)).toFixed(1)} MB`
+                              : `${Math.max(1, Math.round(file.file_size / 1024))} KB`}
+                          </p>
+                        </div>
+                        <Download className={`h-4 w-4 shrink-0 text-gold ${openingInitialFileId === file.id ? 'animate-pulse' : ''}`} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
               {fileCategories.length ? (
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {fileCategories.map((group) => {
@@ -1014,7 +1087,7 @@ export function ProjectDetail({
                     );
                   })}
                 </div>
-              ) : (
+              ) : projectInitialFiles.length === 0 ? (
                 <Card>
                   <div className="p-8 text-center text-muted">
                     <FolderOpen className="mx-auto h-8 w-8 text-border mb-2" />
@@ -1028,7 +1101,7 @@ export function ProjectDetail({
                     ) : null}
                   </div>
                 </Card>
-              )}
+              ) : null}
 
               {/* Edit File Links Modal */}
               {isEditingFiles && (
