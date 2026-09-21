@@ -18,7 +18,7 @@ with projected as (
 )
 update public.projects p
 set
-  status = projected.compat->>'status',
+  status = (projected.compat->>'status')::public.project_status,
   current_stage = projected.compat->>'current_stage',
   stage_status = projected.compat->>'stage_status',
   waiting_on = projected.compat->>'waiting_on',
@@ -26,7 +26,7 @@ set
 from projected
 where p.id = projected.id
   and (
-    p.status is distinct from projected.compat->>'status'
+    p.status is distinct from (projected.compat->>'status')::public.project_status
     or p.current_stage is distinct from projected.compat->>'current_stage'
     or p.stage_status is distinct from projected.compat->>'stage_status'
     or p.waiting_on is distinct from projected.compat->>'waiting_on'
