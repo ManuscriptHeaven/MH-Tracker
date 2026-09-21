@@ -4486,6 +4486,58 @@ export function useTracker() {
     return updated;
   }, [currentProfile, mode]);
 
+  useEffect(() => {
+    const supabaseClient = supabase;
+    if (!supabaseClient || mode !== 'supabase' || !currentProfile || isClientRole(currentProfile.role)) {
+      return undefined;
+    }
+
+    const upsertSession = (session: AttendanceSession) => {
+      if (!session?.id) return;
+      setData((previous) => {
+        const list = previous.attendanceSessions || [];
+        const index = list.findIndex((item) => item.id === session.id);
+        if (index < 0) return { ...previous, attendanceSessions: [session, ...list] };
+        const next = [...list];
+        next[index] = session;
+        return { ...previous, attendanceSessions: next };
+      });
+    };
+
+    const upsertBreak = (attendanceBreak: AttendanceBreak) => {
+      if (!attendanceBreak?.id) return;
+      setData((previous) => {
+        const list = previous.attendanceBreaks || [];
+        const index = list.findIndex((item) => item.id === attendanceBreak.id);
+        if (index < 0) return { ...previous, attendanceBreaks: [attendanceBreak, ...list] };
+        const next = [...list];
+        next[index] = attendanceBreak;
+        return { ...previous, attendanceBreaks: next };
+      });
+    };
+
+    const subscription = supabaseClient
+      .channel(`attendance-sync:${currentProfile.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'attendance_sessions' }, (payload) => {
+        upsertSession(payload.new as AttendanceSession);
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'attendance_sessions' }, (payload) => {
+        upsertSession(payload.new as AttendanceSession);
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'attendance_breaks' }, (payload) => {
+        upsertBreak(payload.new as AttendanceBreak);
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'attendance_breaks' }, (payload) => {
+        upsertBreak(payload.new as AttendanceBreak);
+      })
+      .subscribe();
+
+    return () => {
+      supabaseClient.removeChannel(subscription);
+    };
+  }, [currentProfile, mode]);
+
+
   return {
     mode,
     currentProfile,
