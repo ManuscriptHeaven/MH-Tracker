@@ -120,8 +120,8 @@ export function TaskDetailModal(props: Props) {
 
   return (
     <Modal title={`Task · ${task.title}`} onClose={props.onClose} width="max-w-6xl">
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(300px,0.85fr)]">
-        <div className="space-y-5">
+      <div className="grid min-w-0 gap-3 sm:gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(300px,0.85fr)]">
+        <div className="min-w-0 space-y-3 sm:space-y-5">
           <Card>
             <form className="space-y-4" onSubmit={save}>
               <div className="grid gap-4 sm:grid-cols-2">
@@ -154,13 +154,13 @@ export function TaskDetailModal(props: Props) {
               {form.status === 'Blocked' ? (
                 <TextareaField label="Blocked reason" value={form.blocked_reason} onChange={(event) => setForm({ ...form, blocked_reason: event.target.value })} placeholder="What is preventing progress?" />
               ) : null}
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <Button type="button" variant="danger" disabled={busy} onClick={() => {
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-between sm:gap-3">
+                <Button type="button" variant="danger" disabled={busy} className="w-full sm:w-auto" onClick={() => {
                   if (window.confirm('Archive this task? It will leave active task views but remain recoverable in the database.')) {
                     void run(async () => { await props.onArchiveTask(task.id); props.onClose(); });
                   }
                 }}><Archive className="h-4 w-4" />Archive</Button>
-                <Button type="submit" disabled={busy}><Check className="h-4 w-4" />Save task</Button>
+                <Button type="submit" disabled={busy} className="w-full sm:w-auto"><Check className="h-4 w-4" />Save task</Button>
               </div>
             </form>
           </Card>
@@ -172,15 +172,15 @@ export function TaskDetailModal(props: Props) {
             </div>
             <div className="mt-4 space-y-2">
               {checklist.map((item) => (
-                <div key={item.id} className="flex items-center gap-3 rounded-md border border-border bg-white p-3">
+                <div key={item.id} className="flex min-w-0 items-center gap-3 rounded-md border border-border bg-white p-3">
                   <input type="checkbox" checked={item.completed} onChange={(event) => void run(() => props.onToggleChecklistItem(item.id, event.target.checked))} />
-                  <span className={`flex-1 text-sm ${item.completed ? 'text-muted line-through' : 'text-ink'}`}>{item.title}</span>
+                  <span className={`min-w-0 flex-1 break-words text-sm ${item.completed ? 'text-muted line-through' : 'text-ink'}`}>{item.title}</span>
                   <button type="button" className="text-muted hover:text-danger" onClick={() => void run(() => props.onDeleteChecklistItem(item.id))}><Trash2 className="h-4 w-4" /></button>
                 </div>
               ))}
-              <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); void run(async () => { await props.onAddChecklistItem(task.id, checklistTitle); setChecklistTitle(''); }); }}>
+              <form className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]" onSubmit={(event) => { event.preventDefault(); void run(async () => { await props.onAddChecklistItem(task.id, checklistTitle); setChecklistTitle(''); }); }}>
                 <input className="min-h-10 flex-1 rounded-md border border-border px-3 text-sm" value={checklistTitle} onChange={(event) => setChecklistTitle(event.target.value)} placeholder="Add checklist item" />
-                <Button type="submit" disabled={!checklistTitle.trim() || busy}><Plus className="h-4 w-4" />Add</Button>
+                <Button type="submit" disabled={!checklistTitle.trim() || busy} className="w-full sm:w-auto"><Plus className="h-4 w-4" />Add</Button>
               </form>
             </div>
           </Card>
@@ -189,27 +189,27 @@ export function TaskDetailModal(props: Props) {
             <h3 className="font-display text-lg font-semibold text-ink">Subtasks</h3>
             <div className="mt-3 space-y-2">
               {subtasks.map((subtask) => (
-                <div key={subtask.id} className="grid gap-1 rounded-md border border-border p-3 text-sm sm:grid-cols-[1fr_auto_auto_auto]">
-                  <span className="font-medium text-ink">{subtask.title}</span>
+                <div key={subtask.id} className="grid min-w-0 gap-1 rounded-md border border-border p-3 text-sm sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
+                  <span className="min-w-0 break-words font-medium text-ink">{subtask.title}</span>
                   <span className="text-muted">{subtask.status}</span>
                   <span className="text-muted">{profiles.find((profile) => profile.id === subtask.assigned_to)?.full_name || 'Unassigned'}</span>
                   <span className="text-muted">{subtask.due_date ? formatDate(subtask.due_date) : 'No due date'}</span>
                 </div>
               ))}
-              <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); void run(async () => {
+              <form className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]" onSubmit={(event) => { event.preventDefault(); void run(async () => {
                 await props.onCreateSubtask(task.id, {
                   title: subtaskTitle, description: '', project_id: task.project_id, assigned_to: task.assigned_to,
                   status: 'To Do', priority: task.priority, due_date: task.due_date,
                 }); setSubtaskTitle('');
               }); }}>
                 <input className="min-h-10 flex-1 rounded-md border border-border px-3 text-sm" value={subtaskTitle} onChange={(event) => setSubtaskTitle(event.target.value)} placeholder="New subtask title" />
-                <Button type="submit" disabled={!subtaskTitle.trim() || busy}><Plus className="h-4 w-4" />Create</Button>
+                <Button type="submit" disabled={!subtaskTitle.trim() || busy} className="w-full sm:w-auto"><Plus className="h-4 w-4" />Create</Button>
               </form>
             </div>
           </Card>
         </div>
 
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-3 sm:space-y-5">
           <Card>
             <h3 className="flex items-center gap-2 font-display text-lg font-semibold text-ink"><Users className="h-4 w-4" />Collaborators</h3>
             <div className="mt-3 space-y-2">
@@ -217,12 +217,12 @@ export function TaskDetailModal(props: Props) {
                 const profile = profiles.find((item) => item.id === assignment.profile_id);
                 return <div key={assignment.id} className="flex items-center justify-between rounded-md bg-ivory p-2 text-sm"><span>{profile?.full_name || 'Team member'} · {assignment.assignment_role}</span><button type="button" onClick={() => void run(() => props.onRemoveCollaborator(task.id, assignment.profile_id))}><Trash2 className="h-4 w-4 text-muted hover:text-danger" /></button></div>;
               })}
-              <div className="flex gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                 <SelectField value={collaboratorId} onChange={(event) => setCollaboratorId(event.target.value)} className="min-w-0 flex-1">
                   <option value="">Select teammate</option>
                   {teamProfiles.filter((profile) => !collaboratorIds.has(profile.id)).map((profile) => <option key={profile.id} value={profile.id}>{profile.full_name}</option>)}
                 </SelectField>
-                <Button type="button" disabled={!collaboratorId || busy} onClick={() => void run(async () => { await props.onAssignCollaborator(task.id, collaboratorId); setCollaboratorId(''); })}>Add</Button>
+                <Button type="button" disabled={!collaboratorId || busy} className="w-full sm:w-auto" onClick={() => void run(async () => { await props.onAssignCollaborator(task.id, collaboratorId); setCollaboratorId(''); })}>Add</Button>
               </div>
             </div>
           </Card>
@@ -234,9 +234,9 @@ export function TaskDetailModal(props: Props) {
                 const dependencyTask = tasks.find((item) => item.id === dependency.depends_on_task_id);
                 return <div key={dependency.id} className="flex items-center justify-between rounded-md bg-ivory p-2 text-sm"><span>{dependencyTask?.title || 'Unavailable task'}</span><button type="button" onClick={() => void run(() => props.onRemoveDependency(dependency.id))}><Trash2 className="h-4 w-4 text-muted hover:text-danger" /></button></div>;
               })}
-              <div className="flex gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                 <SelectField value={dependencyId} onChange={(event) => setDependencyId(event.target.value)} className="min-w-0 flex-1"><option value="">Select task</option>{availableDependencies.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</SelectField>
-                <Button type="button" disabled={!dependencyId || busy} onClick={() => void run(async () => { await props.onAddDependency(task.id, dependencyId); setDependencyId(''); })}>Add</Button>
+                <Button type="button" disabled={!dependencyId || busy} className="w-full sm:w-auto" onClick={() => void run(async () => { await props.onAddDependency(task.id, dependencyId); setDependencyId(''); })}>Add</Button>
               </div>
             </div>
           </Card>
