@@ -621,7 +621,7 @@ export function ProjectDetail({
               id: 'files',
               label: 'Files & Deliverables',
               icon: FolderOpen,
-              count: fileCategories.reduce((acc, c) => acc + c.files.length, 0),
+              count: projectInitialFiles.length + fileCategories.reduce((acc, c) => acc + c.files.length, 0),
             },
             {
               id: 'revisions',
@@ -1087,7 +1087,7 @@ export function ProjectDetail({
                     );
                   })}
                 </div>
-              ) : (
+              ) : projectInitialFiles.length === 0 ? (
                 <Card>
                   <div className="p-8 text-center text-muted">
                     <FolderOpen className="mx-auto h-8 w-8 text-border mb-2" />
@@ -1101,7 +1101,7 @@ export function ProjectDetail({
                     ) : null}
                   </div>
                 </Card>
-              )}
+              ) : null}
 
               {/* Edit File Links Modal */}
               {isEditingFiles && (
