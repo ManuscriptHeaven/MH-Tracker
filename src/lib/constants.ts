@@ -263,7 +263,7 @@ export const timelineStages: TimelineStage[] = [
 
 export const DEFAULT_WORKFLOW_SETTINGS: WorkflowSettings = {
   revision_days: 2,
-  files_received_days: 2,
+  files_received_days: 0,
   design_concept_days: 3,
   design_concept_revision_days: 2,
   print_version_days: 5,
