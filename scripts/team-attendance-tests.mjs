@@ -46,7 +46,7 @@ assert(
 
 assert(
   migration.includes('attendance_admin_adjust_session') &&
-  migration.includes("phase6_app_actor_class() <> 'admin'") &&
+  migration.includes("coalesce(public.phase6_app_actor_class(), '') <> 'admin'") &&
   migration.includes('adjustment_reason') &&
   migration.includes('length(btrim(coalesce(p_reason'),
   'only Admin can correct completed attendance and every correction requires an audit reason',
