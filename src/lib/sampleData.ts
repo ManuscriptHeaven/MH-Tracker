@@ -1133,6 +1133,7 @@ export const sampleData = {
   revisionNotes: sampleRevisionNotes,
   projectNotes: sampleProjectNotes,
   activityLogs: sampleActivityLogs,
+  projectInitialFiles: [],
   notifications: sampleNotifications,
   clientProjectAccess: sampleClientProjectAccess,
   tasks: sampleTasks,
