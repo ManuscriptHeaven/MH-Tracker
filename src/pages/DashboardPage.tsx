@@ -390,13 +390,13 @@ export function DashboardPage({
 
           {/* Desktop project table */}
           <div className="hidden overflow-x-auto md:block">
-            <table className="w-full min-w-[760px] table-fixed border-separate border-spacing-0 text-left text-sm">
+            <table className="w-full min-w-[820px] table-fixed border-separate border-spacing-0 text-left text-sm">
               <thead className="bg-[#fcfbf8]">
                 <tr className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
-                  <th className="w-[30%] border-b border-border px-5 py-3">Project</th>
-                  <th className="w-[10%] border-b border-border px-2 py-3">Status</th>
-                  <th className="w-[45%] border-b border-border px-3 py-3">Timeline</th>
-                  <th className="w-[15%] border-b border-border px-3 py-3">Due</th>
+                  <th className="w-[31%] border-b border-border px-5 py-3">Project</th>
+                  <th className="w-[13%] border-b border-border px-3 py-3">Status</th>
+                  <th className="w-[42%] border-b border-border px-4 py-3">Timeline</th>
+                  <th className="w-[14%] border-b border-border px-3 py-3">Due</th>
                 </tr>
               </thead>
               <tbody>
@@ -422,10 +422,10 @@ export function DashboardPage({
                           </span>
                         </div>
                       </td>
-                      <td className="border-b border-border/60 px-2 py-4 align-top">
+                      <td className="border-b border-border/60 px-3 py-4 align-top">
                         <CompactProjectStatus project={project} />
                       </td>
-                      <td className="border-b border-border/60 px-3 py-3.5">
+                      <td className="border-b border-border/60 px-4 py-3.5">
                         <ProjectTimelineCompact project={project} />
                       </td>
                       <td className="border-b border-border/60 px-3 py-4 align-top">
