@@ -43,7 +43,7 @@ export function StageClock({
 
   const primary =
     clock.mode === 'waiting_files'
-      ? 'Waiting for client files'
+      ? `Waiting for client files · ${formatClockDuration(clock.seconds)}`
       : clock.mode === 'client_wait'
         ? `Client wait · ${formatClockDuration(clock.seconds)}`
         : clock.mode === 'production'
@@ -60,14 +60,14 @@ export function StageClock({
             <Icon className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate">{primary}</span>
           </span>
-          {clock.mode === 'client_wait' ? (
+          {clock.mode === 'client_wait' || clock.mode === 'waiting_files' ? (
             <span className="shrink-0 text-[9px] uppercase tracking-wide opacity-70">Production paused</span>
           ) : null}
         </div>
         {showFinalDue && clock.projectedFinalDueDate ? (
           <p className="mt-1 text-[10px] font-medium opacity-75">
             Project due {formatDate(clock.projectedFinalDueDate)}
-            {clock.mode === 'client_wait' ? ' · moving with client wait' : ''}
+            {clock.mode === 'client_wait' || clock.mode === 'waiting_files' ? ' · moving with client wait' : ''}
           </p>
         ) : null}
       </div>
@@ -89,7 +89,7 @@ export function StageClock({
                 : 'Production Countdown'}
           </p>
           <p className="mt-0.5 text-sm font-bold">{primary}</p>
-          {clock.mode === 'client_wait' ? (
+          {clock.mode === 'client_wait' || clock.mode === 'waiting_files' ? (
             <p className="mt-1 text-[11px] opacity-75">
               Manuscript Heaven production time is paused.
             </p>
@@ -97,7 +97,7 @@ export function StageClock({
           {showFinalDue && clock.projectedFinalDueDate ? (
             <p className="mt-1 text-[11px] font-medium opacity-80">
               Project due: {formatDate(clock.projectedFinalDueDate)}
-              {clock.mode === 'client_wait' ? ' (auto-shifting)' : ''}
+              {clock.mode === 'client_wait' || clock.mode === 'waiting_files' ? ' (auto-shifting)' : ''}
             </p>
           ) : null}
         </div>
