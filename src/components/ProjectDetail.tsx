@@ -706,7 +706,7 @@ export function ProjectDetail({
                     <Info label="Page Count" value={String(project.page_count || 0)} />
                     <Info label="Word Count" value={project.word_count ? project.word_count.toLocaleString() : '0'} />
                     <Info label="Image Count" value={String(project.image_count || 0)} />
-                    <Info label="Target Due Date" value={formatDate(project.due_date)} />
+                    <Info label="Projected Final Due" value={summary.finalDueDate ? formatDate(summary.finalDueDate) : 'Not set'} />
                     <Info label="Internal Deadline" value={formatDate(project.internal_deadline)} />
                     <Info label="Created Date" value={formatDate(project.created_at)} />
                     <Info label="Last Updated" value={formatDate(project.updated_at)} />
