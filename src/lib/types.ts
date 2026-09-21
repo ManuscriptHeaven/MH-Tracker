@@ -376,6 +376,17 @@ export interface Invoice {
   status: 'Draft' | 'Sent' | 'Paid';
 }
 
+export interface ProjectInitialFile {
+  id: string;
+  project_id: string;
+  uploaded_by: string;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  storage_path: string;
+  created_at: string;
+}
+
 export interface ProjectPayment {
   id: string;
   project_id: string;
@@ -625,6 +636,7 @@ export interface TrackerData {
   revisionNotes: RevisionNote[];
   projectNotes: ProjectNote[];
   activityLogs: ActivityLog[];
+  projectInitialFiles: ProjectInitialFile[];
   notifications: NotificationItem[];
   clientProjectAccess: ClientProjectAccess[];
   tasks: Task[];
