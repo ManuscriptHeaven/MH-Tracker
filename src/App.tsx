@@ -308,6 +308,7 @@ export default function App() {
         sessions={tracker.data.attendanceSessions || []}
         breaks={tracker.data.attendanceBreaks || []}
         canManageAll={tracker.canManageAll}
+        desktopAttendanceCapable={tracker.desktopAttendanceCapable}
         onClockIn={tracker.clockInAttendance}
         onClockOut={tracker.clockOutAttendance}
         onStartBreak={tracker.startAttendanceBreak}

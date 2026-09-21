@@ -213,6 +213,9 @@ export interface AttendanceSession {
   clock_out: string | null;
   status: 'active' | 'completed';
   note: string;
+  verified_seconds?: number;
+  last_app_heartbeat_at?: string | null;
+  presence_client_kind?: string | null;
   adjusted_by?: string | null;
   adjustment_reason?: string | null;
   created_at: string;
