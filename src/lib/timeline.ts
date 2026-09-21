@@ -224,6 +224,7 @@ export interface TimelineSummary {
   health: TimelineHealth;
   isOverdue: boolean;
   revisionCount: number;
+  riskLevel: 'none' | 'amber' | 'red' | 'overdue';
 }
 
 export interface TimelineMilestone {
@@ -571,6 +572,13 @@ export function estimatedFinalDueDate(project: TimelineProject): string | null {
   return calculateStageDueDate(startDate, totalDays, settings);
 }
 
+export function originalProjectDueDate(project: TimelineProject): string | null {
+  if (project.original_due_at) return project.original_due_at.slice(0, 10);
+  if (project.due_date) return project.due_date.slice(0, 10);
+  if (project.final_due_at) return project.final_due_at.slice(0, 10);
+  return null;
+}
+
 export function projectedFinalDueDate(project: TimelineProject, now: Date = new Date()): string | null {
   const base =
     project.final_due_at ||
@@ -603,12 +611,27 @@ export function projectedFinalDueDate(project: TimelineProject, now: Date = new 
   return new Date(baseMs + elapsed).toISOString().slice(0, 10);
 }
 
+export function projectDueShiftDays(project: TimelineProject, now: Date = new Date()): number | null {
+  const original = originalProjectDueDate(project);
+  const current = projectedFinalDueDate(project, now);
+  if (!original || !current) return null;
+
+  const originalMs = new Date(`${original}T00:00:00Z`).getTime();
+  const currentMs = new Date(`${current}T00:00:00Z`).getTime();
+  if (!Number.isFinite(originalMs) || !Number.isFinite(currentMs)) return null;
+  return Math.round((currentMs - originalMs) / 86400000);
+}
+
 export interface ProjectClockSnapshot {
   mode: 'waiting_files' | 'production' | 'client_wait' | 'inactive';
   seconds: number | null;
   isOverdue: boolean;
   label: string;
+  riskLevel: 'none' | 'amber' | 'red' | 'overdue';
+  riskLabel: string | null;
   projectedFinalDueDate: string | null;
+  originalDueDate: string | null;
+  dueShiftDays: number | null;
 }
 
 export function getProjectClockSnapshot(project: TimelineProject, now: Date = new Date()): ProjectClockSnapshot {
@@ -625,7 +648,11 @@ export function getProjectClockSnapshot(project: TimelineProject, now: Date = ne
       seconds: Number.isFinite(started) ? Math.max(0, Math.floor((now.getTime() - started) / 1000)) : 0,
       isOverdue: false,
       label: 'Waiting for client files',
+      riskLevel: 'none',
+      riskLabel: null,
       projectedFinalDueDate: projectedFinalDueDate(project, now),
+      originalDueDate: originalProjectDueDate(project),
+      dueShiftDays: projectDueShiftDays(project, now),
     };
   }
 
@@ -645,7 +672,11 @@ export function getProjectClockSnapshot(project: TimelineProject, now: Date = ne
       seconds,
       isOverdue: false,
       label: 'Client wait',
+      riskLevel: 'none',
+      riskLabel: null,
       projectedFinalDueDate: projectedFinalDueDate(project, now),
+      originalDueDate: originalProjectDueDate(project),
+      dueShiftDays: projectDueShiftDays(project, now),
     };
   }
 
@@ -661,12 +692,33 @@ export function getProjectClockSnapshot(project: TimelineProject, now: Date = ne
     const due = new Date(project.stage_due_at).getTime();
     if (Number.isFinite(due)) {
       const diffSeconds = Math.floor((due - now.getTime()) / 1000);
+      const riskLevel: ProjectClockSnapshot['riskLevel'] =
+        diffSeconds < 0
+          ? 'overdue'
+          : diffSeconds <= 8 * 3600
+            ? 'red'
+            : diffSeconds <= 24 * 3600
+              ? 'amber'
+              : 'none';
+      const riskLabel =
+        riskLevel === 'overdue'
+          ? 'Overdue'
+          : riskLevel === 'red'
+            ? 'Critical · under 8h'
+            : riskLevel === 'amber'
+              ? 'At Risk · under 24h'
+              : null;
+
       return {
         mode: 'production',
         seconds: Math.abs(diffSeconds),
         isOverdue: diffSeconds < 0,
         label: diffSeconds < 0 ? 'Overdue' : 'Remaining',
+        riskLevel,
+        riskLabel,
         projectedFinalDueDate: projectedFinalDueDate(project, now),
+        originalDueDate: originalProjectDueDate(project),
+        dueShiftDays: projectDueShiftDays(project, now),
       };
     }
   }
@@ -676,7 +728,11 @@ export function getProjectClockSnapshot(project: TimelineProject, now: Date = ne
     seconds: null,
     isOverdue: false,
     label: 'No active clock',
+    riskLevel: 'none',
+    riskLabel: null,
     projectedFinalDueDate: projectedFinalDueDate(project, now),
+    originalDueDate: originalProjectDueDate(project),
+    dueShiftDays: projectDueShiftDays(project, now),
   };
 }
 
@@ -937,6 +993,7 @@ export function getTimelineSummary(project: TimelineProject): TimelineSummary {
     health,
     isOverdue,
     revisionCount: Number(derived.revision_count || 0),
+    riskLevel: getProjectClockSnapshot(derived).riskLevel,
   };
 }
 
