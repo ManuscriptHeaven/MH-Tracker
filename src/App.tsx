@@ -379,6 +379,7 @@ export default function App() {
         revisionAttachments={tracker.data.revisionAttachments}
         revisionActivity={tracker.data.revisionActivity}
         activities={tracker.data.activityLogs}
+        initialFiles={tracker.data.projectInitialFiles}
         tasks={tracker.data.tasks}
         currentProfile={tracker.currentProfile}
         canManageAll={tracker.canManageAll}
@@ -395,6 +396,7 @@ export default function App() {
         onUpdateRevisionRequest={tracker.updateRevisionRequest}
         onUpdateRevisionItem={tracker.updateRevisionItem}
         onUploadRevisedProof={tracker.uploadRevisedProof}
+        onGetInitialFileUrl={tracker.getProjectInitialFileUrl}
         conversations={tracker.data.conversations}
         messages={tracker.data.messages}
         onSendMessage={tracker.sendMessage}
@@ -432,12 +434,15 @@ export default function App() {
         revisionItems={tracker.data.revisionItems}
         revisionAttachments={tracker.data.revisionAttachments}
         activities={tracker.data.activityLogs}
+        initialFiles={tracker.data.projectInitialFiles}
         currentProfile={tracker.currentProfile}
         conversations={tracker.data.conversations}
         messages={tracker.data.messages}
         onSendMessage={tracker.sendMessage}
         onGetOrCreateProjectConversation={tracker.getOrCreateProjectConversation}
         onMarkRead={tracker.markConversationRead}
+        onSubmitInitialFiles={tracker.submitInitialProjectFiles}
+        onGetInitialFileUrl={tracker.getProjectInitialFileUrl}
         onClose={() => setSelectedProject(null)}
         onApproveMilestone={async (projectId, milestone) => {
           try {
