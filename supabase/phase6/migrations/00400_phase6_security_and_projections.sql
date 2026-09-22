@@ -221,6 +221,7 @@ returns table (
   workflow_stage_key public.workflow_stage,
   workflow_stage_status_key public.workflow_stage_status,
   workflow_waiting_on_key public.workflow_waiting_on,
+  workflow_version bigint,
   status public.project_status,
   current_stage text,
   stage_status text,
@@ -265,6 +266,7 @@ as $fn$
   select
     p.id,p.project_number,p.project_title,p.client_name,p.service_type,p.genre,p.priority,
     p.project_status,p.workflow_stage_key,p.workflow_stage_status_key,p.workflow_waiting_on_key,
+    p.workflow_version,
     p.status,p.current_stage,p.stage_status,p.waiting_on,p.timeline_status,p.progress_percentage,
     p.client_action_required,p.start_date,p.due_date,p.stage_started_at,p.stage_due_at,
     p.stage_completed_at,p.final_due_at,p.delivered_at,p.files_received_date,
@@ -397,6 +399,7 @@ drop view if exists public.client_project_summaries;
 create view public.client_project_summaries with (security_invoker=true) as
 select c.id,c.project_number,c.project_title,c.client_name,c.service_type,c.genre,c.priority,
   c.project_status,c.workflow_stage_key,c.workflow_stage_status_key,c.workflow_waiting_on_key,
+  c.workflow_version,
   c.status,c.current_stage,c.stage_status,c.waiting_on,c.timeline_status,c.progress_percentage,
   c.client_action_required,c.start_date,c.due_date,c.stage_started_at,c.stage_due_at,
   c.stage_completed_at,c.final_due_at,c.delivered_at,c.files_received_date,
