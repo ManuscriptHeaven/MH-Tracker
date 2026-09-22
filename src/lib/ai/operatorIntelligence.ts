@@ -487,7 +487,7 @@ export function buildOperatorIntelligence({
     });
   }
 
-  if (currentProfile.role === 'admin' && telemetry.totalQueries >= 5) {
+  if (currentProfile.role === 'admin') {
     if (telemetry.failedVerifications > 0) {
       priorities.push({
         id: 'ai-verification-risk',
@@ -506,7 +506,11 @@ export function buildOperatorIntelligence({
         ],
         commands: [],
       });
-    } else if (telemetry.failedQueries >= 3 && telemetry.successRate < 85) {
+    } else if (
+      telemetry.totalQueries >= 5 &&
+      telemetry.failedQueries >= 3 &&
+      telemetry.successRate < 85
+    ) {
       priorities.push({
         id: 'ai-query-reliability',
         type: 'ai_reliability',
