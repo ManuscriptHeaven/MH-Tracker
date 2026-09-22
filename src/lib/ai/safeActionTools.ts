@@ -2414,19 +2414,44 @@ export async function execute_generate_client_invoice(
         );
 
   if (invoiceProjects.length === 0) {
+    const alreadyInvoicedOutstanding = projects.filter(
+      (project) =>
+        (project.client_name || '').toLowerCase() === resolvedClient.toLowerCase() &&
+        Boolean(project.invoiced || project.invoice_id) &&
+        Number(project.remaining_balance || 0) > 0,
+    );
+    const outstanding = alreadyInvoicedOutstanding.reduce(
+      (sum, project) => sum + Math.max(Number(project.remaining_balance || 0), 0),
+      0,
+    );
+
     return {
       success: true,
       toolName: 'generate_client_invoice',
-      spokenText: `${resolvedClient} currently has no pending payments or unpaid projects. All accounts are settled.`,
-      displayText: `### 🧾 Invoice Status for ${resolvedClient}\n\n• **Status:** All accounts settled\n• **Pending Projects:** 0\n• **Outstanding Balance:** **${ctx.formatMoney(0)}**\n\nNo pending invoice is required.`,
+      spokenText:
+        alreadyInvoicedOutstanding.length > 0
+          ? `${resolvedClient} has outstanding balances, but those projects are already invoiced. I did not create a duplicate invoice.`
+          : `${resolvedClient} currently has no uninvoiced pending payments.`,
+      displayText:
+        alreadyInvoicedOutstanding.length > 0
+          ? `### Invoice Not Duplicated\n\n• **Client:** ${resolvedClient}\n• **Already-invoiced projects with balance:** ${alreadyInvoicedOutstanding.length}\n• **Outstanding:** **${ctx.formatMoney(outstanding)}**\n\nNo duplicate invoice was created.`
+          : `### 🧾 Invoice Status for ${resolvedClient}\n\n• **Status:** No uninvoiced pending payments\n• **Pending Projects:** 0\n\nNo new invoice is required.`,
+    };
+  }
+
+  if (!ctx.trackerMutations?.saveInvoiceVersion) {
+    return {
+      success: false,
+      toolName: 'generate_client_invoice',
+      error: 'execution_unavailable',
+      spokenText: 'Invoice persistence is unavailable in this session.',
+      displayText: '❌ Invoice persistence is unavailable. No invoice was created.',
     };
   }
 
   const clientEmail = invoiceProjects[0]?.client_email || '';
   const invoiceDraft = createBulkInvoice(resolvedClient, clientEmail, invoiceProjects, month, year);
-  const invoice = ctx.trackerMutations?.saveInvoiceVersion
-    ? await ctx.trackerMutations.saveInvoiceVersion(invoiceDraft)
-    : invoiceDraft;
+  const invoice = await ctx.trackerMutations.saveInvoiceVersion(invoiceDraft);
 
   const audit = createAuditLog(
     ctx,
