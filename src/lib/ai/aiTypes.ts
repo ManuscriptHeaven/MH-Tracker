@@ -190,6 +190,80 @@ export interface AIActionVerification {
   details?: Record<string, any>;
 }
 
+export type AIOperatorEventType =
+  | 'query_result'
+  | 'action_confirmed'
+  | 'action_cancelled'
+  | 'action_failed';
+
+export interface AIOperatorEventInput {
+  eventType: AIOperatorEventType;
+  conversationId?: string | null;
+  toolName?: AIToolName | null;
+  success: boolean;
+  errorCode?: string | null;
+  requiresConfirmation?: boolean;
+  wasClarification?: boolean;
+  hadDisambiguation?: boolean;
+  verificationStatus?: AIActionVerification['status'] | null;
+  planStepCount?: number;
+  latencyMs?: number;
+  metadata?: Record<string, string | number | boolean | null>;
+}
+
+export interface AIOperatorTelemetrySummary {
+  scope: 'workspace' | 'personal';
+  periodDays: number;
+  totalQueries: number;
+  successfulQueries: number;
+  failedQueries: number;
+  actionConfirmations: number;
+  actionCancellations: number;
+  clarificationCount: number;
+  disambiguationCount: number;
+  verifiedActions: number;
+  failedVerifications: number;
+  unverifiedActions: number;
+  multiStepPlans: number;
+  averageLatencyMs: number;
+  successRate: number;
+  clarificationRate: number;
+  verificationRate: number;
+  topTools: Array<{ toolName: string; count: number }>;
+  recentFailures: Array<{ toolName: string; errorCode?: string; createdAt: string }>;
+}
+
+export interface AIOperatorPriority {
+  id: string;
+  type:
+    | 'cashflow_risk'
+    | 'approval_bottleneck'
+    | 'delivery_risk'
+    | 'team_capacity'
+    | 'task_backlog'
+    | 'invoice_opportunity'
+    | 'ai_reliability'
+    | 'assistant_friction'
+    | 'workspace_stable';
+  title: string;
+  summary: string;
+  severity: 'critical' | 'warning' | 'opportunity' | 'info';
+  evidence: string[];
+  commands: Array<{ label: string; command: string }>;
+  relatedId?: string;
+}
+
+export interface AIOperatorIntelligence {
+  generatedAt: string;
+  scopeLabel: string;
+  headline: string;
+  criticalCount: number;
+  warningCount: number;
+  opportunityCount: number;
+  telemetry: AIOperatorTelemetrySummary;
+  priorities: AIOperatorPriority[];
+}
+
 export interface AIActionPlanStep {
   intent?: string;
   normalizedCommand: string;
