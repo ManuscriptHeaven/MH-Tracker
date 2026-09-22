@@ -1,5 +1,4 @@
 import type { AIToolContext } from './aiTypes';
-import { isSupabaseConfigured, supabase } from '../supabase';
 import { isClientRole } from '../utils';
 
 export type AIPlannedIntent =
@@ -78,11 +77,14 @@ export async function planNaturalLanguageAction(
   message: string,
   ctx: AIToolContext,
 ): Promise<AIPlannerResult | null> {
-  if (!shouldUseAIPlanner(message) || !isSupabaseConfigured || !supabase) {
+  if (!shouldUseAIPlanner(message) || typeof window === 'undefined') {
     return null;
   }
 
   try {
+    const { isSupabaseConfigured, supabase } = await import('../supabase');
+    if (!isSupabaseConfigured || !supabase) return null;
+
     const invocation = supabase.functions.invoke('ai-planner', {
       body: {
         message: message.trim(),
