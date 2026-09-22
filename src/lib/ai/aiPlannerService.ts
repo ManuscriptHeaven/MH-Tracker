@@ -51,8 +51,12 @@ export function splitCompoundActionQuery(message: string): string[] {
   const text = message.trim();
   if (!text) return [];
 
+  if (/\b(?:create|add)\b[\s\S]*\b(?:task|project)\b[\s\S]*\band\b[\s\S]*\bassign\b/i.test(text)) {
+    return [text];
+  }
+
   const parts = text
-    .split(/\b(?:and then|then|phir|aur phir|aur|also)\b|(?:پھر|اور پھر|اور)/iu)
+    .split(/\b(?:and then|then|and|phir|aur phir|aur|also)\b|(?:پھر|اور پھر|اور)/iu)
     .map((part) => part.trim())
     .filter(Boolean);
 
