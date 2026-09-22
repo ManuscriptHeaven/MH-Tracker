@@ -1267,6 +1267,45 @@ export class VoiceQueryEngine {
         };
       }
 
+      // Approval-stage requests are translated into the dedicated canonical
+      // submission action when the project is at the matching production stage.
+      if (targetStage) {
+        const approvalSubmissionMap: Record<string, { productionStage: string; phrase: string }> = {
+          'Concept Approval': { productionStage: 'design_concept', phrase: 'design concept' },
+          'Print Approval': { productionStage: 'print_version', phrase: 'print version' },
+          'eBook Approval': { productionStage: 'ebook_version', phrase: 'eBook version' },
+        };
+        const mapped = approvalSubmissionMap[targetStage];
+        if (mapped) {
+          if (String(matchedProject.workflow_stage_key || '') === mapped.productionStage) {
+            const submitQuery = `Submit the ${mapped.phrase} for ${matchedProject.project_number} for client approval`;
+            return this.detectWriteIntent(submitQuery.toLowerCase(), submitQuery, ctx);
+          }
+
+          return {
+            success: false,
+            toolName: 'update_project_status',
+            error: 'canonical_workflow_required',
+            spokenText: `${matchedProject.project_title} is not at the production stage required for ${targetStage}.`,
+            displayText:
+              `### Canonical Workflow Required\n\n` +
+              `• **Project:** ${matchedProject.project_title}\n` +
+              `• **Current Stage:** ${matchedProject.current_stage || matchedProject.workflow_stage_key || matchedProject.status}\n` +
+              `• **Requested:** ${targetStage}\n\n` +
+              'I did not skip or force any workflow stage.',
+          };
+        }
+
+        return {
+          success: false,
+          toolName: 'update_project_status',
+          error: 'canonical_workflow_required',
+          spokenText: 'Workflow stages cannot be changed as free-form status fields.',
+          displayText:
+            `### Workflow-Controlled Stage\n\n**${targetStage}** must be reached through the canonical workflow. I did not force the project into that stage.`,
+        };
+      }
+
       const preview: AIActionPreview = {
         actionId: `act-${Date.now()}`,
         toolName: 'update_project_status',
