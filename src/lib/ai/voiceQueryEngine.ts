@@ -9,6 +9,7 @@ import type {
 } from './aiTypes';
 import * as tools from './secureTools';
 import * as safeActions from './safeActionTools';
+import * as agentActions from './aiAgentActions';
 import type { ProjectStatus } from '../types';
 import { isClientRole, isManagerRole, firstName } from '../utils';
 import { formatDate, parseNaturalDate, todayInput, addDays } from '../date';
@@ -16,6 +17,7 @@ import { aiUnderstandingEngine } from './aiUnderstandingEngine';
 import { buildPageContext } from './aiPageContext';
 import { runProjectCreationWizard } from './projectCreationWizard';
 import { prepareClientCommunication } from './clientCommunication';
+import { planNaturalAction } from './aiNaturalActionPlanner';
 
 export class VoiceQueryEngine {
   private static instance: VoiceQueryEngine;
@@ -431,7 +433,7 @@ export class VoiceQueryEngine {
   // WRITE INTENT PARSER & ACTION PREVIEW GENERATOR
   // ==========================================
 
-  private async detectWriteIntent(lower: string, q: string, ctx: AIToolContext): Promise<AIToolResult | null> {
+  private async detectWriteIntent(lower: string, q: string, ctx: AIToolContext, skipNaturalPlanner = false): Promise<AIToolResult | null> {
     // ----------------------------------------------------
     // 00. INVOICE GENERATION INTENT
     // e.g. "Generate invoice for BCH for all pending payments", "Create invoice for BCH", "Invoice BCH"
@@ -454,7 +456,9 @@ export class VoiceQueryEngine {
         const match = q.match(/(?:invoice|bill|for)\s+(?:client\s+)?([a-zA-Z0-9\s]+?)(?:\s+for\s+all|\s+for\s+pending|\s+pending|\s*$)/i);
         const candidate = match ? match[1].trim() : '';
         if (candidate && candidate.toLowerCase() !== 'all' && candidate.toLowerCase() !== 'client') {
-          return safeActions.execute_generate_client_invoice({ clientName: candidate }, ctx);
+          const preview = await agentActions.prepareGenerateClientInvoice({ clientName: candidate }, ctx);
+          if (preview.pendingAction) this.memory.pendingAction = preview.pendingAction;
+          return preview;
         }
 
         return {
@@ -465,7 +469,126 @@ export class VoiceQueryEngine {
         };
       }
 
-      return safeActions.execute_generate_client_invoice({ clientName }, ctx);
+      const preview = await agentActions.prepareGenerateClientInvoice({ clientName }, ctx);
+      if (preview.pendingAction) this.memory.pendingAction = preview.pendingAction;
+      return preview;
+    }
+
+    // ----------------------------------------------------
+    // 00B. CANONICAL STAGE SUBMISSION
+    // e.g. "Submit the design concept for MH-2001 for client approval"
+    // ----------------------------------------------------
+    if (
+      /\b(submit|send|share|present|forward|bhejo|bhej)\b/i.test(q) &&
+      /\b(design concept|concept|print version|print proof|ebook|e-book)\b/i.test(q) &&
+      /\b(client|approval|approve|review|client ko|for review)\b/i.test(q)
+    ) {
+      if (isClientRole(ctx.currentProfile.role)) {
+        return {
+          success: false,
+          toolName: 'submit_stage_for_approval',
+          error: 'permission_denied',
+          spokenText: 'Clients cannot submit production stages for approval.',
+          displayText: '🔒 Stage submission is restricted to the production team.',
+        };
+      }
+
+      const project = this.findProjectInQueryOrMemory(lower, ctx);
+      if (!project) {
+        return {
+          success: false,
+          toolName: 'submit_stage_for_approval',
+          error: 'project_not_found',
+          spokenText: 'Which project should I submit for client approval?',
+          displayText: '❓ Please specify the project title or project number to submit.',
+        };
+      }
+
+      const requestedStage = /ebook|e-book/i.test(q)
+        ? 'ebook_version'
+        : /print/i.test(q)
+          ? 'print_version'
+          : 'design_concept';
+      const currentStage = String(project.workflow_stage_key || project.current_stage || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_');
+
+      if (currentStage !== requestedStage) {
+        return {
+          success: false,
+          toolName: 'submit_stage_for_approval',
+          error: 'stage_mismatch',
+          spokenText: project.project_title + ' is currently at ' + (project.current_stage || project.workflow_stage_key || 'another stage') + '.',
+          displayText:
+            '⚠️ **Stage mismatch.** You asked to submit **' +
+            (requestedStage === 'design_concept' ? 'Design Concept' : requestedStage === 'print_version' ? 'Print Version' : 'eBook Version') +
+            '**, but **' + project.project_title + '** is currently at **' +
+            (project.current_stage || project.workflow_stage_key || 'another stage') +
+            '**. No workflow state was changed.',
+        };
+      }
+
+      const existingDeliverable =
+        currentStage === 'design_concept'
+          ? project.cover_file_link || project.proof_pdf_link
+          : currentStage === 'print_version'
+            ? project.proof_pdf_link || project.final_print_pdf_link
+            : project.final_ebook_link;
+      const urlMatch = q.match(/https?:\/\/\S+/i);
+      const fileUrl = urlMatch?.[0]?.replace(/[),.;]+$/, '');
+
+      if (!fileUrl && !existingDeliverable) {
+        return {
+          success: false,
+          toolName: 'submit_stage_for_approval',
+          error: 'deliverable_required',
+          spokenText: 'Add the required proof or deliverable link before submitting this stage.',
+          displayText: '⚠️ **Deliverable required.** Add the proof/deliverable link before submitting this stage to the client.',
+        };
+      }
+
+      const stageLabel = requestedStage === 'design_concept'
+        ? 'Design Concept'
+        : requestedStage === 'print_version'
+          ? 'Print Version'
+          : 'eBook Version';
+      const preview: AIActionPreview = {
+        actionId: 'act-' + Date.now(),
+        toolName: 'submit_stage_for_approval',
+        category: 'high_risk',
+        title: 'Submit ' + stageLabel,
+        description: 'Submit ' + stageLabel + ' for ' + project.project_title + ' to the client for approval',
+        targetType: 'project',
+        targetId: project.id,
+        targetTitle: project.project_title,
+        clientName: project.client_name,
+        changes: [
+          { field: 'stage_status', label: 'Workflow', oldValue: project.current_stage || stageLabel, newValue: 'Awaiting client approval' },
+        ],
+        payload: {
+          projectId: project.id,
+          submissionNote: 'Submitted via AI Assistant for client approval',
+          fileUrl,
+        },
+        confirmButtonText: 'Submit for Approval',
+        cancelButtonText: 'Cancel',
+        spokenPrompt: 'Submit the ' + stageLabel + ' for ' + project.project_title + ' to ' + project.client_name + ' for approval? Confirm?',
+      };
+      this.memory.pendingAction = preview;
+
+      return {
+        success: true,
+        toolName: 'submit_stage_for_approval',
+        spokenText: preview.spokenPrompt,
+        displayText:
+          '### Ready to Submit ' + stageLabel + '\n\n' +
+          '• **Project:** ' + project.project_title + ' (' + project.project_number + ')\n' +
+          '• **Client:** ' + project.client_name + '\n' +
+          '• **Deliverable:** ' + (fileUrl || existingDeliverable) + '\n\n' +
+          'Nothing will change until you confirm.',
+        pendingAction: preview,
+      };
     }
 
     // ----------------------------------------------------
@@ -1679,6 +1802,18 @@ export class VoiceQueryEngine {
       };
     }
 
+    if (!skipNaturalPlanner) {
+      const plan = await planNaturalAction(q, ctx);
+      if (
+        plan &&
+        plan.confidence >= 0.7 &&
+        plan.normalizedCommand.toLowerCase().trim() !== q.toLowerCase().trim()
+      ) {
+        const normalized = plan.normalizedCommand.trim();
+        return this.detectWriteIntent(normalized.toLowerCase(), normalized, ctx, true);
+      }
+    }
+
     return null;
   }
 
@@ -1718,6 +1853,8 @@ export class VoiceQueryEngine {
         return safeActions.execute_add_project_note(action.payload as any, ctx);
       case 'approve_project_milestone':
         return safeActions.execute_approve_project_milestone(action.payload as any, ctx);
+      case 'submit_stage_for_approval':
+        return agentActions.executeSubmitStageForApproval(action.payload as any, ctx);
       case 'invite_client':
         return safeActions.execute_invite_client(action.payload as any, ctx);
       case 'record_project_payment':
