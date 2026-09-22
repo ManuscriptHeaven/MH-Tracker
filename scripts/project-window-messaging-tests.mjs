@@ -13,6 +13,7 @@ const tracker = fs.readFileSync('src/lib/useTracker.ts', 'utf8');
 const chat = fs.readFileSync('src/components/ProjectDiscussionChat.tsx', 'utf8');
 const migration = fs.readFileSync('supabase/migrations/20260920000400_fix_project_window_client_messaging.sql', 'utf8');
 const deliveryMigration = fs.readFileSync('supabase/migrations/20260922000100_harden_client_message_delivery.sql', 'utf8');
+const deliveryCleanupMigration = fs.readFileSync('supabase/migrations/20260922000200_reuse_project_conversation_delivery_guard.sql', 'utf8');
 
 console.log('--- Project Window Client Messaging Regression Tests ---');
 
@@ -71,6 +72,13 @@ assert(
     deliveryMigration.includes('No active client portal recipient is linked to this project conversation') &&
     deliveryMigration.includes('create or replace function public.phase6_send_message'),
   'message delivery itself blocks client-facing sends when no active linked portal recipient exists',
+);
+
+assert(
+  deliveryCleanupMigration.includes('phase6_get_or_create_project_conversation(v_project_id, false)') &&
+    deliveryCleanupMigration.includes('v_validated_conversation_id is distinct from p_conversation_id') &&
+    deliveryCleanupMigration.includes('drop function if exists public.phase6_project_client_has_active_recipient(uuid)'),
+  'send-time validation reuses the hardened project RPC and removes the temporary exposed recipient helper',
 );
 
 const awaitSend = chat.indexOf('await onSendMessage(targetConv.id, text);');
