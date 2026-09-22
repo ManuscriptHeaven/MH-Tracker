@@ -50,13 +50,15 @@ function safePlannerContext(ctx: AIToolContext) {
       current_stage: project.current_stage,
       status: project.status,
     })),
-    team: ctx.data.profiles
-      .filter((profile) => !isClientRole(profile.role))
-      .slice(0, 40)
-      .map((profile) => ({
-        full_name: profile.full_name,
-        role: profile.role,
-      })),
+    team: isClientRole(ctx.currentProfile.role)
+      ? []
+      : ctx.data.profiles
+          .filter((profile) => !isClientRole(profile.role))
+          .slice(0, 40)
+          .map((profile) => ({
+            full_name: profile.full_name,
+            role: profile.role,
+          })),
   };
 }
 
