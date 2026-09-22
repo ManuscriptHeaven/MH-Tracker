@@ -28,16 +28,43 @@ export type AIPlannedIntent =
   | 'invite_client'
   | 'unknown';
 
-export interface AIPlannerResult {
-  planned: boolean;
+export interface AIPlannerStep {
   intent: AIPlannedIntent;
   normalizedCommand: string;
   confidence: number;
   reason?: string;
 }
 
+export interface AIPlannerResult {
+  planned: boolean;
+  intent: AIPlannedIntent;
+  normalizedCommand: string;
+  confidence: number;
+  reason?: string;
+  steps?: AIPlannerStep[];
+}
+
 const ACTION_SIGNAL =
   /\b(create|add|make|start|generate|invoice|bill|submit|send|share|move|set|change|update|assign|record|approve|complete|deliver|banao|bnao|bna\s*do|bana\s*do|karo|kro|kardo|krdo|kar\s*do|kr\s*do|bhejo|bhejdo|bhej\s*do|jama|nikalo|nikaal|nikal\s*do|laga\s*do|de\s*do)\b|(?:بناؤ|بنا\s*دو|بھیجو|جمع|انوائس|تبدیل|اسائن|مکمل)/iu;
+
+export function splitCompoundActionQuery(message: string): string[] {
+  const text = message.trim();
+  if (!text) return [];
+
+  const parts = text
+    .split(/\b(?:and then|then|phir|aur phir|aur|also)\b|(?:پھر|اور پھر|اور)/iu)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length < 2) return [text];
+
+  const actionable = parts.filter((part) => ACTION_SIGNAL.test(part));
+  return actionable.length >= 2 ? parts.slice(0, 4) : [text];
+}
+
+export function looksLikeCompoundAction(message: string): boolean {
+  return splitCompoundActionQuery(message).length > 1;
+}
 
 export function shouldUseAIPlanner(message: string): boolean {
   const text = message.trim();
@@ -90,11 +117,27 @@ function safePlannerContext(ctx: AIToolContext) {
 function isPlannerResult(value: unknown): value is AIPlannerResult {
   if (!value || typeof value !== 'object') return false;
   const data = value as Record<string, unknown>;
+  const validSteps =
+    data.steps === undefined ||
+    (Array.isArray(data.steps) &&
+      data.steps.length >= 2 &&
+      data.steps.length <= 4 &&
+      data.steps.every((step) => {
+        if (!step || typeof step !== 'object') return false;
+        const item = step as Record<string, unknown>;
+        return (
+          typeof item.intent === 'string' &&
+          typeof item.normalizedCommand === 'string' &&
+          typeof item.confidence === 'number'
+        );
+      }));
+
   return (
     typeof data.planned === 'boolean' &&
     typeof data.intent === 'string' &&
     typeof data.normalizedCommand === 'string' &&
-    typeof data.confidence === 'number'
+    typeof data.confidence === 'number' &&
+    validSteps
   );
 }
 
@@ -126,16 +169,29 @@ export async function planNaturalLanguageAction(
     if (!data.planned || data.confidence < 0.72) return null;
 
     const normalized = data.normalizedCommand.trim().slice(0, 600);
-    if (!normalized || normalized.toLowerCase() === message.trim().toLowerCase()) {
+    const steps = Array.isArray(data.steps)
+      ? data.steps
+          .map((step) => ({
+            intent: step.intent,
+            normalizedCommand: step.normalizedCommand.trim().slice(0, 600),
+            confidence: Math.min(1, Math.max(0, step.confidence)),
+            reason: step.reason?.slice(0, 240),
+          }))
+          .filter((step) => step.normalizedCommand && step.confidence >= 0.72)
+          .slice(0, 4)
+      : undefined;
+
+    if ((!normalized || normalized.toLowerCase() === message.trim().toLowerCase()) && (!steps || steps.length < 2)) {
       return null;
     }
 
     return {
       planned: true,
       intent: data.intent,
-      normalizedCommand: normalized,
+      normalizedCommand: normalized || steps?.[0]?.normalizedCommand || '',
       confidence: Math.min(1, Math.max(0, data.confidence)),
       reason: data.reason?.slice(0, 240),
+      steps: steps && steps.length >= 2 ? steps : undefined,
     };
   } catch {
     // Planner is an enhancement, never a dependency for core Tracker actions.
