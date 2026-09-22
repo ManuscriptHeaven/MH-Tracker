@@ -882,21 +882,33 @@ export class VoiceQueryEngine {
       const dateMatch = lower.match(/(?:due\s+|by\s+|on\s+)?(tomorrow|today|friday|monday|tuesday|wednesday|thursday|saturday|sunday|\b\w+\s+\d{1,2}\b)/i);
       const dueDate = dateMatch ? parseNaturalDate(dateMatch[1]) : null;
 
-      // Extract Task Title
+      // Extract Task Title without treating the assignee name as the task.
       let taskTitle = q
-        .replace(/^create\s+(a\s+)?task\s+(for\s+[a-zA-Z\s]+?\s+to\s+|for\s+[a-zA-Z\s]+?:\s*|to\s+|:\s*)/i, '')
-        .replace(/\s+(tomorrow|today|by\s+[a-zA-Z0-9\s]+|due\s+[a-zA-Z0-9\s]+)\s*$/i, '')
+        .replace(/^(?:create|add)\s+(?:a\s+)?task\s*/i, '')
+        .replace(/^to\s+/i, '')
         .trim();
 
       if (targetEmpProfile) {
-        const commandLower = q.toLowerCase().trim();
-        const fullName = targetEmpProfile.full_name.toLowerCase();
-        const firstNameOnly = fullName.split(' ')[0];
-        const assigneeOnly =
-          commandLower.endsWith('for ' + fullName) ||
-          commandLower.endsWith('for ' + firstNameOnly);
-        if (assigneeOnly) taskTitle = '';
+        const assigneeNames = [
+          targetEmpProfile.full_name,
+          targetEmpProfile.full_name.split(' ')[0],
+        ].sort((a, b) => b.length - a.length);
+
+        for (const assigneeName of assigneeNames) {
+          const prefix = 'for ' + assigneeName.toLowerCase();
+          if (taskTitle.toLowerCase().startsWith(prefix)) {
+            taskTitle = taskTitle
+              .slice(prefix.length)
+              .replace(/^\s*(?:to\s+|:\s*)/i, '')
+              .trim();
+            break;
+          }
+        }
       }
+
+      taskTitle = taskTitle
+        .replace(/\s+(tomorrow|today|by\s+[a-zA-Z0-9\s]+|due\s+[a-zA-Z0-9\s]+)\s*$/i, '')
+        .trim();
 
       if (!taskTitle || taskTitle.length < 3) {
         return {
