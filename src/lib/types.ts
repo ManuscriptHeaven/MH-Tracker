@@ -1,5 +1,7 @@
 export type Role = 'admin' | 'manager' | 'project_manager' | 'employee' | 'junior_assistant' | 'client';
 
+export type ProjectTemplateKey = 'book-formatting' | 'print-ebook' | 'cover-design' | 'revision-only';
+
 export type StandardProjectStatus =
   | 'Active'
   | 'In Progress'
@@ -459,6 +461,7 @@ export type ProjectDraft = Omit<
   id?: string;
   project_number?: string;
   created_by?: string | null;
+  workflow_template_key?: ProjectTemplateKey | null;
 };
 
 export type ProjectMetadataUpdate = Partial<Pick<Project,
@@ -549,6 +552,10 @@ export interface Task {
   sort_order: number;
   task_type: string;
   visibility: TaskVisibility;
+  workspace_id?: string;
+  workflow_stage_key?: WorkflowStage | null;
+  template_key?: string | null;
+  template_task_id?: string | null;
   archived_at: string | null;
   completed_at: string | null;
   created_at: string;
@@ -596,6 +603,28 @@ export interface TaskDependency {
   task_id: string;
   depends_on_task_id: string;
   dependency_type: TaskDependencyType;
+  created_at: string;
+}
+
+export interface TaskAttachment {
+  id: string;
+  task_id: string;
+  logical_file_id: string;
+  version_number: number;
+  file_name: string;
+  storage_path: string;
+  mime_type: string | null;
+  file_size: number;
+  uploaded_by: string;
+  created_at: string;
+}
+
+export interface TaskMention {
+  id: string;
+  task_id: string;
+  comment_id: string;
+  mentioned_profile_id: string;
+  mentioned_by: string;
   created_at: string;
 }
 
@@ -695,6 +724,8 @@ export interface TrackerData {
   taskComments: TaskComment[];
   taskChecklistItems: TaskChecklistItem[];
   taskDependencies: TaskDependency[];
+  taskAttachments: TaskAttachment[];
+  taskMentions: TaskMention[];
   revisionRequests: RevisionRequest[];
   revisionItems: RevisionItem[];
   revisionAttachments: RevisionAttachment[];
