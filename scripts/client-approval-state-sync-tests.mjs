@@ -12,6 +12,8 @@ function assert(condition, message) {
 const timeline = fs.readFileSync('src/lib/timeline.ts', 'utf8');
 const modal = fs.readFileSync('src/components/ClientProjectDetailModal.tsx', 'utf8');
 const migration = fs.readFileSync('supabase/migrations/20260921000700_repair_workflow_compatibility_projection.sql', 'utf8');
+const workflowProjection = fs.readFileSync('supabase/phase6/migrations/00400_phase6_security_and_projections.sql', 'utf8');
+const workflowVersionFix = fs.readFileSync('supabase/migrations/20260922000400_fix_client_workflow_version_projection.sql', 'utf8');
 
 console.log('--- Client Approval State Sync Regression Tests ---');
 
@@ -29,6 +31,16 @@ assert(
   modal.includes('{canApproveCurrentStage ? (') &&
   modal.includes('Revision is still with the Manuscript Heaven team.'),
   'client approval button only appears when the canonical workflow explicitly allows approval',
+);
+
+assert(
+  workflowProjection.includes('workflow_version bigint') &&
+    workflowProjection.includes('p.workflow_version') &&
+    workflowProjection.includes('c.workflow_version') &&
+    workflowVersionFix.includes('workflow_version bigint') &&
+    workflowVersionFix.includes('p.workflow_version') &&
+    workflowVersionFix.includes('c.workflow_version'),
+  'client-safe project projection exposes the canonical workflow version required by approval RPCs',
 );
 
 assert(
