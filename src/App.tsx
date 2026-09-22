@@ -226,6 +226,7 @@ export default function App() {
     taskComments: tracker.data.taskComments,
     taskChecklistItems: tracker.data.taskChecklistItems,
     taskDependencies: tracker.data.taskDependencies,
+    taskAttachments: tracker.data.taskAttachments,
     onCreateTask: async (draft: Parameters<typeof tracker.createTask>[0]) => { await tracker.createTask(draft); },
     onUpdateTask: async (taskId: string, updates: Parameters<typeof tracker.updateTask>[1]) => { await tracker.updateTask(taskId, updates); },
     onArchiveTask: async (taskId: string) => { await tracker.archiveTask(taskId); },
@@ -239,6 +240,8 @@ export default function App() {
     onDeleteChecklistItem: tracker.deleteTaskChecklistItem,
     onAddDependency: async (taskId: string, dependsOnTaskId: string) => { await tracker.addTaskDependency(taskId, dependsOnTaskId); },
     onRemoveDependency: tracker.removeTaskDependency,
+    onUploadAttachment: tracker.uploadTaskAttachment,
+    onGetAttachmentUrl: tracker.getTaskAttachmentUrl,
     onCreateSubtask: async (parentTaskId: string, draft: Parameters<typeof tracker.createTask>[0]) => { await tracker.createSubtask(parentTaskId, draft); },
     onSelectProject: setSelectedProject,
   };
