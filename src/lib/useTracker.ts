@@ -4268,8 +4268,10 @@ export function useTracker() {
         return members.length === 2 && new Set(userIds).size === 2 &&
           userIds.includes(currentProfile.id) && userIds.includes(otherUserId);
       });
-      if (existing) return existing;
 
+      // Always use the hardened server RPC in Supabase mode so role checks,
+      // pair locking, and canonical-DM selection cannot be bypassed by a
+      // stale/duplicate cached conversation.
       if (supabase && mode === 'supabase') {
         const { data: conversationId, error } = await supabase.rpc('phase6_create_direct_conversation', {
           p_other_user_id: otherUserId,
@@ -4277,11 +4279,15 @@ export function useTracker() {
         if (error) throw error;
         if (!conversationId) throw new Error('Direct conversation RPC returned no conversation ID.');
         await loadSupabaseData(currentProfile);
+
+        if (existing?.id === String(conversationId)) return existing;
         return {
           id: String(conversationId), type: 'dm', created_by: currentProfile.id,
           created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
         } as Conversation;
       }
+
+      if (existing) return existing;
 
       const now = new Date().toISOString();
       const newConvId = createUuid();
