@@ -289,6 +289,7 @@ export function AIProvider({
         updateRevisionRequest: t.updateRevisionRequest,
         respondToRevisionRequest: t.respondToRevisionRequest,
         approveProjectMilestone: t.approveProjectMilestone,
+        submitStageForApproval: t.submitStageForApproval,
         createFinanceTransaction: t.createFinanceTransaction,
         updateFinanceTransaction: t.updateFinanceTransaction,
         deleteFinanceTransaction: t.deleteFinanceTransaction,
