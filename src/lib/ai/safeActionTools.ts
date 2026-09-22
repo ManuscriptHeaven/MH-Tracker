@@ -713,65 +713,135 @@ export async function execute_update_project_status(
       success: false,
       toolName: 'update_project_status',
       error: 'permission_denied',
-      spokenText: 'Only managers and admins can change project statuses.',
-      displayText: '🔒 Only managers and admins can change project statuses.',
+      spokenText: 'Only managers and admins can change project lifecycle state.',
+      displayText: '🔒 Project lifecycle changes are restricted to Admin and Project Manager roles.',
     };
   }
 
-  const project = ctx.data.projects.find((p) => p.id === payload.projectId);
+  const project = ctx.visibleProjects.find((item) => item.id === payload.projectId);
   if (!project) {
     return {
       success: false,
       toolName: 'update_project_status',
       error: 'project_not_found',
-      spokenText: "I couldn't find the specified project.",
-      displayText: '❌ Project not found.',
+      spokenText: "I couldn't find the specified project in your accessible workspace.",
+      displayText: '❌ Project not found or not accessible.',
     };
   }
 
-  const oldStatus = project.status;
-  const oldStage = project.current_stage;
-  const updates: Partial<Project> = { status: payload.status };
+  // Canonical workflow stages are never changed through generic project metadata.
+  // Stage progression must use dedicated workflow RPCs such as stage submission,
+  // client approval, stage advance, revision submission or final delivery.
   if (payload.currentStage) {
-    updates.current_stage = payload.currentStage as any;
+    return {
+      success: false,
+      toolName: 'update_project_status',
+      error: 'canonical_workflow_required',
+      spokenText: 'I will not force a project into a workflow stage.',
+      displayText:
+        `### Canonical Workflow Required\n\n` +
+        `• **Project:** ${project.project_title} (${project.project_number})\n` +
+        `• **Current Stage:** ${project.current_stage || project.workflow_stage_key || project.status}\n` +
+        `• **Requested Stage:** ${payload.currentStage}\n\n` +
+        'Use the appropriate workflow action (submit stage, approve, revise, advance, or final delivery). No status fields were changed.',
+    };
   }
 
+  const requestedStatus = String(payload.status || '').toLowerCase();
+  const oldStatus = project.status;
+  const oldLifecycle = project.project_status || 'active';
+
   try {
-    if (ctx.trackerMutations?.updateProject) {
-      await ctx.trackerMutations.updateProject(project.id, updates);
+    let nextLabel = '';
+    if (requestedStatus === 'on hold' || requestedStatus === 'hold' || requestedStatus === 'paused') {
+      if (!ctx.trackerMutations?.setProjectLifecycle) {
+        throw new Error('Canonical project lifecycle mutation is unavailable.');
+      }
+      await ctx.trackerMutations.setProjectLifecycle(project.id, 'on_hold', 'AI-confirmed project hold');
+      nextLabel = 'On Hold';
+    } else if (
+      requestedStatus === 'in progress' ||
+      requestedStatus === 'active' ||
+      requestedStatus === 'resume' ||
+      requestedStatus === 'resumed'
+    ) {
+      if (!ctx.trackerMutations?.setProjectLifecycle) {
+        throw new Error('Canonical project lifecycle mutation is unavailable.');
+      }
+      await ctx.trackerMutations.setProjectLifecycle(project.id, 'active', 'AI-confirmed project resume');
+      nextLabel = 'Active';
+    } else if (
+      requestedStatus === 'completed' ||
+      requestedStatus === 'delivered' ||
+      requestedStatus === 'final delivery'
+    ) {
+      if (String(project.workflow_stage_key || '') !== 'final_delivery') {
+        return {
+          success: false,
+          toolName: 'update_project_status',
+          error: 'final_delivery_required',
+          spokenText: 'This project cannot be marked complete before the canonical final-delivery stage.',
+          displayText:
+            `### Final Delivery Required\n\n**${project.project_title}** is currently at **${project.current_stage || project.workflow_stage_key || project.status}**. Complete the workflow through Final Delivery instead of forcing the project to Completed.`,
+        };
+      }
+      if (!ctx.trackerMutations?.completeFinalDelivery) {
+        throw new Error('Canonical final-delivery mutation is unavailable.');
+      }
+      await ctx.trackerMutations.completeFinalDelivery(project.id, 'AI-confirmed final delivery');
+      nextLabel = 'Completed / Delivered';
+    } else {
+      return {
+        success: false,
+        toolName: 'update_project_status',
+        error: 'unsupported_lifecycle_change',
+        spokenText: 'That status is controlled by the canonical project workflow.',
+        displayText:
+          `### Workflow-Controlled Status\n\n**${payload.status}** cannot be set as a free-form project status. Use the matching workflow action so stage history, timers, approvals, and audit data remain correct.`,
+      };
     }
 
-    const stageNote = payload.currentStage ? ` (Stage: ${payload.currentStage})` : '';
     const audit = createAuditLog(
       ctx,
-      `Changed project status for "${project.project_title}"`,
+      `Changed project lifecycle for "${project.project_title}"`,
       'project',
       project.id,
       project.project_title,
-      `${oldStatus}${oldStage ? ` / ${oldStage}` : ''}`,
-      `${payload.status}${stageNote}`,
+      `${oldLifecycle} / ${oldStatus}`,
+      nextLabel,
       'success',
     );
-
-    const spoken = `Done. ${project.project_title} has been moved to ${payload.currentStage || payload.status}.`;
-    const display = `### ✅ Project Updated\n\n• **Project:** **${project.project_title}** (${project.project_number})\n• **Previous:** ${oldStatus}${oldStage ? ` (Stage: ${oldStage})` : ''}\n• **New Status:** **${payload.status}**${payload.currentStage ? `\n• **New Stage:** **${payload.currentStage}**` : ''}`;
 
     return {
       success: true,
       toolName: 'update_project_status',
-      spokenText: spoken,
-      displayText: display,
+      spokenText: `Done. ${project.project_title} is now ${nextLabel}.`,
+      displayText:
+        `### ✅ Project Lifecycle Updated\n\n` +
+        `• **Project:** **${project.project_title}** (${project.project_number})\n` +
+        `• **Previous:** ${oldStatus}\n` +
+        `• **New:** **${nextLabel}**`,
       auditLog: audit,
     };
   } catch (err: any) {
-    const errorMsg = err?.message || 'Failed to update project status.';
+    const errorMsg = err?.message || 'Failed to update project lifecycle.';
     return {
       success: false,
       toolName: 'update_project_status',
       error: errorMsg,
-      spokenText: `I couldn't update the project status. ${errorMsg}`,
-      displayText: `❌ Failed to update project status: ${errorMsg}`,
-      auditLog: createAuditLog(ctx, `Update project status failed: "${project.project_title}"`, 'project', project.id, project.project_title, oldStatus, payload.status, 'failed', errorMsg),
+      spokenText: `I couldn't update the project lifecycle. ${errorMsg}`,
+      displayText: `❌ Failed to update project lifecycle: ${errorMsg}`,
+      auditLog: createAuditLog(
+        ctx,
+        `Project lifecycle update failed: "${project.project_title}"`,
+        'project',
+        project.id,
+        project.project_title,
+        `${oldLifecycle} / ${oldStatus}`,
+        null,
+        'failed',
+        errorMsg,
+      ),
     };
   }
 }
@@ -1268,6 +1338,142 @@ export async function execute_approve_project_milestone(
       spokenText: `I couldn't complete the approval. ${errorMsg}`,
       displayText: `❌ Failed to approve milestone: ${errorMsg}`,
       auditLog: createAuditLog(ctx, `Approve milestone failed: "${project.project_title}"`, 'project', project.id, project.project_title, null, null, 'failed', errorMsg),
+    };
+  }
+}
+
+export async function execute_submit_stage_for_approval(
+  payload: { projectId: string; submissionNote?: string; fileUrl?: string },
+  ctx: AIToolContext,
+): Promise<AIToolResult> {
+  if (isClientRole(ctx.currentProfile.role)) {
+    return {
+      success: false,
+      toolName: 'submit_stage_for_approval',
+      error: 'permission_denied',
+      spokenText: 'Client accounts cannot submit production stages for approval.',
+      displayText: '🔒 Production-stage submission is restricted to the Manuscript Heaven team.',
+    };
+  }
+
+  const project = ctx.visibleProjects.find((item) => item.id === payload.projectId);
+  if (!project) {
+    return {
+      success: false,
+      toolName: 'submit_stage_for_approval',
+      error: 'project_not_found',
+      spokenText: "I couldn't find that project in your accessible workspace.",
+      displayText: '❌ Project not found or not accessible.',
+    };
+  }
+
+  const stageKey = String(project.workflow_stage_key || '');
+  const stageLabels: Record<string, string> = {
+    design_concept: 'Design Concept',
+    print_version: 'Print Version',
+    ebook_version: 'eBook Version',
+    final_delivery: 'Final Delivery',
+  };
+  const stageLabel = stageLabels[stageKey];
+
+  if (!stageLabel) {
+    return {
+      success: false,
+      toolName: 'submit_stage_for_approval',
+      error: 'invalid_workflow_stage',
+      spokenText: `${project.project_title} is not currently at a production stage that can be submitted.`,
+      displayText:
+        `### Stage Cannot Be Submitted\n\n` +
+        `• **Project:** ${project.project_title} (${project.project_number})\n` +
+        `• **Current Stage:** ${project.current_stage || project.workflow_stage_key || project.status}\n\n` +
+        'The assistant will not bypass the canonical workflow or force a status change.',
+    };
+  }
+
+  const existingDeliverable =
+    stageKey === 'design_concept'
+      ? project.cover_file_link || project.proof_pdf_link
+      : stageKey === 'print_version'
+        ? project.proof_pdf_link || project.final_print_pdf_link
+        : stageKey === 'ebook_version'
+          ? project.final_ebook_link
+          : project.final_print_pdf_link || project.other_links;
+
+  if (!payload.fileUrl?.trim() && !existingDeliverable) {
+    return {
+      success: false,
+      toolName: 'submit_stage_for_approval',
+      error: 'deliverable_required',
+      spokenText: `Please add the ${stageLabel} proof or deliverable before submitting it.`,
+      displayText:
+        `### Deliverable Required\n\n` +
+        `**${project.project_title}** is at **${stageLabel}**, but no deliverable link is attached yet.\n\n` +
+        'Add the proof/deliverable first; I will not submit an empty stage to the client.',
+    };
+  }
+
+  if (!ctx.trackerMutations?.submitStageForApproval) {
+    return {
+      success: false,
+      toolName: 'submit_stage_for_approval',
+      error: 'execution_unavailable',
+      spokenText: 'Canonical stage submission is unavailable in this session.',
+      displayText: '❌ Canonical stage submission is unavailable. No workflow state was changed.',
+    };
+  }
+
+  try {
+    await ctx.trackerMutations.submitStageForApproval(
+      project.id,
+      payload.submissionNote?.trim() || undefined,
+      payload.fileUrl?.trim() || undefined,
+    );
+
+    const nextState = stageKey === 'final_delivery' ? 'Completed / Delivered' : 'Awaiting Client Approval';
+    const audit = createAuditLog(
+      ctx,
+      `Submitted ${stageLabel} for "${project.project_title}"`,
+      'project',
+      project.id,
+      project.project_title,
+      project.current_stage || stageLabel,
+      nextState,
+      'success',
+    );
+
+    return {
+      success: true,
+      toolName: 'submit_stage_for_approval',
+      spokenText:
+        stageKey === 'final_delivery'
+          ? `Done. Final delivery for ${project.project_title} has been completed.`
+          : `Done. The ${stageLabel} for ${project.project_title} has been submitted for client approval.`,
+      displayText:
+        `### ✅ ${stageKey === 'final_delivery' ? 'Final Delivery Completed' : stageLabel + ' Submitted'}\n\n` +
+        `• **Project:** **${project.project_title}** (${project.project_number})\n` +
+        `• **Stage:** ${stageLabel}\n` +
+        `• **Result:** **${nextState}**`,
+      auditLog: audit,
+    };
+  } catch (err: any) {
+    const errorMsg = err?.message || 'Failed to submit the stage.';
+    return {
+      success: false,
+      toolName: 'submit_stage_for_approval',
+      error: errorMsg,
+      spokenText: `I couldn't submit the ${stageLabel}. ${errorMsg}`,
+      displayText: `❌ Failed to submit **${stageLabel}**: ${errorMsg}`,
+      auditLog: createAuditLog(
+        ctx,
+        `Stage submission failed: "${project.project_title}"`,
+        'project',
+        project.id,
+        project.project_title,
+        project.current_stage || stageLabel,
+        null,
+        'failed',
+        errorMsg,
+      ),
     };
   }
 }
@@ -2086,6 +2292,140 @@ export async function execute_invite_client(
   }
 }
 
+export function prepare_generate_client_invoice(
+  payload: {
+    clientName: string;
+    month?: number | 'all';
+    year?: number | 'all';
+    paymentStatus?: string;
+  },
+  ctx: AIToolContext,
+): AIToolResult {
+  if (!isManagerRole(ctx.currentProfile.role)) {
+    return {
+      success: false,
+      toolName: 'generate_client_invoice',
+      error: 'permission_denied',
+      spokenText: 'Only admins and managers can generate client invoices.',
+      displayText: '🔒 Invoice generation is restricted to Admin and Project Manager roles.',
+    };
+  }
+
+  const { clientName, month = 'all', year = 'all', paymentStatus = 'pending' } = payload;
+  const projects = ctx.visibleProjects || [];
+  const normalizedClient = clientName.trim().toLowerCase();
+  const allClients = Array.from(new Set(projects.map((project) => project.client_name).filter(Boolean)));
+  const exactClient = allClients.find((name) => name.toLowerCase() === normalizedClient);
+  const fuzzyMatches = allClients.filter(
+    (name) => name.toLowerCase().includes(normalizedClient) || normalizedClient.includes(name.toLowerCase()),
+  );
+
+  if (!exactClient && fuzzyMatches.length > 1) {
+    return {
+      success: false,
+      toolName: 'generate_client_invoice',
+      error: 'ambiguous_client',
+      spokenText: 'I found more than one matching client. Please specify the client name.',
+      displayText:
+        '### Choose a Client\n\n' +
+        fuzzyMatches.slice(0, 6).map((name, index) => `${index + 1}. **${name}**`).join('\n'),
+    };
+  }
+
+  const resolvedClient = exactClient || fuzzyMatches[0];
+  if (!resolvedClient) {
+    return {
+      success: false,
+      toolName: 'generate_client_invoice',
+      error: 'client_not_found',
+      spokenText: `I couldn't find any accessible projects for client "${clientName}".`,
+      displayText: `❌ No accessible projects found for client **${clientName}**.`,
+    };
+  }
+
+  const eligible = getEligibleProjectsForClient(projects, resolvedClient, month, year, paymentStatus, false);
+  const invoiceProjects =
+    eligible.length > 0
+      ? eligible
+      : projects.filter(
+          (project) =>
+            project.client_name === resolvedClient &&
+            !project.invoiced &&
+            !project.invoice_id &&
+            Number(project.remaining_balance || 0) > 0,
+        );
+
+  if (invoiceProjects.length === 0) {
+    const alreadyInvoicedOutstanding = projects.filter(
+      (project) =>
+        project.client_name === resolvedClient &&
+        Boolean(project.invoiced || project.invoice_id) &&
+        Number(project.remaining_balance || 0) > 0,
+    );
+    const outstanding = alreadyInvoicedOutstanding.reduce(
+      (sum, project) => sum + Math.max(Number(project.remaining_balance || 0), 0),
+      0,
+    );
+
+    return {
+      success: true,
+      toolName: 'generate_client_invoice',
+      spokenText:
+        alreadyInvoicedOutstanding.length > 0
+          ? `${resolvedClient} has outstanding balances, but those projects are already invoiced.`
+          : `${resolvedClient} has no uninvoiced pending payments.`,
+      displayText:
+        alreadyInvoicedOutstanding.length > 0
+          ? `### Invoice Already Exists\n\n• **Client:** ${resolvedClient}\n• **Already-invoiced projects with balance:** ${alreadyInvoicedOutstanding.length}\n• **Outstanding:** **${ctx.formatMoney(outstanding)}**\n\nI did not create a duplicate invoice.`
+          : `### 🧾 Invoice Status for ${resolvedClient}\n\n• **Status:** No uninvoiced pending payments\n• **Pending Projects:** 0\n\nNo new invoice is required.`,
+    };
+  }
+
+  const clientEmail = invoiceProjects[0]?.client_email || '';
+  const draft = createBulkInvoice(resolvedClient, clientEmail, invoiceProjects, month, year);
+  const totalFormatted = ctx.formatMoney(draft.total_due);
+  const projectRows = draft.items
+    .map((item) => `• **${item.project_title}** (${item.project_number}) — ${ctx.formatMoney(item.due_amount)} due`)
+    .join('\n');
+
+  const preview: AIActionPreview = {
+    actionId: `act-${Date.now()}`,
+    toolName: 'generate_client_invoice',
+    category: 'high_risk',
+    title: 'Generate Client Invoice',
+    description: `Create one invoice for ${resolvedClient} from ${invoiceProjects.length} uninvoiced pending project${invoiceProjects.length === 1 ? '' : 's'}`,
+    targetType: 'finance',
+    clientName: resolvedClient,
+    changes: [
+      { field: 'projects', label: 'Projects Included', newValue: invoiceProjects.length },
+      { field: 'total_due', label: 'Total Due', newValue: totalFormatted },
+    ],
+    payload: {
+      clientName: resolvedClient,
+      month,
+      year,
+      paymentStatus,
+    },
+    confirmButtonText: 'Generate Invoice',
+    cancelButtonText: 'Cancel',
+    spokenPrompt: `Generate an invoice for ${resolvedClient} covering ${invoiceProjects.length} pending project${invoiceProjects.length === 1 ? '' : 's'} totaling ${totalFormatted}? Confirm?`,
+  };
+
+  return {
+    success: true,
+    toolName: 'generate_client_invoice',
+    spokenText: preview.spokenPrompt,
+    displayText:
+      `### Invoice Preview\n\n` +
+      `• **Client:** **${resolvedClient}**\n` +
+      `• **Projects:** ${invoiceProjects.length}\n` +
+      `• **Total Due:** **${totalFormatted}**\n\n` +
+      `${projectRows}\n\n` +
+      '**Nothing has been generated yet. Confirm to create and save this invoice.**',
+    pendingAction: preview,
+  };
+}
+
 export async function execute_generate_client_invoice(
   payload: {
     clientName: string;
@@ -2095,13 +2435,13 @@ export async function execute_generate_client_invoice(
   },
   ctx: AIToolContext,
 ): Promise<AIToolResult> {
-  if (isClientRole(ctx.currentProfile.role)) {
+  if (!isManagerRole(ctx.currentProfile.role)) {
     return {
       success: false,
       toolName: 'generate_client_invoice',
       error: 'permission_denied',
-      spokenText: 'Clients cannot generate invoices through the assistant.',
-      displayText: '🔒 Only staff and admins can generate client invoices.',
+      spokenText: 'Only admins and managers can generate client invoices.',
+      displayText: '🔒 Invoice generation is restricted to Admin and Project Manager roles.',
     };
   }
 
@@ -2129,7 +2469,7 @@ export async function execute_generate_client_invoice(
     }
   }
 
-  const eligible = getEligibleProjectsForClient(projects, resolvedClient, month, year, paymentStatus, true);
+  const eligible = getEligibleProjectsForClient(projects, resolvedClient, month, year, paymentStatus, false);
 
   // Check if there are eligible projects or any with positive remaining balance
   const invoiceProjects =
@@ -2138,23 +2478,50 @@ export async function execute_generate_client_invoice(
       : projects.filter(
           (p) =>
             (p.client_name || '').toLowerCase() === resolvedClient.toLowerCase() &&
+            !p.invoiced &&
+            !p.invoice_id &&
             (p.remaining_balance || 0) > 0,
         );
 
   if (invoiceProjects.length === 0) {
+    const alreadyInvoicedOutstanding = projects.filter(
+      (project) =>
+        (project.client_name || '').toLowerCase() === resolvedClient.toLowerCase() &&
+        Boolean(project.invoiced || project.invoice_id) &&
+        Number(project.remaining_balance || 0) > 0,
+    );
+    const outstanding = alreadyInvoicedOutstanding.reduce(
+      (sum, project) => sum + Math.max(Number(project.remaining_balance || 0), 0),
+      0,
+    );
+
     return {
       success: true,
       toolName: 'generate_client_invoice',
-      spokenText: `${resolvedClient} currently has no pending payments or unpaid projects. All accounts are settled.`,
-      displayText: `### 🧾 Invoice Status for ${resolvedClient}\n\n• **Status:** All accounts settled\n• **Pending Projects:** 0\n• **Outstanding Balance:** **${ctx.formatMoney(0)}**\n\nNo pending invoice is required.`,
+      spokenText:
+        alreadyInvoicedOutstanding.length > 0
+          ? `${resolvedClient} has outstanding balances, but those projects are already invoiced. I did not create a duplicate invoice.`
+          : `${resolvedClient} currently has no uninvoiced pending payments.`,
+      displayText:
+        alreadyInvoicedOutstanding.length > 0
+          ? `### Invoice Not Duplicated\n\n• **Client:** ${resolvedClient}\n• **Already-invoiced projects with balance:** ${alreadyInvoicedOutstanding.length}\n• **Outstanding:** **${ctx.formatMoney(outstanding)}**\n\nNo duplicate invoice was created.`
+          : `### 🧾 Invoice Status for ${resolvedClient}\n\n• **Status:** No uninvoiced pending payments\n• **Pending Projects:** 0\n\nNo new invoice is required.`,
+    };
+  }
+
+  if (!ctx.trackerMutations?.saveInvoiceVersion) {
+    return {
+      success: false,
+      toolName: 'generate_client_invoice',
+      error: 'execution_unavailable',
+      spokenText: 'Invoice persistence is unavailable in this session.',
+      displayText: '❌ Invoice persistence is unavailable. No invoice was created.',
     };
   }
 
   const clientEmail = invoiceProjects[0]?.client_email || '';
   const invoiceDraft = createBulkInvoice(resolvedClient, clientEmail, invoiceProjects, month, year);
-  const invoice = ctx.trackerMutations?.saveInvoiceVersion
-    ? await ctx.trackerMutations.saveInvoiceVersion(invoiceDraft)
-    : invoiceDraft;
+  const invoice = await ctx.trackerMutations.saveInvoiceVersion(invoiceDraft);
 
   const audit = createAuditLog(
     ctx,

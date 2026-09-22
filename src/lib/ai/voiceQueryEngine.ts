@@ -16,6 +16,7 @@ import { aiUnderstandingEngine } from './aiUnderstandingEngine';
 import { buildPageContext } from './aiPageContext';
 import { runProjectCreationWizard } from './projectCreationWizard';
 import { prepareClientCommunication } from './clientCommunication';
+import { planNaturalLanguageAction, shouldUseAIPlanner } from './aiPlannerService';
 
 export class VoiceQueryEngine {
   private static instance: VoiceQueryEngine;
@@ -195,7 +196,7 @@ export class VoiceQueryEngine {
       ctx,
     );
 
-    const understanding = aiUnderstandingEngine.processMessage(q, ctx, pageCtx);
+    const understanding = aiUnderstandingEngine.processMessage(q, ctx, pageCtx, { enableLegacyWritePlanning: false });
 
     // Smart Clarification Check
     // Do not let a low-confidence/unknown result from the newer understanding
@@ -239,6 +240,22 @@ export class VoiceQueryEngine {
       this.updateMemory(writeIntent, q);
       this.logExecution(ctx, q, writeIntent.toolName, writeIntent.success, writeIntent.error);
       return writeIntent;
+    }
+
+    // Natural-language planner is a normalization layer only. It cannot execute
+    // anything itself; normalized commands still pass through this deterministic
+    // permission, validation, preview, confirmation and execution pipeline.
+    if (shouldUseAIPlanner(q)) {
+      const plan = await planNaturalLanguageAction(q, ctx);
+      if (plan?.planned && plan.normalizedCommand) {
+        const normalized = plan.normalizedCommand.trim();
+        const plannedResult = await this.detectWriteIntent(normalized.toLowerCase(), normalized, ctx);
+        if (plannedResult) {
+          this.updateMemory(plannedResult, q);
+          this.logExecution(ctx, q, plannedResult.toolName, plannedResult.success, plannedResult.error);
+          return plannedResult;
+        }
+      }
     }
 
     // ==========================================
@@ -454,7 +471,9 @@ export class VoiceQueryEngine {
         const match = q.match(/(?:invoice|bill|for)\s+(?:client\s+)?([a-zA-Z0-9\s]+?)(?:\s+for\s+all|\s+for\s+pending|\s+pending|\s*$)/i);
         const candidate = match ? match[1].trim() : '';
         if (candidate && candidate.toLowerCase() !== 'all' && candidate.toLowerCase() !== 'client') {
-          return safeActions.execute_generate_client_invoice({ clientName: candidate }, ctx);
+          const prepared = safeActions.prepare_generate_client_invoice({ clientName: candidate }, ctx);
+          if (prepared.pendingAction) this.memory.pendingAction = prepared.pendingAction;
+          return prepared;
         }
 
         return {
@@ -465,7 +484,9 @@ export class VoiceQueryEngine {
         };
       }
 
-      return safeActions.execute_generate_client_invoice({ clientName }, ctx);
+      const prepared = safeActions.prepare_generate_client_invoice({ clientName }, ctx);
+      if (prepared.pendingAction) this.memory.pendingAction = prepared.pendingAction;
+      return prepared;
     }
 
     // ----------------------------------------------------
@@ -904,6 +925,214 @@ export class VoiceQueryEngine {
     }
 
     // ----------------------------------------------------
+    // C2. SUBMIT CURRENT PRODUCTION STAGE FOR CLIENT APPROVAL
+    // Uses the canonical workflow RPC through useTracker; never forces status fields.
+    // ----------------------------------------------------
+    const isStageSubmissionIntent =
+      !lower.includes('approve ') &&
+      (
+        /\b(submit|send|share)\b/i.test(lower) ||
+        /\b(bhejo|bhej\s*do|jama\s*karo|jama\s*krdo)\b/i.test(lower) ||
+        /(?:بھیجو|جمع)/u.test(q)
+      ) &&
+      (
+        lower.includes('design concept') ||
+        /\bconcept\b/i.test(lower) ||
+        lower.includes('print version') ||
+        lower.includes('ebook version') ||
+        lower.includes('e-book version') ||
+        lower.includes('final delivery') ||
+        lower.includes('current stage')
+      ) &&
+      (
+        lower.includes('client') ||
+        lower.includes('approval') ||
+        lower.includes('review') ||
+        lower.includes('submit') ||
+        lower.includes('send') ||
+        lower.includes('bhejo')
+      );
+
+    if (isStageSubmissionIntent) {
+      if (isClientRole(ctx.currentProfile.role)) {
+        return {
+          success: false,
+          toolName: 'submit_stage_for_approval',
+          error: 'permission_denied',
+          spokenText: 'Client accounts cannot submit Manuscript Heaven production stages.',
+          displayText: '🔒 Production-stage submission is restricted to the Manuscript Heaven team.',
+        };
+      }
+
+      let matchedProject = this.findProjectInQueryOrMemory(lower, ctx);
+
+      if (!matchedProject) {
+        const clientName = this.extractClientFromQuery(lower, ctx);
+        if (clientName) {
+          const clientProjects = ctx.visibleProjects.filter(
+            (project) => project.client_name.toLowerCase() === clientName.toLowerCase(),
+          );
+
+          if (clientProjects.length === 1) {
+            matchedProject = clientProjects[0];
+          } else if (clientProjects.length > 1) {
+            const options: DisambiguationOption[] = clientProjects.map((project) => ({
+              id: project.id,
+              title: project.project_title,
+              subtitle: `${project.project_number} • Stage: ${project.current_stage || project.workflow_stage_key || project.status}`,
+              type: 'project',
+              data: { projectId: project.id },
+            }));
+            this.setPendingDisambiguation(options, {
+              originalQuery: q,
+              intentType: 'submit_stage_for_approval',
+              targetPayload: {},
+            });
+            return {
+              success: true,
+              toolName: 'submit_stage_for_approval',
+              spokenText: `I found ${clientProjects.length} projects for ${clientName}. Which project should I submit?`,
+              displayText: `I found **${clientProjects.length} projects for ${clientName}**. Which one should be submitted for client approval?`,
+              disambiguation: options,
+            };
+          }
+        }
+      }
+
+      if (!matchedProject) {
+        return {
+          success: false,
+          toolName: 'submit_stage_for_approval',
+          error: 'project_not_found',
+          spokenText: 'Please specify the project you want to submit.',
+          displayText: '❓ I need the project title or project number before I can submit a production stage.',
+        };
+      }
+
+      const stageKey = String(matchedProject.workflow_stage_key || '');
+      const approvalStage =
+        stageKey === 'concept_approval' ||
+        stageKey === 'print_approval' ||
+        stageKey === 'ebook_approval';
+
+      if (approvalStage) {
+        return {
+          success: true,
+          toolName: 'submit_stage_for_approval',
+          spokenText: `${matchedProject.project_title} is already waiting for client approval.`,
+          displayText:
+            `### Already Submitted\n\n**${matchedProject.project_title}** (${matchedProject.project_number}) is already at **${matchedProject.current_stage || stageKey}** and waiting on the client. No duplicate submission was made.`,
+        };
+      }
+
+      const stageLabels: Record<string, string> = {
+        design_concept: 'Design Concept',
+        print_version: 'Print Version',
+        ebook_version: 'eBook Version',
+        final_delivery: 'Final Delivery',
+      };
+      const stageLabel = stageLabels[stageKey];
+
+      if (!stageLabel) {
+        return {
+          success: false,
+          toolName: 'submit_stage_for_approval',
+          error: 'invalid_workflow_stage',
+          spokenText: `${matchedProject.project_title} is not at a stage that can be submitted right now.`,
+          displayText:
+            `### Stage Cannot Be Submitted\n\n• **Project:** ${matchedProject.project_title}\n• **Current Stage:** ${matchedProject.current_stage || stageKey || matchedProject.status}\n\nI will not skip or force the canonical workflow.`,
+        };
+      }
+
+      const requestedStage =
+        lower.includes('print version')
+          ? 'print_version'
+          : lower.includes('ebook version') || lower.includes('e-book version')
+            ? 'ebook_version'
+            : lower.includes('final delivery')
+              ? 'final_delivery'
+              : lower.includes('design concept') || /\bconcept\b/i.test(lower)
+                ? 'design_concept'
+                : null;
+
+      if (requestedStage && requestedStage !== stageKey) {
+        return {
+          success: false,
+          toolName: 'submit_stage_for_approval',
+          error: 'stage_mismatch',
+          spokenText: `The requested stage does not match the project's current workflow stage.`,
+          displayText:
+            `### Stage Mismatch\n\n• **Project:** ${matchedProject.project_title}\n• **Requested:** ${stageLabels[requestedStage] || requestedStage}\n• **Current:** **${stageLabel}**\n\nI did not change or skip the workflow.`,
+        };
+      }
+
+      const fileUrlMatch = q.match(/https?:\/\/[^\s)]+/i);
+      const fileUrl = fileUrlMatch?.[0];
+      const existingDeliverable =
+        stageKey === 'design_concept'
+          ? matchedProject.cover_file_link || matchedProject.proof_pdf_link
+          : stageKey === 'print_version'
+            ? matchedProject.proof_pdf_link || matchedProject.final_print_pdf_link
+            : stageKey === 'ebook_version'
+              ? matchedProject.final_ebook_link
+              : matchedProject.final_print_pdf_link || matchedProject.other_links;
+
+      if (!fileUrl && !existingDeliverable) {
+        return {
+          success: false,
+          toolName: 'submit_stage_for_approval',
+          error: 'deliverable_required',
+          spokenText: `Please attach or add the ${stageLabel} deliverable before submitting it.`,
+          displayText:
+            `### Deliverable Required\n\n**${matchedProject.project_title}** is ready for **${stageLabel}**, but no proof/deliverable link is attached. Add the file/link first, then ask me to submit it.`,
+        };
+      }
+
+      const preview: AIActionPreview = {
+        actionId: `act-${Date.now()}`,
+        toolName: 'submit_stage_for_approval',
+        category: 'high_risk',
+        title: stageKey === 'final_delivery' ? 'Complete Final Delivery' : `Submit ${stageLabel}`,
+        description:
+          stageKey === 'final_delivery'
+            ? `Complete final delivery for ${matchedProject.project_title}`
+            : `Submit ${stageLabel} for ${matchedProject.project_title} to the client`,
+        targetType: 'project',
+        targetId: matchedProject.id,
+        targetTitle: matchedProject.project_title,
+        clientName: matchedProject.client_name,
+        changes: [
+          { field: 'stage', label: 'Current Stage', oldValue: stageLabel, newValue: stageKey === 'final_delivery' ? 'Completed / Delivered' : 'Awaiting Client Approval' },
+        ],
+        payload: {
+          projectId: matchedProject.id,
+          fileUrl,
+        },
+        confirmButtonText: stageKey === 'final_delivery' ? 'Complete Delivery' : `Submit ${stageLabel}`,
+        cancelButtonText: 'Cancel',
+        spokenPrompt:
+          stageKey === 'final_delivery'
+            ? `Complete final delivery for ${matchedProject.project_title}? Confirm?`
+            : `Submit the ${stageLabel} for ${matchedProject.project_title} to ${matchedProject.client_name} for approval? Confirm?`,
+      };
+
+      this.memory.pendingAction = preview;
+      return {
+        success: true,
+        toolName: 'submit_stage_for_approval',
+        spokenText: preview.spokenPrompt,
+        displayText:
+          `### ${stageKey === 'final_delivery' ? 'Final Delivery Preview' : 'Client Approval Submission'}\n\n` +
+          `• **Project:** **${matchedProject.project_title}** (${matchedProject.project_number})\n` +
+          `• **Client:** ${matchedProject.client_name}\n` +
+          `• **Stage:** **${stageLabel}**\n` +
+          `• **Deliverable:** ${fileUrl || existingDeliverable}\n\n` +
+          '**Nothing has been submitted yet. Confirm to continue.**',
+        pendingAction: preview,
+      };
+    }
+
+    // ----------------------------------------------------
     // D. PROJECT STATUS & STAGE ACTIONS
     // e.g. "Put Project BCH to Print Approval", "Put QAI Reformatting on hold", "Resume Book 2", "Move Book 2 to In Revision", "Change status for project BCH to Print approval", "Set project BCH to Print Approval"
     // ----------------------------------------------------
@@ -1035,6 +1264,45 @@ export class VoiceQueryEngine {
           error: 'project_not_found',
           spokenText: "I couldn't find the project to change status for.",
           displayText: '❌ Project not found.',
+        };
+      }
+
+      // Approval-stage requests are translated into the dedicated canonical
+      // submission action when the project is at the matching production stage.
+      if (targetStage) {
+        const approvalSubmissionMap: Record<string, { productionStage: string; phrase: string }> = {
+          'Concept Approval': { productionStage: 'design_concept', phrase: 'design concept' },
+          'Print Approval': { productionStage: 'print_version', phrase: 'print version' },
+          'eBook Approval': { productionStage: 'ebook_version', phrase: 'eBook version' },
+        };
+        const mapped = approvalSubmissionMap[targetStage];
+        if (mapped) {
+          if (String(matchedProject.workflow_stage_key || '') === mapped.productionStage) {
+            const submitQuery = `Submit the ${mapped.phrase} for ${matchedProject.project_number} for client approval`;
+            return this.detectWriteIntent(submitQuery.toLowerCase(), submitQuery, ctx);
+          }
+
+          return {
+            success: false,
+            toolName: 'update_project_status',
+            error: 'canonical_workflow_required',
+            spokenText: `${matchedProject.project_title} is not at the production stage required for ${targetStage}.`,
+            displayText:
+              `### Canonical Workflow Required\n\n` +
+              `• **Project:** ${matchedProject.project_title}\n` +
+              `• **Current Stage:** ${matchedProject.current_stage || matchedProject.workflow_stage_key || matchedProject.status}\n` +
+              `• **Requested:** ${targetStage}\n\n` +
+              'I did not skip or force any workflow stage.',
+          };
+        }
+
+        return {
+          success: false,
+          toolName: 'update_project_status',
+          error: 'canonical_workflow_required',
+          spokenText: 'Workflow stages cannot be changed as free-form status fields.',
+          displayText:
+            `### Workflow-Controlled Stage\n\n**${targetStage}** must be reached through the canonical workflow. I did not force the project into that stage.`,
         };
       }
 
@@ -1718,6 +1986,8 @@ export class VoiceQueryEngine {
         return safeActions.execute_add_project_note(action.payload as any, ctx);
       case 'approve_project_milestone':
         return safeActions.execute_approve_project_milestone(action.payload as any, ctx);
+      case 'submit_stage_for_approval':
+        return safeActions.execute_submit_stage_for_approval(action.payload as any, ctx);
       case 'invite_client':
         return safeActions.execute_invite_client(action.payload as any, ctx);
       case 'record_project_payment':
@@ -1799,6 +2069,14 @@ export class VoiceQueryEngine {
           displayText: `Should I mark task **"${task.title}"** from *${task.status}* to **${targetStatus}**?`,
           pendingAction: preview,
         };
+      }
+    }
+
+    if (selected.type === 'project' && context?.intentType === 'submit_stage_for_approval') {
+      const project = ctx.visibleProjects.find((item) => item.id === selected.id);
+      if (project) {
+        const reroutedQuery = `${context.originalQuery || 'Submit current stage for client approval'} ${project.project_number} ${project.project_title}`;
+        return this.detectWriteIntent(reroutedQuery.toLowerCase(), reroutedQuery, ctx);
       }
     }
 

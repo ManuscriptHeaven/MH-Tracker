@@ -33,6 +33,7 @@ export class AIUnderstandingEngine {
     userMessage: string,
     toolCtx: AIToolContext,
     pageCtx?: PageContext,
+    options: { enableLegacyWritePlanning?: boolean } = {},
   ): AIUnderstandingOutput {
     const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const timestamp = new Date().toISOString();
@@ -91,8 +92,13 @@ export class AIUnderstandingEngine {
     if (convoState.lastIntent) contextUsed.push('conversation_history');
     if (finalResolvedEntities.length > 0) contextUsed.push('app_data');
 
-    // 12. Phase 4 Server-Side Approval Request & Rejection Interception
-    const pendingApproval = this.approvalEngine.getPendingApprovalForUser(toolCtx.currentProfile.id);
+    // 12. Legacy Phase 4 approval interception is retained for the standalone
+    // evaluation suites only. The production VoiceQueryEngine disables it so
+    // there is exactly one write/confirmation authority.
+    const legacyWritePlanningEnabled = options.enableLegacyWritePlanning !== false;
+    const pendingApproval = legacyWritePlanningEnabled
+      ? this.approvalEngine.getPendingApprovalForUser(toolCtx.currentProfile.id)
+      : undefined;
     if (pendingApproval) {
       if (this.approvalEngine.isApprovalRequest(userMessage)) {
         const execRes = this.approvalEngine.approveProposal(pendingApproval.approvalId, toolCtx.currentProfile.id, toolCtx);
@@ -144,14 +150,16 @@ export class AIUnderstandingEngine {
     }
 
     // 13. Phase 3 & Phase 4 Action & Proposal Planning
-    const actionPlanRes = buildActionPlan(
-      userMessage,
-      intent,
-      finalResolvedEntities,
-      resolvedDates,
-      toolCtx,
-      pageCtx,
-    );
+    const actionPlanRes = legacyWritePlanningEnabled
+      ? buildActionPlan(
+          userMessage,
+          intent,
+          finalResolvedEntities,
+          resolvedDates,
+          toolCtx,
+          pageCtx,
+        )
+      : ({ isAction: false } as ReturnType<typeof buildActionPlan>);
 
     let proposalObj: any = undefined;
     let approvalRecObj: any = undefined;
