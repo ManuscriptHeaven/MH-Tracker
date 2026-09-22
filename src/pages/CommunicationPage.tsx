@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   AtSign,
-  BellOff,
   Calendar,
   Check,
   CheckCheck,
@@ -103,6 +102,29 @@ type FilterMode = 'all' | 'unread' | 'mentions';
 type ConvTab = 'chat' | 'files' | 'tasks' | 'details';
 type NewMsgType = 'dm' | 'channel' | 'project_internal' | 'project_client';
 type MobilePanel = 'list' | 'chat' | 'context';
+
+const LAST_CONVERSATION_STORAGE_PREFIX = 'mh_messages_last_conversation:';
+
+function readLastConversationId(profileId: string): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage.getItem(`${LAST_CONVERSATION_STORAGE_PREFIX}${profileId}`);
+  } catch {
+    return null;
+  }
+}
+
+function rememberLastConversationId(profileId: string, conversationId: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(
+      `${LAST_CONVERSATION_STORAGE_PREFIX}${profileId}`,
+      conversationId,
+    );
+  } catch {
+    // Browsers can block localStorage in restricted/private contexts.
+  }
+}
 
 /* ═══════════════════════════════════════════════════════════════
    HELPERS
@@ -395,11 +417,18 @@ function NewMessageModal({
   const [targetProject, setTargetProject] = useState('');
   const [targetChannel, setTargetChannel] = useState('general');
 
+  const canOpen = type === 'channel'
+    ? Boolean(targetChannel)
+    : type === 'dm'
+      ? Boolean(targetUser)
+      : Boolean(targetProject);
+
   function handleOpen() {
-    if (type === 'dm' && targetUser) onOpen('dm', targetUser);
+    if (!canOpen) return;
+    if (type === 'dm') onOpen('dm', targetUser);
     else if (type === 'channel') onOpen('channel', targetChannel);
-    else if (type === 'project_internal' && targetProject) onOpen('project_internal', targetProject);
-    else if (type === 'project_client' && targetProject) onOpen('project_client', targetProject);
+    else if (type === 'project_internal') onOpen('project_internal', targetProject);
+    else if (type === 'project_client') onOpen('project_client', targetProject);
     onClose();
   }
 
@@ -479,7 +508,8 @@ function NewMessageModal({
           <button onClick={onClose} className="rounded-lg px-4 py-2 text-xs font-semibold text-muted hover:text-ink transition">Cancel</button>
           <button
             onClick={handleOpen}
-            className="flex items-center gap-1.5 rounded-lg bg-gold px-4 py-2 text-xs font-bold text-ink hover:bg-gold/90 transition"
+            disabled={!canOpen}
+            className="flex items-center gap-1.5 rounded-lg bg-gold px-4 py-2 text-xs font-bold text-ink hover:bg-gold/90 transition disabled:cursor-not-allowed disabled:opacity-40"
           >
             <MessageSquare className="h-3.5 w-3.5" /> Open Conversation
           </button>
@@ -531,49 +561,59 @@ export function CommunicationPage({
 
   /* ── Derived helpers ── */
   const teamMembers = useMemo(
-    () => profiles.filter(p => p.role !== 'client' && p.id !== currentProfile.id),
+    () => profiles.filter(
+      p => p.status === 'active' && p.role !== 'client' && p.id !== currentProfile.id,
+    ),
     [profiles, currentProfile.id],
   );
 
   /* Unread counts */
   const unreadCountMap = useMemo(() => {
     const map: Record<string, number> = {};
-    const mine = conversationMembers.filter(m => m.user_id === currentProfile.id);
-    for (const m of mine) {
-      const lastRead = m.last_read_at ? new Date(m.last_read_at).getTime() : 0;
-      map[m.conversation_id] = messages.filter(
-        msg => msg.conversation_id === m.conversation_id &&
+    for (const conversation of allConversations) {
+      const membership = conversationMembers.find(
+        m => m.conversation_id === conversation.id && m.user_id === currentProfile.id,
+      );
+      const lastRead = membership?.last_read_at ? new Date(membership.last_read_at).getTime() : 0;
+      map[conversation.id] = messages.filter(
+        msg => msg.conversation_id === conversation.id &&
           msg.sender_id !== currentProfile.id &&
           new Date(msg.created_at).getTime() > lastRead,
       ).length;
     }
     return map;
-  }, [conversationMembers, messages, currentProfile.id]);
+  }, [allConversations, conversationMembers, messages, currentProfile.id]);
 
   const totalUnread = useMemo(() => Object.values(unreadCountMap).reduce((s, n) => s + n, 0), [unreadCountMap]);
 
   /* Mention conv IDs */
   const mentionConvIds = useMemo(() => {
-    const mine = conversationMembers.filter(m => m.user_id === currentProfile.id);
-    const mentionedMsgIds = new Set(messageMentions.filter(m => m.user_id === currentProfile.id).map(m => m.message_id));
+    const mentionedMsgIds = new Set(
+      messageMentions.filter(m => m.user_id === currentProfile.id).map(m => m.message_id),
+    );
     const ids = new Set<string>();
-    for (const m of mine) {
-      const lastRead = m.last_read_at ? new Date(m.last_read_at).getTime() : 0;
+    for (const conversation of allConversations) {
+      const membership = conversationMembers.find(
+        m => m.conversation_id === conversation.id && m.user_id === currentProfile.id,
+      );
+      const lastRead = membership?.last_read_at ? new Date(membership.last_read_at).getTime() : 0;
       const has = messages.some(msg =>
-        msg.conversation_id === m.conversation_id &&
+        msg.conversation_id === conversation.id &&
         msg.sender_id !== currentProfile.id &&
         new Date(msg.created_at).getTime() > lastRead &&
         mentionedMsgIds.has(msg.id)
       );
-      if (has) ids.add(m.conversation_id);
+      if (has) ids.add(conversation.id);
     }
     return ids;
-  }, [conversationMembers, messageMentions, messages, currentProfile.id]);
+  }, [allConversations, conversationMembers, messageMentions, messages, currentProfile.id]);
 
   const totalMentions = mentionConvIds.size;
 
   /* ── UI State ── */
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(
+    () => readLastConversationId(currentProfile.id),
+  );
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [projectConvMode, setProjectConvMode] = useState<'internal' | 'client'>('internal');
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
@@ -587,7 +627,7 @@ export function CommunicationPage({
   const [pendingAttachments, setPendingAttachments] = useState<
     { file: File; file_name: string; file_type: string; file_size: number }[]
   >([]);
-  const [showNewMsg, setShowNewMsg] = useState(() => !isClient);
+  const [showNewMsg, setShowNewMsg] = useState(false);
   const [createTaskMessage, setCreateTaskMessage] = useState<ChatMessage | null>(null);
   const [activeConvTab, setActiveConvTab] = useState<ConvTab>('chat');
   const [contextPanelOpen, setContextPanelOpen] = useState(false);
@@ -603,6 +643,24 @@ export function CommunicationPage({
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const emojiRef = useRef<HTMLDivElement | null>(null);
+
+  /* ── Restore and remember the last conversation for this signed-in user ── */
+  useEffect(() => {
+    if (!activeConversationId) return;
+    const conv = allConversations.find(c => c.id === activeConversationId);
+    if (!conv) return;
+
+    rememberLastConversationId(currentProfile.id, conv.id);
+    setShowNewMsg(false);
+    setMobilePanel('chat');
+
+    if (conv.project_id) {
+      setActiveProjectId(conv.project_id);
+      setProjectConvMode(conv.type === 'project_client' ? 'client' : 'internal');
+    } else {
+      setActiveProjectId(null);
+    }
+  }, [activeConversationId, allConversations, currentProfile.id]);
 
   /* ── Jump to specific conversation from notification ── */
   useEffect(() => {
@@ -621,8 +679,7 @@ export function CommunicationPage({
     }
     onMarkRead(jumpToConversationId).catch(() => {});
     onJumpHandled?.();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jumpToConversationId]);
+  }, [allConversations, jumpToConversationId, onJumpHandled, onMarkRead]);
 
   /* ── Scroll to bottom on new messages ── */
   useEffect(() => {
@@ -1011,6 +1068,10 @@ export function CommunicationPage({
         {/* CLIENT VIEW */}
         {isClient && allConversations
           .filter(c => c.type === 'project_client' && c.project_id)
+          .filter(c => {
+            const proj = projects.find(p => p.id === c.project_id);
+            return convMatchesSearch(c, `${proj?.project_title || 'Project'} ${proj?.client_name || ''}`);
+          })
           .filter(c => convPassesFilter(c.id))
           .map(c => {
             const proj = projects.find(p => p.id === c.project_id);
@@ -1041,8 +1102,10 @@ export function CommunicationPage({
               onToggle={() => setDmsCollapsed(v => !v)}
             >
               {dmConvs
-                .filter(({ member }) => matchesSearch(member.full_name))
-                .filter(({ conv }) => !conv || convPassesFilter(conv.id))
+                .filter(({ member, conv }) =>
+                  conv ? convMatchesSearch(conv, member.full_name) : matchesSearch(member.full_name),
+                )
+                .filter(({ conv }) => filterMode === 'all' || Boolean(conv && convPassesFilter(conv.id)))
                 .map(({ member, conv }) => {
                   const last = conv ? lastMsgFor(conv.id) : null;
                   return (
@@ -1069,7 +1132,12 @@ export function CommunicationPage({
               onToggle={() => setProjectsCollapsed(v => !v)}
             >
               {projectConvItems
-                .filter(({ proj }) => matchesSearch(proj.project_title) || matchesSearch(proj.client_name))
+                .filter(({ proj, internalConv, clientConv }) =>
+                  matchesSearch(proj.project_title) ||
+                  matchesSearch(proj.client_name) ||
+                  Boolean(internalConv && convMatchesSearch(internalConv, proj.project_title)) ||
+                  Boolean(clientConv && convMatchesSearch(clientConv, proj.project_title)),
+                )
                 .filter(({ internalConv, clientConv }) => {
                   if (filterMode === 'all') return true;
                   return [internalConv?.id, clientConv?.id].filter(Boolean).some(id => convPassesFilter(id!));
@@ -1099,11 +1167,15 @@ export function CommunicationPage({
               collapsed={channelsCollapsed}
               onToggle={() => setChannelsCollapsed(v => !v)}
             >
-              {TEAM_CHANNELS.filter(ch => matchesSearch(ch.name)).map(ch => {
+              {TEAM_CHANNELS.map(ch => {
                 const conv = allConversations.find(c => c.type === 'team_channel' && c.name === ch.name);
                 const last = conv ? lastMsgFor(conv.id) : null;
                 const unread = conv ? unreadCountMap[conv.id] || 0 : 0;
-                if (conv && filterMode !== 'all' && !convPassesFilter(conv.id)) return null;
+                const searchMatches = conv
+                  ? convMatchesSearch(conv, `#${ch.name}`)
+                  : matchesSearch(ch.name);
+                if (!searchMatches) return null;
+                if (filterMode !== 'all' && (!conv || !convPassesFilter(conv.id))) return null;
                 return (
                   <ConvRow
                     key={ch.name}
@@ -1530,7 +1602,9 @@ export function CommunicationPage({
               {showMentionPopover && (
                 <div className="shrink-0 mx-4 mb-1 rounded-lg border border-border bg-white shadow-soft max-h-36 overflow-y-auto">
                   <p className="px-3 py-1.5 text-[10px] font-bold uppercase text-muted">Mention Someone</p>
-                  {profiles.map(p => (
+                  {profiles
+                    .filter(p => p.status === 'active' && p.id !== currentProfile.id)
+                    .map(p => (
                     <button
                       key={p.id}
                       onClick={() => { setMessageInput(prev => prev + `@${firstName(p.full_name)} `); setShowMentionPopover(false); }}
@@ -1793,13 +1867,11 @@ export function CommunicationPage({
             <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-gold/15 text-[#7a5518]">
               <MessageSquare className="h-6 w-6" />
             </div>
-            <h3 className="mt-4 font-display text-lg font-bold text-ink">
-              {isClient ? 'Choose a conversation' : 'New Message'}
-            </h3>
+            <h3 className="mt-4 font-display text-lg font-bold text-ink">Choose a conversation</h3>
             <p className="mt-1 text-xs leading-relaxed text-muted">
               {isClient
                 ? 'Choose one of your project conversations to continue.'
-                : 'Start a fresh direct message, project conversation, or team channel. Previous chats stay closed until you choose one.'}
+                : 'Pick a previous chat from the left, or compose a new message.'}
             </p>
             {!isClient ? (
               <button
@@ -1915,21 +1987,6 @@ export function CommunicationPage({
                 </div>
               </div>
             )}
-
-            {/* OPTIONS */}
-            <div className="px-4 py-4">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-muted mb-3">Options</p>
-              <div className="space-y-1">
-                <button className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs text-ink hover:bg-black/5 transition">
-                  <BellOff className="h-3.5 w-3.5 text-muted" />
-                  Mute Notifications
-                </button>
-                <button className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs text-ink hover:bg-black/5 transition">
-                  <Search className="h-3.5 w-3.5 text-muted" />
-                  Search in Conversation
-                </button>
-              </div>
-            </div>
 
           </div>
         ) : (

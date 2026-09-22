@@ -44,10 +44,11 @@ assert(
 );
 
 assert(
-  messages.includes('const [showNewMsg, setShowNewMsg] = useState(() => !isClient)') &&
-    !messages.includes('Auto-select first conversation') &&
-    !messages.includes('setActiveConversationId(allConversations[0].id)'),
-  'Messages opens in New Message state instead of the previous/first chat',
+  messages.includes('const [showNewMsg, setShowNewMsg] = useState(false)') &&
+    messages.includes("LAST_CONVERSATION_STORAGE_PREFIX = 'mh_messages_last_conversation:'") &&
+    messages.includes('readLastConversationId(currentProfile.id)') &&
+    messages.includes('rememberLastConversationId(currentProfile.id, conv.id)'),
+  'Messages restores the signed-in user’s previous conversation without auto-opening New Message',
 );
 
 assert(
@@ -58,14 +59,16 @@ assert(
 );
 
 assert(
-  messages.includes("Previous chats stay closed until you choose one.") &&
+  !messages.includes("Previous chats stay closed until you choose one.") &&
+    messages.includes('Pick a previous chat from the left, or compose a new message.') &&
     messages.includes('Compose New Message'),
-  'empty Messages workspace clearly presents a fresh compose action',
+  'empty Messages workspace prioritizes existing conversations while retaining manual compose',
 );
 
 assert(
-  messages.includes('setShowNewMsg(false);\n    setActiveConversationId(jumpToConversationId)'),
-  'notification deep links close the composer and open the requested conversation',
+  messages.includes('setShowNewMsg(false);\n    setActiveConversationId(jumpToConversationId)') &&
+    messages.includes('[allConversations, jumpToConversationId, onJumpHandled, onMarkRead]'),
+  'notification deep links close the composer, retry after data loads, and open the requested conversation',
 );
 
 if (process.exitCode) {

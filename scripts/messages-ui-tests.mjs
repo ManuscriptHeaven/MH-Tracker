@@ -87,6 +87,28 @@ assert(
   'message bubbles have improved width and readable typography',
 );
 
+assert(
+  messages.includes('const canOpen =') &&
+    messages.includes('disabled={!canOpen}') &&
+    messages.includes("p.status === 'active' && p.role !== 'client'") &&
+    messages.includes("p.status === 'active' && p.id !== currentProfile.id"),
+  'compose and mention pickers prevent invalid or inactive messaging targets',
+);
+
+assert(
+  messages.includes('for (const conversation of allConversations)') &&
+    messages.includes("filterMode === 'all' || Boolean(conv && convPassesFilter(conv.id))") &&
+    messages.includes('convMatchesSearch(c,') &&
+    messages.includes('const searchMatches = conv'),
+  'conversation unread filters and search behave consistently across client, DM, project, and channel lists',
+);
+
+assert(
+  !messages.includes('Mute Notifications') &&
+    !messages.includes('Search in Conversation'),
+  'unimplemented conversation actions are not presented as working controls',
+);
+
 if (process.exitCode) {
   console.error('Messages UI / demo cleanup regression checks failed.');
 } else {

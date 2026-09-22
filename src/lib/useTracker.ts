@@ -3898,7 +3898,9 @@ export function useTracker() {
         };
       });
 
-      void markConversationRead(conversationId);
+      void markConversationRead(conversationId).catch((readError) => {
+        console.warn('Message sent, but read receipt could not be updated:', readError);
+      });
       return newMessage;
     },
     [currentProfile, data.profiles, mode],
@@ -4105,11 +4107,10 @@ export function useTracker() {
       const existing = (data.conversations || []).find(
         (c) => c.project_id === projectId && c.type === type,
       );
-      if (existing) {
-        await ensureScopedConversationSelfMembership(existing.id);
-        return existing;
-      }
 
+      // In Supabase mode, always revalidate project conversations through the
+      // server RPC. In particular, a cached project-client conversation must
+      // not bypass the active-client-recipient check.
       if (supabase && mode === 'supabase') {
         const { data: conversationId, error } = await supabase.rpc(
           'phase6_get_or_create_project_conversation',
@@ -4141,8 +4142,10 @@ export function useTracker() {
         }));
 
         await loadSupabaseData(currentProfile);
-        return confirmed;
+        return existing?.id === confirmed.id ? existing : confirmed;
       }
+
+      if (existing) return existing;
 
       const now = new Date().toISOString();
       const newConv: Conversation = { id: createUuid(), type, project_id: projectId, created_by: currentProfile.id, created_at: now, updated_at: now };
@@ -4153,7 +4156,7 @@ export function useTracker() {
 
       return newConv;
     },
-    [currentProfile, data.conversations, ensureScopedConversationSelfMembership, loadSupabaseData, mode],
+    [currentProfile, data.conversations, loadSupabaseData, mode],
   );
 
   const getOrCreateTaskConversation = useCallback(
