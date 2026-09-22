@@ -3,13 +3,29 @@ import { isClientRole } from '../utils';
 
 export type AIPlannedIntent =
   | 'create_project'
+  | 'duplicate_project'
   | 'create_task'
+  | 'assign_task'
+  | 'update_task_status'
+  | 'update_task_due_date'
+  | 'delete_task'
   | 'submit_stage_for_approval'
+  | 'approve_project_milestone'
+  | 'update_project_status'
+  | 'update_project_due_date'
+  | 'delete_project'
+  | 'add_project_note'
+  | 'reassign_revision'
+  | 'update_revision_status'
   | 'generate_client_invoice'
   | 'draft_client_communication'
-  | 'update_project_status'
   | 'record_project_payment'
-  | 'assign_task'
+  | 'record_expense'
+  | 'record_payroll_payment'
+  | 'add_payroll_advance'
+  | 'add_payroll_deduction'
+  | 'send_internal_message'
+  | 'invite_client'
   | 'unknown';
 
 export interface AIPlannerResult {
@@ -50,6 +66,15 @@ function safePlannerContext(ctx: AIToolContext) {
       current_stage: project.current_stage,
       status: project.status,
     })),
+    tasks: isClientRole(ctx.currentProfile.role)
+      ? []
+      : ctx.visibleTasks.slice(0, 80).map((task) => ({
+          title: task.title,
+          status: task.status,
+          due_date: task.due_date,
+          project_id: task.project_id,
+          assigned_to: task.assigned_to,
+        })),
     team: isClientRole(ctx.currentProfile.role)
       ? []
       : ctx.data.profiles
