@@ -118,6 +118,41 @@ from public.profiles p
 on conflict(workspace_id,user_id) do update
 set role=excluded.role,status=excluded.status;
 
+
+create or replace function private.tenant_bootstrap_profile_membership()
+returns trigger
+language plpgsql
+security definer
+set search_path=pg_catalog,pg_temp
+as $fn$
+begin
+  insert into public.workspace_members(workspace_id,user_id,role,status)
+  values (
+    '6d68092e-a29b-4ce5-9f6c-5fe0a5d67a01'::uuid,
+    new.id,
+    case new.role::text
+      when 'admin' then 'owner'
+      when 'project_manager' then 'admin'
+      when 'manager' then 'admin'
+      when 'client' then 'client'
+      else 'member'
+    end,
+    case when new.status='active' then 'active' else 'suspended' end
+  )
+  on conflict(workspace_id,user_id) do update
+  set role=excluded.role,status=excluded.status;
+
+  return new;
+end
+$fn$;
+
+revoke all on function private.tenant_bootstrap_profile_membership() from public,anon,authenticated;
+
+drop trigger if exists tenant_bootstrap_profile_membership_trigger on public.profiles;
+create trigger tenant_bootstrap_profile_membership_trigger
+after insert or update of role,status on public.profiles
+for each row execute function private.tenant_bootstrap_profile_membership();
+
 alter table public.projects add column if not exists workspace_id uuid null;
 update public.projects
 set workspace_id='6d68092e-a29b-4ce5-9f6c-5fe0a5d67a01'::uuid
