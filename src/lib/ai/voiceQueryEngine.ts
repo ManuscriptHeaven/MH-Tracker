@@ -2750,11 +2750,7 @@ export class VoiceQueryEngine {
   }
 
   private containsEmployeeName(query: string, ctx: AIToolContext): boolean {
-    const teamProfiles = ctx.data.profiles.filter((p) => p.role !== 'client');
-    return teamProfiles.some((p) => {
-      const first = p.full_name.split(' ')[0].toLowerCase();
-      return query.includes(first) || query.includes(p.full_name.toLowerCase());
-    });
+    return Boolean(this.extractEmployeeFromQuery(query, ctx));
   }
 
   private extractEmployeeFromQuery(query: string, ctx: AIToolContext): string | undefined {
@@ -2773,8 +2769,7 @@ export class VoiceQueryEngine {
   }
 
   private containsClientName(query: string, ctx: AIToolContext): boolean {
-    const clientNames = Array.from(new Set(ctx.visibleProjects.map((p) => p.client_name).filter(Boolean)));
-    return clientNames.some((c) => query.includes(c.toLowerCase()) || c.toLowerCase().includes(query));
+    return Boolean(this.extractClientFromQuery(query, ctx));
   }
 
   private extractClientFromQuery(query: string, ctx: AIToolContext): string | undefined {
@@ -2808,11 +2803,17 @@ export class VoiceQueryEngine {
   }
 
   private containsProjectName(query: string, ctx: AIToolContext): boolean {
-    return ctx.visibleProjects.some((p) => {
-      const titleLower = p.project_title.toLowerCase();
-      const numLower = p.project_number.toLowerCase();
-      return query.includes(titleLower) || query.includes(numLower);
-    });
+    const resolution = resolveUniqueEntityMatch(
+      query,
+      ctx.visibleProjects.map((project) => ({
+        id: project.id,
+        label: project.project_title,
+        aliases: [project.project_number],
+        item: project,
+      })),
+      { minScore: 0.76, minGap: 0.11, ambiguityWindow: 0.06 },
+    );
+    return Boolean(resolution.match);
   }
 
   private extractProjectFromQuery(query: string, ctx: AIToolContext): string | undefined {
