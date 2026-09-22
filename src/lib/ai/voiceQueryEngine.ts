@@ -196,7 +196,7 @@ export class VoiceQueryEngine {
       ctx,
     );
 
-    const understanding = aiUnderstandingEngine.processMessage(q, ctx, pageCtx);
+    const understanding = aiUnderstandingEngine.processMessage(q, ctx, pageCtx, { enableLegacyWritePlanning: false });
 
     // Smart Clarification Check
     // Do not let a low-confidence/unknown result from the newer understanding
