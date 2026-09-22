@@ -119,7 +119,7 @@ export class VoiceQueryEngine {
       if (isAffirmative) {
         const action = pending;
         this.memory.pendingAction = null;
-        const result = await this.executeAction(action, ctx);
+        const result = await this.executeConfirmedAction(action, ctx);
         this.logExecution(ctx, q, action.toolName, result.success, result.error);
         return result;
       }
@@ -127,11 +127,15 @@ export class VoiceQueryEngine {
       if (isNegative) {
         const action = pending;
         this.memory.pendingAction = null;
+        const hadPlan = Boolean(this.memory.pendingActionPlan);
+        this.cancelPendingPlan();
         const result: AIToolResult = {
           success: true,
           toolName: action.toolName,
           spokenText: 'Action cancelled.',
-          displayText: '🛑 **Action cancelled.** No changes were made.',
+          displayText: hadPlan
+            ? '🛑 **Action plan cancelled.** No further steps will run. The pending step was not executed.'
+            : '🛑 **Action cancelled.** No changes were made.',
         };
         this.logExecution(ctx, q, action.toolName, true);
         return result;
@@ -198,6 +202,33 @@ export class VoiceQueryEngine {
     }
 
     // ==========================================
+    // 0D. CONTINUE A PARTIALLY SPECIFIED COMMAND
+    // The original instruction is retained so a short answer such as
+    // "Magazine 2", "$250", or "tomorrow" completes the request naturally.
+    // ==========================================
+    if (this.memory.pendingCommandCompletion) {
+      if (/\b(cancel|stop|never mind|nevermind|abort)\b/i.test(lower)) {
+        this.memory.pendingCommandCompletion = null;
+        return {
+          success: true,
+          toolName: 'get_project_summary',
+          spokenText: 'Okay. I cancelled that incomplete request.',
+          displayText: '🛑 **Incomplete request cancelled.** No changes were made.',
+        };
+      }
+
+      const pendingCompletion = this.memory.pendingCommandCompletion;
+      this.memory.pendingCommandCompletion = null;
+      const combined = `${pendingCompletion.originalQuery} ${q}`.trim();
+      const completed = await this.processQuery(combined, ctx);
+      if (completed.success || completed.pendingAction || completed.disambiguation) {
+        completed.displayText =
+          `_Using your follow-up to complete the earlier request._\n\n` + completed.displayText;
+      }
+      return completed;
+    }
+
+    // ==========================================
     // PHASE 1: AI UNDERSTANDING ENGINE PIPELINE
     // ==========================================
     const pageCtx = buildPageContext(
@@ -222,14 +253,31 @@ export class VoiceQueryEngine {
       (understanding.ambiguities.length > 0 || understanding.intent.name === 'assign_task');
 
     if (shouldClarifyBeforeLegacyParser && understanding.clarificationQuestion) {
+      const missingField =
+        understanding.ambiguities[0]?.field === 'project'
+          ? 'project'
+          : understanding.ambiguities[0]?.field === 'task'
+            ? 'task'
+            : understanding.intent.name === 'assign_task'
+              ? 'employee'
+              : 'details';
+
+      this.memory.pendingCommandCompletion = {
+        originalQuery: q,
+        toolName: understanding.intent.name === 'assign_task' ? 'assign_task' : 'get_tasks_summary',
+        missingField,
+        attempts: 0,
+        startedAt: new Date().toISOString(),
+      };
+
       const result: AIToolResult = {
         success: true,
-        toolName: 'get_tasks_summary',
+        toolName: understanding.intent.name === 'assign_task' ? 'assign_task' : 'get_tasks_summary',
         spokenText: understanding.clarificationQuestion,
         displayText: understanding.clarificationQuestion,
         disambiguation: understanding.ambiguities[0]?.options || [],
       };
-      this.logExecution(ctx, q, 'get_tasks_summary', true);
+      this.logExecution(ctx, q, result.toolName, true);
       return result;
     }
 
@@ -246,8 +294,30 @@ export class VoiceQueryEngine {
     // ==========================================
     // 2. WRITE & SAFE ACTIONS INTENT DETECTION
     // ==========================================
+    // Compound commands go to the planner before the single-command parser;
+    // otherwise the first recognizable action could swallow the rest of the sentence.
+    if (looksLikeCompoundAction(q) && shouldUseAIPlanner(q)) {
+      const compoundPlan = await planNaturalLanguageAction(q, ctx);
+      if (compoundPlan?.planned && compoundPlan.steps && compoundPlan.steps.length >= 2) {
+        const plannedResult = await this.startActionPlan(
+          q,
+          compoundPlan.steps.map((step) => ({
+            intent: step.intent,
+            normalizedCommand: step.normalizedCommand,
+            label: step.reason,
+            status: 'pending' as const,
+          })),
+          ctx,
+        );
+        this.updateMemory(plannedResult, q);
+        this.logExecution(ctx, q, plannedResult.toolName, plannedResult.success, plannedResult.error);
+        return plannedResult;
+      }
+    }
+
     const writeIntent = await this.detectWriteIntent(lower, q, ctx);
     if (writeIntent) {
+      this.rememberRecoverableCompletion(writeIntent, q);
       this.updateMemory(writeIntent, q);
       this.logExecution(ctx, q, writeIntent.toolName, writeIntent.success, writeIntent.error);
       return writeIntent;
@@ -258,10 +328,27 @@ export class VoiceQueryEngine {
     // permission, validation, preview, confirmation and execution pipeline.
     if (shouldUseAIPlanner(q)) {
       const plan = await planNaturalLanguageAction(q, ctx);
+      if (plan?.planned && plan.steps && plan.steps.length >= 2) {
+        const plannedResult = await this.startActionPlan(
+          q,
+          plan.steps.map((step) => ({
+            intent: step.intent,
+            normalizedCommand: step.normalizedCommand,
+            label: step.reason,
+            status: 'pending' as const,
+          })),
+          ctx,
+        );
+        this.updateMemory(plannedResult, q);
+        this.logExecution(ctx, q, plannedResult.toolName, plannedResult.success, plannedResult.error);
+        return plannedResult;
+      }
+
       if (plan?.planned && plan.normalizedCommand) {
         const normalized = plan.normalizedCommand.trim();
         const plannedResult = await this.detectWriteIntent(normalized.toLowerCase(), normalized, ctx);
         if (plannedResult) {
+          this.rememberRecoverableCompletion(plannedResult, q);
           this.updateMemory(plannedResult, q);
           this.logExecution(ctx, q, plannedResult.toolName, plannedResult.success, plannedResult.error);
           return plannedResult;
