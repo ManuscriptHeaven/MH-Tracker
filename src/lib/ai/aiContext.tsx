@@ -737,15 +737,11 @@ export function AIProvider({
 
   const selectDisambiguationOption = useCallback(
     async (option: DisambiguationOption) => {
-      const toolCtx = getToolContext();
-      const mem = voiceQueryEngine.getMemory();
-      const context = mem.pendingDisambiguationContext;
-      voiceQueryEngine.setPendingDisambiguation(null);
-
-      // Re-trigger query resolution with disambiguated title
+      // Keep the engine's pending disambiguation context intact. processQuery()
+      // will match this selected title and resume the original action safely.
       await sendMessage(option.title);
     },
-    [getToolContext, sendMessage],
+    [sendMessage],
   );
 
   const dismissDailyPopup = useCallback(() => {
