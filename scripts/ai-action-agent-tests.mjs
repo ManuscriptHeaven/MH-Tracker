@@ -101,6 +101,14 @@ assert(
 );
 
 assert(
+  planner.includes("| 'update_task_status'") &&
+    planner.includes("| 'update_project_due_date'") &&
+    planner.includes("| 'record_expense'") &&
+    planner.includes('tasks: isClientRole(ctx.currentProfile.role)'),
+  'planner can normalize the wider safe-action catalog and only shares task context with staff',
+);
+
+assert(
   planner.includes('team: isClientRole(ctx.currentProfile.role)') &&
     planner.includes('? []') &&
     planner.includes('.filter((profile) => !isClientRole(profile.role))'),
@@ -114,6 +122,16 @@ assert(
     edge.includes('You NEVER execute actions') &&
     edge.includes('deterministicFallback'),
   'planner edge function authenticates users, has no service-role write authority and only normalizes commands',
+);
+
+assert(
+  edge.includes("'update_task_status'") &&
+    edge.includes("'update_project_due_date'") &&
+    edge.includes("'record_project_payment'") &&
+    edge.includes("'record_payroll_payment'") &&
+    edge.includes('Never convert a read-only question into a write action') &&
+    edge.includes('Never weaken confirmation language'),
+  'planner prompt covers core business writes while preserving read-only and confirmation intent',
 );
 
 assert(
