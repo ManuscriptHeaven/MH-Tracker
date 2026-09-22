@@ -8,6 +8,7 @@ import type {
   RevisionRequest,
   NoteType,
   ProjectStatus,
+  ProjectLifecycleStatus,
   FinanceTransactionDraft,
   EmployeeLedgerType,
   Invoice,
@@ -167,6 +168,8 @@ export interface AIToolContext {
     respondToRevisionRequest?: (id: string, response: string, status?: string, assignedTo?: string) => Promise<void>;
     approveProjectMilestone?: (projectId: string, milestone: string, approvedBy?: string, notes?: string, clientSignedName?: string) => Promise<void>;
     submitStageForApproval?: (projectId: string, submissionNote?: string, fileUrl?: string) => Promise<void>;
+    setProjectLifecycle?: (projectId: string, lifecycle: ProjectLifecycleStatus, reason?: string) => Promise<void>;
+    completeFinalDelivery?: (projectId: string, note?: string) => Promise<void>;
     inviteClient?: (draft: any) => Promise<void>;
     createFinanceTransaction?: (draft: FinanceTransactionDraft) => Promise<any>;
     updateFinanceTransaction?: (id: string, updates: any) => Promise<any>;
