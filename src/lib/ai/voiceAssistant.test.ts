@@ -416,7 +416,7 @@ export async function runVoiceAssistantTests() {
               : next === 'print_approval'
                 ? 'Print Approval'
                 : next === 'ebook_approval'
-                  ? 'eBook Approval'
+                  ? 'Ebook Approval'
                   : project.current_stage;
         }
       },
@@ -652,8 +652,8 @@ export async function runVoiceAssistantTests() {
       res27b.success &&
       res27b.spokenText.includes('On Hold') &&
       canonicalMutationCalls.lifecycle.length === lifecycleCallsBefore27 + 1 &&
-      canonicalMutationCalls.lifecycle.at(-1)?.projectId === 'proj-1' &&
-      canonicalMutationCalls.lifecycle.at(-1)?.lifecycle === 'on_hold'
+      canonicalMutationCalls.lifecycle[canonicalMutationCalls.lifecycle.length - 1]?.projectId === 'proj-1' &&
+      canonicalMutationCalls.lifecycle[canonicalMutationCalls.lifecycle.length - 1]?.lifecycle === 'on_hold'
     ),
     'Test 27b: Verbal confirmation "Go ahead" uses canonical lifecycle mutation',
   );
@@ -835,7 +835,7 @@ export async function runVoiceAssistantTests() {
       res37b.success &&
       res37b.spokenText.includes('submitted for client approval') &&
       canonicalMutationCalls.stageSubmissions.length === stageCallsBefore37 + 1 &&
-      canonicalMutationCalls.stageSubmissions.at(-1)?.projectId === 'proj-2'
+      canonicalMutationCalls.stageSubmissions[canonicalMutationCalls.stageSubmissions.length - 1]?.projectId === 'proj-2'
     ),
     'Test 37b: Confirmation submits Design Concept through canonical workflow',
   );
