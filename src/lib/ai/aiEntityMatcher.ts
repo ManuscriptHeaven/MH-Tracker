@@ -97,7 +97,7 @@ function scoreAlias(query: string, alias: string): number {
       (score, queryToken) => Math.max(score, tokenSimilarity(aliasToken, queryToken)),
       0,
     );
-    if (best >= 0.82) fuzzy += best;
+    if (best >= 0.78) fuzzy += best;
   }
 
   const coverage = Math.min(1, (exact + fuzzy * 0.8) / aTokens.length);
