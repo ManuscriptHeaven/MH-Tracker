@@ -1,0 +1,361 @@
+import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.110.0';
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+
+const allowedIntents = new Set([
+  'create_project',
+  'create_task',
+  'submit_stage_for_approval',
+  'generate_client_invoice',
+  'draft_client_communication',
+  'update_project_status',
+  'record_project_payment',
+  'assign_task',
+  'unknown',
+]);
+
+type PlannerContext = {
+  role?: string;
+  activeView?: string | null;
+  selectedProject?: Record<string, unknown> | null;
+  projects?: Array<Record<string, unknown>>;
+  team?: Array<Record<string, unknown>>;
+};
+
+type PlannerResult = {
+  planned: boolean;
+  intent: string;
+  normalizedCommand: string;
+  confidence: number;
+  reason?: string;
+};
+
+const rateLimits = new Map<string, { count: number; resetAt: number }>();
+
+function normalizeText(value: unknown, max = 1200) {
+  return typeof value === 'string' ? value.trim().slice(0, max) : '';
+}
+
+function knownClient(message: string, context: PlannerContext) {
+  const lower = message.toLowerCase();
+  const clients = Array.from(
+    new Set(
+      (context.projects || [])
+        .map((project) => normalizeText(project.client_name, 120))
+        .filter(Boolean),
+    ),
+  );
+  return clients.find((client) => lower.includes(client.toLowerCase()));
+}
+
+function knownProject(message: string, context: PlannerContext) {
+  const lower = message.toLowerCase();
+  return (context.projects || []).find((project) => {
+    const title = normalizeText(project.project_title, 180).toLowerCase();
+    const number = normalizeText(project.project_number, 80).toLowerCase();
+    return (title && lower.includes(title)) || (number && lower.includes(number));
+  });
+}
+
+function deterministicFallback(message: string, context: PlannerContext): PlannerResult {
+  const lower = message.toLowerCase();
+  const client = knownClient(message, context);
+  const project = knownProject(message, context);
+  const projectLabel = project
+    ? normalizeText(project.project_title, 180) || normalizeText(project.project_number, 80)
+    : '';
+
+  if (
+    /\b(invoice|bill|انوائس)\b/i.test(message) &&
+    /\b(pending|outstanding|due|baki|baqi|بقایا|payment|payments|ادا)/i.test(message)
+  ) {
+    return client
+      ? {
+          planned: true,
+          intent: 'generate_client_invoice',
+          normalizedCommand: `Generate invoice for ${client} for all pending payments`,
+          confidence: 0.91,
+          reason: 'Invoice request with a known client and pending-payment language.',
+        }
+      : {
+          planned: false,
+          intent: 'generate_client_invoice',
+          normalizedCommand: '',
+          confidence: 0.45,
+          reason: 'Client could not be resolved safely.',
+        };
+  }
+
+  if (
+    /\b(concept|design concept|print version|ebook|e-book|final delivery)\b/i.test(message) &&
+    /\b(submit|send|share|bhejo|bhej|client|approval|review|بھیجو|جمع)/iu.test(message)
+  ) {
+    const stagePhrase = /print version/i.test(message)
+      ? 'print version'
+      : /e-?book/i.test(message)
+        ? 'eBook version'
+        : /final delivery/i.test(message)
+          ? 'final delivery'
+          : 'design concept';
+
+    return projectLabel
+      ? {
+          planned: true,
+          intent: 'submit_stage_for_approval',
+          normalizedCommand: `Submit the ${stagePhrase} for ${projectLabel} for client approval`,
+          confidence: 0.94,
+          reason: 'Stage-submission language with a known project.',
+        }
+      : {
+          planned: false,
+          intent: 'submit_stage_for_approval',
+          normalizedCommand: '',
+          confidence: 0.5,
+          reason: 'Project could not be resolved safely.',
+        };
+  }
+
+  if (/\b(project|پروجیکٹ)\b/i.test(message) && /\b(create|new|add|start|banao|bnao|بناؤ)/iu.test(message)) {
+    return {
+      planned: true,
+      intent: 'create_project',
+      normalizedCommand: message,
+      confidence: 0.78,
+      reason: 'Project creation request.',
+    };
+  }
+
+  if (/\b(task|ٹاسک)\b/i.test(message) && /\b(create|new|add|assign|banao|bnao|بناؤ)/iu.test(message)) {
+    return {
+      planned: true,
+      intent: 'create_task',
+      normalizedCommand: message,
+      confidence: 0.78,
+      reason: 'Task creation or assignment request.',
+    };
+  }
+
+  return {
+    planned: false,
+    intent: 'unknown',
+    normalizedCommand: '',
+    confidence: 0,
+    reason: 'No safe deterministic action normalization matched.',
+  };
+}
+
+function sanitizeContext(raw: unknown): PlannerContext {
+  const input = raw && typeof raw === 'object' ? (raw as PlannerContext) : {};
+  return {
+    role: normalizeText(input.role, 50),
+    activeView: normalizeText(input.activeView, 80) || null,
+    selectedProject:
+      input.selectedProject && typeof input.selectedProject === 'object'
+        ? input.selectedProject
+        : null,
+    projects: Array.isArray(input.projects) ? input.projects.slice(0, 80) : [],
+    team: Array.isArray(input.team) ? input.team.slice(0, 40) : [],
+  };
+}
+
+function parsePlannerJson(raw: string): PlannerResult | null {
+  const cleaned = raw.replace(/^\s*```(?:json)?/i, '').replace(/```\s*$/i, '').trim();
+  const first = cleaned.indexOf('{');
+  const last = cleaned.lastIndexOf('}');
+  if (first < 0 || last <= first) return null;
+
+  try {
+    const parsed = JSON.parse(cleaned.slice(first, last + 1));
+    const intent = normalizeText(parsed.intent, 80);
+    const normalizedCommand = normalizeText(parsed.normalizedCommand, 600);
+    const confidence = Number(parsed.confidence);
+    const planned = Boolean(parsed.planned);
+
+    if (!allowedIntents.has(intent) || !Number.isFinite(confidence)) return null;
+    if (planned && !normalizedCommand) return null;
+
+    return {
+      planned,
+      intent,
+      normalizedCommand,
+      confidence: Math.min(1, Math.max(0, confidence)),
+      reason: normalizeText(parsed.reason, 240),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function llmPlan(message: string, context: PlannerContext): Promise<PlannerResult | null> {
+  const geminiKey = Deno.env.get('GEMINI_API_KEY');
+  if (!geminiKey) return null;
+
+  const model = Deno.env.get('GEMINI_PLANNER_MODEL') || 'gemini-2.5-flash';
+  const systemPrompt = `You are a command normalizer for MH Tracker, a project-management application.
+You NEVER execute actions, never write SQL, never invent IDs, and never answer the user conversationally.
+Your only job is to translate natural English, Roman Urdu, Urdu, shorthand, typos, and indirect action phrasing into ONE normalized English command that the application's deterministic safety engine can understand.
+
+Allowed intents:
+- create_project
+- create_task
+- submit_stage_for_approval
+- generate_client_invoice
+- draft_client_communication
+- update_project_status
+- record_project_payment
+- assign_task
+- unknown
+
+Important safety rules:
+1. Resolve a project/client/team member only when the supplied context clearly supports it.
+2. Do not invent project titles, clients, money amounts, dates, links, or people.
+3. If the request is ambiguous, set planned=false.
+4. Preserve user amounts, dates, tone, and constraints exactly.
+5. A request to send/submit a design concept, print version, eBook version, or final delivery to a client should normalize to "Submit the <stage> for <project> for client approval".
+6. An invoice request for pending/outstanding client payments should normalize to "Generate invoice for <client> for all pending payments".
+7. Output JSON only, with keys: planned, intent, normalizedCommand, confidence, reason.
+
+Examples:
+"Magazine 2 ka concept client ko review k lye bhej do" -> {"planned":true,"intent":"submit_stage_for_approval","normalizedCommand":"Submit the design concept for Magazine 2 for client approval","confidence":0.96,"reason":"Known project and clear stage submission request."}
+"BCH k sari pending payment ki invoice nikalo" -> {"planned":true,"intent":"generate_client_invoice","normalizedCommand":"Generate invoice for BCH for all pending payments","confidence":0.96,"reason":"Known client and invoice request."}`;
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${geminiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: JSON.stringify({
+                  message,
+                  context,
+                }),
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0,
+          responseMimeType: 'application/json',
+        },
+      }),
+    },
+  );
+
+  if (!response.ok) return null;
+  const body = await response.json();
+  const text = body?.candidates?.[0]?.content?.parts?.[0]?.text;
+  return typeof text === 'string' ? parsePlannerJson(text) : null;
+}
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
+  if (req.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    const authHeader = req.headers.get('Authorization') || '';
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || '';
+
+    if (!authHeader || !supabaseUrl || !anonKey) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const authClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader } },
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data: { user }, error: authError } = await authClient.auth.getUser();
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const now = Date.now();
+    const state = rateLimits.get(user.id);
+    const next = !state || state.resetAt <= now
+      ? { count: 1, resetAt: now + 60_000 }
+      : { count: state.count + 1, resetAt: state.resetAt };
+    rateLimits.set(user.id, next);
+
+    if (next.count > 30) {
+      return new Response(JSON.stringify({ error: 'Rate limit exceeded' }), {
+        status: 429,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const body = await req.json();
+    const message = normalizeText(body?.message, 1200);
+    const context = sanitizeContext(body?.context);
+
+    if (!message) {
+      return new Response(JSON.stringify({ error: 'Message is required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const fallback = deterministicFallback(message, context);
+    let result: PlannerResult | null = null;
+
+    try {
+      result = await llmPlan(message, context);
+    } catch (error) {
+      console.error('Planner model error:', error);
+    }
+
+    const finalResult =
+      result && result.planned && result.confidence >= 0.72
+        ? result
+        : fallback;
+
+    return new Response(JSON.stringify(finalResult), {
+      status: 200,
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',
+      },
+    });
+  } catch (error) {
+    console.error('ai-planner error:', error);
+    return new Response(JSON.stringify({
+      planned: false,
+      intent: 'unknown',
+      normalizedCommand: '',
+      confidence: 0,
+      reason: 'Planner failed safely.',
+    }), {
+      status: 200,
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',
+      },
+    });
+  }
+});
