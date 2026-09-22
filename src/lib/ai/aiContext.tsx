@@ -9,12 +9,18 @@ import type {
   AIActionPreview,
   AIActionAuditLog,
   DisambiguationOption,
+  AIOperatorIntelligence,
+  AIOperatorTelemetrySummary,
 } from './aiTypes';
 import { aiService } from './aiService';
 import { voiceService } from './voiceService';
 import { voiceQueryEngine } from './voiceQueryEngine';
 import { wakeWordService } from './wakeWordService';
 import { buildDailyBriefing } from './dailyBriefing';
+import {
+  buildOperatorIntelligence,
+  emptyOperatorTelemetry,
+} from './operatorIntelligence';
 import { useCurrency } from '../currency';
 
 function isPersistentConversationId(value?: string | null) {
@@ -79,6 +85,7 @@ interface AIContextType {
   liveTranscript: string;
   voiceError: string | null;
   dailySummary: DailySummary | null;
+  operatorIntelligence: AIOperatorIntelligence | null;
   showDailyPopup: boolean;
   settings: AIUserSettings;
   pendingAction: AIActionPreview | null;
@@ -106,6 +113,7 @@ interface AIContextType {
   stopSpeaking: () => void;
   clearVoiceError: () => void;
   refreshDailyBriefing: () => void;
+  refreshOperatorIntelligence: () => Promise<void>;
 }
 
 const AIContext = createContext<AIContextType | undefined>(undefined);
@@ -150,6 +158,13 @@ export function AIProvider({
   });
 
   const [dailySummary, setDailySummary] = useState<DailySummary | null>(null);
+  const [operatorTelemetry, setOperatorTelemetry] = useState<AIOperatorTelemetrySummary>(() =>
+    emptyOperatorTelemetry(
+      tracker.currentProfile?.role === 'admin' ? 'workspace' : 'personal',
+      30,
+    ),
+  );
+  const [operatorIntelligence, setOperatorIntelligence] = useState<AIOperatorIntelligence | null>(null);
   const [showDailyPopup, setShowDailyPopup] = useState(false);
 
   const [isWakeWordListening, setIsWakeWordListening] = useState(false);
@@ -204,6 +219,37 @@ export function AIProvider({
     );
   }, []);
 
+  const refreshOperatorIntelligence = useCallback(async () => {
+    const telemetry = await aiService.loadOperatorTelemetry(30);
+    setOperatorTelemetry(telemetry);
+  }, []);
+
+  useEffect(() => {
+    const current = trackerRef.current;
+    if (!current?.currentProfile || !current?.data) {
+      setOperatorIntelligence(null);
+      return;
+    }
+
+    setOperatorIntelligence(
+      buildOperatorIntelligence({
+        data: current.data,
+        visibleProjects: current.visibleProjects || current.data.projects || [],
+        visibleTasks: current.visibleTasks || current.data.tasks || [],
+        currentProfile: current.currentProfile,
+        dailySummary,
+        telemetry: operatorTelemetry,
+      }),
+    );
+  }, [
+    dailySummary,
+    operatorTelemetry,
+    tracker.data,
+    tracker.visibleProjects,
+    tracker.visibleTasks,
+    tracker.currentProfile?.id,
+  ]);
+
   // Keep the deterministic daily briefing synced to live Tracker data.
   useEffect(() => {
     refreshDailyBriefing();
@@ -246,6 +292,7 @@ export function AIProvider({
 
       const userId = trackerRef.current?.currentProfile?.id;
       if (userId) {
+        void refreshOperatorIntelligence();
         const loadedConversations = await aiService.loadConversations(userId);
         setConversations(loadedConversations);
 
@@ -260,7 +307,7 @@ export function AIProvider({
     }
 
     init();
-  }, []);
+  }, [refreshOperatorIntelligence]);
 
   // Helper to build tool context with mutations
   const getToolContext = useCallback((): AIToolContext => {
