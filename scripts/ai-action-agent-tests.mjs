@@ -109,6 +109,13 @@ assert(
   'planner edge function authenticates users, has no service-role write authority and only normalizes commands',
 );
 
+assert(
+  edge.includes("const clientIndex = result.toLowerCase().indexOf(client.toLowerCase())") &&
+    !edge.includes("escapedClient") &&
+    !edge.includes("\\function deterministicFallback"),
+  'planner client-name cleanup is literal and cannot corrupt regex replacement strings',
+);
+
 if (process.exitCode) {
   console.error('AI Action Agent regression checks failed.');
 } else {
