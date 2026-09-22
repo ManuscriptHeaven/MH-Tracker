@@ -14,6 +14,7 @@ const messages = fs.readFileSync('src/pages/CommunicationPage.tsx', 'utf8');
 const team = fs.readFileSync('src/pages/TeamPage.tsx', 'utf8');
 const app = fs.readFileSync('src/App.tsx', 'utf8');
 const migration = fs.readFileSync('supabase/migrations/20260920000100_complete_role_messaging.sql', 'utf8');
+const integrityMigration = fs.readFileSync('supabase/migrations/20260922000300_message_conversation_integrity.sql', 'utf8');
 
 console.log('--- Role + Messaging Reliability Regression Tests ---');
 
@@ -53,6 +54,33 @@ assert(
     app.includes('onGetOrCreateTeamChannel={tracker.getOrCreateTeamChannel}') &&
     messages.includes('onGetOrCreateTeamChannel: (channelName: string) => Promise<Conversation>'),
   'team-channel creation is wired from Supabase through useTracker into the Messages UI',
+);
+
+const dmBlock = tracker.slice(
+  tracker.indexOf('const getOrCreateDM = useCallback('),
+  tracker.indexOf('const refreshAttendance = useCallback('),
+);
+assert(
+  dmBlock.indexOf("supabase.rpc('phase6_create_direct_conversation'") >= 0 &&
+    dmBlock.indexOf("supabase.rpc('phase6_create_direct_conversation'") <
+      dmBlock.indexOf('if (existing) return existing;'),
+  'Supabase direct messages always revalidate through the canonical server RPC before cached fallback',
+);
+
+assert(
+  integrityMigration.includes('mh_conversation_dedup_map') &&
+    integrityMigration.includes('conversations_project_type_unique') &&
+    integrityMigration.includes('conversations_task_unique') &&
+    integrityMigration.includes('conversations_team_channel_name_unique'),
+  'historical duplicate conversations are merged and natural conversation keys are protected by unique indexes',
+);
+
+assert(
+  integrityMigration.includes("public.phase6_app_actor_class() in ('admin', 'project_manager', 'employee')") &&
+    integrityMigration.includes("when c.type = 'dm' then") &&
+    integrityMigration.includes(") = 2") &&
+    integrityMigration.includes('phase6_create_direct_conversation'),
+  'direct-message access and creation are restricted to valid two-member active team conversations',
 );
 
 const sendAwait = messages.indexOf('await onSendMessage(displayedConv.id, body, atts, replyId);');
