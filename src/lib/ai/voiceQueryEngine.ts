@@ -16,7 +16,13 @@ import { aiUnderstandingEngine } from './aiUnderstandingEngine';
 import { buildPageContext } from './aiPageContext';
 import { runProjectCreationWizard } from './projectCreationWizard';
 import { prepareClientCommunication } from './clientCommunication';
-import { planNaturalLanguageAction, shouldUseAIPlanner } from './aiPlannerService';
+import {
+  planNaturalLanguageAction,
+  shouldUseAIPlanner,
+  looksLikeCompoundAction,
+} from './aiPlannerService';
+import { rankEntityCandidates, resolveUniqueEntityMatch } from './aiEntityMatcher';
+import { verifyActionOutcome } from './aiActionVerifier';
 
 export class VoiceQueryEngine {
   private static instance: VoiceQueryEngine;
@@ -49,6 +55,11 @@ export class VoiceQueryEngine {
   public setPendingDisambiguation(options: DisambiguationOption[] | null, context?: any): void {
     this.memory.pendingDisambiguation = options;
     this.memory.pendingDisambiguationContext = context || null;
+  }
+
+  public cancelPendingPlan(): void {
+    this.memory.pendingActionPlan = null;
+    this.memory.pendingCommandCompletion = null;
   }
 
   private logExecution(ctx: AIToolContext, question: string, tool: AIToolName, success: boolean, error?: string): void {
