@@ -2485,10 +2485,20 @@ export class VoiceQueryEngine {
       .replace(/\s+task\s*/i, ' ')
       .trim();
 
-    return ctx.visibleTasks.filter((t) => {
-      const titleLower = t.title.toLowerCase();
-      return titleLower.includes(cleanQuery) || cleanQuery.includes(titleLower);
-    });
+    const ranked = rankEntityCandidates(
+      cleanQuery,
+      ctx.visibleTasks.map((task) => ({
+        id: task.id,
+        label: task.title,
+        aliases: [],
+        item: task,
+      })),
+      0.64,
+    );
+
+    if (ranked.length === 0) return [];
+    const topScore = ranked[0].score;
+    return ranked.filter((match) => topScore - match.score <= 0.08).slice(0, 6).map((match) => match.item);
   }
 
   // ==========================================
@@ -2676,16 +2686,34 @@ export class VoiceQueryEngine {
   private findProjectInQueryOrMemory(query: string, ctx: AIToolContext) {
     const qLower = query.toLowerCase();
 
-    // Match in query
-    for (const p of ctx.visibleProjects) {
-      if (qLower.includes(p.project_title.toLowerCase()) || qLower.includes(p.project_number.toLowerCase())) {
-        return p;
+    for (const project of ctx.visibleProjects) {
+      if (
+        qLower.includes((project.project_title || '').toLowerCase()) ||
+        qLower.includes((project.project_number || '').toLowerCase())
+      ) {
+        return project;
       }
     }
 
-    // Match from memory if only 1 project in previous turn
+    const resolution = resolveUniqueEntityMatch(
+      query,
+      ctx.visibleProjects.map((project) => ({
+        id: project.id,
+        label: project.project_title,
+        aliases: [project.project_number, project.client_name + ' ' + project.project_title],
+        item: project,
+      })),
+      { minScore: 0.76, minGap: 0.11, ambiguityWindow: 0.06 },
+    );
+    if (resolution.match) return resolution.match.item;
+
     if (this.memory.lastProjects && this.memory.lastProjects.length === 1) {
       return this.memory.lastProjects[0];
+    }
+
+    const selectedProject = (ctx as any).selectedProject;
+    if (selectedProject && /\b(this|that|it|ye|yeh|isko|isay|current|selected)\b/i.test(query)) {
+      return selectedProject;
     }
 
     return null;
@@ -2718,14 +2746,18 @@ export class VoiceQueryEngine {
   }
 
   private extractEmployeeFromQuery(query: string, ctx: AIToolContext): string | undefined {
-    const teamProfiles = ctx.data.profiles.filter((p) => p.role !== 'client');
-    for (const p of teamProfiles) {
-      const first = p.full_name.split(' ')[0].toLowerCase();
-      if (query.includes(first) || query.includes(p.full_name.toLowerCase())) {
-        return p.full_name;
-      }
-    }
-    return undefined;
+    const teamProfiles = ctx.data.profiles.filter((profile) => profile.role !== 'client');
+    const resolution = resolveUniqueEntityMatch(
+      query,
+      teamProfiles.map((profile) => ({
+        id: profile.id,
+        label: profile.full_name,
+        aliases: [profile.full_name.split(' ')[0]],
+        item: profile,
+      })),
+      { minScore: 0.74, minGap: 0.12, ambiguityWindow: 0.06 },
+    );
+    return resolution.match?.item.full_name;
   }
 
   private containsClientName(query: string, ctx: AIToolContext): boolean {
@@ -2734,20 +2766,33 @@ export class VoiceQueryEngine {
   }
 
   private extractClientFromQuery(query: string, ctx: AIToolContext): string | undefined {
-    const clientNames = Array.from(new Set(ctx.visibleProjects.map((p) => p.client_name).filter(Boolean)));
-    for (const c of clientNames) {
-      if (query.includes(c.toLowerCase())) {
-        return c;
-      }
-    }
-    const clientProfiles = ctx.data.profiles.filter((p) => isClientRole(p.role));
-    for (const p of clientProfiles) {
-      const first = p.full_name.split(' ')[0].toLowerCase();
-      if (query.includes(first) || query.includes(p.full_name.toLowerCase())) {
-        return p.full_name;
-      }
-    }
-    return undefined;
+    const clientNames = Array.from(
+      new Set(ctx.visibleProjects.map((project) => project.client_name).filter(Boolean)),
+    );
+    const resolution = resolveUniqueEntityMatch(
+      query,
+      clientNames.map((clientName) => ({
+        id: clientName,
+        label: clientName,
+        aliases: [],
+        item: clientName,
+      })),
+      { minScore: 0.76, minGap: 0.12, ambiguityWindow: 0.06 },
+    );
+    if (resolution.match) return resolution.match.item;
+
+    const clientProfiles = ctx.data.profiles.filter((profile) => isClientRole(profile.role));
+    const profileResolution = resolveUniqueEntityMatch(
+      query,
+      clientProfiles.map((profile) => ({
+        id: profile.id,
+        label: profile.full_name,
+        aliases: [profile.full_name.split(' ')[0]],
+        item: profile,
+      })),
+      { minScore: 0.78, minGap: 0.12, ambiguityWindow: 0.06 },
+    );
+    return profileResolution.match?.item.full_name;
   }
 
   private containsProjectName(query: string, ctx: AIToolContext): boolean {
