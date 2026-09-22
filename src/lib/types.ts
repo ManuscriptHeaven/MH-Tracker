@@ -271,6 +271,8 @@ export interface EmployeeLedgerEntry {
 export interface Project {
   id: string;
   project_number: string;
+  workspace_id?: string;
+  workflow_template_key?: ProjectTemplateKey | null;
   client_profile_id?: string | null;
   client_name: string;
   client_email: string;
