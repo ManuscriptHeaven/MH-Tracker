@@ -12,6 +12,7 @@ function assert(condition, message) {
 const tracker = fs.readFileSync('src/lib/useTracker.ts', 'utf8');
 const chat = fs.readFileSync('src/components/ProjectDiscussionChat.tsx', 'utf8');
 const migration = fs.readFileSync('supabase/migrations/20260920000400_fix_project_window_client_messaging.sql', 'utf8');
+const deliveryMigration = fs.readFileSync('supabase/migrations/20260922000100_harden_client_message_delivery.sql', 'utf8');
 
 console.log('--- Project Window Client Messaging Regression Tests ---');
 
@@ -51,6 +52,25 @@ assert(
     tracker.includes('p_is_internal: isInternal') &&
     !tracker.includes(".insert({ type, project_id: projectId, created_by: currentProfile.id })\n          .select()"),
   'frontend no longer relies on INSERT RETURNING for new project conversations under RLS',
+);
+
+const projectConversationBlock = tracker.slice(
+  tracker.indexOf('const getOrCreateProjectConversation'),
+  tracker.indexOf('const getOrCreateTaskConversation'),
+);
+const projectRpcIndex = projectConversationBlock.indexOf("'phase6_get_or_create_project_conversation'");
+const cachedFallbackIndex = projectConversationBlock.indexOf('if (existing) return existing;');
+assert(
+  projectRpcIndex >= 0 && cachedFallbackIndex > projectRpcIndex,
+  'cached project conversations are revalidated through the server RPC before reuse in Supabase mode',
+);
+
+assert(
+  deliveryMigration.includes('phase6_project_client_has_active_recipient') &&
+    deliveryMigration.includes("c.type = 'project_client'") &&
+    deliveryMigration.includes('No active client portal recipient is linked to this project conversation') &&
+    deliveryMigration.includes('create or replace function public.phase6_send_message'),
+  'message delivery itself blocks client-facing sends when no active linked portal recipient exists',
 );
 
 const awaitSend = chat.indexOf('await onSendMessage(targetConv.id, text);');
