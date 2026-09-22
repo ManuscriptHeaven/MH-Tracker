@@ -44,15 +44,36 @@ type PlannerContext = {
   team?: Array<Record<string, unknown>>;
 };
 
-type PlannerResult = {
-  planned: boolean;
+type PlannerStep = {
   intent: string;
   normalizedCommand: string;
   confidence: number;
   reason?: string;
 };
 
+type PlannerResult = {
+  planned: boolean;
+  intent: string;
+  normalizedCommand: string;
+  confidence: number;
+  reason?: string;
+  steps?: PlannerStep[];
+};
+
 const rateLimits = new Map<string, { count: number; resetAt: number }>();
+
+const ACTION_SIGNAL =
+  /\b(create|add|make|start|generate|invoice|bill|submit|send|share|move|set|change|update|assign|record|approve|complete|deliver|draft|write|prepare|banao|bnao|karo|kro|krdo|bhejo|jama|nikalo|de\s*do)\b|(?:بناؤ|بنا\s*دو|بھیجو|جمع|انوائس|تبدیل|اسائن|مکمل)/iu;
+
+function splitCompoundActionMessage(message: string): string[] {
+  const parts = message
+    .split(/\b(?:and then|then|phir|aur phir|aur|also)\b|(?:پھر|اور پھر|اور)/iu)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length < 2) return [message];
+  return parts.filter((part) => ACTION_SIGNAL.test(part)).length >= 2 ? parts.slice(0, 4) : [message];
+}
 
 function normalizeText(value: unknown, max = 1200) {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -120,10 +141,45 @@ function looseProjectTitle(message: string, client?: string) {
   return '';
 }
 
-function deterministicFallback(message: string, context: PlannerContext): PlannerResult {
+function deterministicFallback(message: string, context: PlannerContext, allowMulti = true): PlannerResult {
   const lower = message.toLowerCase();
   const client = knownClient(message, context);
   const project = knownProject(message, context);
+
+  if (allowMulti) {
+    const parts = splitCompoundActionMessage(message);
+    if (parts.length > 1) {
+      const sharedClient = client;
+      const sharedProject = project
+        ? normalizeText(project.project_title, 180) || normalizeText(project.project_number, 80)
+        : '';
+      const stepResults = parts.map((part) => {
+        let scoped = part;
+        if (sharedClient && !knownClient(scoped, context)) scoped += ` for ${sharedClient}`;
+        if (sharedProject && !knownProject(scoped, context) && /\b(project|concept|print|ebook|delivery|deadline|payment)\b/i.test(scoped)) {
+          scoped += ` for ${sharedProject}`;
+        }
+        return deterministicFallback(scoped, context, false);
+      });
+
+      if (stepResults.every((step) => step.planned && step.confidence >= 0.72 && step.normalizedCommand)) {
+        const steps = stepResults.map((step) => ({
+          intent: step.intent,
+          normalizedCommand: step.normalizedCommand,
+          confidence: step.confidence,
+          reason: step.reason,
+        }));
+        return {
+          planned: true,
+          intent: steps[0].intent,
+          normalizedCommand: steps[0].normalizedCommand,
+          confidence: Math.min(...steps.map((step) => step.confidence)),
+          reason: `Detected ${steps.length} distinct actions. Each step must pass normal Tracker confirmation and permissions.`,
+          steps,
+        };
+      }
+    }
+  }
   const projectLabel = project
     ? normalizeText(project.project_title, 180) || normalizeText(project.project_number, 80)
     : '';
@@ -210,6 +266,66 @@ function deterministicFallback(message: string, context: PlannerContext): Planne
     };
   }
 
+  if (
+    /\b(draft|write|prepare|message|email|reminder|likho|draft\s*kro|draft\s*karo)\b/i.test(message) &&
+    /\b(payment|approval|files|required|revision|complete|delivery|reminder)\b/i.test(message)
+  ) {
+    const tone = /\b(friendly|warm)\b/i.test(message)
+      ? 'friendly'
+      : /\b(firm|direct)\b/i.test(message)
+        ? 'firm'
+        : 'professional';
+    const kind = /\bpayment\b/i.test(message)
+      ? 'payment reminder'
+      : /\bapproval\b/i.test(message)
+        ? 'approval reminder'
+        : /\bfiles|required\b/i.test(message)
+          ? 'files required'
+          : /\brevision\b/i.test(message)
+            ? 'revision received'
+            : 'final delivery';
+
+    return client
+      ? {
+          planned: true,
+          intent: 'draft_client_communication',
+          normalizedCommand: `Draft a ${tone} ${kind} message for ${client}`,
+          confidence: 0.9,
+          reason: 'Draft-only client communication request.',
+        }
+      : {
+          planned: false,
+          intent: 'draft_client_communication',
+          normalizedCommand: '',
+          confidence: 0.45,
+          reason: 'Client could not be resolved safely.',
+        };
+  }
+
+  const amountMatch = message.match(/(?:\$|usd|dollar|dollars)?\s*(\d+(?:,\d{3})*(?:\.\d+)?)/i);
+  const amount = amountMatch ? Number(amountMatch[1].replace(/,/g, '')) : 0;
+  if (
+    amount > 0 &&
+    /\b(record|add|jama|payment|paid|received)\b/i.test(message) &&
+    /\b(payment|paid|received)\b/i.test(message)
+  ) {
+    return projectLabel
+      ? {
+          planned: true,
+          intent: 'record_project_payment',
+          normalizedCommand: `Record ${amount} payment for ${projectLabel}`,
+          confidence: 0.91,
+          reason: 'Project payment with a known project and amount.',
+        }
+      : {
+          planned: false,
+          intent: 'record_project_payment',
+          normalizedCommand: '',
+          confidence: 0.5,
+          reason: 'Project could not be resolved safely.',
+        };
+  }
+
   return {
     planned: false,
     intent: 'unknown',
@@ -246,16 +362,33 @@ function parsePlannerJson(raw: string): PlannerResult | null {
     const normalizedCommand = normalizeText(parsed.normalizedCommand, 600);
     const confidence = Number(parsed.confidence);
     const planned = Boolean(parsed.planned);
+    const steps = Array.isArray(parsed.steps)
+      ? parsed.steps
+          .map((step: any) => ({
+            intent: normalizeText(step?.intent, 80),
+            normalizedCommand: normalizeText(step?.normalizedCommand, 600),
+            confidence: Number(step?.confidence),
+            reason: normalizeText(step?.reason, 240),
+          }))
+          .filter(
+            (step: PlannerStep) =>
+              allowedIntents.has(step.intent) &&
+              Boolean(step.normalizedCommand) &&
+              Number.isFinite(step.confidence),
+          )
+          .slice(0, 4)
+      : undefined;
 
     if (!allowedIntents.has(intent) || !Number.isFinite(confidence)) return null;
-    if (planned && !normalizedCommand) return null;
+    if (planned && !normalizedCommand && (!steps || steps.length < 2)) return null;
 
     return {
       planned,
       intent,
-      normalizedCommand,
+      normalizedCommand: normalizedCommand || steps?.[0]?.normalizedCommand || '',
       confidence: Math.min(1, Math.max(0, confidence)),
       reason: normalizeText(parsed.reason, 240),
+      steps: steps && steps.length >= 2 ? steps : undefined,
     };
   } catch {
     return null;
@@ -269,7 +402,7 @@ async function llmPlan(message: string, context: PlannerContext): Promise<Planne
   const model = Deno.env.get('GEMINI_PLANNER_MODEL') || 'gemini-2.5-flash';
   const systemPrompt = `You are a command normalizer for MH Tracker, a project-management application.
 You NEVER execute actions, never write SQL, never invent IDs, and never answer the user conversationally.
-Your only job is to translate natural English, Roman Urdu, Urdu, shorthand, typos, and indirect action phrasing into ONE normalized English command that the application's deterministic safety engine can understand.
+Your only job is to translate natural English, Roman Urdu, Urdu, shorthand, typos, and indirect action phrasing into either ONE normalized English command or a SMALL ORDERED PLAN of distinct actions that the application's deterministic safety engine can understand.
 
 Allowed intents:
 - create_project
@@ -307,7 +440,10 @@ Important safety rules:
 6. An invoice request for pending/outstanding client payments should normalize to "Generate invoice for <client> for all pending payments".
 7. Never convert a read-only question into a write action.
 8. Never weaken confirmation language or turn "draft", "preview", "show me", or "what if" into execution.
-9. Output JSON only, with keys: planned, intent, normalizedCommand, confidence, reason.
+9. If the user clearly asks for 2-4 distinct operations, return a "steps" array. Each step needs intent, normalizedCommand, confidence and reason. Keep top-level intent/normalizedCommand equal to the first step.
+10. Do not split one operation just because it contains "and". Example: "create a task and assign it to Zain" is normally one create/assign task operation. Split only when the user asks for separate business effects.
+11. Later steps do not inherit permission. Every normalized step will independently pass entity resolution, permissions, preview and confirmation.
+12. Output JSON only, with keys: planned, intent, normalizedCommand, confidence, reason, and optional steps.
 
 Examples:
 "Magazine 2 ka concept client ko review k lye bhej do" -> {"planned":true,"intent":"submit_stage_for_approval","normalizedCommand":"Submit the design concept for Magazine 2 for client approval","confidence":0.96,"reason":"Known project and clear stage submission request."}
@@ -315,7 +451,8 @@ Examples:
 "Zain ko cover wali task de do" -> {"planned":true,"intent":"assign_task","normalizedCommand":"Assign task cover to Zain","confidence":0.9,"reason":"Clear task assignment request."}
 "Magazine 2 ko kal tak extend kr do" -> {"planned":true,"intent":"update_project_due_date","normalizedCommand":"Change project deadline for Magazine 2 to tomorrow","confidence":0.9,"reason":"Clear project deadline update."}
 "Book 3 ka payment 250 dollar record kr do" -> {"planned":true,"intent":"record_project_payment","normalizedCommand":"Record $250 payment for Book 3","confidence":0.93,"reason":"Clear project payment request."}
-"BCH ko friendly payment reminder draft kro" -> {"planned":true,"intent":"draft_client_communication","normalizedCommand":"Draft a friendly payment reminder message for BCH","confidence":0.9,"reason":"Draft-only client communication request."}`;
+"BCH ko friendly payment reminder draft kro" -> {"planned":true,"intent":"draft_client_communication","normalizedCommand":"Draft a friendly payment reminder message for BCH","confidence":0.9,"reason":"Draft-only client communication request."}
+"BCH ki pending invoice banao aur friendly payment reminder draft kro" -> {"planned":true,"intent":"generate_client_invoice","normalizedCommand":"Generate invoice for BCH for all pending payments","confidence":0.94,"reason":"Two distinct requested operations.","steps":[{"intent":"generate_client_invoice","normalizedCommand":"Generate invoice for BCH for all pending payments","confidence":0.96,"reason":"Invoice request."},{"intent":"draft_client_communication","normalizedCommand":"Draft a friendly payment reminder message for BCH","confidence":0.94,"reason":"Separate draft request."}]}`;
 
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${geminiKey}`,
