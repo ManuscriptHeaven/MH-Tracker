@@ -21,7 +21,7 @@ export interface AIPlannerResult {
 }
 
 const ACTION_SIGNAL =
-  /\b(create|add|make|start|generate|invoice|bill|submit|send|share|move|set|change|update|assign|record|approve|complete|deliver|banao|bnao|bana\s*do|karo|kro|kar\s*do|kr\s*do|bhejo|bhej\s*do|jama|nikalo|nikal\s*do|laga\s*do|de\s*do)\b|(?:بناؤ|بنا\s*دو|بھیجو|جمع|انوائس|تبدیل|اسائن|مکمل)/iu;
+  /\b(create|add|make|start|generate|invoice|bill|submit|send|share|move|set|change|update|assign|record|approve|complete|deliver|banao|bnao|bna\s*do|bana\s*do|karo|kro|kardo|krdo|kar\s*do|kr\s*do|bhejo|bhejdo|bhej\s*do|jama|nikalo|nikaal|nikal\s*do|laga\s*do|de\s*do)\b|(?:بناؤ|بنا\s*دو|بھیجو|جمع|انوائس|تبدیل|اسائن|مکمل)/iu;
 
 export function shouldUseAIPlanner(message: string): boolean {
   const text = message.trim();
