@@ -18,6 +18,24 @@ create table if not exists public.project_templates (
   check (recommended_requires_print or recommended_requires_ebook)
 );
 
+alter table public.projects
+  add column if not exists workflow_template_key text null;
+
+do $project_template_fk$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname='projects_workflow_template_key_fkey'
+      and conrelid='public.projects'::regclass
+  ) then
+    alter table public.projects
+      add constraint projects_workflow_template_key_fkey
+      foreign key(workflow_template_key) references public.project_templates(template_key)
+      on delete set null;
+  end if;
+end
+$project_template_fk$;
+
 create table if not exists public.project_template_stages (
   id uuid primary key default gen_random_uuid(),
   template_key text not null references public.project_templates(template_key) on delete cascade,
@@ -330,6 +348,29 @@ $fn$;
 
 revoke all on function public.apply_project_template(uuid,text) from public, anon;
 grant execute on function public.apply_project_template(uuid,text) to authenticated;
+
+create or replace function public.apply_project_template_after_project_insert()
+returns trigger
+language plpgsql
+security invoker
+set search_path=pg_catalog,pg_temp
+as $fn$
+begin
+  if new.workflow_template_key is not null then
+    perform public.apply_project_template(new.id,new.workflow_template_key);
+  end if;
+  return new;
+end
+$fn$;
+
+revoke all on function public.apply_project_template_after_project_insert() from public,anon,authenticated;
+
+drop trigger if exists apply_project_template_after_project_insert_trigger on public.projects;
+create trigger apply_project_template_after_project_insert_trigger
+after insert on public.projects
+for each row
+when (new.workflow_template_key is not null)
+execute function public.apply_project_template_after_project_insert();
 
 notify pgrst, 'reload schema';
 
