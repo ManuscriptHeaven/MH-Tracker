@@ -159,7 +159,7 @@ export class AIUnderstandingEngine {
           toolCtx,
           pageCtx,
         )
-      : { isAction: false as const };
+      : ({ isAction: false } as ReturnType<typeof buildActionPlan>);
 
     let proposalObj: any = undefined;
     let approvalRecObj: any = undefined;
