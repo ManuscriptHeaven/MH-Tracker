@@ -49,8 +49,6 @@ function safePlannerContext(ctx: AIToolContext) {
       workflow_stage_key: project.workflow_stage_key,
       current_stage: project.current_stage,
       status: project.status,
-      remaining_balance: Number(project.remaining_balance || 0),
-      invoiced: Boolean(project.invoiced || project.invoice_id),
     })),
     team: ctx.data.profiles
       .filter((profile) => !isClientRole(profile.role))
