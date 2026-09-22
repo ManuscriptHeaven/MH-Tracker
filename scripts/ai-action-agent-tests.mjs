@@ -88,6 +88,12 @@ assert(
 );
 
 assert(
+  engine.includes('enableLegacyWritePlanning: false') &&
+    read('src/lib/ai/aiUnderstandingEngine.ts').includes('legacyWritePlanningEnabled'),
+  'production AI flow disables the legacy write/approval executor so only one write authority remains',
+);
+
+assert(
   planner.includes("supabase.functions.invoke('ai-planner'") &&
     planner.includes('safePlannerContext') &&
     planner.includes('Planner is an enhancement, never a dependency'),
