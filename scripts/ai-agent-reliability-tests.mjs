@@ -254,6 +254,12 @@ assert(
   'at least 90% of the 40 compound variants route as multi-step candidates',
 );
 
+assert(
+  !looksLikeCompoundAction('Create a task to check the proof and assign it to Zain') &&
+    !looksLikeCompoundAction('Create project Annual Report and assign it to Zain'),
+  'one create-and-assign operation is not incorrectly split into multiple writes',
+);
+
 let safeReadCount = 0;
 for (const command of readOnlyCases) {
   if (!looksLikeCompoundAction(command)) safeReadCount += 1;
