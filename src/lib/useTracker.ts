@@ -1541,6 +1541,42 @@ export function useTracker() {
     };
   }, [currentProfile, loadSupabaseData, mode]);
 
+
+  useEffect(() => {
+    const supabaseClient = supabase;
+
+    if (!supabaseClient || mode !== 'supabase' || !currentProfile || isClientRole(currentProfile.role)) {
+      return undefined;
+    }
+
+    // Keep task lists in sync across admin, manager, and team-member sessions.
+    // Realtime delivery is still filtered by the existing task RLS policies.
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleTaskRefresh = () => {
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+      }
+
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        void loadSupabaseData(currentProfile);
+      }, 100);
+    };
+
+    const subscription = supabaseClient
+      .channel(`task-realtime-sync:${currentProfile.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, scheduleTaskRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'task_assignees' }, scheduleTaskRefresh)
+      .subscribe();
+
+    return () => {
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+      }
+      supabaseClient.removeChannel(subscription);
+    };
+  }, [currentProfile, loadSupabaseData, mode]);
+
   const login = useCallback(
     async (loginName: string, password: string) => {
       setError(null);
