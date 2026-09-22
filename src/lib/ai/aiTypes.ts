@@ -184,6 +184,35 @@ export interface AIToolContext {
   };
 }
 
+export interface AIActionVerification {
+  status: 'verified' | 'unverified' | 'failed';
+  message: string;
+  details?: Record<string, any>;
+}
+
+export interface AIActionPlanStep {
+  intent?: string;
+  normalizedCommand: string;
+  label?: string;
+  status?: 'pending' | 'ready' | 'completed' | 'cancelled' | 'failed';
+}
+
+export interface AIPendingActionPlan {
+  id: string;
+  originalQuery: string;
+  steps: AIActionPlanStep[];
+  currentIndex: number;
+  startedAt: string;
+}
+
+export interface AIPendingCommandCompletion {
+  originalQuery: string;
+  toolName: AIToolName;
+  missingField: 'project' | 'task' | 'client' | 'employee' | 'date' | 'amount' | 'details';
+  attempts: number;
+  startedAt: string;
+}
+
 export interface AIToolResult<T = any> {
   success: boolean;
   toolName: AIToolName;
@@ -196,6 +225,13 @@ export interface AIToolResult<T = any> {
   disambiguation?: DisambiguationOption[];
   auditLog?: AIActionAuditLog;
   invoice?: Invoice;
+  verification?: AIActionVerification;
+  actionPlan?: {
+    id: string;
+    currentStep: number;
+    totalSteps: number;
+    remainingCommands: string[];
+  };
   entities?: {
     projects?: Project[];
     clients?: string[];
@@ -247,6 +283,8 @@ export interface ConversationMemory {
     requestedFields: string[];
     startedAt: string;
   } | null;
+  pendingActionPlan?: AIPendingActionPlan | null;
+  pendingCommandCompletion?: AIPendingCommandCompletion | null;
 }
 
 export interface ToolExecutionLog {
@@ -279,6 +317,8 @@ export interface AIMessageMetadata {
   actionStatus?: 'pending' | 'confirmed' | 'cancelled' | 'executed' | 'failed';
   auditLog?: AIActionAuditLog;
   invoice?: Invoice;
+  verification?: AIActionVerification;
+  actionPlan?: AIToolResult['actionPlan'];
   sources?: RAGSource[];
   suggestedFollowUps?: string[];
 }
