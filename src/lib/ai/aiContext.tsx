@@ -34,6 +34,7 @@ function persistentMessageMetadata(message: AIMessage['metadata']): AIMessage['m
   return {
     toolUsed: message.toolUsed,
     actionStatus: message.actionStatus,
+    auditLog: message.auditLog,
     invoice: message.invoice,
     suggestedFollowUps: message.suggestedFollowUps,
   };
