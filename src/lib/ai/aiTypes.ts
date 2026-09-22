@@ -68,6 +68,7 @@ export type AIToolName =
   | 'invite_client'
   | 'approve_project_milestone'
   | 'submit_stage_for_approval'
+  | 'submit_stage_for_approval'
   | 'record_project_payment'
   | 'record_income'
   | 'record_expense'
@@ -167,6 +168,7 @@ export interface AIToolContext {
     updateRevisionRequest?: (id: string, updates: Partial<RevisionRequest>) => Promise<void>;
     respondToRevisionRequest?: (id: string, response: string, status?: string, assignedTo?: string) => Promise<void>;
     approveProjectMilestone?: (projectId: string, milestone: string, approvedBy?: string, notes?: string, clientSignedName?: string) => Promise<void>;
+    submitStageForApproval?: (projectId: string, submissionNote?: string, fileUrl?: string) => Promise<void>;
     submitStageForApproval?: (projectId: string, submissionNote?: string, fileUrl?: string) => Promise<void>;
     setProjectLifecycle?: (projectId: string, lifecycle: ProjectLifecycleStatus, reason?: string) => Promise<void>;
     completeFinalDelivery?: (projectId: string, note?: string) => Promise<void>;
