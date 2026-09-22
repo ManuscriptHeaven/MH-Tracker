@@ -101,6 +101,13 @@ assert(
 );
 
 assert(
+  planner.includes('team: isClientRole(ctx.currentProfile.role)') &&
+    planner.includes('? []') &&
+    planner.includes('.filter((profile) => !isClientRole(profile.role))'),
+  'client planner context excludes the internal team directory',
+);
+
+assert(
   edge.includes("createClient(supabaseUrl, anonKey") &&
     edge.includes('authClient.auth.getUser()') &&
     !edge.includes('SUPABASE_SERVICE_ROLE_KEY') &&
