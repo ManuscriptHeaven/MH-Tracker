@@ -888,8 +888,27 @@ export class VoiceQueryEngine {
         .replace(/\s+(tomorrow|today|by\s+[a-zA-Z0-9\s]+|due\s+[a-zA-Z0-9\s]+)\s*$/i, '')
         .trim();
 
+      if (targetEmpProfile) {
+        const commandLower = q.toLowerCase().trim();
+        const fullName = targetEmpProfile.full_name.toLowerCase();
+        const firstNameOnly = fullName.split(' ')[0];
+        const assigneeOnly =
+          commandLower.endsWith('for ' + fullName) ||
+          commandLower.endsWith('for ' + firstNameOnly);
+        if (assigneeOnly) taskTitle = '';
+      }
+
       if (!taskTitle || taskTitle.length < 3) {
-        taskTitle = 'Check project production files';
+        return {
+          success: false,
+          toolName: 'create_task',
+          error: 'task_details_required',
+          spokenText: 'What should the task for ' + targetEmpName + ' be called?',
+          displayText:
+            '### Task Details Needed\n\n' +
+            'I know **who** to assign it to, but I still need the task title or instruction.\n\n' +
+            'For example: **"Check the revised print PDF."**',
+        };
       }
 
       const preview: AIActionPreview = {
@@ -2010,7 +2029,28 @@ export class VoiceQueryEngine {
         .replace(/(?:with\s+)?email\s+[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i, '')
         .trim();
 
-      if (!clientName) clientName = 'New Client';
+      if (!clientName) {
+        return {
+          success: false,
+          toolName: 'invite_client',
+          error: 'client_name_required',
+          spokenText: 'What is the client name?',
+          displayText: '### Client Name Needed\n\nPlease tell me the client name.',
+        };
+      }
+
+      if (!email) {
+        return {
+          success: false,
+          toolName: 'invite_client',
+          error: 'client_email_required',
+          spokenText: 'What email address should I use for ' + clientName + '?',
+          displayText:
+            '### Client Email Needed\n\nI have **' +
+            clientName +
+            '**, but I still need a valid email address. I will not invent one.',
+        };
+      }
 
       const preview: AIActionPreview = {
         actionId: `act-${Date.now()}`,
@@ -2026,7 +2066,7 @@ export class VoiceQueryEngine {
         ],
         payload: {
           full_name: clientName,
-          email: email || `${clientName.toLowerCase().replace(/\s+/g, '')}@client.com`,
+          email,
           project_ids: [],
         },
         confirmButtonText: 'Invite Client',
@@ -2061,6 +2101,8 @@ export class VoiceQueryEngine {
       invalid_date: 'date',
       invalid_amount: 'amount',
       task_details_required: 'details',
+      client_name_required: 'client',
+      client_email_required: 'details',
       record_not_found: 'details',
     };
 
