@@ -15,7 +15,7 @@ function assert(condition, message) {
 const types = read('src/lib/ai/aiTypes.ts');
 const context = read('src/lib/ai/aiContext.tsx');
 const engine = read('src/lib/ai/voiceQueryEngine.ts');
-const actions = read('src/lib/ai/safeActionTools.ts');
+const agentActions = read('src/lib/ai/aiAgentActions.ts');
 const planner = read('src/lib/ai/aiNaturalActionPlanner.ts');
 const edge = read('supabase/functions/ai-action-planner/index.ts');
 
@@ -33,21 +33,21 @@ assert(
 );
 
 assert(
-  actions.includes('execute_submit_stage_for_approval') &&
-    actions.includes('ctx.trackerMutations?.submitStageForApproval'),
+  agentActions.includes('executeSubmitStageForApproval') &&
+    agentActions.includes('ctx.trackerMutations?.submitStageForApproval'),
   'stage submission executor uses the canonical tracker mutation',
 );
 
 assert(
   engine.includes("toolName: 'submit_stage_for_approval'") &&
-    engine.includes('prepare_generate_client_invoice') &&
+    engine.includes('prepareGenerateClientInvoice') &&
     engine.includes('planNaturalAction'),
   'voice engine supports stage submission, invoice preview and natural-language fallback planning',
 );
 
 assert(
-  actions.includes('prepare_generate_client_invoice') &&
-    actions.includes("confirmButtonText: 'Generate Invoice'"),
+  agentActions.includes('prepareGenerateClientInvoice') &&
+    agentActions.includes("confirmButtonText: 'Generate Invoice'"),
   'invoice generation requires an explicit preview/confirmation before persistence',
 );
 
