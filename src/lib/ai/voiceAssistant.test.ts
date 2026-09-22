@@ -57,6 +57,11 @@ export async function runVoiceAssistantTests() {
       payment_date: null,
       payment_notes: '',
       current_stage: 'Print Version',
+      project_status: 'active',
+      workflow_stage_key: 'print_version',
+      workflow_stage_status_key: 'active',
+      workflow_waiting_on_key: 'team',
+      workflow_version: 3,
       progress_percentage: 60,
       waiting_on: 'Manuscript Heaven',
       created_by: adminProfile.id,
@@ -95,7 +100,7 @@ export async function runVoiceAssistantTests() {
       proof_pdf_link: '',
       final_print_pdf_link: '',
       final_ebook_link: '',
-      cover_file_link: '',
+      cover_file_link: 'https://example.com/magazine-concept.pdf',
       other_links: '',
       total_price: 2000,
       advance_paid: 1000,
@@ -104,6 +109,11 @@ export async function runVoiceAssistantTests() {
       payment_date: null,
       payment_notes: '',
       current_stage: 'Design Concept',
+      project_status: 'active',
+      workflow_stage_key: 'design_concept',
+      workflow_stage_status_key: 'active',
+      workflow_waiting_on_key: 'team',
+      workflow_version: 2,
       progress_percentage: 40,
       waiting_on: 'Manuscript Heaven',
       created_by: adminProfile.id,
@@ -151,6 +161,11 @@ export async function runVoiceAssistantTests() {
       payment_date: '2026-08-01',
       payment_notes: '',
       current_stage: 'Concept Approval',
+      project_status: 'active',
+      workflow_stage_key: 'concept_approval',
+      workflow_stage_status_key: 'awaiting_client',
+      workflow_waiting_on_key: 'client',
+      workflow_version: 4,
       progress_percentage: 50,
       waiting_on: 'Client',
       created_by: adminProfile.id,
@@ -347,6 +362,12 @@ export async function runVoiceAssistantTests() {
     ],
   };
 
+  const canonicalMutationCalls = {
+    lifecycle: [] as Array<{ projectId: string; lifecycle: string }>,
+    stageSubmissions: [] as Array<{ projectId: string; note?: string; fileUrl?: string }>,
+    invoices: [] as any[],
+  };
+
   const createAdminCtx = (_legacyCurrency: 'USD' | 'PKR' = 'USD'): AIToolContext => ({
     currentProfile: adminProfile,
     data: mockData,
@@ -362,6 +383,55 @@ export async function runVoiceAssistantTests() {
       if (from === 'PKR' && to === 'USD') return numeric / 277.5;
       if (from === 'USD' && to === 'PKR') return numeric * 277.5;
       return numeric;
+    },
+    trackerMutations: {
+      setProjectLifecycle: async (projectId, lifecycle) => {
+        canonicalMutationCalls.lifecycle.push({ projectId, lifecycle });
+        const project = testProjects.find((item) => item.id === projectId);
+        if (project) {
+          project.project_status = lifecycle as any;
+          project.status = lifecycle === 'on_hold' ? 'On Hold' : 'In Progress';
+        }
+      },
+      submitStageForApproval: async (projectId, note, fileUrl) => {
+        canonicalMutationCalls.stageSubmissions.push({ projectId, note, fileUrl });
+        const project = testProjects.find((item) => item.id === projectId);
+        if (project) {
+          const current = String(project.workflow_stage_key || '');
+          const next =
+            current === 'design_concept'
+              ? 'concept_approval'
+              : current === 'print_version'
+                ? 'print_approval'
+                : current === 'ebook_version'
+                  ? 'ebook_approval'
+                  : current;
+          project.workflow_stage_key = next as any;
+          project.workflow_stage_status_key = 'awaiting_client' as any;
+          project.workflow_waiting_on_key = 'client' as any;
+          project.status = 'Awaiting Client Approval';
+          project.current_stage =
+            next === 'concept_approval'
+              ? 'Concept Approval'
+              : next === 'print_approval'
+                ? 'Print Approval'
+                : next === 'ebook_approval'
+                  ? 'eBook Approval'
+                  : project.current_stage;
+        }
+      },
+      completeFinalDelivery: async (projectId) => {
+        const project = testProjects.find((item) => item.id === projectId);
+        if (project) {
+          project.project_status = 'completed' as any;
+          project.status = 'Completed';
+        }
+      },
+      saveInvoiceVersion: async (draft) => {
+        const saved = { ...draft, id: draft.id || 'inv-test-' + (canonicalMutationCalls.invoices.length + 1) };
+        canonicalMutationCalls.invoices.push(saved);
+        return saved;
+      },
     },
   });
 
@@ -575,8 +645,18 @@ export async function runVoiceAssistantTests() {
   assert(Boolean(res27a.success && res27a.pendingAction && res27a.pendingAction.category === 'high_risk'), 'Test 27a: Project status change preview');
   console.log(`   User: "Put The Quiet Atlas on hold"\n   Assistant (Preview): "${res27a.spokenText}"`);
 
+  const lifecycleCallsBefore27 = canonicalMutationCalls.lifecycle.length;
   const res27b = await voiceQueryEngine.processQuery('Go ahead', createAdminCtx());
-  assert(Boolean(res27b.success && res27b.spokenText.includes('On Hold')), 'Test 27b: Verbal confirmation "Go ahead" changes project status');
+  assert(
+    Boolean(
+      res27b.success &&
+      res27b.spokenText.includes('On Hold') &&
+      canonicalMutationCalls.lifecycle.length === lifecycleCallsBefore27 + 1 &&
+      canonicalMutationCalls.lifecycle.at(-1)?.projectId === 'proj-1' &&
+      canonicalMutationCalls.lifecycle.at(-1)?.lifecycle === 'on_hold'
+    ),
+    'Test 27b: Verbal confirmation "Go ahead" uses canonical lifecycle mutation',
+  );
   console.log(`   User: "Go ahead"\n   Assistant (Executed): "${res27b.spokenText}"`);
 
   // TEST 28: Cancellation of Pending Action ("Cancel")
@@ -730,65 +810,110 @@ export async function runVoiceAssistantTests() {
   assert(Boolean(res36b.success && res36b.spokenText.includes('processed')), 'Test 36b: Invite client executed');
   console.log(`   Assistant (Executed): "${res36b.spokenText}"`);
 
-  // TEST 37: Move Project to Print Approval (Fix for user issue "put Project BCH to Print Approval")
+  // TEST 37: User-style design concept submission uses canonical workflow
   voiceQueryEngine.clearMemory();
-  const res37a = await voiceQueryEngine.processQuery('put Project BCH to Print Approval', createAdminCtx());
+  const stageCallsBefore37 = canonicalMutationCalls.stageSubmissions.length;
+  const res37a = await voiceQueryEngine.processQuery(
+    'Submit the design concept for Magazine 2',
+    createAdminCtx(),
+  );
   assert(
     Boolean(
       res37a.success &&
       res37a.pendingAction &&
-      res37a.pendingAction.toolName === 'update_project_status' &&
-      res37a.pendingAction.payload.currentStage === 'Print Approval' &&
-      res37a.pendingAction.payload.status === 'Awaiting Client Approval',
+      res37a.pendingAction.toolName === 'submit_stage_for_approval' &&
+      res37a.pendingAction.targetId === 'proj-2' &&
+      canonicalMutationCalls.stageSubmissions.length === stageCallsBefore37
     ),
-    'Test 37a: "put Project BCH to Print Approval" generates stage update preview for Magazine 2',
+    'Test 37a: Design concept submission creates preview without changing workflow',
   );
-  console.log(`   User: "put Project BCH to Print Approval"\n   Assistant (Preview): "${res37a.spokenText}"`);
+  console.log(`   User: "Submit the design concept for Magazine 2"\n   Assistant (Preview): "${res37a.spokenText}"`);
 
   const res37b = await voiceQueryEngine.processQuery('Yes', createAdminCtx());
-  assert(Boolean(res37b.success && res37b.spokenText.includes('Print Approval')), 'Test 37b: Verbal confirmation executes stage update');
+  assert(
+    Boolean(
+      res37b.success &&
+      res37b.spokenText.includes('submitted for client approval') &&
+      canonicalMutationCalls.stageSubmissions.length === stageCallsBefore37 + 1 &&
+      canonicalMutationCalls.stageSubmissions.at(-1)?.projectId === 'proj-2'
+    ),
+    'Test 37b: Confirmation submits Design Concept through canonical workflow',
+  );
   console.log(`   Assistant (Executed): "${res37b.spokenText}"`);
 
-  // TEST 38: Move specific project to Print Approval
+  // TEST 38: Legacy "move to Print Approval" is safely translated into stage submission
   voiceQueryEngine.clearMemory();
+  const stageCallsBefore38 = canonicalMutationCalls.stageSubmissions.length;
   const res38a = await voiceQueryEngine.processQuery('move The Quiet Atlas to Print Approval', createAdminCtx());
   assert(
     Boolean(
       res38a.success &&
       res38a.pendingAction &&
-      res38a.pendingAction.toolName === 'update_project_status' &&
-      res38a.pendingAction.payload.currentStage === 'Print Approval',
+      res38a.pendingAction.toolName === 'submit_stage_for_approval' &&
+      res38a.pendingAction.targetId === 'proj-1' &&
+      canonicalMutationCalls.stageSubmissions.length === stageCallsBefore38
     ),
-    'Test 38a: "move The Quiet Atlas to Print Approval" generates stage update preview',
+    'Test 38a: Print Approval request translates to canonical stage-submission preview',
   );
   const res38b = await voiceQueryEngine.processQuery('Confirm', createAdminCtx());
-  assert(Boolean(res38b.success && res38b.spokenText.includes('Print Approval')), 'Test 38b: Verbal confirmation executes stage update');
-  console.log(`   Assistant (Executed): "${res38b.spokenText}"`);
-
-  // TEST 39: Generate Invoice for Client Pending Payments
-  voiceQueryEngine.clearMemory();
-  const res39 = await voiceQueryEngine.processQuery('Generate invoice for BCH for all pending payments', createAdminCtx());
   assert(
     Boolean(
-      res39.success &&
-      res39.invoice &&
-      res39.invoice.client_name === 'BCH' &&
-      res39.invoice.total_due === 1000 &&
-      res39.spokenText.includes('$1,000'),
+      res38b.success &&
+      res38b.spokenText.includes('submitted for client approval') &&
+      canonicalMutationCalls.stageSubmissions.length === stageCallsBefore38 + 1 &&
+      canonicalMutationCalls.stageSubmissions.at(-1)?.projectId === 'proj-1'
     ),
-    'Test 39: "Generate invoice for BCH for all pending payments" creates itemized invoice for $1,000',
+    'Test 38b: Confirmation executes canonical Print Version submission',
   );
-  console.log(`   User: "Generate invoice for BCH for all pending payments"\n   Assistant (Invoice): "${res39.spokenText}"`);
+  console.log(`   Assistant (Executed): "${res38b.spokenText}"`);
 
-  // TEST 40: Generate Invoice for settled client
+  // TEST 39: Invoice generation is preview-first and persists only after confirmation
   voiceQueryEngine.clearMemory();
+  const invoiceCallsBefore39 = canonicalMutationCalls.invoices.length;
+  const res39a = await voiceQueryEngine.processQuery(
+    'Generate an Invoice for all pending payments for BCH Client',
+    createAdminCtx(),
+  );
+  assert(
+    Boolean(
+      res39a.success &&
+      res39a.pendingAction &&
+      res39a.pendingAction.toolName === 'generate_client_invoice' &&
+      res39a.pendingAction.clientName === 'BCH' &&
+      res39a.spokenText.includes('$1,000') &&
+      canonicalMutationCalls.invoices.length === invoiceCallsBefore39
+    ),
+    'Test 39a: Pending-payments invoice request previews $1,000 and does not persist before confirmation',
+  );
+
+  const res39b = await voiceQueryEngine.processQuery('Confirm', createAdminCtx());
+  assert(
+    Boolean(
+      res39b.success &&
+      res39b.invoice &&
+      res39b.invoice.client_name === 'BCH' &&
+      res39b.invoice.total_due === 1000 &&
+      canonicalMutationCalls.invoices.length === invoiceCallsBefore39 + 1
+    ),
+    'Test 39b: Confirmed BCH invoice persists exactly once',
+  );
+  console.log(`   User: "Generate an Invoice for all pending payments for BCH Client"\n   Assistant (Invoice): "${res39b.spokenText}"`);
+
+  // TEST 40: Settled client does not get an unnecessary invoice
+  voiceQueryEngine.clearMemory();
+  const invoiceCallsBefore40 = canonicalMutationCalls.invoices.length;
   const res40 = await voiceQueryEngine.processQuery('Create invoice for Noah Brooks for pending payments', createAdminCtx());
   assert(
     Boolean(
       res40.success &&
-      (res40.spokenText.includes('no pending payments') || res40.spokenText.includes('settled')),
+      !res40.pendingAction &&
+      !res40.invoice &&
+      canonicalMutationCalls.invoices.length === invoiceCallsBefore40 &&
+      (res40.spokenText.includes('no uninvoiced pending payments') ||
+        res40.spokenText.includes('no pending payments') ||
+        res40.spokenText.includes('settled'))
     ),
-    'Test 40: "Create invoice for Noah Brooks" detects settled account',
+    'Test 40: Settled client does not create or preview an unnecessary invoice',
   );
   // TEST 41: Wake Word "Hey James" service test
   let wakeWordTriggered = false;
