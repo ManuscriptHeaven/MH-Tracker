@@ -713,65 +713,135 @@ export async function execute_update_project_status(
       success: false,
       toolName: 'update_project_status',
       error: 'permission_denied',
-      spokenText: 'Only managers and admins can change project statuses.',
-      displayText: '🔒 Only managers and admins can change project statuses.',
+      spokenText: 'Only managers and admins can change project lifecycle state.',
+      displayText: '🔒 Project lifecycle changes are restricted to Admin and Project Manager roles.',
     };
   }
 
-  const project = ctx.data.projects.find((p) => p.id === payload.projectId);
+  const project = ctx.visibleProjects.find((item) => item.id === payload.projectId);
   if (!project) {
     return {
       success: false,
       toolName: 'update_project_status',
       error: 'project_not_found',
-      spokenText: "I couldn't find the specified project.",
-      displayText: '❌ Project not found.',
+      spokenText: "I couldn't find the specified project in your accessible workspace.",
+      displayText: '❌ Project not found or not accessible.',
     };
   }
 
-  const oldStatus = project.status;
-  const oldStage = project.current_stage;
-  const updates: Partial<Project> = { status: payload.status };
+  // Canonical workflow stages are never changed through generic project metadata.
+  // Stage progression must use dedicated workflow RPCs such as stage submission,
+  // client approval, stage advance, revision submission or final delivery.
   if (payload.currentStage) {
-    updates.current_stage = payload.currentStage as any;
+    return {
+      success: false,
+      toolName: 'update_project_status',
+      error: 'canonical_workflow_required',
+      spokenText: 'I will not force a project into a workflow stage.',
+      displayText:
+        `### Canonical Workflow Required\n\n` +
+        `• **Project:** ${project.project_title} (${project.project_number})\n` +
+        `• **Current Stage:** ${project.current_stage || project.workflow_stage_key || project.status}\n` +
+        `• **Requested Stage:** ${payload.currentStage}\n\n` +
+        'Use the appropriate workflow action (submit stage, approve, revise, advance, or final delivery). No status fields were changed.',
+    };
   }
 
+  const requestedStatus = String(payload.status || '').toLowerCase();
+  const oldStatus = project.status;
+  const oldLifecycle = project.project_status || 'active';
+
   try {
-    if (ctx.trackerMutations?.updateProject) {
-      await ctx.trackerMutations.updateProject(project.id, updates);
+    let nextLabel = '';
+    if (requestedStatus === 'on hold' || requestedStatus === 'hold' || requestedStatus === 'paused') {
+      if (!ctx.trackerMutations?.setProjectLifecycle) {
+        throw new Error('Canonical project lifecycle mutation is unavailable.');
+      }
+      await ctx.trackerMutations.setProjectLifecycle(project.id, 'on_hold', 'AI-confirmed project hold');
+      nextLabel = 'On Hold';
+    } else if (
+      requestedStatus === 'in progress' ||
+      requestedStatus === 'active' ||
+      requestedStatus === 'resume' ||
+      requestedStatus === 'resumed'
+    ) {
+      if (!ctx.trackerMutations?.setProjectLifecycle) {
+        throw new Error('Canonical project lifecycle mutation is unavailable.');
+      }
+      await ctx.trackerMutations.setProjectLifecycle(project.id, 'active', 'AI-confirmed project resume');
+      nextLabel = 'Active';
+    } else if (
+      requestedStatus === 'completed' ||
+      requestedStatus === 'delivered' ||
+      requestedStatus === 'final delivery'
+    ) {
+      if (String(project.workflow_stage_key || '') !== 'final_delivery') {
+        return {
+          success: false,
+          toolName: 'update_project_status',
+          error: 'final_delivery_required',
+          spokenText: 'This project cannot be marked complete before the canonical final-delivery stage.',
+          displayText:
+            `### Final Delivery Required\n\n**${project.project_title}** is currently at **${project.current_stage || project.workflow_stage_key || project.status}**. Complete the workflow through Final Delivery instead of forcing the project to Completed.`,
+        };
+      }
+      if (!ctx.trackerMutations?.completeFinalDelivery) {
+        throw new Error('Canonical final-delivery mutation is unavailable.');
+      }
+      await ctx.trackerMutations.completeFinalDelivery(project.id, 'AI-confirmed final delivery');
+      nextLabel = 'Completed / Delivered';
+    } else {
+      return {
+        success: false,
+        toolName: 'update_project_status',
+        error: 'unsupported_lifecycle_change',
+        spokenText: 'That status is controlled by the canonical project workflow.',
+        displayText:
+          `### Workflow-Controlled Status\n\n**${payload.status}** cannot be set as a free-form project status. Use the matching workflow action so stage history, timers, approvals, and audit data remain correct.`,
+      };
     }
 
-    const stageNote = payload.currentStage ? ` (Stage: ${payload.currentStage})` : '';
     const audit = createAuditLog(
       ctx,
-      `Changed project status for "${project.project_title}"`,
+      `Changed project lifecycle for "${project.project_title}"`,
       'project',
       project.id,
       project.project_title,
-      `${oldStatus}${oldStage ? ` / ${oldStage}` : ''}`,
-      `${payload.status}${stageNote}`,
+      `${oldLifecycle} / ${oldStatus}`,
+      nextLabel,
       'success',
     );
-
-    const spoken = `Done. ${project.project_title} has been moved to ${payload.currentStage || payload.status}.`;
-    const display = `### ✅ Project Updated\n\n• **Project:** **${project.project_title}** (${project.project_number})\n• **Previous:** ${oldStatus}${oldStage ? ` (Stage: ${oldStage})` : ''}\n• **New Status:** **${payload.status}**${payload.currentStage ? `\n• **New Stage:** **${payload.currentStage}**` : ''}`;
 
     return {
       success: true,
       toolName: 'update_project_status',
-      spokenText: spoken,
-      displayText: display,
+      spokenText: `Done. ${project.project_title} is now ${nextLabel}.`,
+      displayText:
+        `### ✅ Project Lifecycle Updated\n\n` +
+        `• **Project:** **${project.project_title}** (${project.project_number})\n` +
+        `• **Previous:** ${oldStatus}\n` +
+        `• **New:** **${nextLabel}**`,
       auditLog: audit,
     };
   } catch (err: any) {
-    const errorMsg = err?.message || 'Failed to update project status.';
+    const errorMsg = err?.message || 'Failed to update project lifecycle.';
     return {
       success: false,
       toolName: 'update_project_status',
       error: errorMsg,
-      spokenText: `I couldn't update the project status. ${errorMsg}`,
-      displayText: `❌ Failed to update project status: ${errorMsg}`,
-      auditLog: createAuditLog(ctx, `Update project status failed: "${project.project_title}"`, 'project', project.id, project.project_title, oldStatus, payload.status, 'failed', errorMsg),
+      spokenText: `I couldn't update the project lifecycle. ${errorMsg}`,
+      displayText: `❌ Failed to update project lifecycle: ${errorMsg}`,
+      auditLog: createAuditLog(
+        ctx,
+        `Project lifecycle update failed: "${project.project_title}"`,
+        'project',
+        project.id,
+        project.project_title,
+        `${oldLifecycle} / ${oldStatus}`,
+        null,
+        'failed',
+        errorMsg,
+      ),
     };
   }
 }
