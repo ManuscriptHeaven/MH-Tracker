@@ -66,8 +66,12 @@ const ACTION_SIGNAL =
   /\b(create|add|make|start|generate|invoice|bill|submit|send|share|move|set|change|update|assign|record|approve|complete|deliver|put|draft|write|prepare|banao|bnao|karo|kro|krdo|bhejo|jama|nikalo|lagao|lgao|laga\s*do|de\s*do)\b|(?:بناؤ|بنا\s*دو|بھیجو|جمع|انوائس|تبدیل|اسائن|مکمل)/iu;
 
 function splitCompoundActionMessage(message: string): string[] {
+  if (/\b(?:create|add)\b[\s\S]*\b(?:task|project)\b[\s\S]*\band\b[\s\S]*\bassign\b/i.test(message)) {
+    return [message];
+  }
+
   const parts = message
-    .split(/\b(?:and then|then|phir|aur phir|aur|also)\b|(?:پھر|اور پھر|اور)/iu)
+    .split(/\b(?:and then|then|and|phir|aur phir|aur|also)\b|(?:پھر|اور پھر|اور)/iu)
     .map((part) => part.trim())
     .filter(Boolean);
 
