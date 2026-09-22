@@ -9,13 +9,29 @@ const corsHeaders = {
 
 const allowedIntents = new Set([
   'create_project',
+  'duplicate_project',
   'create_task',
+  'assign_task',
+  'update_task_status',
+  'update_task_due_date',
+  'delete_task',
   'submit_stage_for_approval',
+  'approve_project_milestone',
+  'update_project_status',
+  'update_project_due_date',
+  'delete_project',
+  'add_project_note',
+  'reassign_revision',
+  'update_revision_status',
   'generate_client_invoice',
   'draft_client_communication',
-  'update_project_status',
   'record_project_payment',
-  'assign_task',
+  'record_expense',
+  'record_payroll_payment',
+  'add_payroll_advance',
+  'add_payroll_deduction',
+  'send_internal_message',
+  'invite_client',
   'unknown',
 ]);
 
@@ -24,6 +40,7 @@ type PlannerContext = {
   activeView?: string | null;
   selectedProject?: Record<string, unknown> | null;
   projects?: Array<Record<string, unknown>>;
+  tasks?: Array<Record<string, unknown>>;
   team?: Array<Record<string, unknown>>;
 };
 
@@ -212,6 +229,7 @@ function sanitizeContext(raw: unknown): PlannerContext {
         ? input.selectedProject
         : null,
     projects: Array.isArray(input.projects) ? input.projects.slice(0, 80) : [],
+    tasks: Array.isArray(input.tasks) ? input.tasks.slice(0, 80) : [],
     team: Array.isArray(input.team) ? input.team.slice(0, 40) : [],
   };
 }
@@ -255,13 +273,29 @@ Your only job is to translate natural English, Roman Urdu, Urdu, shorthand, typo
 
 Allowed intents:
 - create_project
+- duplicate_project
 - create_task
+- assign_task
+- update_task_status
+- update_task_due_date
+- delete_task
 - submit_stage_for_approval
+- approve_project_milestone
+- update_project_status
+- update_project_due_date
+- delete_project
+- add_project_note
+- reassign_revision
+- update_revision_status
 - generate_client_invoice
 - draft_client_communication
-- update_project_status
 - record_project_payment
-- assign_task
+- record_expense
+- record_payroll_payment
+- add_payroll_advance
+- add_payroll_deduction
+- send_internal_message
+- invite_client
 - unknown
 
 Important safety rules:
@@ -271,11 +305,17 @@ Important safety rules:
 4. Preserve user amounts, dates, tone, and constraints exactly.
 5. A request to send/submit a design concept, print version, eBook version, or final delivery to a client should normalize to "Submit the <stage> for <project> for client approval".
 6. An invoice request for pending/outstanding client payments should normalize to "Generate invoice for <client> for all pending payments".
-7. Output JSON only, with keys: planned, intent, normalizedCommand, confidence, reason.
+7. Never convert a read-only question into a write action.
+8. Never weaken confirmation language or turn "draft", "preview", "show me", or "what if" into execution.
+9. Output JSON only, with keys: planned, intent, normalizedCommand, confidence, reason.
 
 Examples:
 "Magazine 2 ka concept client ko review k lye bhej do" -> {"planned":true,"intent":"submit_stage_for_approval","normalizedCommand":"Submit the design concept for Magazine 2 for client approval","confidence":0.96,"reason":"Known project and clear stage submission request."}
-"BCH k sari pending payment ki invoice nikalo" -> {"planned":true,"intent":"generate_client_invoice","normalizedCommand":"Generate invoice for BCH for all pending payments","confidence":0.96,"reason":"Known client and invoice request."}`;
+"BCH k sari pending payment ki invoice nikalo" -> {"planned":true,"intent":"generate_client_invoice","normalizedCommand":"Generate invoice for BCH for all pending payments","confidence":0.96,"reason":"Known client and invoice request."}
+"Zain ko cover wali task de do" -> {"planned":true,"intent":"assign_task","normalizedCommand":"Assign task cover to Zain","confidence":0.9,"reason":"Clear task assignment request."}
+"Magazine 2 ko kal tak extend kr do" -> {"planned":true,"intent":"update_project_due_date","normalizedCommand":"Change project deadline for Magazine 2 to tomorrow","confidence":0.9,"reason":"Clear project deadline update."}
+"Book 3 ka payment 250 dollar record kr do" -> {"planned":true,"intent":"record_project_payment","normalizedCommand":"Record $250 payment for Book 3","confidence":0.93,"reason":"Clear project payment request."}
+"BCH ko friendly payment reminder draft kro" -> {"planned":true,"intent":"draft_client_communication","normalizedCommand":"Draft a friendly payment reminder message for BCH","confidence":0.9,"reason":"Draft-only client communication request."}`;
 
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${geminiKey}`,
