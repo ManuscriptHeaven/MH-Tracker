@@ -2033,6 +2033,14 @@ export class VoiceQueryEngine {
       }
     }
 
+    if (selected.type === 'project' && context?.intentType === 'submit_stage_for_approval') {
+      const project = ctx.visibleProjects.find((item) => item.id === selected.id);
+      if (project) {
+        const reroutedQuery = `${context.originalQuery || 'Submit current stage for client approval'} ${project.project_number} ${project.project_title}`;
+        return this.detectWriteIntent(reroutedQuery.toLowerCase(), reroutedQuery, ctx);
+      }
+    }
+
     if (selected.type === 'project' && context?.intentType === 'update_project_status') {
       const project = ctx.data.projects.find((p) => p.id === selected.id);
       if (project) {
