@@ -24,6 +24,7 @@ import {
 import { useAIContext } from '../lib/ai/aiContext';
 import { AIChatMessage } from '../components/ai/AIChatMessage';
 import { AIActivityHistory } from '../components/ai/AIActivityHistory';
+import { AIOperatorIntelligencePanel } from '../components/ai/AIOperatorIntelligencePanel';
 import { InvoiceModal } from '../components/InvoiceModal';
 import { cn, firstName, isManagerRole } from '../lib/utils';
 import { isDueToday, isOverdue } from '../lib/date';
@@ -363,6 +364,8 @@ export function AIAssistantPage({
           </button>
         </div>
       </section>
+
+      <AIOperatorIntelligencePanel />
 
       {dailySummary ? (
         <section className="rounded-2xl border border-gold/30 bg-white p-4 shadow-xs sm:p-5">

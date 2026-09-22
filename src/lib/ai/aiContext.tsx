@@ -9,12 +9,18 @@ import type {
   AIActionPreview,
   AIActionAuditLog,
   DisambiguationOption,
+  AIOperatorIntelligence,
+  AIOperatorTelemetrySummary,
 } from './aiTypes';
 import { aiService } from './aiService';
 import { voiceService } from './voiceService';
 import { voiceQueryEngine } from './voiceQueryEngine';
 import { wakeWordService } from './wakeWordService';
 import { buildDailyBriefing } from './dailyBriefing';
+import {
+  buildOperatorIntelligence,
+  emptyOperatorTelemetry,
+} from './operatorIntelligence';
 import { useCurrency } from '../currency';
 
 function isPersistentConversationId(value?: string | null) {
@@ -40,6 +46,27 @@ function persistentMessageMetadata(message: AIMessage['metadata']): AIMessage['m
     actionPlan: message.actionPlan,
     suggestedFollowUps: message.suggestedFollowUps,
   };
+}
+
+function isClarificationResult(result: AIToolResult) {
+  const clarificationErrors = new Set([
+    'project_not_found',
+    'project_required',
+    'task_not_found',
+    'client_not_found',
+    'ambiguous_client',
+    'recipient_not_found',
+    'invalid_date',
+    'invalid_amount',
+    'task_details_required',
+    'client_name_required',
+    'client_email_required',
+  ]);
+
+  return Boolean(
+    result.disambiguation?.length ||
+      (result.error && clarificationErrors.has(result.error)),
+  );
 }
 
 function suggestedFollowUpsForResult(result: AIToolResult): string[] {
@@ -79,6 +106,7 @@ interface AIContextType {
   liveTranscript: string;
   voiceError: string | null;
   dailySummary: DailySummary | null;
+  operatorIntelligence: AIOperatorIntelligence | null;
   showDailyPopup: boolean;
   settings: AIUserSettings;
   pendingAction: AIActionPreview | null;
@@ -106,6 +134,7 @@ interface AIContextType {
   stopSpeaking: () => void;
   clearVoiceError: () => void;
   refreshDailyBriefing: () => void;
+  refreshOperatorIntelligence: () => Promise<void>;
 }
 
 const AIContext = createContext<AIContextType | undefined>(undefined);
@@ -150,6 +179,13 @@ export function AIProvider({
   });
 
   const [dailySummary, setDailySummary] = useState<DailySummary | null>(null);
+  const [operatorTelemetry, setOperatorTelemetry] = useState<AIOperatorTelemetrySummary>(() =>
+    emptyOperatorTelemetry(
+      tracker.currentProfile?.role === 'admin' ? 'workspace' : 'personal',
+      30,
+    ),
+  );
+  const [operatorIntelligence, setOperatorIntelligence] = useState<AIOperatorIntelligence | null>(null);
   const [showDailyPopup, setShowDailyPopup] = useState(false);
 
   const [isWakeWordListening, setIsWakeWordListening] = useState(false);
@@ -204,6 +240,37 @@ export function AIProvider({
     );
   }, []);
 
+  const refreshOperatorIntelligence = useCallback(async () => {
+    const telemetry = await aiService.loadOperatorTelemetry(30);
+    setOperatorTelemetry(telemetry);
+  }, []);
+
+  useEffect(() => {
+    const current = trackerRef.current;
+    if (!current?.currentProfile || !current?.data) {
+      setOperatorIntelligence(null);
+      return;
+    }
+
+    setOperatorIntelligence(
+      buildOperatorIntelligence({
+        data: current.data,
+        visibleProjects: current.visibleProjects || current.data.projects || [],
+        visibleTasks: current.visibleTasks || current.data.tasks || [],
+        currentProfile: current.currentProfile,
+        dailySummary,
+        telemetry: operatorTelemetry,
+      }),
+    );
+  }, [
+    dailySummary,
+    operatorTelemetry,
+    tracker.data,
+    tracker.visibleProjects,
+    tracker.visibleTasks,
+    tracker.currentProfile?.id,
+  ]);
+
   // Keep the deterministic daily briefing synced to live Tracker data.
   useEffect(() => {
     refreshDailyBriefing();
@@ -246,6 +313,7 @@ export function AIProvider({
 
       const userId = trackerRef.current?.currentProfile?.id;
       if (userId) {
+        void refreshOperatorIntelligence();
         const loadedConversations = await aiService.loadConversations(userId);
         setConversations(loadedConversations);
 
@@ -260,7 +328,7 @@ export function AIProvider({
     }
 
     init();
-  }, []);
+  }, [refreshOperatorIntelligence]);
 
   // Helper to build tool context with mutations
   const getToolContext = useCallback((): AIToolContext => {
@@ -532,6 +600,8 @@ export function AIProvider({
         await aiService.saveMessage(convoId, 'user', text, {});
       }
 
+      const operatorStartedAt = Date.now();
+
       try {
         const toolCtx = getToolContext();
 
@@ -587,12 +657,46 @@ export function AIProvider({
           );
         }
 
+        void aiService
+          .recordOperatorEvent({
+            eventType: 'query_result',
+            conversationId: isPersistentConversationId(convoId) ? convoId : null,
+            toolName: result.toolName,
+            success: result.success,
+            errorCode: result.error || null,
+            requiresConfirmation: Boolean(result.pendingAction),
+            wasClarification: isClarificationResult(result),
+            hadDisambiguation: Boolean(result.disambiguation?.length),
+            verificationStatus: result.verification?.status || null,
+            planStepCount: result.actionPlan?.totalSteps || 0,
+            latencyMs: Date.now() - operatorStartedAt,
+            metadata: {
+              userRole: trackerRef.current?.currentProfile?.role || 'unknown',
+              activeView: activeViewRef.current || 'unknown',
+            },
+          })
+          .then(refreshOperatorIntelligence);
+
         // Speak response if voice TTS is enabled and not muted
         if (settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
           voiceService.speak(result.spokenText || result.displayText, settingsRef.current.voiceLanguage);
         }
       } catch (e: any) {
         console.error('Error processing query:', e);
+        void aiService
+          .recordOperatorEvent({
+            eventType: 'query_result',
+            conversationId: isPersistentConversationId(convoId) ? convoId : null,
+            toolName: null,
+            success: false,
+            errorCode: 'unexpected_error',
+            latencyMs: Date.now() - operatorStartedAt,
+            metadata: {
+              userRole: trackerRef.current?.currentProfile?.role || 'unknown',
+              activeView: activeViewRef.current || 'unknown',
+            },
+          })
+          .then(refreshOperatorIntelligence);
         const errorMsg: AIMessage = {
           id: `msg-${Date.now() + 1}`,
           conversationId: convoId,
@@ -609,7 +713,7 @@ export function AIProvider({
         setIsProcessing(false);
       }
     },
-    [getToolContext, isOpen, openChat],
+    [getToolContext, isOpen, openChat, refreshOperatorIntelligence],
   );
 
   const confirmAction = useCallback(
@@ -631,6 +735,8 @@ export function AIProvider({
         setActiveConversationId(convoId);
         activeConvoRef.current = convoId;
       }
+
+      const operatorStartedAt = Date.now();
 
       try {
         const toolCtx = getToolContext();
@@ -677,10 +783,45 @@ export function AIProvider({
           await aiService.touchConversation(convoId);
         }
 
+        void aiService
+          .recordOperatorEvent({
+            eventType: 'action_confirmed',
+            conversationId: isPersistentConversationId(convoId) ? convoId : null,
+            toolName: action.toolName,
+            success: result.success && result.verification?.status !== 'failed',
+            errorCode:
+              result.error ||
+              (result.verification?.status === 'failed' ? 'verification_failed' : null),
+            requiresConfirmation: true,
+            verificationStatus: result.verification?.status || null,
+            planStepCount: result.actionPlan?.totalSteps || 0,
+            latencyMs: Date.now() - operatorStartedAt,
+            metadata: {
+              userRole: trackerRef.current?.currentProfile?.role || 'unknown',
+              actionCategory: action.category,
+            },
+          })
+          .then(refreshOperatorIntelligence);
+
         if (settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
           voiceService.speak(result.spokenText || result.displayText, settingsRef.current.voiceLanguage);
         }
       } catch (e: any) {
+        void aiService
+          .recordOperatorEvent({
+            eventType: 'action_failed',
+            conversationId: isPersistentConversationId(convoId) ? convoId : null,
+            toolName: action.toolName,
+            success: false,
+            errorCode: 'unexpected_action_error',
+            requiresConfirmation: true,
+            latencyMs: Date.now() - operatorStartedAt,
+            metadata: {
+              userRole: trackerRef.current?.currentProfile?.role || 'unknown',
+              actionCategory: action.category,
+            },
+          })
+          .then(refreshOperatorIntelligence);
         const errorMsg: AIMessage = {
           id: `msg-${Date.now()}`,
           conversationId: convoId,
@@ -697,7 +838,7 @@ export function AIProvider({
         setIsProcessing(false);
       }
     },
-    [getToolContext],
+    [getToolContext, refreshOperatorIntelligence],
   );
 
   const cancelAction = useCallback((action: AIActionPreview) => {
@@ -730,10 +871,24 @@ export function AIProvider({
       void aiService.touchConversation(convoId);
     }
 
+    void aiService
+      .recordOperatorEvent({
+        eventType: 'action_cancelled',
+        conversationId: isPersistentConversationId(convoId) ? convoId : null,
+        toolName: action.toolName,
+        success: true,
+        requiresConfirmation: true,
+        metadata: {
+          userRole: trackerRef.current?.currentProfile?.role || 'unknown',
+          actionCategory: action.category,
+        },
+      })
+      .then(refreshOperatorIntelligence);
+
     if (settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
       voiceService.speak('Action cancelled.', settingsRef.current.voiceLanguage);
     }
-  }, []);
+  }, [refreshOperatorIntelligence]);
 
   const selectDisambiguationOption = useCallback(
     async (option: DisambiguationOption) => {
@@ -780,6 +935,7 @@ export function AIProvider({
     liveTranscript,
     voiceError,
     dailySummary,
+    operatorIntelligence,
     showDailyPopup,
     settings,
     pendingAction,
@@ -806,6 +962,7 @@ export function AIProvider({
     stopSpeaking,
     clearVoiceError,
     refreshDailyBriefing,
+    refreshOperatorIntelligence,
   };
 
   return <AIContext.Provider value={value}>{children}</AIContext.Provider>;

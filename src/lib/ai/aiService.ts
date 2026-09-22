@@ -1,7 +1,15 @@
 import { supabase, isSupabaseConfigured } from '../supabase';
-import type { 
-  AIMessage, AIConversation, AIUserSettings, DailySummary, KnowledgeBaseDocument, RAGSource 
+import type {
+  AIMessage,
+  AIConversation,
+  AIUserSettings,
+  DailySummary,
+  KnowledgeBaseDocument,
+  RAGSource,
+  AIOperatorEventInput,
+  AIOperatorTelemetrySummary,
 } from './aiTypes';
+import { emptyOperatorTelemetry, summarizeOperatorEvents } from './operatorIntelligence';
 
 export class AIService {
   private static instance: AIService;
@@ -444,6 +452,96 @@ export class AIService {
         .upsert(payload, { onConflict: 'user_id' });
     } catch (e) {
       console.error(e);
+    }
+  }
+
+  async recordOperatorEvent(input: AIOperatorEventInput): Promise<void> {
+    if (!isSupabaseConfigured || !supabase) return;
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const metadata = Object.fromEntries(
+        Object.entries(input.metadata || {})
+          .filter(([, value]) =>
+            value === null ||
+            typeof value === 'string' ||
+            typeof value === 'number' ||
+            typeof value === 'boolean',
+          )
+          .slice(0, 12),
+      );
+
+      const { error } = await supabase.from('ai_operator_events').insert({
+        user_id: user.id,
+        conversation_id: input.conversationId || null,
+        event_type: input.eventType,
+        tool_name: input.toolName || null,
+        success: input.success,
+        error_code: input.errorCode || null,
+        requires_confirmation: Boolean(input.requiresConfirmation),
+        was_clarification: Boolean(input.wasClarification),
+        had_disambiguation: Boolean(input.hadDisambiguation),
+        verification_status: input.verificationStatus || null,
+        plan_step_count: Math.max(0, Math.min(4, Number(input.planStepCount || 0))),
+        latency_ms: Math.max(0, Math.min(120000, Number(input.latencyMs || 0))),
+        metadata,
+      });
+
+      if (error && error.code !== '42P01' && error.code !== 'PGRST205') {
+        console.warn('Failed to record AI operator telemetry:', error);
+      }
+    } catch (error) {
+      console.warn('AI operator telemetry is unavailable:', error);
+    }
+  }
+
+  async loadOperatorTelemetry(periodDays = 30): Promise<AIOperatorTelemetrySummary> {
+    if (!isSupabaseConfigured || !supabase) {
+      return emptyOperatorTelemetry('personal', periodDays);
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return emptyOperatorTelemetry('personal', periodDays);
+
+      const [{ data: profile }, eventsResponse] = await Promise.all([
+        supabase.from('profiles').select('role').eq('id', user.id).maybeSingle(),
+        supabase
+          .from('ai_operator_events')
+          .select(
+            'event_type,tool_name,success,error_code,requires_confirmation,was_clarification,had_disambiguation,verification_status,plan_step_count,latency_ms,created_at',
+          )
+          .gte(
+            'created_at',
+            new Date(Date.now() - periodDays * 86_400_000).toISOString(),
+          )
+          .order('created_at', { ascending: false })
+          .limit(2000),
+      ]);
+
+      if (eventsResponse.error) {
+        if (
+          eventsResponse.error.code !== '42P01' &&
+          eventsResponse.error.code !== 'PGRST205'
+        ) {
+          console.warn('Failed to load AI operator telemetry:', eventsResponse.error);
+        }
+        return emptyOperatorTelemetry(
+          profile?.role === 'admin' ? 'workspace' : 'personal',
+          periodDays,
+        );
+      }
+
+      return summarizeOperatorEvents(
+        eventsResponse.data || [],
+        profile?.role === 'admin' ? 'workspace' : 'personal',
+        periodDays,
+      );
+    } catch (error) {
+      console.warn('AI operator telemetry is unavailable:', error);
+      return emptyOperatorTelemetry('personal', periodDays);
     }
   }
 
