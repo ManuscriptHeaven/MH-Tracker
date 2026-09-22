@@ -66,8 +66,9 @@ export async function execute_create_task(
   const projectTitle = project ? project.project_title : '';
 
   try {
+    let createdTask: any = null;
     if (ctx.trackerMutations?.createTask) {
-      await ctx.trackerMutations.createTask({
+      createdTask = await ctx.trackerMutations.createTask({
         title: payload.title,
         description: payload.description || '',
         project_id: payload.projectId || null,
@@ -98,6 +99,7 @@ export async function execute_create_task(
       spokenText: spoken,
       displayText: display,
       auditLog: audit,
+      data: createdTask || undefined,
     };
   } catch (err: any) {
     const errorMsg = err?.message || 'Failed to create task.';
@@ -690,6 +692,7 @@ export async function execute_duplicate_project(
       spokenText: spoken,
       displayText: display,
       auditLog: audit,
+      data: duplicated || undefined,
     };
   } catch (err: any) {
     const errorMsg = err?.message || 'Failed to duplicate project.';

@@ -36,6 +36,8 @@ function persistentMessageMetadata(message: AIMessage['metadata']): AIMessage['m
     actionStatus: message.actionStatus,
     auditLog: message.auditLog,
     invoice: message.invoice,
+    verification: message.verification,
+    actionPlan: message.actionPlan,
     suggestedFollowUps: message.suggestedFollowUps,
   };
 }
@@ -560,6 +562,8 @@ export function AIProvider({
             disambiguation: result.disambiguation,
             auditLog: result.auditLog,
             invoice: result.invoice,
+            verification: result.verification,
+            actionPlan: result.actionPlan,
             suggestedFollowUps: suggestedFollowUpsForResult(result),
           },
           createdAt: new Date().toISOString(),
@@ -630,7 +634,13 @@ export function AIProvider({
 
       try {
         const toolCtx = getToolContext();
-        const result = await voiceQueryEngine.executeAction(action, toolCtx);
+        const result = await voiceQueryEngine.executeConfirmedAction(action, toolCtx);
+
+        if (result.pendingAction) {
+          setPendingAction(result.pendingAction);
+        } else {
+          setPendingAction(null);
+        }
 
         if (result.auditLog) {
           setAuditLogs((prev) => [result.auditLog!, ...prev]);
@@ -646,6 +656,11 @@ export function AIProvider({
             toolUsed: action.toolName,
             actionStatus: result.success ? 'confirmed' : 'failed',
             auditLog: result.auditLog,
+            pendingAction: result.pendingAction,
+            disambiguation: result.disambiguation,
+            verification: result.verification,
+            actionPlan: result.actionPlan,
+            invoice: result.invoice,
           },
           createdAt: new Date().toISOString(),
         };
@@ -688,6 +703,7 @@ export function AIProvider({
   const cancelAction = useCallback((action: AIActionPreview) => {
     setPendingAction(null);
     voiceQueryEngine.setPendingAction(null);
+    voiceQueryEngine.cancelPendingPlan();
 
     let convoId = activeConvoRef.current || `conv-${Date.now()}`;
     const cancelMsg: AIMessage = {
@@ -721,15 +737,11 @@ export function AIProvider({
 
   const selectDisambiguationOption = useCallback(
     async (option: DisambiguationOption) => {
-      const toolCtx = getToolContext();
-      const mem = voiceQueryEngine.getMemory();
-      const context = mem.pendingDisambiguationContext;
-      voiceQueryEngine.setPendingDisambiguation(null);
-
-      // Re-trigger query resolution with disambiguated title
+      // Keep the engine's pending disambiguation context intact. processQuery()
+      // will match this selected title and resume the original action safely.
       await sendMessage(option.title);
     },
-    [getToolContext, sendMessage],
+    [sendMessage],
   );
 
   const dismissDailyPopup = useCallback(() => {

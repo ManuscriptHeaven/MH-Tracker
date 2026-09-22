@@ -16,7 +16,13 @@ import { aiUnderstandingEngine } from './aiUnderstandingEngine';
 import { buildPageContext } from './aiPageContext';
 import { runProjectCreationWizard } from './projectCreationWizard';
 import { prepareClientCommunication } from './clientCommunication';
-import { planNaturalLanguageAction, shouldUseAIPlanner } from './aiPlannerService';
+import {
+  planNaturalLanguageAction,
+  shouldUseAIPlanner,
+  looksLikeCompoundAction,
+} from './aiPlannerService';
+import { rankEntityCandidates, resolveUniqueEntityMatch } from './aiEntityMatcher';
+import { verifyActionOutcome } from './aiActionVerifier';
 
 export class VoiceQueryEngine {
   private static instance: VoiceQueryEngine;
@@ -49,6 +55,11 @@ export class VoiceQueryEngine {
   public setPendingDisambiguation(options: DisambiguationOption[] | null, context?: any): void {
     this.memory.pendingDisambiguation = options;
     this.memory.pendingDisambiguationContext = context || null;
+  }
+
+  public cancelPendingPlan(): void {
+    this.memory.pendingActionPlan = null;
+    this.memory.pendingCommandCompletion = null;
   }
 
   private logExecution(ctx: AIToolContext, question: string, tool: AIToolName, success: boolean, error?: string): void {
@@ -108,7 +119,7 @@ export class VoiceQueryEngine {
       if (isAffirmative) {
         const action = pending;
         this.memory.pendingAction = null;
-        const result = await this.executeAction(action, ctx);
+        const result = await this.executeConfirmedAction(action, ctx);
         this.logExecution(ctx, q, action.toolName, result.success, result.error);
         return result;
       }
@@ -116,11 +127,15 @@ export class VoiceQueryEngine {
       if (isNegative) {
         const action = pending;
         this.memory.pendingAction = null;
+        const hadPlan = Boolean(this.memory.pendingActionPlan);
+        this.cancelPendingPlan();
         const result: AIToolResult = {
           success: true,
           toolName: action.toolName,
           spokenText: 'Action cancelled.',
-          displayText: '🛑 **Action cancelled.** No changes were made.',
+          displayText: hadPlan
+            ? '🛑 **Action plan cancelled.** No further steps will run. The pending step was not executed.'
+            : '🛑 **Action cancelled.** No changes were made.',
         };
         this.logExecution(ctx, q, action.toolName, true);
         return result;
@@ -187,6 +202,33 @@ export class VoiceQueryEngine {
     }
 
     // ==========================================
+    // 0D. CONTINUE A PARTIALLY SPECIFIED COMMAND
+    // The original instruction is retained so a short answer such as
+    // "Magazine 2", "$250", or "tomorrow" completes the request naturally.
+    // ==========================================
+    if (this.memory.pendingCommandCompletion) {
+      if (/\b(cancel|stop|never mind|nevermind|abort)\b/i.test(lower)) {
+        this.memory.pendingCommandCompletion = null;
+        return {
+          success: true,
+          toolName: 'get_project_summary',
+          spokenText: 'Okay. I cancelled that incomplete request.',
+          displayText: '🛑 **Incomplete request cancelled.** No changes were made.',
+        };
+      }
+
+      const pendingCompletion = this.memory.pendingCommandCompletion;
+      this.memory.pendingCommandCompletion = null;
+      const combined = `${pendingCompletion.originalQuery} ${q}`.trim();
+      const completed = await this.processQuery(combined, ctx);
+      if (completed.success || completed.pendingAction || completed.disambiguation) {
+        completed.displayText =
+          `_Using your follow-up to complete the earlier request._\n\n` + completed.displayText;
+      }
+      return completed;
+    }
+
+    // ==========================================
     // PHASE 1: AI UNDERSTANDING ENGINE PIPELINE
     // ==========================================
     const pageCtx = buildPageContext(
@@ -211,14 +253,31 @@ export class VoiceQueryEngine {
       (understanding.ambiguities.length > 0 || understanding.intent.name === 'assign_task');
 
     if (shouldClarifyBeforeLegacyParser && understanding.clarificationQuestion) {
+      const missingField =
+        understanding.ambiguities[0]?.field === 'project'
+          ? 'project'
+          : understanding.ambiguities[0]?.field === 'task'
+            ? 'task'
+            : understanding.intent.name === 'assign_task'
+              ? 'employee'
+              : 'details';
+
+      this.memory.pendingCommandCompletion = {
+        originalQuery: q,
+        toolName: understanding.intent.name === 'assign_task' ? 'assign_task' : 'get_tasks_summary',
+        missingField,
+        attempts: 0,
+        startedAt: new Date().toISOString(),
+      };
+
       const result: AIToolResult = {
         success: true,
-        toolName: 'get_tasks_summary',
+        toolName: understanding.intent.name === 'assign_task' ? 'assign_task' : 'get_tasks_summary',
         spokenText: understanding.clarificationQuestion,
         displayText: understanding.clarificationQuestion,
         disambiguation: understanding.ambiguities[0]?.options || [],
       };
-      this.logExecution(ctx, q, 'get_tasks_summary', true);
+      this.logExecution(ctx, q, result.toolName, true);
       return result;
     }
 
@@ -235,8 +294,30 @@ export class VoiceQueryEngine {
     // ==========================================
     // 2. WRITE & SAFE ACTIONS INTENT DETECTION
     // ==========================================
+    // Compound commands go to the planner before the single-command parser;
+    // otherwise the first recognizable action could swallow the rest of the sentence.
+    if (looksLikeCompoundAction(q) && shouldUseAIPlanner(q)) {
+      const compoundPlan = await planNaturalLanguageAction(q, ctx);
+      if (compoundPlan?.planned && compoundPlan.steps && compoundPlan.steps.length >= 2) {
+        const plannedResult = await this.startActionPlan(
+          q,
+          compoundPlan.steps.map((step) => ({
+            intent: step.intent,
+            normalizedCommand: step.normalizedCommand,
+            label: step.reason,
+            status: 'pending' as const,
+          })),
+          ctx,
+        );
+        this.updateMemory(plannedResult, q);
+        this.logExecution(ctx, q, plannedResult.toolName, plannedResult.success, plannedResult.error);
+        return plannedResult;
+      }
+    }
+
     const writeIntent = await this.detectWriteIntent(lower, q, ctx);
     if (writeIntent) {
+      this.rememberRecoverableCompletion(writeIntent, q);
       this.updateMemory(writeIntent, q);
       this.logExecution(ctx, q, writeIntent.toolName, writeIntent.success, writeIntent.error);
       return writeIntent;
@@ -247,10 +328,27 @@ export class VoiceQueryEngine {
     // permission, validation, preview, confirmation and execution pipeline.
     if (shouldUseAIPlanner(q)) {
       const plan = await planNaturalLanguageAction(q, ctx);
+      if (plan?.planned && plan.steps && plan.steps.length >= 2) {
+        const plannedResult = await this.startActionPlan(
+          q,
+          plan.steps.map((step) => ({
+            intent: step.intent,
+            normalizedCommand: step.normalizedCommand,
+            label: step.reason,
+            status: 'pending' as const,
+          })),
+          ctx,
+        );
+        this.updateMemory(plannedResult, q);
+        this.logExecution(ctx, q, plannedResult.toolName, plannedResult.success, plannedResult.error);
+        return plannedResult;
+      }
+
       if (plan?.planned && plan.normalizedCommand) {
         const normalized = plan.normalizedCommand.trim();
         const plannedResult = await this.detectWriteIntent(normalized.toLowerCase(), normalized, ctx);
         if (plannedResult) {
+          this.rememberRecoverableCompletion(plannedResult, q);
           this.updateMemory(plannedResult, q);
           this.logExecution(ctx, q, plannedResult.toolName, plannedResult.success, plannedResult.error);
           return plannedResult;
@@ -479,6 +577,7 @@ export class VoiceQueryEngine {
         return {
           success: false,
           toolName: 'generate_client_invoice',
+          error: 'client_not_found',
           spokenText: 'Which client would you like me to generate an invoice for?',
           displayText: '❓ Please specify which client to generate the invoice for.',
         };
@@ -784,14 +883,45 @@ export class VoiceQueryEngine {
       const dateMatch = lower.match(/(?:due\s+|by\s+|on\s+)?(tomorrow|today|friday|monday|tuesday|wednesday|thursday|saturday|sunday|\b\w+\s+\d{1,2}\b)/i);
       const dueDate = dateMatch ? parseNaturalDate(dateMatch[1]) : null;
 
-      // Extract Task Title
+      // Extract Task Title without treating the assignee name as the task.
       let taskTitle = q
-        .replace(/^create\s+(a\s+)?task\s+(for\s+[a-zA-Z\s]+?\s+to\s+|for\s+[a-zA-Z\s]+?:\s*|to\s+|:\s*)/i, '')
+        .replace(/^(?:create|add)\s+(?:a\s+)?task\s*/i, '')
+        .replace(/^to\s+/i, '')
+        .trim();
+
+      if (targetEmpProfile) {
+        const assigneeNames = [
+          targetEmpProfile.full_name,
+          targetEmpProfile.full_name.split(' ')[0],
+        ].sort((a, b) => b.length - a.length);
+
+        for (const assigneeName of assigneeNames) {
+          const prefix = 'for ' + assigneeName.toLowerCase();
+          if (taskTitle.toLowerCase().startsWith(prefix)) {
+            taskTitle = taskTitle
+              .slice(prefix.length)
+              .replace(/^\s*(?:to\s+|:\s*)/i, '')
+              .trim();
+            break;
+          }
+        }
+      }
+
+      taskTitle = taskTitle
         .replace(/\s+(tomorrow|today|by\s+[a-zA-Z0-9\s]+|due\s+[a-zA-Z0-9\s]+)\s*$/i, '')
         .trim();
 
       if (!taskTitle || taskTitle.length < 3) {
-        taskTitle = 'Check project production files';
+        return {
+          success: false,
+          toolName: 'create_task',
+          error: 'task_details_required',
+          spokenText: 'What should the task for ' + targetEmpName + ' be called?',
+          displayText:
+            '### Task Details Needed\n\n' +
+            'I know **who** to assign it to, but I still need the task title or instruction.\n\n' +
+            'For example: **"Check the revised print PDF."**',
+        };
       }
 
       const preview: AIActionPreview = {
@@ -1912,7 +2042,35 @@ export class VoiceQueryEngine {
         .replace(/(?:with\s+)?email\s+[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i, '')
         .trim();
 
-      if (!clientName) clientName = 'New Client';
+      if (email) {
+        clientName = clientName
+          .replace(email, '')
+          .replace(/\b(?:with\s+)?email\b/i, '')
+          .trim();
+      }
+
+      if (!clientName) {
+        return {
+          success: false,
+          toolName: 'invite_client',
+          error: 'client_name_required',
+          spokenText: 'What is the client name?',
+          displayText: '### Client Name Needed\n\nPlease tell me the client name.',
+        };
+      }
+
+      if (!email) {
+        return {
+          success: false,
+          toolName: 'invite_client',
+          error: 'client_email_required',
+          spokenText: 'What email address should I use for ' + clientName + '?',
+          displayText:
+            '### Client Email Needed\n\nI have **' +
+            clientName +
+            '**, but I still need a valid email address. I will not invent one.',
+        };
+      }
 
       const preview: AIActionPreview = {
         actionId: `act-${Date.now()}`,
@@ -1928,7 +2086,7 @@ export class VoiceQueryEngine {
         ],
         payload: {
           full_name: clientName,
-          email: email || `${clientName.toLowerCase().replace(/\s+/g, '')}@client.com`,
+          email,
           project_ids: [],
         },
         confirmButtonText: 'Invite Client',
@@ -1948,6 +2106,223 @@ export class VoiceQueryEngine {
     }
 
     return null;
+  }
+
+  private rememberRecoverableCompletion(result: AIToolResult, originalQuery: string): void {
+    if (result.success || !result.error) return;
+
+    const fieldByError: Record<string, 'project' | 'task' | 'client' | 'employee' | 'date' | 'amount' | 'details'> = {
+      project_not_found: 'project',
+      project_required: 'project',
+      task_not_found: 'task',
+      client_not_found: 'client',
+      ambiguous_client: 'client',
+      recipient_not_found: 'employee',
+      invalid_date: 'date',
+      invalid_amount: 'amount',
+      task_details_required: 'details',
+      client_name_required: 'client',
+      client_email_required: 'details',
+      record_not_found: 'details',
+    };
+
+    const missingField = fieldByError[result.error];
+    if (!missingField) return;
+
+    this.memory.pendingCommandCompletion = {
+      originalQuery,
+      toolName: result.toolName,
+      missingField,
+      attempts: 0,
+      startedAt: new Date().toISOString(),
+    };
+  }
+
+  private planHeader(): string {
+    const plan = this.memory.pendingActionPlan;
+    if (!plan) return '';
+
+    const lines = plan.steps.map((step, index) => {
+      const marker =
+        step.status === 'completed'
+          ? '✅'
+          : index === plan.currentIndex
+            ? '▶️'
+            : step.status === 'failed'
+              ? '❌'
+              : '○';
+      return `${marker} ${index + 1}. ${step.normalizedCommand}`;
+    });
+
+    return (
+      `### AI Action Plan — Step ${Math.min(plan.currentIndex + 1, plan.steps.length)} of ${plan.steps.length}\n\n` +
+      lines.join('\n') +
+      '\n\n_Each write is validated and confirmed separately._'
+    );
+  }
+
+  private async startActionPlan(
+    originalQuery: string,
+    steps: Array<{ intent?: string; normalizedCommand: string; label?: string; status?: 'pending' | 'ready' | 'completed' | 'cancelled' | 'failed' }>,
+    ctx: AIToolContext,
+  ): Promise<AIToolResult> {
+    this.memory.pendingActionPlan = {
+      id: `plan-${Date.now()}`,
+      originalQuery,
+      steps: steps.slice(0, 4).map((step) => ({ ...step, status: 'pending' })),
+      currentIndex: 0,
+      startedAt: new Date().toISOString(),
+    };
+
+    return this.prepareCurrentPlanStep(ctx);
+  }
+
+  private async prepareCurrentPlanStep(ctx: AIToolContext): Promise<AIToolResult> {
+    const plan = this.memory.pendingActionPlan;
+    if (!plan || plan.currentIndex >= plan.steps.length) {
+      this.memory.pendingActionPlan = null;
+      return {
+        success: true,
+        toolName: 'get_project_summary',
+        spokenText: 'The action plan is complete.',
+        displayText: '### ✅ Action Plan Complete',
+      };
+    }
+
+    const informationalResults: string[] = [];
+
+    while (plan.currentIndex < plan.steps.length) {
+      const step = plan.steps[plan.currentIndex];
+      const command = step.normalizedCommand.trim();
+      const result = await this.detectWriteIntent(command.toLowerCase(), command, ctx);
+
+      if (!result) {
+        step.status = 'failed';
+        this.memory.pendingActionPlan = null;
+        return {
+          success: false,
+          toolName: (step.intent as AIToolName) || 'get_project_summary',
+          error: 'planned_action_not_supported',
+          spokenText: 'I understood the plan, but one step could not be safely mapped to a Tracker action.',
+          displayText:
+            `### Action Plan Paused\n\nI could not safely map this step:\n\n**${command}**\n\nNo unsupported action was executed.`,
+        };
+      }
+
+      this.rememberRecoverableCompletion(result, command);
+      result.actionPlan = {
+        id: plan.id,
+        currentStep: plan.currentIndex + 1,
+        totalSteps: plan.steps.length,
+        remainingCommands: plan.steps.slice(plan.currentIndex + 1).map((item) => item.normalizedCommand),
+      };
+
+      if (result.pendingAction) {
+        step.status = 'ready';
+        this.memory.pendingAction = result.pendingAction;
+        result.displayText =
+          this.planHeader() +
+          '\n\n---\n\n' +
+          result.displayText;
+        return result;
+      }
+
+      if (result.disambiguation || !result.success) {
+        result.displayText =
+          this.planHeader() +
+          '\n\n---\n\n' +
+          result.displayText;
+        return result;
+      }
+
+      step.status = 'completed';
+      informationalResults.push(result.displayText);
+      plan.currentIndex += 1;
+    }
+
+    const completedPlanId = plan.id;
+    this.memory.pendingActionPlan = null;
+    return {
+      success: true,
+      toolName: 'get_project_summary',
+      spokenText: 'The requested action plan is complete.',
+      displayText:
+        (informationalResults.length ? informationalResults.join('\n\n---\n\n') + '\n\n' : '') +
+        '### ✅ Action Plan Complete',
+      actionPlan: {
+        id: completedPlanId,
+        currentStep: plan.steps.length,
+        totalSteps: plan.steps.length,
+        remainingCommands: [],
+      },
+    };
+  }
+
+  public async executeConfirmedAction(action: AIActionPreview, ctx: AIToolContext): Promise<AIToolResult> {
+    const result = await this.executeAction(action, ctx);
+
+    if (result.success) {
+      const verification = await verifyActionOutcome(action, result);
+      if (verification) {
+        result.verification = verification;
+        const icon =
+          verification.status === 'verified'
+            ? '✅'
+            : verification.status === 'failed'
+              ? '⚠️'
+              : 'ℹ️';
+        result.displayText += `\n\n${icon} **Post-action verification:** ${verification.message}`;
+      }
+
+      if (verification?.status === 'failed') {
+        if (this.memory.pendingActionPlan) {
+          const plan = this.memory.pendingActionPlan;
+          if (plan.steps[plan.currentIndex]) plan.steps[plan.currentIndex].status = 'failed';
+          this.memory.pendingActionPlan = null;
+          result.displayText += '\n\n**Action plan paused** because Tracker did not confirm the expected state. No later steps were started.';
+        }
+        return result;
+      }
+    }
+
+    const plan = this.memory.pendingActionPlan;
+    if (!plan) return result;
+
+    if (!result.success) {
+      if (plan.steps[plan.currentIndex]) plan.steps[plan.currentIndex].status = 'failed';
+      this.memory.pendingActionPlan = null;
+      result.displayText += '\n\n**Action plan stopped.** Later steps were not started.';
+      return result;
+    }
+
+    if (plan.steps[plan.currentIndex]) plan.steps[plan.currentIndex].status = 'completed';
+    plan.currentIndex += 1;
+
+    if (plan.currentIndex >= plan.steps.length) {
+      const completedPlanId = plan.id;
+      this.memory.pendingActionPlan = null;
+      result.displayText += '\n\n### ✅ Action Plan Complete';
+      result.spokenText += ' The full action plan is complete.';
+      result.actionPlan = {
+        id: completedPlanId,
+        currentStep: plan.steps.length,
+        totalSteps: plan.steps.length,
+        remainingCommands: [],
+      };
+      return result;
+    }
+
+    const next = await this.prepareCurrentPlanStep(ctx);
+    return {
+      ...result,
+      success: next.success,
+      error: next.error,
+      spokenText: `${result.spokenText} Next: ${next.spokenText}`,
+      displayText: `${result.displayText}\n\n---\n\n${next.displayText}`,
+      pendingAction: next.pendingAction,
+      disambiguation: next.disambiguation,
+      actionPlan: next.actionPlan,
+    };
   }
 
   // ==========================================
@@ -2130,10 +2505,20 @@ export class VoiceQueryEngine {
       .replace(/\s+task\s*/i, ' ')
       .trim();
 
-    return ctx.visibleTasks.filter((t) => {
-      const titleLower = t.title.toLowerCase();
-      return titleLower.includes(cleanQuery) || cleanQuery.includes(titleLower);
-    });
+    const ranked = rankEntityCandidates(
+      cleanQuery,
+      ctx.visibleTasks.map((task) => ({
+        id: task.id,
+        label: task.title,
+        aliases: [],
+        item: task,
+      })),
+      0.64,
+    );
+
+    if (ranked.length === 0) return [];
+    const topScore = ranked[0].score;
+    return ranked.filter((match) => topScore - match.score <= 0.08).slice(0, 6).map((match) => match.item);
   }
 
   // ==========================================
@@ -2321,16 +2706,34 @@ export class VoiceQueryEngine {
   private findProjectInQueryOrMemory(query: string, ctx: AIToolContext) {
     const qLower = query.toLowerCase();
 
-    // Match in query
-    for (const p of ctx.visibleProjects) {
-      if (qLower.includes(p.project_title.toLowerCase()) || qLower.includes(p.project_number.toLowerCase())) {
-        return p;
+    for (const project of ctx.visibleProjects) {
+      if (
+        qLower.includes((project.project_title || '').toLowerCase()) ||
+        qLower.includes((project.project_number || '').toLowerCase())
+      ) {
+        return project;
       }
     }
 
-    // Match from memory if only 1 project in previous turn
+    const resolution = resolveUniqueEntityMatch(
+      query,
+      ctx.visibleProjects.map((project) => ({
+        id: project.id,
+        label: project.project_title,
+        aliases: [project.project_number, project.client_name + ' ' + project.project_title],
+        item: project,
+      })),
+      { minScore: 0.76, minGap: 0.11, ambiguityWindow: 0.06 },
+    );
+    if (resolution.match) return resolution.match.item;
+
     if (this.memory.lastProjects && this.memory.lastProjects.length === 1) {
       return this.memory.lastProjects[0];
+    }
+
+    const selectedProject = (ctx as any).selectedProject;
+    if (selectedProject && /\b(this|that|it|ye|yeh|isko|isay|current|selected)\b/i.test(query)) {
+      return selectedProject;
     }
 
     return null;
@@ -2355,52 +2758,70 @@ export class VoiceQueryEngine {
   }
 
   private containsEmployeeName(query: string, ctx: AIToolContext): boolean {
-    const teamProfiles = ctx.data.profiles.filter((p) => p.role !== 'client');
-    return teamProfiles.some((p) => {
-      const first = p.full_name.split(' ')[0].toLowerCase();
-      return query.includes(first) || query.includes(p.full_name.toLowerCase());
-    });
+    return Boolean(this.extractEmployeeFromQuery(query, ctx));
   }
 
   private extractEmployeeFromQuery(query: string, ctx: AIToolContext): string | undefined {
-    const teamProfiles = ctx.data.profiles.filter((p) => p.role !== 'client');
-    for (const p of teamProfiles) {
-      const first = p.full_name.split(' ')[0].toLowerCase();
-      if (query.includes(first) || query.includes(p.full_name.toLowerCase())) {
-        return p.full_name;
-      }
-    }
-    return undefined;
+    const teamProfiles = ctx.data.profiles.filter((profile) => profile.role !== 'client');
+    const resolution = resolveUniqueEntityMatch(
+      query,
+      teamProfiles.map((profile) => ({
+        id: profile.id,
+        label: profile.full_name,
+        aliases: [profile.full_name.split(' ')[0]],
+        item: profile,
+      })),
+      { minScore: 0.74, minGap: 0.12, ambiguityWindow: 0.06 },
+    );
+    return resolution.match?.item.full_name;
   }
 
   private containsClientName(query: string, ctx: AIToolContext): boolean {
-    const clientNames = Array.from(new Set(ctx.visibleProjects.map((p) => p.client_name).filter(Boolean)));
-    return clientNames.some((c) => query.includes(c.toLowerCase()) || c.toLowerCase().includes(query));
+    return Boolean(this.extractClientFromQuery(query, ctx));
   }
 
   private extractClientFromQuery(query: string, ctx: AIToolContext): string | undefined {
-    const clientNames = Array.from(new Set(ctx.visibleProjects.map((p) => p.client_name).filter(Boolean)));
-    for (const c of clientNames) {
-      if (query.includes(c.toLowerCase())) {
-        return c;
-      }
-    }
-    const clientProfiles = ctx.data.profiles.filter((p) => isClientRole(p.role));
-    for (const p of clientProfiles) {
-      const first = p.full_name.split(' ')[0].toLowerCase();
-      if (query.includes(first) || query.includes(p.full_name.toLowerCase())) {
-        return p.full_name;
-      }
-    }
-    return undefined;
+    const clientNames = Array.from(
+      new Set(ctx.visibleProjects.map((project) => project.client_name).filter(Boolean)),
+    );
+    const resolution = resolveUniqueEntityMatch(
+      query,
+      clientNames.map((clientName) => ({
+        id: clientName,
+        label: clientName,
+        aliases: [],
+        item: clientName,
+      })),
+      { minScore: 0.76, minGap: 0.12, ambiguityWindow: 0.06 },
+    );
+    if (resolution.match) return resolution.match.item;
+
+    const clientProfiles = ctx.data.profiles.filter((profile) => isClientRole(profile.role));
+    const profileResolution = resolveUniqueEntityMatch(
+      query,
+      clientProfiles.map((profile) => ({
+        id: profile.id,
+        label: profile.full_name,
+        aliases: [profile.full_name.split(' ')[0]],
+        item: profile,
+      })),
+      { minScore: 0.78, minGap: 0.12, ambiguityWindow: 0.06 },
+    );
+    return profileResolution.match?.item.full_name;
   }
 
   private containsProjectName(query: string, ctx: AIToolContext): boolean {
-    return ctx.visibleProjects.some((p) => {
-      const titleLower = p.project_title.toLowerCase();
-      const numLower = p.project_number.toLowerCase();
-      return query.includes(titleLower) || query.includes(numLower);
-    });
+    const resolution = resolveUniqueEntityMatch(
+      query,
+      ctx.visibleProjects.map((project) => ({
+        id: project.id,
+        label: project.project_title,
+        aliases: [project.project_number],
+        item: project,
+      })),
+      { minScore: 0.76, minGap: 0.11, ambiguityWindow: 0.06 },
+    );
+    return Boolean(resolution.match);
   }
 
   private extractProjectFromQuery(query: string, ctx: AIToolContext): string | undefined {

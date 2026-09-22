@@ -6,6 +6,7 @@ import type {
   AIToolContext,
   DisambiguationOption,
 } from './aiTypes';
+import { resolveUniqueEntityMatch } from './aiEntityMatcher';
 
 export interface EntityResolutionResult {
   resolvedEntities: ResolvedEntity[];
@@ -83,39 +84,114 @@ export function resolveEntities(
     }
   });
 
-  // 2. Resolve Project Mentions
-  projects.forEach((proj) => {
-    const titleLower = proj.project_title.toLowerCase();
-    const projNumLower = proj.project_number.toLowerCase();
+  // 2. Resolve Project Mentions. Exact matches win; otherwise use conservative
+  // fuzzy matching and surface close matches as a clarification instead of guessing.
+  const exactProjects = projects.filter((proj) => {
+    const titleLower = (proj.project_title || '').toLowerCase();
+    const projNumLower = (proj.project_number || '').toLowerCase();
+    return Boolean(
+      (titleLower && lower.includes(titleLower)) ||
+      (projNumLower && lower.includes(projNumLower)),
+    );
+  });
 
-    if (lower.includes(titleLower) || lower.includes(projNumLower)) {
+  if (exactProjects.length === 1) {
+    const proj = exactProjects[0];
+    resolvedEntities.push({
+      type: 'project',
+      id: proj.id,
+      name: proj.project_title,
+      matchScore: 0.99,
+      matchedField: lower.includes((proj.project_number || '').toLowerCase()) ? 'project_number' : 'project_title',
+      originalValue: proj.project_title,
+      objectData: proj,
+    });
+  } else if (exactProjects.length > 1) {
+    ambiguities.push({
+      field: 'project',
+      description: 'More than one project matches that reference.',
+      options: exactProjects.slice(0, 6).map((proj) => ({
+        id: proj.id,
+        title: proj.project_title,
+        subtitle: `${proj.project_number} • ${proj.client_name}`,
+        type: 'project',
+        data: proj,
+      })),
+    });
+  } else if (projects.length > 0) {
+    const projectResolution = resolveUniqueEntityMatch(
+      rawText,
+      projects.map((proj) => ({
+        id: proj.id,
+        label: proj.project_title,
+        aliases: [proj.project_number, `${proj.client_name} ${proj.project_title}`],
+        item: proj,
+      })),
+      { minScore: 0.76, minGap: 0.11, ambiguityWindow: 0.06 },
+    );
+
+    if (projectResolution.match) {
+      const proj = projectResolution.match.item;
       resolvedEntities.push({
         type: 'project',
         id: proj.id,
         name: proj.project_title,
-        matchScore: 0.98,
-        matchedField: lower.includes(projNumLower) ? 'project_number' : 'project_title',
-        originalValue: proj.project_title,
+        matchScore: projectResolution.match.score,
+        matchedField: 'fuzzy_project_reference',
+        originalValue: projectResolution.match.matchedAlias,
         objectData: proj,
       });
-    }
-  });
-
-  // 3. Resolve Task Mentions
-  tasks.forEach((t) => {
-    const titleLower = (t.title || '').toLowerCase();
-    if (titleLower.length > 3 && lower.includes(titleLower)) {
-      resolvedEntities.push({
-        type: 'task',
-        id: t.id,
-        name: t.title,
-        matchScore: 0.95,
-        matchedField: 'title',
-        originalValue: t.title,
-        objectData: t,
+    } else if (projectResolution.ambiguous.length > 1) {
+      ambiguities.push({
+        field: 'project',
+        description: 'I found multiple similar projects.',
+        options: projectResolution.ambiguous.map((match) => ({
+          id: match.item.id,
+          title: match.item.project_title,
+          subtitle: `${match.item.project_number} • ${match.item.client_name}`,
+          type: 'project',
+          data: match.item,
+        })),
       });
     }
-  });
+  }
+
+  // 3. Resolve Task Mentions using the same conservative entity matcher.
+  const taskResolution = resolveUniqueEntityMatch(
+    rawText,
+    tasks.map((task) => ({
+      id: task.id,
+      label: task.title,
+      aliases: [],
+      item: task,
+    })),
+    { minScore: 0.78, minGap: 0.12, ambiguityWindow: 0.06 },
+  );
+
+  if (taskResolution.match) {
+    const task = taskResolution.match.item;
+    resolvedEntities.push({
+      type: 'task',
+      id: task.id,
+      name: task.title,
+      matchScore: taskResolution.match.score,
+      matchedField: 'task_title',
+      originalValue: taskResolution.match.matchedAlias,
+      objectData: task,
+    });
+  } else if (taskResolution.ambiguous.length > 1 && /\b(task|tasks|todo|to do|kaam)\b/i.test(lower)) {
+    ambiguities.push({
+      field: 'task',
+      description: 'I found multiple similar tasks.',
+      options: taskResolution.ambiguous.map((match) => ({
+        id: match.item.id,
+        title: match.item.title,
+        subtitle: `Status: ${match.item.status}`,
+        type: 'task',
+        data: match.item,
+      })),
+    });
+  }
 
   // 4. Anaphora & Reference Resolution (ye, isko, isay, this task, current project)
   const isAnaphoric = /\b(ye|yeh|yh|is|isko|isay|ise|us|usko|usay|this|that|it|selected)\b/i.test(lower);
