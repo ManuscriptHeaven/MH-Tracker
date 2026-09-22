@@ -123,6 +123,12 @@ assert(
   'planner client-name cleanup is literal and cannot corrupt regex replacement strings',
 );
 
+assert(
+  context.includes('auditLog: message.auditLog') &&
+    context.includes('persistentMessageMetadata(assistantMsg.metadata)'),
+  'executed AI action audit metadata is persisted with the Supabase conversation history',
+);
+
 if (process.exitCode) {
   console.error('AI Action Agent regression checks failed.');
 } else {
