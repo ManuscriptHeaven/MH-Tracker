@@ -1,4 +1,4 @@
-import { CheckCircle2, Clock3, ExternalLink, ListChecks, Plus, X } from 'lucide-react';
+import { CheckCircle2, Clock3, Columns3, ExternalLink, List, ListChecks, Plus, X } from 'lucide-react';
 import { type FormEvent, useMemo, useState } from 'react';
 import { PriorityBadge, TaskStatusBadge } from '../components/Badges';
 import { TaskDetailModal } from '../components/tasks/TaskDetailModal';
@@ -6,7 +6,7 @@ import { Button, Card, EmptyState, Field, SelectField, TextareaField } from '../
 import { priorityOptions, taskStatuses } from '../lib/constants';
 import { deadlineClass, formatDate, todayInput } from '../lib/date';
 import { firstName, isClientRole } from '../lib/utils';
-import type { Profile, Project, Task, TaskAssignee, TaskChecklistItem, TaskComment, TaskDependency, TaskDraft, TaskStatus } from '../lib/types';
+import type { Profile, Project, Task, TaskAssignee, TaskAttachment, TaskChecklistItem, TaskComment, TaskDependency, TaskDraft, TaskStatus } from '../lib/types';
 
 function defaultDraft(currentProfile: Profile): TaskDraft {
   return {
@@ -87,6 +87,7 @@ export function TasksPage({
   taskComments,
   taskChecklistItems,
   taskDependencies,
+  taskAttachments,
   projects,
   profiles,
   currentProfile,
@@ -113,6 +114,7 @@ export function TasksPage({
   taskComments: TaskComment[];
   taskChecklistItems: TaskChecklistItem[];
   taskDependencies: TaskDependency[];
+  taskAttachments: TaskAttachment[];
   projects: Project[];
   profiles: Profile[];
   currentProfile: Profile;
@@ -131,6 +133,8 @@ export function TasksPage({
   onDeleteChecklistItem: (itemId: string) => Promise<void>;
   onAddDependency: (taskId: string, dependsOnTaskId: string) => Promise<void>;
   onRemoveDependency: (dependencyId: string) => Promise<void>;
+  onUploadAttachment: (taskId: string, file: File, logicalFileId?: string) => Promise<TaskAttachment>;
+  onGetAttachmentUrl: (attachment: TaskAttachment) => Promise<string>;
   onCreateSubtask: (parentTaskId: string, draft: TaskDraft) => Promise<void>;
   onSelectProject?: (project: Project) => void;
 }) {
@@ -139,6 +143,8 @@ export function TasksPage({
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'list' | 'board'>('list');
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   
   const [quickFilter, setQuickFilter] = useState<'all' | 'mine' | 'due_today' | 'overdue' | 'blocked' | 'done'>('all');
   const [sortBy, setSortBy] = useState<'due' | 'priority' | 'recent' | 'project' | 'status'>('due');
@@ -248,6 +254,16 @@ export function TasksPage({
     } finally {
       setIsSaving(false);
     }
+  }
+
+  async function moveKanbanTask(status: TaskStatus) {
+    if (!draggedTaskId) return;
+    const task = tasks.find((item) => item.id === draggedTaskId);
+    if (!task) return;
+    const columnTasks = filteredTasks.filter((item) => item.status === status && item.id !== draggedTaskId);
+    const nextOrder = columnTasks.reduce((maximum, item) => Math.max(maximum, item.sort_order || 0), 0) + 100;
+    setDraggedTaskId(null);
+    await onUpdateTask(task.id, { status, sort_order: nextOrder });
   }
 
   const counts = useMemo(() => {
@@ -384,8 +400,77 @@ export function TasksPage({
       </div>
       </div>
 
-      {/* Task List */}
-      {filteredTasks.length ? (
+      <div className="flex justify-end">
+        <div className="inline-flex rounded-lg border border-border bg-white p-1 shadow-sm">
+          <button type="button" onClick={() => setViewMode('list')} className={`flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold transition ${viewMode === 'list' ? 'bg-ink text-white' : 'text-muted hover:bg-ivory hover:text-ink'}`}>
+            <List className="h-3.5 w-3.5" />List
+          </button>
+          <button type="button" onClick={() => setViewMode('board')} className={`flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold transition ${viewMode === 'board' ? 'bg-ink text-white' : 'text-muted hover:bg-ivory hover:text-ink'}`}>
+            <Columns3 className="h-3.5 w-3.5" />Kanban
+          </button>
+        </div>
+      </div>
+
+      {/* Task List / Kanban */}
+      {viewMode === 'board' ? (
+        <div className="grid auto-cols-[minmax(270px,1fr)] grid-flow-col gap-3 overflow-x-auto pb-2 xl:grid-flow-row xl:grid-cols-4">
+          {taskStatuses.map((status) => {
+            const columnTasks = filteredTasks
+              .filter((task) => task.status === status)
+              .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            return (
+              <section
+                key={status}
+                className="min-h-[220px] rounded-xl border border-border bg-ivory/60 p-3"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={() => void moveKanbanTask(status)}
+              >
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <TaskStatusBadge status={status} />
+                  <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-muted shadow-sm">{columnTasks.length}</span>
+                </div>
+                <div className="space-y-2">
+                  {columnTasks.map((task) => {
+                    const project = getProject(projects, task.project_id);
+                    return (
+                      <article
+                        key={task.id}
+                        draggable
+                        onDragStart={() => setDraggedTaskId(task.id)}
+                        onDragEnd={() => setDraggedTaskId(null)}
+                        className={`cursor-grab rounded-lg border bg-white p-3 shadow-sm transition hover:border-gold/50 hover:shadow-md active:cursor-grabbing ${draggedTaskId === task.id ? 'opacity-50' : ''}`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <button type="button" onClick={() => setSelectedTaskId(task.id)} className="min-w-0 flex-1 text-left">
+                            <p className="break-words text-sm font-bold text-ink">{task.title}</p>
+                            {project ? <p className="mt-1 truncate text-[11px] font-medium text-muted">{project.project_number} · {project.project_title}</p> : null}
+                          </button>
+                          <PriorityBadge priority={task.priority} />
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
+                          <span>{profileName(profiles, task.assigned_to)}</span>
+                          <span className={taskDeadlineTone(task)}>{getDueDateText(task.due_date, task.status)}</span>
+                        </div>
+                        <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                          <SelectField
+                            value={task.status}
+                            onChange={(event) => void onUpdateTask(task.id, { status: event.target.value as TaskStatus })}
+                            className="h-8 min-w-0 text-xs"
+                          >
+                            {taskStatuses.map((nextStatus) => <option key={nextStatus}>{nextStatus}</option>)}
+                          </SelectField>
+                          <Button type="button" variant="secondary" onClick={() => setSelectedTaskId(task.id)} className="h-8 px-2 text-xs">Details</Button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                  {!columnTasks.length ? <div className="rounded-lg border border-dashed border-border bg-white/70 p-5 text-center text-xs text-muted">Drop task here</div> : null}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      ) : filteredTasks.length ? (
         <div className="space-y-3">
           {filteredTasks.map((task) => {
             const project = getProject(projects, task.project_id);
@@ -678,6 +763,7 @@ export function TasksPage({
           comments={taskComments}
           checklistItems={taskChecklistItems}
           dependencies={taskDependencies}
+          attachments={taskAttachments}
           onClose={() => setSelectedTaskId(null)}
           onUpdateTask={onUpdateTask}
           onArchiveTask={onArchiveTask}
@@ -691,6 +777,8 @@ export function TasksPage({
           onDeleteChecklistItem={onDeleteChecklistItem}
           onAddDependency={onAddDependency}
           onRemoveDependency={onRemoveDependency}
+          onUploadAttachment={onUploadAttachment}
+          onGetAttachmentUrl={onGetAttachmentUrl}
           onCreateSubtask={onCreateSubtask}
         />
       ) : null}
