@@ -69,8 +69,13 @@ function looseProjectTitle(message: string, client?: string) {
   const stripClient = (value: string) => {
     let result = value;
     if (client) {
-      const escapedClient = client.replace(/[\\.*+?^$()|{}\[\]]/g, '\\function deterministicFallback(message: string, context: PlannerContext): PlannerResult {');
-      result = result.replace(new RegExp(escapedClient, 'ig'), ' ');
+      const clientIndex = result.toLowerCase().indexOf(client.toLowerCase());
+      if (clientIndex >= 0) {
+        result =
+          result.slice(0, clientIndex) +
+          ' ' +
+          result.slice(clientIndex + client.length);
+      }
     }
     return result
       .replace(/\b(?:k|ke|ki)?\s*(?:liye|lie)\b/gi, ' ')
