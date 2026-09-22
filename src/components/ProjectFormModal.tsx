@@ -19,7 +19,7 @@ import {
   validateTimelineDates,
 } from '../lib/timeline';
 import { errorMessage, firstName, isClientRole, isManagerRole } from '../lib/utils';
-import type { Profile, Project, ProjectDraft } from '../lib/types';
+import type { Profile, Project, ProjectDraft, ProjectTemplateKey } from '../lib/types';
 import { Button, Field, Modal, SelectField, TextareaField } from './ui';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 
@@ -43,6 +43,27 @@ function OptionList({ id, values }: { id: string; values: string[] }) {
   );
 }
 
+const publishingTemplates: Array<{
+  key: ProjectTemplateKey;
+  label: string;
+  serviceType: string;
+  requiresPrint: boolean;
+  requiresEbook: boolean;
+}> = [
+  { key: 'book-formatting', label: 'Book Formatting', serviceType: 'Print Formatting', requiresPrint: true, requiresEbook: false },
+  { key: 'print-ebook', label: 'Print + eBook', serviceType: 'Print + eBook', requiresPrint: true, requiresEbook: true },
+  { key: 'cover-design', label: 'Cover Design', serviceType: 'Cover Design', requiresPrint: true, requiresEbook: false },
+  { key: 'revision-only', label: 'Revision Only', serviceType: 'Revision Only', requiresPrint: true, requiresEbook: false },
+];
+
+function templateForServiceType(serviceType: string): ProjectTemplateKey {
+  const normalized = serviceType.trim().toLowerCase();
+  if (normalized.includes('print + ebook') || normalized.includes('print + e-book')) return 'print-ebook';
+  if (normalized.includes('cover')) return 'cover-design';
+  if (normalized.includes('revision')) return 'revision-only';
+  return 'book-formatting';
+}
+
 function capabilitiesForServiceType(serviceType: string) {
   const service = serviceType.trim().toLowerCase();
   if (service.includes('print + ebook')) return { requires_print: true, requires_ebook: true };
@@ -59,6 +80,7 @@ function defaultDraft(currentProfile: Profile, canonical: boolean): ProjectDraft
     client_email: '',
     project_title: '',
     service_type: 'Print Formatting',
+    workflow_template_key: 'book-formatting',
     requires_print: true,
     requires_ebook: false,
     genre: '',
@@ -330,10 +352,46 @@ export function ProjectFormModal({
               label="Service Type"
               list="service-type-options"
               value={draft.service_type}
-              onChange={(event) => isEditing || canonical
-                ? setDraft((previous) => ({ ...previous, service_type: event.target.value, ...(!isEditing ? capabilitiesForServiceType(event.target.value) : {}) }))
-                : updateNewProjectTimeline({ service_type: event.target.value, ...capabilitiesForServiceType(event.target.value) })}
+              onChange={(event) => {
+                const serviceType = event.target.value;
+                const templateKey = templateForServiceType(serviceType);
+                const updates = {
+                  service_type: serviceType,
+                  workflow_template_key: templateKey,
+                  ...(!isEditing ? capabilitiesForServiceType(serviceType) : {}),
+                };
+                if (isEditing || canonical) {
+                  setDraft((previous) => ({ ...previous, ...updates }));
+                } else {
+                  updateNewProjectTimeline(updates);
+                }
+              }}
             />
+            {!isEditing ? (
+              <SelectField
+                label="Workflow Template"
+                value={draft.workflow_template_key || 'book-formatting'}
+                onChange={(event) => {
+                  const selected = publishingTemplates.find((item) => item.key === event.target.value);
+                  if (!selected) return;
+                  const updates = {
+                    workflow_template_key: selected.key,
+                    service_type: selected.serviceType,
+                    requires_print: selected.requiresPrint,
+                    requires_ebook: selected.requiresEbook,
+                  };
+                  if (canonical) {
+                    setDraft((previous) => ({ ...previous, ...updates }));
+                  } else {
+                    updateNewProjectTimeline(updates);
+                  }
+                }}
+              >
+                {publishingTemplates.map((template) => (
+                  <option key={template.key} value={template.key}>{template.label}</option>
+                ))}
+              </SelectField>
+            ) : null}
             <div className="grid gap-2 rounded-md border border-border bg-ivory/40 p-3 md:col-span-2">
               <span className="text-sm font-semibold text-ink">Canonical Service Capabilities</span>
               <div className="flex flex-wrap gap-5">
