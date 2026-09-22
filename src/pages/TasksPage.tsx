@@ -106,6 +106,8 @@ export function TasksPage({
   onDeleteChecklistItem,
   onAddDependency,
   onRemoveDependency,
+  onUploadAttachment,
+  onGetAttachmentUrl,
   onCreateSubtask,
   onSelectProject,
 }: {
