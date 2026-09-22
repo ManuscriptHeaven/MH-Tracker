@@ -63,7 +63,7 @@ type PlannerResult = {
 const rateLimits = new Map<string, { count: number; resetAt: number }>();
 
 const ACTION_SIGNAL =
-  /\b(create|add|make|start|generate|invoice|bill|submit|send|share|move|set|change|update|assign|record|approve|complete|deliver|draft|write|prepare|banao|bnao|karo|kro|krdo|bhejo|jama|nikalo|de\s*do)\b|(?:بناؤ|بنا\s*دو|بھیجو|جمع|انوائس|تبدیل|اسائن|مکمل)/iu;
+  /\b(create|add|make|start|generate|invoice|bill|submit|send|share|move|set|change|update|assign|record|approve|complete|deliver|put|draft|write|prepare|banao|bnao|karo|kro|krdo|bhejo|jama|nikalo|lagao|lgao|laga\s*do|de\s*do)\b|(?:بناؤ|بنا\s*دو|بھیجو|جمع|انوائس|تبدیل|اسائن|مکمل)/iu;
 
 function splitCompoundActionMessage(message: string): string[] {
   const parts = message
