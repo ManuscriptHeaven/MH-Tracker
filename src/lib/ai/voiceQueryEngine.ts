@@ -577,6 +577,7 @@ export class VoiceQueryEngine {
         return {
           success: false,
           toolName: 'generate_client_invoice',
+          error: 'client_not_found',
           spokenText: 'Which client would you like me to generate an invoice for?',
           displayText: '❓ Please specify which client to generate the invoice for.',
         };
@@ -2040,6 +2041,13 @@ export class VoiceQueryEngine {
         .replace(/^(?:invite\s+client|add\s+client)\s+/i, '')
         .replace(/(?:with\s+)?email\s+[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i, '')
         .trim();
+
+      if (email) {
+        clientName = clientName
+          .replace(email, '')
+          .replace(/\b(?:with\s+)?email\b/i, '')
+          .trim();
+      }
 
       if (!clientName) {
         return {
