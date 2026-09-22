@@ -861,7 +861,7 @@ export async function runVoiceAssistantTests() {
       res38b.success &&
       res38b.spokenText.includes('submitted for client approval') &&
       canonicalMutationCalls.stageSubmissions.length === stageCallsBefore38 + 1 &&
-      canonicalMutationCalls.stageSubmissions.at(-1)?.projectId === 'proj-1'
+      canonicalMutationCalls.stageSubmissions[canonicalMutationCalls.stageSubmissions.length - 1]?.projectId === 'proj-1'
     ),
     'Test 38b: Confirmation executes canonical Print Version submission',
   );
