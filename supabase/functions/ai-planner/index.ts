@@ -62,6 +62,42 @@ function knownProject(message: string, context: PlannerContext) {
   });
 }
 
+function looseProjectTitle(message: string, client?: string) {
+  const quoted = message.match(/["“”']([^"“”']{2,180})["“”']/);
+  if (quoted?.[1]) return quoted[1].trim();
+
+  const stripClient = (value: string) => {
+    let result = value;
+    if (client) {
+      const escapedClient = client.replace(/[\\.*+?^$()|{}\[\]]/g, '\\function deterministicFallback(message: string, context: PlannerContext): PlannerResult {');
+      result = result.replace(new RegExp(escapedClient, 'ig'), ' ');
+    }
+    return result
+      .replace(/\b(?:k|ke|ki)?\s*(?:liye|lie)\b/gi, ' ')
+      .replace(/\bfor\s+(?:the\s+)?client\b/gi, ' ')
+      .replace(/\bclient\b/gi, ' ')
+      .replace(/\b(?:ka|ki|ke)\b\s*$/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const prefix = message.match(/(.+?)\s+(?:ka|ki|ke)?\s*(?:naya|nayi|new)\s+project\b/i);
+  if (prefix?.[1]) {
+    const candidate = stripClient(prefix[1]);
+    if (candidate.length >= 2 && candidate.length <= 180) return candidate;
+  }
+
+  const after = message.match(
+    /(?:naya|nayi|new)\s+project(?:\s+(?:called|named))?\s+(.+?)(?=\s+(?:banao|bnao|bna\s*do|bana\s*do|create\s*karo|for\s+client|service|price|total|due|deadline|budget)\b|$)/i,
+  );
+  if (after?.[1]) {
+    const candidate = stripClient(after[1]);
+    if (candidate.length >= 2 && candidate.length <= 180) return candidate;
+  }
+
+  return '';
+}
+
 function deterministicFallback(message: string, context: PlannerContext): PlannerResult {
   const lower = message.toLowerCase();
   const client = knownClient(message, context);
@@ -120,21 +156,33 @@ function deterministicFallback(message: string, context: PlannerContext): Planne
         };
   }
 
-  if (/\b(project|پروجیکٹ)\b/i.test(message) && /\b(create|new|add|start|banao|bnao|بناؤ)/iu.test(message)) {
+  if (
+    /\b(project|پروجیکٹ)\b/i.test(message) &&
+    /\b(create|new|add|start|banao|bnao|bna\s*do|bana\s*do|بناؤ)/iu.test(message)
+  ) {
+    const title = looseProjectTitle(message, client);
+    const normalizedCommand =
+      'Create a new project' +
+      (title ? ' called "' + title + '"' : '') +
+      (client ? ' for client ' + client : '');
+
     return {
       planned: true,
       intent: 'create_project',
-      normalizedCommand: message,
-      confidence: 0.78,
-      reason: 'Project creation request.',
+      normalizedCommand,
+      confidence: title || client ? 0.86 : 0.74,
+      reason: 'Project creation request normalized for the guided project wizard.',
     };
   }
 
-  if (/\b(task|ٹاسک)\b/i.test(message) && /\b(create|new|add|assign|banao|bnao|بناؤ)/iu.test(message)) {
+  if (
+    /\b(task|ٹاسک)\b/i.test(message) &&
+    /\b(create|new|add|assign|banao|bnao|bna\s*do|bana\s*do|بناؤ)/iu.test(message)
+  ) {
     return {
       planned: true,
       intent: 'create_task',
-      normalizedCommand: message,
+      normalizedCommand: 'Create a task: ' + message,
       confidence: 0.78,
       reason: 'Task creation or assignment request.',
     };
