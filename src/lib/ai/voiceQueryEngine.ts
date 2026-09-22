@@ -2048,6 +2048,221 @@ export class VoiceQueryEngine {
     return null;
   }
 
+  private rememberRecoverableCompletion(result: AIToolResult, originalQuery: string): void {
+    if (result.success || !result.error) return;
+
+    const fieldByError: Record<string, 'project' | 'task' | 'client' | 'employee' | 'date' | 'amount' | 'details'> = {
+      project_not_found: 'project',
+      project_required: 'project',
+      task_not_found: 'task',
+      client_not_found: 'client',
+      ambiguous_client: 'client',
+      recipient_not_found: 'employee',
+      invalid_date: 'date',
+      invalid_amount: 'amount',
+      task_details_required: 'details',
+      record_not_found: 'details',
+    };
+
+    const missingField = fieldByError[result.error];
+    if (!missingField) return;
+
+    this.memory.pendingCommandCompletion = {
+      originalQuery,
+      toolName: result.toolName,
+      missingField,
+      attempts: 0,
+      startedAt: new Date().toISOString(),
+    };
+  }
+
+  private planHeader(): string {
+    const plan = this.memory.pendingActionPlan;
+    if (!plan) return '';
+
+    const lines = plan.steps.map((step, index) => {
+      const marker =
+        step.status === 'completed'
+          ? '✅'
+          : index === plan.currentIndex
+            ? '▶️'
+            : step.status === 'failed'
+              ? '❌'
+              : '○';
+      return `${marker} ${index + 1}. ${step.normalizedCommand}`;
+    });
+
+    return (
+      `### AI Action Plan — Step ${Math.min(plan.currentIndex + 1, plan.steps.length)} of ${plan.steps.length}\n\n` +
+      lines.join('\n') +
+      '\n\n_Each write is validated and confirmed separately._'
+    );
+  }
+
+  private async startActionPlan(
+    originalQuery: string,
+    steps: Array<{ intent?: string; normalizedCommand: string; label?: string; status?: 'pending' | 'ready' | 'completed' | 'cancelled' | 'failed' }>,
+    ctx: AIToolContext,
+  ): Promise<AIToolResult> {
+    this.memory.pendingActionPlan = {
+      id: `plan-${Date.now()}`,
+      originalQuery,
+      steps: steps.slice(0, 4).map((step) => ({ ...step, status: 'pending' })),
+      currentIndex: 0,
+      startedAt: new Date().toISOString(),
+    };
+
+    return this.prepareCurrentPlanStep(ctx);
+  }
+
+  private async prepareCurrentPlanStep(ctx: AIToolContext): Promise<AIToolResult> {
+    const plan = this.memory.pendingActionPlan;
+    if (!plan || plan.currentIndex >= plan.steps.length) {
+      this.memory.pendingActionPlan = null;
+      return {
+        success: true,
+        toolName: 'get_project_summary',
+        spokenText: 'The action plan is complete.',
+        displayText: '### ✅ Action Plan Complete',
+      };
+    }
+
+    const informationalResults: string[] = [];
+
+    while (plan.currentIndex < plan.steps.length) {
+      const step = plan.steps[plan.currentIndex];
+      const command = step.normalizedCommand.trim();
+      const result = await this.detectWriteIntent(command.toLowerCase(), command, ctx);
+
+      if (!result) {
+        step.status = 'failed';
+        this.memory.pendingActionPlan = null;
+        return {
+          success: false,
+          toolName: (step.intent as AIToolName) || 'get_project_summary',
+          error: 'planned_action_not_supported',
+          spokenText: 'I understood the plan, but one step could not be safely mapped to a Tracker action.',
+          displayText:
+            `### Action Plan Paused\n\nI could not safely map this step:\n\n**${command}**\n\nNo unsupported action was executed.`,
+        };
+      }
+
+      this.rememberRecoverableCompletion(result, command);
+      result.actionPlan = {
+        id: plan.id,
+        currentStep: plan.currentIndex + 1,
+        totalSteps: plan.steps.length,
+        remainingCommands: plan.steps.slice(plan.currentIndex + 1).map((item) => item.normalizedCommand),
+      };
+
+      if (result.pendingAction) {
+        step.status = 'ready';
+        this.memory.pendingAction = result.pendingAction;
+        result.displayText =
+          this.planHeader() +
+          '\n\n---\n\n' +
+          result.displayText;
+        return result;
+      }
+
+      if (result.disambiguation || !result.success) {
+        result.displayText =
+          this.planHeader() +
+          '\n\n---\n\n' +
+          result.displayText;
+        return result;
+      }
+
+      step.status = 'completed';
+      informationalResults.push(result.displayText);
+      plan.currentIndex += 1;
+    }
+
+    const completedPlanId = plan.id;
+    this.memory.pendingActionPlan = null;
+    return {
+      success: true,
+      toolName: 'get_project_summary',
+      spokenText: 'The requested action plan is complete.',
+      displayText:
+        (informationalResults.length ? informationalResults.join('\n\n---\n\n') + '\n\n' : '') +
+        '### ✅ Action Plan Complete',
+      actionPlan: {
+        id: completedPlanId,
+        currentStep: plan.steps.length,
+        totalSteps: plan.steps.length,
+        remainingCommands: [],
+      },
+    };
+  }
+
+  public async executeConfirmedAction(action: AIActionPreview, ctx: AIToolContext): Promise<AIToolResult> {
+    const result = await this.executeAction(action, ctx);
+
+    if (result.success) {
+      const verification = await verifyActionOutcome(action, result);
+      if (verification) {
+        result.verification = verification;
+        const icon =
+          verification.status === 'verified'
+            ? '✅'
+            : verification.status === 'failed'
+              ? '⚠️'
+              : 'ℹ️';
+        result.displayText += `\n\n${icon} **Post-action verification:** ${verification.message}`;
+      }
+
+      if (verification?.status === 'failed') {
+        if (this.memory.pendingActionPlan) {
+          const plan = this.memory.pendingActionPlan;
+          if (plan.steps[plan.currentIndex]) plan.steps[plan.currentIndex].status = 'failed';
+          this.memory.pendingActionPlan = null;
+          result.displayText += '\n\n**Action plan paused** because Tracker did not confirm the expected state. No later steps were started.';
+        }
+        return result;
+      }
+    }
+
+    const plan = this.memory.pendingActionPlan;
+    if (!plan) return result;
+
+    if (!result.success) {
+      if (plan.steps[plan.currentIndex]) plan.steps[plan.currentIndex].status = 'failed';
+      this.memory.pendingActionPlan = null;
+      result.displayText += '\n\n**Action plan stopped.** Later steps were not started.';
+      return result;
+    }
+
+    if (plan.steps[plan.currentIndex]) plan.steps[plan.currentIndex].status = 'completed';
+    plan.currentIndex += 1;
+
+    if (plan.currentIndex >= plan.steps.length) {
+      const completedPlanId = plan.id;
+      this.memory.pendingActionPlan = null;
+      result.displayText += '\n\n### ✅ Action Plan Complete';
+      result.spokenText += ' The full action plan is complete.';
+      result.actionPlan = {
+        id: completedPlanId,
+        currentStep: plan.steps.length,
+        totalSteps: plan.steps.length,
+        remainingCommands: [],
+      };
+      return result;
+    }
+
+    const next = await this.prepareCurrentPlanStep(ctx);
+    return {
+      ...result,
+      success: next.success,
+      error: next.error,
+      spokenText: `${result.spokenText} Next: ${next.spokenText}`,
+      displayText: `${result.displayText}\n\n---\n\n${next.displayText}`,
+      pendingAction: next.pendingAction,
+      disambiguation: next.disambiguation,
+      actionPlan: next.actionPlan,
+    };
+  }
+
   // ==========================================
   // ACTION EXECUTION DISPATCHER
   // ==========================================
