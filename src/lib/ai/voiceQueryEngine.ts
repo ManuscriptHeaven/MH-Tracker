@@ -2366,7 +2366,7 @@ export class VoiceQueryEngine {
       case 'invite_client':
         return safeActions.execute_invite_client(action.payload as any, ctx);
       case 'record_project_payment':
-        return safeActions.execute_record_project_payment(action.payload as any, ctx);
+        return safeActions.execute_record_project_payment({ ...action.payload, requestId: action.actionId } as any, ctx);
       case 'record_income':
         return safeActions.execute_record_income(action.payload as any, ctx);
       case 'record_expense':

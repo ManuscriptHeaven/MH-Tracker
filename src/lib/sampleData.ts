@@ -1141,6 +1141,8 @@ export const sampleData = {
   taskComments: [],
   taskChecklistItems: [],
   taskDependencies: [],
+      taskAttachments: [],
+      taskMentions: [],
   revisionRequests: sampleRevisionRequests,
   revisionItems: sampleRevisionItems,
   revisionAttachments: sampleRevisionAttachments,

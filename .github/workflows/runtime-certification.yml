@@ -1,0 +1,146 @@
+name: Runtime Certification
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    name: Static regression + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm run build
+
+  database-runtime:
+    name: Local Supabase DB + RLS + browser runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.113.0
+
+      - name: Prepare isolated local configuration
+        run: |
+          mkdir -p .runtime-certification/supabase/migrations
+          cp supabase/config.toml .runtime-certification/supabase/config.toml
+
+      - name: Start disposable Supabase
+        run: supabase start --workdir .runtime-certification
+
+      - name: Bootstrap Phase 6 and apply application migrations
+        shell: bash
+        run: |
+          supabase status --workdir .runtime-certification -o env > /tmp/supabase.env
+          source /tmp/supabase.env
+          case "$DB_URL" in
+            postgresql://*@127.0.0.1:*/*|postgresql://*@localhost:*/*) ;;
+            *) echo "Local database URL required" >&2; exit 1 ;;
+          esac
+          for migration in supabase/phase6/migrations/*.sql; do
+            echo "Applying $migration"
+            psql "$DB_URL" -v ON_ERROR_STOP=1 -f "$migration" > /tmp/phase6-bootstrap.log 2>&1 || { cat /tmp/phase6-bootstrap.log; exit 1; }
+          done
+          cp supabase/migrations/*.sql .runtime-certification/supabase/migrations/
+          supabase migration up --local --workdir .runtime-certification
+
+      - name: Export local runtime credentials
+        shell: bash
+        run: |
+          supabase status --workdir .runtime-certification -o env > /tmp/supabase.env
+          set -a
+          source /tmp/supabase.env
+          set +a
+          {
+            echo "API_URL=$API_URL"
+            echo "ANON_KEY=$ANON_KEY"
+            echo "SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+            echo "SUPABASE_URL=$API_URL"
+            echo "SUPABASE_ANON_KEY=$ANON_KEY"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+            echo "VITE_SUPABASE_URL=$API_URL"
+            echo "VITE_SUPABASE_ANON_KEY=$ANON_KEY"
+            echo "E2E_BASE_URL=http://127.0.0.1:4173"
+          } >> "$GITHUB_ENV"
+
+      - name: Exact local migration ledger parity
+        shell: bash
+        run: |
+          supabase migration list --local --workdir .runtime-certification > /tmp/migration-list.txt
+          cat /tmp/migration-list.txt
+          node scripts/check-migration-drift.mjs /tmp/migration-list.txt --column remote
+
+      - name: Database lint
+        run: supabase db lint --workdir .runtime-certification --level error
+
+      - name: pgTAP runtime schema certification
+        run: supabase test db --workdir .runtime-certification "$GITHUB_WORKSPACE/supabase/tests/ci"
+
+      - name: Auth, RLS, Realtime and database integration certification
+        run: node scripts/runtime-integration-certification.mjs
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Start Vite against disposable Supabase
+        shell: bash
+        run: |
+          pnpm run dev -- --host 127.0.0.1 --port 4173 > /tmp/mh-vite.log 2>&1 &
+          echo $! > /tmp/mh-vite.pid
+          for attempt in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:4173 >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/mh-vite.log
+          exit 1
+
+      - name: Playwright browser certification
+        run: pnpm exec playwright test e2e/runtime-certification.spec.ts
+
+      - name: Upload browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-certification-evidence
+          path: |
+            playwright-report/
+            test-results/
+            /tmp/mh-vite.log
+          if-no-files-found: ignore
+
+      - name: Stop disposable Supabase
+        if: always()
+        run: if command -v supabase >/dev/null; then supabase stop --workdir .runtime-certification --no-backup; fi

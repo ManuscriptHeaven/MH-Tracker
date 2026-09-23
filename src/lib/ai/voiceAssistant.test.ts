@@ -281,6 +281,8 @@ export async function runVoiceAssistantTests() {
     taskComments: [],
     taskChecklistItems: [],
     taskDependencies: [],
+      taskAttachments: [],
+      taskMentions: [],
     revisionRequests: [
       {
         id: 'rev-1',
@@ -366,6 +368,7 @@ export async function runVoiceAssistantTests() {
     lifecycle: [] as Array<{ projectId: string; lifecycle: string }>,
     stageSubmissions: [] as Array<{ projectId: string; note?: string; fileUrl?: string }>,
     invoices: [] as any[],
+    payments: [] as any[],
   };
 
   const createAdminCtx = (_legacyCurrency: 'USD' | 'PKR' = 'USD'): AIToolContext => ({
@@ -385,6 +388,13 @@ export async function runVoiceAssistantTests() {
       return numeric;
     },
     trackerMutations: {
+      recordProjectPayment: async (draft) => {
+        canonicalMutationCalls.payments.push(draft);
+        const project = testProjects.find((item) => item.id === draft.projectId)!;
+        const totalPaid = Number(project.advance_paid || 0) + draft.amount;
+        return { totalPaid, remainingBalance: project.total_price - totalPaid,
+          paymentStatus: 'Partially Paid', transactionId: 'test-payment', duplicate: false };
+      },
       setProjectLifecycle: async (projectId, lifecycle) => {
         canonicalMutationCalls.lifecycle.push({ projectId, lifecycle });
         const project = testProjects.find((item) => item.id === projectId);
@@ -691,6 +701,8 @@ export async function runVoiceAssistantTests() {
   assert(
     Boolean(
       res30b.success &&
+        canonicalMutationCalls.payments.length === 1 &&
+        canonicalMutationCalls.payments[0].requestId === res30a.pendingAction?.actionId &&
         res30b.spokenText.includes('Magazine 2') &&
         res30b.spokenText.includes('$900')
     ),

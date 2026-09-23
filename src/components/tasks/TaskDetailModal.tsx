@@ -1,4 +1,4 @@
-import { Archive, Check, MessageSquare, Plus, Trash2, Users } from 'lucide-react';
+import { Archive, Check, Download, FileUp, MessageSquare, Plus, Trash2, Users } from 'lucide-react';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { priorityOptions, taskStatuses } from '../../lib/constants';
 import { formatDate } from '../../lib/date';
@@ -7,6 +7,7 @@ import type {
   Project,
   Task,
   TaskAssignee,
+  TaskAttachment,
   TaskChecklistItem,
   TaskComment,
   TaskDependency,
@@ -27,6 +28,7 @@ type Props = {
   comments: TaskComment[];
   checklistItems: TaskChecklistItem[];
   dependencies: TaskDependency[];
+  attachments: TaskAttachment[];
   onClose: () => void;
   onUpdateTask: (taskId: string, updates: Partial<Task>) => Promise<void>;
   onArchiveTask: (taskId: string) => Promise<void>;
@@ -40,6 +42,8 @@ type Props = {
   onDeleteChecklistItem: (itemId: string) => Promise<void>;
   onAddDependency: (taskId: string, dependsOnTaskId: string) => Promise<void>;
   onRemoveDependency: (dependencyId: string) => Promise<void>;
+  onUploadAttachment: (taskId: string, file: File, logicalFileId?: string) => Promise<TaskAttachment>;
+  onGetAttachmentUrl: (attachment: TaskAttachment) => Promise<string>;
   onCreateSubtask: (parentTaskId: string, draft: TaskDraft) => Promise<void>;
 };
 
@@ -68,6 +72,9 @@ export function TaskDetailModal(props: Props) {
   const [collaboratorId, setCollaboratorId] = useState('');
   const [dependencyId, setDependencyId] = useState('');
   const [subtaskTitle, setSubtaskTitle] = useState('');
+  const [taskFile, setTaskFile] = useState<File | null>(null);
+  const [fileVersionTarget, setFileVersionTarget] = useState('new');
+  const [mentionProfileId, setMentionProfileId] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,6 +85,16 @@ export function TaskDetailModal(props: Props) {
   const taskComments = props.comments.filter((item) => item.task_id === task.id);
   const checklist = props.checklistItems.filter((item) => item.task_id === task.id).sort((a, b) => a.position - b.position);
   const taskDependencies = props.dependencies.filter((item) => item.task_id === task.id);
+  const taskAttachments = props.attachments
+    .filter((item) => item.task_id === task.id)
+    .sort((a, b) => b.version_number - a.version_number || b.created_at.localeCompare(a.created_at));
+  const latestFileFamilies = Array.from(
+    taskAttachments.reduce((map, item) => {
+      const existing = map.get(item.logical_file_id);
+      if (!existing || item.version_number > existing.version_number) map.set(item.logical_file_id, item);
+      return map;
+    }, new Map<string, TaskAttachment>()).values(),
+  );
   const subtasks = tasks.filter((item) => item.parent_task_id === task.id && !item.archived_at);
   const collaboratorIds = new Set(props.assignees.filter((item) => item.task_id === task.id).map((item) => item.profile_id));
   const availableDependencies = tasks.filter((item) =>
@@ -186,6 +203,64 @@ export function TaskDetailModal(props: Props) {
           </Card>
 
           <Card>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="flex items-center gap-2 font-display text-lg font-semibold text-ink"><FileUp className="h-4 w-4" />Task files</h3>
+                <p className="text-xs text-muted">Registered versions are immutable. Upload a new version instead of replacing a file.</p>
+              </div>
+              <span className="text-xs font-semibold text-muted">{taskAttachments.length} version{taskAttachments.length === 1 ? '' : 's'}</span>
+            </div>
+            <div className="mt-3 space-y-2">
+              {taskAttachments.map((attachment) => (
+                <div key={attachment.id} className="flex min-w-0 items-center gap-3 rounded-md border border-border bg-white p-3 text-sm">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium text-ink">{attachment.file_name}</p>
+                    <p className="text-xs text-muted">Version {attachment.version_number} · {Math.max(1, Math.round(attachment.file_size / 1024))} KB</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() => void run(async () => {
+                      const url = await props.onGetAttachmentUrl(attachment);
+                      window.open(url, '_blank', 'noopener,noreferrer');
+                    })}
+                  >
+                    <Download className="h-4 w-4" />Open
+                  </Button>
+                </div>
+              ))}
+              {!taskAttachments.length ? <p className="rounded-md bg-ivory p-3 text-sm text-muted">No task files uploaded yet.</p> : null}
+              <form className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(160px,0.55fr)_auto]" onSubmit={(event) => {
+                event.preventDefault();
+                const formElement = event.currentTarget;
+                if (!taskFile) return;
+                void run(async () => {
+                  await props.onUploadAttachment(task.id, taskFile, fileVersionTarget === 'new' ? undefined : fileVersionTarget);
+                  setTaskFile(null);
+                  setFileVersionTarget('new');
+                  formElement.reset();
+                });
+              }}>
+                <input
+                  type="file"
+                  className="min-h-10 min-w-0 rounded-md border border-border bg-white px-3 py-2 text-sm"
+                  onChange={(event) => setTaskFile(event.target.files?.[0] || null)}
+                />
+                <SelectField value={fileVersionTarget} onChange={(event) => setFileVersionTarget(event.target.value)}>
+                  <option value="new">New file</option>
+                  {latestFileFamilies.map((attachment) => (
+                    <option key={attachment.logical_file_id} value={attachment.logical_file_id}>
+                      New version of {attachment.file_name}
+                    </option>
+                  ))}
+                </SelectField>
+                <Button type="submit" disabled={!taskFile || busy}><FileUp className="h-4 w-4" />Upload</Button>
+              </form>
+            </div>
+          </Card>
+
+          <Card>
             <h3 className="font-display text-lg font-semibold text-ink">Subtasks</h3>
             <div className="mt-3 space-y-2">
               {subtasks.map((subtask) => (
@@ -249,8 +324,29 @@ export function TaskDetailModal(props: Props) {
                 const canModify = item.user_id === currentProfile.id || canManageComments;
                 return <div key={item.id} className="rounded-md border border-border bg-white p-3"><div className="flex justify-between gap-3"><p className="text-xs font-semibold text-ink">{author ? firstName(author.full_name) : 'Team member'}</p>{canModify ? <div className="flex gap-2"><button type="button" className="text-xs font-medium text-muted hover:text-ink" onClick={() => { const next = window.prompt('Edit comment', item.comment); if (next !== null) void run(() => props.onUpdateComment(item.id, next)); }}>Edit</button><button type="button" onClick={() => void run(() => props.onDeleteComment(item.id))}><Trash2 className="h-3.5 w-3.5 text-muted hover:text-danger" /></button></div> : null}</div><p className="mt-1 whitespace-pre-wrap text-sm text-charcoal">{item.comment}</p></div>;
               })}
-              <form onSubmit={(event) => { event.preventDefault(); void run(async () => { await props.onAddComment(task.id, comment); setComment(''); }); }}>
-                <textarea className="min-h-24 w-full rounded-md border border-border p-3 text-sm" value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Add a comment" />
+              <form onSubmit={(event) => { event.preventDefault(); void run(async () => { await props.onAddComment(task.id, comment); setComment(''); setMentionProfileId(''); }); }}>
+                <textarea className="min-h-24 w-full rounded-md border border-border p-3 text-sm" value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Add a comment. Use @Name to notify a teammate." />
+                <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <SelectField value={mentionProfileId} onChange={(event) => setMentionProfileId(event.target.value)}>
+                    <option value="">Mention teammate (optional)</option>
+                    {teamProfiles.filter((profile) => profile.id !== currentProfile.id).map((profile) => (
+                      <option key={profile.id} value={profile.id}>{profile.full_name}</option>
+                    ))}
+                  </SelectField>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={!mentionProfileId}
+                    onClick={() => {
+                      const profile = profiles.find((item) => item.id === mentionProfileId);
+                      if (!profile) return;
+                      setComment((previous) => `${previous}${previous && !previous.endsWith(' ') ? ' ' : ''}@${profile.full_name} `);
+                      setMentionProfileId('');
+                    }}
+                  >
+                    Add @mention
+                  </Button>
+                </div>
                 <Button className="mt-2 w-full" type="submit" disabled={!comment.trim() || busy}>Post comment</Button>
               </form>
             </div>

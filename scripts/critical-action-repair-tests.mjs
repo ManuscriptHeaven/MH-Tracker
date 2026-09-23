@@ -8,9 +8,10 @@ try {
   const mod = await import('../src/lib/revisionUtils.ts');
   normalizeRevisionRequest = mod.normalizeRevisionRequest;
   hasAmbiguousRevisionRequests = mod.hasAmbiguousRevisionRequests;
-} catch {
-  const { execSync } = await import('node:child_process');
-  execSync('npx --yes tsx ' + JSON.stringify(fileURLToPath(import.meta.url)), { stdio: 'inherit' });
+} catch (error) {
+  if (process.execArgv.includes('--import')) throw error;
+  const { execFileSync } = await import('node:child_process');
+  execFileSync(process.execPath, ['--import', 'tsx', fileURLToPath(import.meta.url)], { stdio: 'inherit' });
   process.exit(0);
 }
 

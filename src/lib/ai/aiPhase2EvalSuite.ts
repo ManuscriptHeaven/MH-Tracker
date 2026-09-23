@@ -211,6 +211,8 @@ export async function runPhase2EvaluationSuite(): Promise<{
       taskComments: [],
       taskChecklistItems: [],
       taskDependencies: [],
+      taskAttachments: [],
+      taskMentions: [],
       notifications: [],
       clientProjectAccess: [],
       revisionRequests: [],

@@ -109,8 +109,9 @@ assert(
 
 assert(
   actions.includes('execute_record_project_payment') &&
-    actions.includes('payment_exceeds_balance') &&
-    actions.includes('advance_paid: newPaid') &&
+    actions.includes('trackerMutations.recordProjectPayment') &&
+    actions.includes('Payment confirmation request ID is required') &&
+    read('supabase/migrations/20260923105655_atomic_project_payment_attendance_recovery.sql').includes('payment_exceeds_outstanding_balance') &&
     actions.includes('Order revenue is unchanged'),
   'project-payment execution validates balance, updates paid state, and avoids revenue double-counting',
 );

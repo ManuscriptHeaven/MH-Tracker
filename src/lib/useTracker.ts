@@ -55,10 +55,12 @@ import type {
   Task,
   TaskAssignee,
   TaskAssignmentRole,
+  TaskAttachment,
   TaskChecklistItem,
   TaskComment,
   TaskDependency,
   TaskDraft,
+  TaskMention,
   TrackerData,
   FinanceBudget,
   FinanceTransaction,
@@ -106,6 +108,27 @@ function sanitizeMessageFileName(fileName: string) {
     .slice(0, 120);
 
   return clean || 'attachment';
+}
+
+function taskMentionProfileIds(comment: string, profiles: Profile[], actorId: string) {
+  const normalized = comment.toLocaleLowerCase();
+  const teamProfiles = profiles.filter((profile) =>
+    profile.id !== actorId && !isClientRole(profile.role) && profile.status !== 'inactive');
+
+  const firstNameCounts = new Map<string, number>();
+  teamProfiles.forEach((profile) => {
+    const first = firstName(profile.full_name).toLocaleLowerCase();
+    firstNameCounts.set(first, (firstNameCounts.get(first) || 0) + 1);
+  });
+
+  return teamProfiles
+    .filter((profile) => {
+      const full = profile.full_name.trim().toLocaleLowerCase();
+      if (full && normalized.includes(`@${full}`)) return true;
+      const first = firstName(profile.full_name).toLocaleLowerCase();
+      return Boolean(first && firstNameCounts.get(first) === 1 && normalized.includes(`@${first}`));
+    })
+    .map((profile) => profile.id);
 }
 
 function sanitizeProjectSourceFileName(fileName: string) {
@@ -757,6 +780,8 @@ function createEmptyTrackerData(profile: Profile | null = null): TrackerData {
     taskComments: [],
     taskChecklistItems: [],
     taskDependencies: [],
+    taskAttachments: [],
+    taskMentions: [],
     revisionRequests: [],
     revisionItems: [],
     revisionAttachments: [],
@@ -960,6 +985,12 @@ export function useTracker() {
     const taskDependenciesPromise = profileIsClient
       ? emptyResult
       : optionalV2Select<TaskDependency>(supabase.from('task_dependencies').select('*').order('created_at'));
+    const taskAttachmentsPromise = profileIsClient
+      ? emptyResult
+      : optionalV2Select<TaskAttachment>(supabase.from('task_attachments').select('*').order('created_at'));
+    const taskMentionsPromise = profileIsClient
+      ? emptyResult
+      : optionalV2Select<TaskMention>(supabase.from('task_mentions').select('*').order('created_at'));
 
     const clientAccessPromise = profile.role === 'admin'
       ? safeSelect<ClientProjectAccess>(supabase.from('client_project_access').select('*').order('created_at'))
@@ -1052,6 +1083,8 @@ export function useTracker() {
       taskCommentsRes,
       taskChecklistRes,
       taskDependenciesRes,
+      taskAttachmentsRes,
+      taskMentionsRes,
       clientAccessRes,
       revisionRequestsRes,
       revisionItemsRes,
@@ -1087,6 +1120,8 @@ export function useTracker() {
       taskCommentsPromise,
       taskChecklistPromise,
       taskDependenciesPromise,
+      taskAttachmentsPromise,
+      taskMentionsPromise,
       clientAccessPromise,
       revisionRequestsPromise,
       revisionItemsPromise,
@@ -1147,6 +1182,8 @@ export function useTracker() {
       taskComments: taskCommentsRes.data as TaskComment[],
       taskChecklistItems: taskChecklistRes.data as TaskChecklistItem[],
       taskDependencies: taskDependenciesRes.data as TaskDependency[],
+      taskAttachments: taskAttachmentsRes.data as TaskAttachment[],
+      taskMentions: taskMentionsRes.data as TaskMention[],
       notifications,
       clientProjectAccess: clientAccessRes.data as ClientProjectAccess[],
       revisionRequests: (revisionRequestsRes.data as Partial<RevisionRequest>[]).map(normalizeRevisionRequest),
@@ -1567,6 +1604,11 @@ export function useTracker() {
       .channel(`task-realtime-sync:${currentProfile.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, scheduleTaskRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'task_assignees' }, scheduleTaskRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'task_comments' }, scheduleTaskRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'task_checklist_items' }, scheduleTaskRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'task_dependencies' }, scheduleTaskRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'task_attachments' }, scheduleTaskRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'task_mentions' }, scheduleTaskRefresh)
       .subscribe();
 
     return () => {
@@ -1892,6 +1934,7 @@ export function useTracker() {
             production_seconds_total: 0,
             client_wait_seconds_total: 0,
             revision_count: 0,
+            workflow_template_key: draft.workflow_template_key || null,
             stage_started_at: null,
             stage_due_at: null,
             stage_completed_at: null,
@@ -2926,6 +2969,7 @@ export function useTracker() {
     if (!currentProfile || isClientRole(currentProfile.role)) throw new Error('Only team members can comment on tasks.');
     const cleanComment = comment.trim();
     if (!cleanComment) throw new Error('Comment cannot be blank.');
+    const mentionProfileIds = taskMentionProfileIds(cleanComment, data.profiles, currentProfile.id);
     const now = new Date().toISOString();
     const local: TaskComment = { id: createUuid(), task_id: taskId, user_id: currentProfile.id, comment: cleanComment, created_at: now, updated_at: now };
     if (supabase && mode === 'supabase') {
@@ -2933,12 +2977,48 @@ export function useTracker() {
         .insert({ task_id: taskId, user_id: currentProfile.id, comment: cleanComment }).select().single();
       if (error) throw error;
       const result = inserted as TaskComment;
-      setData((previous) => ({ ...previous, taskComments: [...previous.taskComments, result] }));
+
+      let mentions: TaskMention[] = [];
+      if (mentionProfileIds.length) {
+        const mentionInsert = await supabase.from('task_mentions').insert(
+          mentionProfileIds.map((profileId) => ({
+            task_id: taskId,
+            comment_id: result.id,
+            mentioned_profile_id: profileId,
+            mentioned_by: currentProfile.id,
+          })),
+        ).select();
+
+        if (mentionInsert.error) {
+          await supabase.from('task_comments').delete().eq('id', result.id);
+          throw mentionInsert.error;
+        }
+        mentions = (mentionInsert.data || []) as TaskMention[];
+      }
+
+      setData((previous) => ({
+        ...previous,
+        taskComments: [...previous.taskComments, result],
+        taskMentions: [...previous.taskMentions, ...mentions],
+      }));
       return result;
     }
-    setData((previous) => ({ ...previous, taskComments: [...previous.taskComments, local] }));
+
+    const mentions: TaskMention[] = mentionProfileIds.map((profileId) => ({
+      id: createUuid(),
+      task_id: taskId,
+      comment_id: local.id,
+      mentioned_profile_id: profileId,
+      mentioned_by: currentProfile.id,
+      created_at: now,
+    }));
+    setData((previous) => ({
+      ...previous,
+      taskComments: [...previous.taskComments, local],
+      taskMentions: [...previous.taskMentions, ...mentions],
+    }));
     return local;
-  }, [currentProfile, mode]);
+  }, [currentProfile, data.profiles, mode]);
 
   const updateTaskComment = useCallback(async (commentId: string, comment: string) => {
     const cleanComment = comment.trim();
@@ -3048,6 +3128,69 @@ export function useTracker() {
       ...previous, taskDependencies: previous.taskDependencies.filter((item) => item.id !== dependencyId),
     }));
   }, [mode]);
+
+  const uploadTaskAttachment = useCallback(async (
+    taskId: string,
+    file: File,
+    logicalFileId?: string,
+  ) => {
+    if (!currentProfile || isClientRole(currentProfile.role)) {
+      throw new Error('Only team members can upload task files.');
+    }
+    if (!supabase || mode !== 'supabase') {
+      throw new Error('Task file uploads require the live Supabase workspace.');
+    }
+    if (file.size > 100 * 1024 * 1024) {
+      throw new Error('Task files must be 100 MB or smaller.');
+    }
+
+    const logicalId = logicalFileId || createUuid();
+    const nextVersion = data.taskAttachments
+      .filter((item) => item.task_id === taskId && item.logical_file_id === logicalId)
+      .reduce((maximum, item) => Math.max(maximum, item.version_number), 0) + 1;
+    const safeName = sanitizeMessageFileName(file.name);
+    const storagePath = `${taskId}/${currentProfile.id}/${logicalId}/v${nextVersion}-${createUuid()}-${safeName}`;
+
+    const upload = await supabase.storage.from('task-files').upload(storagePath, file, {
+      cacheControl: '3600',
+      contentType: file.type || undefined,
+      upsert: false,
+    });
+    if (upload.error) throw upload.error;
+
+    const inserted = await supabase.from('task_attachments').insert({
+      task_id: taskId,
+      logical_file_id: logicalId,
+      version_number: nextVersion,
+      file_name: file.name,
+      storage_path: storagePath,
+      mime_type: file.type || null,
+      file_size: file.size,
+      uploaded_by: currentProfile.id,
+    }).select().single();
+
+    if (inserted.error) {
+      await supabase.storage.from('task-files').remove([storagePath]);
+      throw inserted.error;
+    }
+
+    const attachment = inserted.data as TaskAttachment;
+    setData((previous) => ({
+      ...previous,
+      taskAttachments: [...previous.taskAttachments, attachment],
+    }));
+    return attachment;
+  }, [currentProfile, data.taskAttachments, mode]);
+
+  const getTaskAttachmentUrl = useCallback(async (attachment: TaskAttachment) => {
+    if (!supabase || mode !== 'supabase') {
+      throw new Error('Task file download links require the live Supabase workspace.');
+    }
+    const signed = await supabase.storage.from('task-files').createSignedUrl(attachment.storage_path, 30 * 60);
+    if (signed.error) throw signed.error;
+    return signed.data.signedUrl;
+  }, [mode]);
+
 
   const createSubtask = useCallback(async (parentTaskId: string, draft: TaskDraft) => {
     const parent = data.tasks.find((item) => item.id === parentTaskId);
@@ -3592,6 +3735,31 @@ export function useTracker() {
     },
     [currentProfile, data.invoices, loadSupabaseData, mode],
   );
+
+  const recordProjectPayment = useCallback(async (draft: {
+    projectId: string; amount: number; requestId: string;
+    paymentDate: string; paymentMethod?: string; notes?: string;
+  }) => {
+    if (currentProfile?.role !== 'admin') throw new Error('Only administrators can record project payments.');
+    if (!supabase || mode !== 'supabase') throw new Error('Payment recording requires a connected database.');
+    const { data: receipt, error: paymentError } = await supabase.rpc('record_project_payment', {
+      p_project_id: draft.projectId, p_amount: draft.amount, p_request_id: draft.requestId,
+      p_payment_date: draft.paymentDate, p_payment_method: draft.paymentMethod || 'Bank Transfer',
+      p_notes: draft.notes || '',
+    });
+    if (paymentError) throw paymentError;
+    if (!receipt?.transactionId) throw new Error('The database did not confirm this payment.');
+    setData((previous) => ({
+      ...previous,
+      projects: previous.projects.map((project) => project.id === draft.projectId ? {
+        ...project, advance_paid: Number(receipt.totalPaid), remaining_balance: Number(receipt.remainingBalance),
+        payment_status: receipt.paymentStatus, payment_date: draft.paymentDate,
+      } : project),
+      financeTransactions: receipt.transaction ? [receipt.transaction,
+        ...(previous.financeTransactions || []).filter((item) => item.id !== receipt.transactionId)] : previous.financeTransactions,
+    }));
+    return receipt as { totalPaid: number; remainingBalance: number; paymentStatus: string; transactionId: string; duplicate: boolean };
+  }, [currentProfile, mode]);
 
   const createFinanceTransaction = useCallback(
     async (draft: FinanceTransactionDraft) => {
@@ -4751,6 +4919,8 @@ export function useTracker() {
     deleteTaskChecklistItem,
     addTaskDependency,
     removeTaskDependency,
+    uploadTaskAttachment,
+    getTaskAttachmentUrl,
     createSubtask,
     inviteClient,
     provisionClient,
@@ -4764,6 +4934,7 @@ export function useTracker() {
     addEmployeeLedgerEntry,
     deleteEmployeeLedgerEntry,
     saveInvoiceVersion,
+    recordProjectPayment,
     createFinanceTransaction,
     updateFinanceTransaction,
     deleteFinanceTransaction,

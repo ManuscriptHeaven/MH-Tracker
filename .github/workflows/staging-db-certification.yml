@@ -1,0 +1,44 @@
+name: Staging PostgreSQL RLS Certification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  staging-db:
+    name: Verified staging SQL suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require explicit staging connection
+        shell: bash
+        run: |
+          if [ -z "$STAGING_DB_URL" ]; then
+            echo "STAGING_DB_URL secret is required." >&2
+            exit 1
+          fi
+
+      - name: Confirm cluster identity and environment
+        shell: bash
+        run: |
+          psql "$STAGING_DB_URL" -v ON_ERROR_STOP=1 -Atc "
+            select 'database=' || current_database();
+            select 'system_identifier=' || system_identifier::text from pg_control_system();
+          "
+
+      - name: Phase 6 catalog and RLS certification
+        run: psql "$STAGING_DB_URL" -v ON_ERROR_STOP=1 -f supabase/tests/database/phase6_security.test.sql
+
+      - name: Task V2 behavioral RLS certification
+        shell: bash
+        run: |
+          psql "$STAGING_DB_URL" -v ON_ERROR_STOP=1             -c "set task_v2.test_target = 'staging';"             -f supabase/tests/database/task_management_v2.test.sql
+
+      - name: Current runtime schema certification
+        run: psql "$STAGING_DB_URL" -v ON_ERROR_STOP=1 -f supabase/tests/ci/runtime_schema_certification.test.sql

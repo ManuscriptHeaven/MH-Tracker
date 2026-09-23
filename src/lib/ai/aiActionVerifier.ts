@@ -156,16 +156,16 @@ export async function verifyActionOutcome(
       const expectedPaid = Number((result.data as any)?.totalPaid);
       if (!Number.isFinite(expectedPaid)) return null;
       const { data, error } = await supabase
-        .from('projects')
-        .select('id,project_title,advance_paid,payment_status')
-        .eq('id', action.payload.projectId)
+        .from('project_payments')
+        .select('project_id,advance_paid,payment_status')
+        .eq('project_id', action.payload.projectId)
         .maybeSingle();
       if (error) throw error;
       const actualPaid = Number(data?.advance_paid);
       return data && Number.isFinite(actualPaid) && Math.abs(actualPaid - expectedPaid) < 0.01
         ? {
             status: 'verified',
-            message: `Verified in Tracker: ${data.project_title} total paid is now ${actualPaid.toFixed(2)} (${data.payment_status}).`,
+            message: `Verified in Tracker: project total paid is now ${actualPaid.toFixed(2)} (${data.payment_status}).`,
           }
         : {
             status: 'failed',
