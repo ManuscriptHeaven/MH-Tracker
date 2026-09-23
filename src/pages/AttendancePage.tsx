@@ -228,13 +228,16 @@ export function AttendancePage({
   }
 
   const appConnected = isPresenceFresh(activeSession, nowMs);
+  const browserOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
   const currentStatus = !desktopAttendanceCapable
     ? 'Laptop required'
     : activeSession
       ? activeBreak
         ? 'On break'
         : appConnected
-          ? 'Working · Verified'
+          ? browserOnline
+            ? 'Working · Verified'
+            : 'Working · Offline'
           : 'App closed · Time paused'
       : 'Off duty';
 
@@ -246,8 +249,8 @@ export function AttendancePage({
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-gold">Office Attendance</p>
             <h2 className="mt-1 font-display text-2xl font-semibold sm:text-3xl">Time & Attendance</h2>
             <p className="mt-2 max-w-2xl text-sm text-white/65">
-              Verified office time now counts only while MH Tracker remains open on a laptop or desktop.
-              Close the app and credited time pauses automatically; reopen it and tracking resumes without counting the gap.
+              Office time keeps counting while the same MH Tracker window remains open on a laptop or desktop,
+              including when minimized or temporarily offline. Close the app and credited time stops; queued offline time syncs when internet returns.
             </p>
           </div>
 
@@ -278,7 +281,9 @@ export function AttendancePage({
                 {activeBreak
                   ? ' · break active'
                   : appConnected
-                    ? ' · MH Tracker connected'
+                    ? browserOnline
+                      ? ' · MH Tracker connected'
+                      : ' · tracking offline, sync pending'
                     : ' · app presence lost, timer paused'}
               </p>
             ) : (
@@ -352,12 +357,22 @@ export function AttendancePage({
             </div>
           ) : null}
 
+          {activeSession && !activeBreak && appConnected && !browserOnline && desktopAttendanceCapable ? (
+            <div className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-semibold">Offline tracking is active.</p>
+                <p className="mt-0.5 text-xs leading-5">Time is being counted locally while MH Tracker stays open and will sync automatically when internet returns.</p>
+              </div>
+            </div>
+          ) : null}
+
           {activeSession && !activeBreak && !appConnected && desktopAttendanceCapable ? (
             <div className="mt-4 flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
               <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
                 <p className="font-semibold">App presence is paused.</p>
-                <p className="mt-0.5 text-xs leading-5">The session remains clocked in, but no additional time is credited until MH Tracker reconnects.</p>
+                <p className="mt-0.5 text-xs leading-5">No running MH Tracker page has reported local presence. Reopen the app to resume without counting the closed gap.</p>
               </div>
             </div>
           ) : null}
