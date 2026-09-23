@@ -10,7 +10,7 @@ function assert(condition, message) {
 }
 
 const migration = fs.readFileSync('supabase/migrations/20260921000800_attendance_app_presence.sql', 'utf8');
-const offlineMigration = fs.readFileSync('supabase/migrations/20260923000100_attendance_offline_resilience.sql', 'utf8');
+const offlineMigration = fs.readFileSync('supabase/migrations/20260923122430_attendance_offline_resilience.sql', 'utf8');
 const tracker = fs.readFileSync('src/lib/useTracker.ts', 'utf8');
 const page = fs.readFileSync('src/pages/AttendancePage.tsx', 'utf8');
 const types = fs.readFileSync('src/lib/types.ts', 'utf8');
