@@ -4826,8 +4826,40 @@ export function useTracker() {
         const list = previous.attendanceSessions || [];
         const index = list.findIndex((item) => item.id === session.id);
         if (index < 0) return { ...previous, attendanceSessions: [session, ...list] };
+
+        const existing = list[index];
+        let merged = session;
+
+        // The local runtime can be a few seconds ahead while an offline/minimized
+        // attendance slice is waiting to sync. Never let realtime move that timer backward.
+        if (
+          existing.user_id === currentProfile.id &&
+          existing.status === 'active' &&
+          session.status === 'active'
+        ) {
+          const localVerified = Number(existing.verified_seconds || 0);
+          const serverVerified = Number(session.verified_seconds || 0);
+          const localHeartbeatMs = existing.last_app_heartbeat_at
+            ? new Date(existing.last_app_heartbeat_at).getTime()
+            : Number.NaN;
+          const serverHeartbeatMs = session.last_app_heartbeat_at
+            ? new Date(session.last_app_heartbeat_at).getTime()
+            : Number.NaN;
+          const keepLocalHeartbeat =
+            Number.isFinite(localHeartbeatMs) &&
+            (!Number.isFinite(serverHeartbeatMs) || localHeartbeatMs > serverHeartbeatMs);
+
+          merged = {
+            ...session,
+            verified_seconds: Math.max(serverVerified, localVerified),
+            last_app_heartbeat_at: keepLocalHeartbeat
+              ? existing.last_app_heartbeat_at
+              : session.last_app_heartbeat_at,
+          };
+        }
+
         const next = [...list];
-        next[index] = session;
+        next[index] = merged;
         return { ...previous, attendanceSessions: next };
       });
     };
