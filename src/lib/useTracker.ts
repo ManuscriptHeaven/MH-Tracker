@@ -120,6 +120,44 @@ function isDesktopAttendanceClient() {
   return true;
 }
 
+const ATTENDANCE_PENDING_STORAGE_PREFIX = 'mh_attendance_pending_seconds_v1';
+
+type AttendancePresenceRuntime = {
+  sessionId: string | null;
+  lastSampleAtMs: number;
+  pendingSeconds: number;
+  flushing: boolean;
+};
+
+function attendancePendingStorageKey(userId: string, sessionId: string) {
+  return `${ATTENDANCE_PENDING_STORAGE_PREFIX}:${userId}:${sessionId}`;
+}
+
+function readAttendancePendingSeconds(userId: string, sessionId: string) {
+  if (typeof window === 'undefined') return 0;
+  try {
+    const value = Number(localStorage.getItem(attendancePendingStorageKey(userId, sessionId)) || 0);
+    return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeAttendancePendingSeconds(userId: string, sessionId: string, seconds: number) {
+  if (typeof window === 'undefined') return;
+  try {
+    const key = attendancePendingStorageKey(userId, sessionId);
+    const safeSeconds = Math.max(0, Math.floor(Number(seconds) || 0));
+    if (safeSeconds > 0) {
+      localStorage.setItem(key, String(safeSeconds));
+    } else {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // Attendance must continue even when browser storage is unavailable.
+  }
+}
+
 
 function calculateBalance(totalPrice: number, advancePaid: number) {
   return Math.max(Number(totalPrice || 0) - Number(advancePaid || 0), 0);
@@ -882,6 +920,13 @@ export function useTracker() {
   const isRestoringRef = useRef<boolean>(false);
   const revisionSubmissionRetriesRef = useRef(new Map<string, RevisionSubmissionRetry>());
   const revisedProofRetriesRef = useRef(new Map<string, RevisedProofRetry>());
+  const attendancePresenceRef = useRef<AttendancePresenceRuntime>({
+    sessionId: null,
+    lastSampleAtMs: 0,
+    pendingSeconds: 0,
+    flushing: false,
+  });
+  const attendanceFlushRef = useRef<(() => Promise<void>) | null>(null);
 
   const loadSupabaseData = useCallback(async (profile: Profile) => {
     if (!supabase) {
@@ -4411,13 +4456,16 @@ export function useTracker() {
   }, [currentProfile, mode]);
 
 
-  const recordAttendanceHeartbeat = useCallback(async () => {
+  const recordAttendanceHeartbeat = useCallback(async (clientElapsedSeconds = 0) => {
     if (!currentProfile || isClientRole(currentProfile.role)) return null;
     if (!isDesktopAttendanceClient()) return null;
+
+    const safeElapsedSeconds = Math.max(0, Math.floor(Number(clientElapsedSeconds) || 0));
 
     if (supabase && mode === 'supabase') {
       const { data: session, error: heartbeatError } = await supabase.rpc('attendance_record_heartbeat', {
         p_client_kind: 'desktop_web',
+        p_client_elapsed_seconds: safeElapsedSeconds,
       });
       if (heartbeatError) {
         const message = errorMessage(heartbeatError, '').toLowerCase();
@@ -4429,9 +4477,29 @@ export function useTracker() {
       const confirmed = session as AttendanceSession;
       setData((previous) => ({
         ...previous,
-        attendanceSessions: (previous.attendanceSessions || []).map((item) =>
-          item.id === confirmed.id ? confirmed : item,
-        ),
+        attendanceSessions: (previous.attendanceSessions || []).map((item) => {
+          if (item.id !== confirmed.id) return item;
+
+          const localVerified = Number(item.verified_seconds || 0);
+          const serverVerified = Number(confirmed.verified_seconds || 0);
+          const localHeartbeatMs = item.last_app_heartbeat_at
+            ? new Date(item.last_app_heartbeat_at).getTime()
+            : Number.NaN;
+          const serverHeartbeatMs = confirmed.last_app_heartbeat_at
+            ? new Date(confirmed.last_app_heartbeat_at).getTime()
+            : Number.NaN;
+          const keepLocalHeartbeat =
+            Number.isFinite(localHeartbeatMs) &&
+            (!Number.isFinite(serverHeartbeatMs) || localHeartbeatMs > serverHeartbeatMs);
+
+          return {
+            ...confirmed,
+            verified_seconds: Math.max(serverVerified, localVerified),
+            last_app_heartbeat_at: keepLocalHeartbeat
+              ? item.last_app_heartbeat_at
+              : confirmed.last_app_heartbeat_at,
+          };
+        }),
       }));
       return confirmed;
     }
@@ -4442,17 +4510,12 @@ export function useTracker() {
       ...previous,
       attendanceSessions: (previous.attendanceSessions || []).map((item) => {
         if (item.user_id !== currentProfile.id || item.status !== 'active') return item;
-        const previousHeartbeat = item.last_app_heartbeat_at ? new Date(item.last_app_heartbeat_at).getTime() : NaN;
-        const nowMs = Date.now();
-        const elapsed = Number.isFinite(previousHeartbeat)
-          ? Math.max(0, Math.floor((nowMs - previousHeartbeat) / 1000))
-          : 0;
         const hasActiveBreak = (previous.attendanceBreaks || []).some(
           (attendanceBreak) => attendanceBreak.session_id === item.id && !attendanceBreak.ended_at,
         );
         updated = {
           ...item,
-          verified_seconds: Number(item.verified_seconds || 0) + (!hasActiveBreak && elapsed <= 90 ? elapsed : 0),
+          verified_seconds: Number(item.verified_seconds || 0) + (!hasActiveBreak ? safeElapsedSeconds : 0),
           last_app_heartbeat_at: now,
           presence_client_kind: 'desktop_web',
           updated_at: now,
@@ -4464,41 +4527,149 @@ export function useTracker() {
   }, [currentProfile, mode]);
 
   useEffect(() => {
-    if (!currentProfile || isClientRole(currentProfile.role) || !isDesktopAttendanceClient()) return undefined;
+    if (!currentProfile || isClientRole(currentProfile.role) || !isDesktopAttendanceClient()) {
+      attendanceFlushRef.current = null;
+      return undefined;
+    }
 
-    const activeSessionId = (data.attendanceSessions || []).find(
+    const activeSession = (data.attendanceSessions || []).find(
       (session) => session.user_id === currentProfile.id && session.status === 'active',
-    )?.id;
+    );
 
-    if (!activeSessionId) return undefined;
+    if (!activeSession) {
+      attendanceFlushRef.current = null;
+      attendancePresenceRef.current.sessionId = null;
+      attendancePresenceRef.current.lastSampleAtMs = 0;
+      attendancePresenceRef.current.pendingSeconds = 0;
+      attendancePresenceRef.current.flushing = false;
+      return undefined;
+    }
+
+    const activeBreakId = (data.attendanceBreaks || []).find(
+      (attendanceBreak) => attendanceBreak.session_id === activeSession.id && !attendanceBreak.ended_at,
+    )?.id || null;
+
+    const runtime = attendancePresenceRef.current;
+    if (runtime.sessionId !== activeSession.id) {
+      runtime.sessionId = activeSession.id;
+      runtime.lastSampleAtMs = Date.now();
+      runtime.pendingSeconds = readAttendancePendingSeconds(currentProfile.id, activeSession.id);
+      runtime.flushing = false;
+    } else if (!runtime.lastSampleAtMs) {
+      runtime.lastSampleAtMs = Date.now();
+    }
 
     let cancelled = false;
-    const pulse = async () => {
-      if (cancelled || !navigator.onLine) return;
+
+    const accrueLocalPresence = () => {
+      if (cancelled || runtime.sessionId !== activeSession.id) return 0;
+
+      const nowMs = Date.now();
+      const elapsedSeconds = Math.max(
+        0,
+        Math.floor((nowMs - runtime.lastSampleAtMs) / 1000),
+      );
+      if (elapsedSeconds <= 0) return 0;
+
+      // Keep the fractional remainder so repeated checkpoints do not lose time.
+      runtime.lastSampleAtMs += elapsedSeconds * 1000;
+
+      // Minimized/background tabs still count. Explicit attendance breaks do not.
+      if (activeBreakId) return 0;
+
+      runtime.pendingSeconds += elapsedSeconds;
+      writeAttendancePendingSeconds(currentProfile.id, activeSession.id, runtime.pendingSeconds);
+
+      const nowIso = new Date(nowMs).toISOString();
+      setData((previous) => ({
+        ...previous,
+        attendanceSessions: (previous.attendanceSessions || []).map((item) =>
+          item.id === activeSession.id
+            ? {
+                ...item,
+                verified_seconds: Number(item.verified_seconds || 0) + elapsedSeconds,
+                last_app_heartbeat_at: nowIso,
+                presence_client_kind: 'desktop_web',
+                updated_at: nowIso,
+              }
+            : item,
+        ),
+      }));
+
+      return elapsedSeconds;
+    };
+
+    const flushPresence = async () => {
+      if (cancelled) return;
+
+      accrueLocalPresence();
+      if (!navigator.onLine || runtime.flushing) return;
+
+      const pendingSeconds = runtime.pendingSeconds;
+      runtime.pendingSeconds = 0;
+      writeAttendancePendingSeconds(currentProfile.id, activeSession.id, 0);
+      runtime.flushing = true;
+
       try {
-        await recordAttendanceHeartbeat();
+        await recordAttendanceHeartbeat(pendingSeconds);
       } catch (heartbeatError) {
-        console.warn('Attendance heartbeat failed:', heartbeatError);
+        runtime.pendingSeconds += pendingSeconds;
+        writeAttendancePendingSeconds(
+          currentProfile.id,
+          activeSession.id,
+          runtime.pendingSeconds,
+        );
+        console.warn('Attendance heartbeat failed; local time remains queued:', heartbeatError);
+      } finally {
+        runtime.flushing = false;
       }
     };
 
-    void pulse();
-    const intervalId = window.setInterval(() => void pulse(), 30_000);
-    const onOnline = () => void pulse();
-    const onPageShow = () => void pulse();
+    attendanceFlushRef.current = flushPresence;
+
+    void flushPresence();
+    const localCheckpointId = window.setInterval(() => {
+      accrueLocalPresence();
+    }, 15_000);
+    const syncIntervalId = window.setInterval(() => void flushPresence(), 30_000);
+
+    const onOnline = () => void flushPresence();
+    const onPageShow = () => void flushPresence();
+    const onVisibilityChange = () => {
+      accrueLocalPresence();
+      if (document.visibilityState === 'visible') void flushPresence();
+    };
+    const onPageHide = () => {
+      // pagehide is synchronous; persist only time earned by this still-running page.
+      accrueLocalPresence();
+    };
+
     window.addEventListener('online', onOnline);
     window.addEventListener('pageshow', onPageShow);
+    window.addEventListener('pagehide', onPageHide);
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
+      accrueLocalPresence();
       cancelled = true;
-      window.clearInterval(intervalId);
+      window.clearInterval(localCheckpointId);
+      window.clearInterval(syncIntervalId);
       window.removeEventListener('online', onOnline);
       window.removeEventListener('pageshow', onPageShow);
+      window.removeEventListener('pagehide', onPageHide);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      if (attendanceFlushRef.current === flushPresence) {
+        attendanceFlushRef.current = null;
+      }
     };
   }, [
     currentProfile,
     data.attendanceSessions?.find(
       (session) => session.user_id === currentProfile?.id && session.status === 'active',
+    )?.id,
+    data.attendanceBreaks?.find(
+      (attendanceBreak) =>
+        attendanceBreak.user_id === currentProfile?.id && !attendanceBreak.ended_at,
     )?.id,
     recordAttendanceHeartbeat,
   ]);
@@ -4507,6 +4678,7 @@ export function useTracker() {
     if (!currentProfile) throw new Error('Not logged in.');
 
     if (supabase && mode === 'supabase') {
+      await attendanceFlushRef.current?.();
       const { data: attendanceBreak, error: breakError } = await supabase.rpc('attendance_start_break');
       if (breakError) throw breakError;
       if (!attendanceBreak) throw new Error('Break start did not return a record.');
@@ -4570,6 +4742,7 @@ export function useTracker() {
     if (!currentProfile) throw new Error('Not logged in.');
 
     if (supabase && mode === 'supabase') {
+      await attendanceFlushRef.current?.();
       const { data: session, error: clockError } = await supabase.rpc('attendance_clock_out', { p_note: note || null });
       if (clockError) throw clockError;
       if (!session) throw new Error('Clock-out did not return an attendance session.');
@@ -4653,8 +4826,40 @@ export function useTracker() {
         const list = previous.attendanceSessions || [];
         const index = list.findIndex((item) => item.id === session.id);
         if (index < 0) return { ...previous, attendanceSessions: [session, ...list] };
+
+        const existing = list[index];
+        let merged = session;
+
+        // The local runtime can be a few seconds ahead while an offline/minimized
+        // attendance slice is waiting to sync. Never let realtime move that timer backward.
+        if (
+          existing.user_id === currentProfile.id &&
+          existing.status === 'active' &&
+          session.status === 'active'
+        ) {
+          const localVerified = Number(existing.verified_seconds || 0);
+          const serverVerified = Number(session.verified_seconds || 0);
+          const localHeartbeatMs = existing.last_app_heartbeat_at
+            ? new Date(existing.last_app_heartbeat_at).getTime()
+            : Number.NaN;
+          const serverHeartbeatMs = session.last_app_heartbeat_at
+            ? new Date(session.last_app_heartbeat_at).getTime()
+            : Number.NaN;
+          const keepLocalHeartbeat =
+            Number.isFinite(localHeartbeatMs) &&
+            (!Number.isFinite(serverHeartbeatMs) || localHeartbeatMs > serverHeartbeatMs);
+
+          merged = {
+            ...session,
+            verified_seconds: Math.max(serverVerified, localVerified),
+            last_app_heartbeat_at: keepLocalHeartbeat
+              ? existing.last_app_heartbeat_at
+              : session.last_app_heartbeat_at,
+          };
+        }
+
         const next = [...list];
-        next[index] = session;
+        next[index] = merged;
         return { ...previous, attendanceSessions: next };
       });
     };

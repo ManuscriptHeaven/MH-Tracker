@@ -10,6 +10,7 @@ function assert(condition, message) {
 }
 
 const migration = fs.readFileSync('supabase/migrations/20260921000800_attendance_app_presence.sql', 'utf8');
+const offlineMigration = fs.readFileSync('supabase/migrations/20260923122430_attendance_offline_resilience.sql', 'utf8');
 const tracker = fs.readFileSync('src/lib/useTracker.ts', 'utf8');
 const page = fs.readFileSync('src/pages/AttendancePage.tsx', 'utf8');
 const types = fs.readFileSync('src/lib/types.ts', 'utf8');
@@ -27,9 +28,17 @@ assert(
 assert(
   migration.includes('attendance_record_heartbeat') &&
     migration.includes("p_client_kind <> 'desktop_web'") &&
-    migration.includes('v_elapsed <= 90') &&
-    migration.includes('v_row.verified_seconds := v_row.verified_seconds + v_elapsed'),
-  'server heartbeat credits only desktop presence and ignores gaps over 90 seconds',
+    migration.includes('v_elapsed <= 90'),
+  'original server heartbeat keeps the strict compatibility lease for older clients',
+);
+
+assert(
+  offlineMigration.includes('p_client_elapsed_seconds bigint default null') &&
+    offlineMigration.includes('v_max_verified') &&
+    offlineMigration.includes('v_credit := least(') &&
+    offlineMigration.includes('v_client_elapsed') &&
+    offlineMigration.includes("grant execute on function public.attendance_record_heartbeat(text, bigint) to authenticated"),
+  'new heartbeat accepts locally measured elapsed time and caps credit to physically possible non-break session time',
 );
 
 assert(
@@ -42,17 +51,28 @@ assert(
 assert(
   tracker.includes('function isDesktopAttendanceClient()') &&
     tracker.includes("supabase.rpc('attendance_record_heartbeat'") &&
-    tracker.includes('window.setInterval(() => void pulse(), 30_000)') &&
-    tracker.includes("p_client_kind: 'desktop_web'"),
-  'MH Tracker sends a desktop heartbeat every 30 seconds while an active session exists',
+    tracker.includes("p_client_kind: 'desktop_web'") &&
+    tracker.includes('p_client_elapsed_seconds: safeElapsedSeconds') &&
+    tracker.includes('window.setInterval(() => void flushPresence(), 30_000)'),
+  'MH Tracker syncs locally measured desktop attendance slices every 30 seconds',
 );
 
 assert(
-  tracker.includes("attendance_not_clocked_in") &&
+  tracker.includes('ATTENDANCE_PENDING_STORAGE_PREFIX') &&
+    tracker.includes('writeAttendancePendingSeconds') &&
+    tracker.includes('accrueLocalPresence') &&
     tracker.includes('navigator.onLine') &&
     tracker.includes("window.addEventListener('online'") &&
-    tracker.includes("window.addEventListener('pageshow'"),
-  'heartbeat loop tolerates offline/reopen conditions without creating fake time',
+    tracker.includes("window.addEventListener('pageshow'") &&
+    tracker.includes("window.addEventListener('pagehide'") &&
+    tracker.includes("document.addEventListener('visibilitychange'"),
+  'attendance keeps a local offline queue and checkpoints minimize/page lifecycle events without counting time after the page closes',
+);
+
+assert(
+  tracker.includes('await attendanceFlushRef.current?.();') &&
+    tracker.includes('Never let realtime move that timer backward'),
+  'break/clock-out actions flush pending time and realtime cannot roll the local timer backward',
 );
 
 assert(
@@ -65,10 +85,12 @@ assert(
 assert(
   page.includes('APP_PRESENCE_STALE_MS = 90_000') &&
     page.includes('Working · Verified') &&
+    page.includes('Working · Offline') &&
+    page.includes('Offline tracking is active.') &&
     page.includes('App closed · Time paused') &&
     page.includes('Verified attendance requires a laptop or desktop') &&
     page.includes('Mobile can be used to review attendance'),
-  'attendance UI clearly distinguishes verified desktop time, closed-app pauses and mobile review-only mode',
+  'attendance UI distinguishes online verified time, offline queued time, closed-app pauses and mobile review-only mode',
 );
 
 assert(
