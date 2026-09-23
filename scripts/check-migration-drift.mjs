@@ -3,11 +3,14 @@ import path from 'node:path';
 
 function migrationVersions() {
   const root = path.resolve('supabase/migrations');
-  return fs.readdirSync(root)
+  const versions = fs.readdirSync(root)
     .filter((name) => /^\d+_.+\.sql$/.test(name))
     .map((name) => name.match(/^(\d+)_/)?.[1])
     .filter(Boolean)
     .sort();
+  if (!versions.length) throw new Error('No repository migrations found.');
+  if (new Set(versions).size !== versions.length) throw new Error('Duplicate repository migration versions.');
+  return versions;
 }
 
 function parseArgs(argv) {
@@ -39,6 +42,8 @@ function parseMigrationList(textValue, column) {
 const cli = parseArgs(process.argv);
 const expected = migrationVersions();
 const actual = parseMigrationList(fs.readFileSync(cli.file, 'utf8'), cli.column);
+if (!actual.length) throw new Error('No applied migration versions found; refusing empty or invalid output.');
+if (new Set(actual).size !== actual.length) throw new Error('Duplicate observed migration versions.');
 
 const expectedSet = new Set(expected);
 const actualSet = new Set(actual);

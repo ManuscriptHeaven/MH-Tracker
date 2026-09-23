@@ -200,6 +200,14 @@ async function main() {
   }).eq('id', attendance.id), 'simulate app-closed heartbeat gap');
   const staleHeartbeat = valueOrThrow(await employee.rpc('attendance_record_heartbeat', { p_client_kind: 'desktop_web' }), 'record stale-gap heartbeat');
   ok(Number(staleHeartbeat.verified_seconds) === 17, 'heartbeat gap over 90s earns zero attendance time');
+  valueOrThrow(await service.from('attendance_sessions').update({
+    clock_in: new Date(Date.now() - 14 * 3600000).toISOString(),
+    last_app_heartbeat_at: new Date(Date.now() - 13 * 3600000).toISOString(),
+  }).eq('id', attendance.id), 'simulate abandoned overnight shift');
+  const recovered = valueOrThrow(await employee.rpc('attendance_record_heartbeat', { p_client_kind: 'desktop_web' }), 'recover stale shift');
+  ok(recovered.status === 'completed' && Number(recovered.verified_seconds) === 17, 'stale shift ends without adding absent time');
+  const nextShift = valueOrThrow(await employee.rpc('attendance_clock_in', { p_note: 'New shift' }), 'clock in after stale shift');
+  ok(nextShift.id !== attendance.id, 'stale shift does not block next clock-in');
   valueOrThrow(await employee.rpc('attendance_clock_out', { p_note: 'Runtime certification complete' }), 'clock out employee');
 
   const now = new Date().toISOString();
@@ -243,6 +251,24 @@ async function main() {
     workflow_template_key: 'book-formatting',
   }).select('id,project_number,workspace_id,workflow_version,workflow_stage_key,workflow_stage_status_key').single(), 'create templated project');
   ok(Boolean(project.workspace_id), 'new project is automatically workspace-scoped');
+  valueOrThrow(await admin.from('project_payments').insert({project_id: project.id, total_price: 1000, advance_paid: 0, updated_by: adminId}), 'seed payment balance');
+  const paymentArgs = {p_project_id: project.id, p_amount: 100, p_request_id: crypto.randomUUID(),
+    p_payment_date: new Date().toISOString().slice(0,10), p_payment_method: 'Bank Transfer', p_notes: 'Runtime payment'};
+  const receipts = await Promise.all([admin.rpc('record_project_payment', paymentArgs), admin.rpc('record_project_payment', paymentArgs)]);
+  const firstReceipt = valueOrThrow(receipts[0], 'record first concurrent payment');
+  const retryReceipt = valueOrThrow(receipts[1], 'retry same confirmed payment');
+  ok(firstReceipt.transactionId === retryReceipt.transactionId, 'payment retry returns the same transaction');
+  const balance = valueOrThrow(await admin.from('project_payments').select('advance_paid').eq('project_id', project.id).single(), 'read authoritative balance');
+  ok(Number(balance.advance_paid) === 100, 'concurrent retry credits payment exactly once');
+  const conflict = await admin.rpc('record_project_payment', {...paymentArgs, p_amount: 200});
+  ok(Boolean(conflict.error), 'request ID cannot be reused for a different amount');
+  const overpayment = await admin.rpc('record_project_payment', {...paymentArgs, p_request_id: crypto.randomUUID(), p_amount: 901});
+  ok(Boolean(overpayment.error), 'overpayment rolls back');
+  const deniedPayment = await employee.rpc('record_project_payment', {...paymentArgs, p_request_id: crypto.randomUUID()});
+  ok(Boolean(deniedPayment.error), 'team member cannot record payment');
+  const paymentRows = valueOrThrow(await admin.from('finance_transactions').select('id').eq('project_id', project.id), 'read payment transactions');
+  ok(paymentRows.length === 1, 'rejected payments leave no partial finance transaction');
+
 
   const seededTasks = valueOrThrow(await admin.from('tasks').select('id,template_key,workflow_stage_key')
     .eq('project_id', project.id).eq('template_key', 'book-formatting'), 'load template tasks');

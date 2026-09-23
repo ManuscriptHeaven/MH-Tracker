@@ -171,6 +171,7 @@ export interface AIToolContext {
     setProjectLifecycle?: (projectId: string, lifecycle: ProjectLifecycleStatus, reason?: string) => Promise<void>;
     completeFinalDelivery?: (projectId: string, note?: string) => Promise<void>;
     inviteClient?: (draft: any) => Promise<void>;
+    recordProjectPayment?: (draft: { projectId: string; amount: number; requestId: string; paymentDate: string; paymentMethod?: string; notes?: string }) => Promise<{ totalPaid: number; remainingBalance: number; paymentStatus: string; transactionId: string; duplicate: boolean }>;
     createFinanceTransaction?: (draft: FinanceTransactionDraft) => Promise<any>;
     updateFinanceTransaction?: (id: string, updates: any) => Promise<any>;
     deleteFinanceTransaction?: (id: string) => Promise<void>;

@@ -75,7 +75,7 @@ stable
 security definer
 set search_path=pg_catalog,pg_temp
 as $fn$
-  select min(wm.workspace_id)
+  select (array_agg(wm.workspace_id))[1]
   from public.workspace_members wm
   where wm.user_id=public.phase6_auth_uid()
     and wm.status='active'

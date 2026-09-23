@@ -9,7 +9,7 @@ function assert(condition, message) {
   console.log('✓ PASS: ' + message);
 }
 
-const migration = fs.readFileSync('supabase/migrations/20260921000100_team_attendance.sql', 'utf8');
+const migration = fs.readFileSync('supabase/migrations/20260921000101_team_attendance.sql', 'utf8');
 const tracker = fs.readFileSync('src/lib/useTracker.ts', 'utf8');
 const types = fs.readFileSync('src/lib/types.ts', 'utf8');
 const page = fs.readFileSync('src/pages/AttendancePage.tsx', 'utf8');

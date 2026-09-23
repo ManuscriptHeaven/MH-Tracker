@@ -363,6 +363,7 @@ export function AIProvider({
         submitStageForApproval: t.submitStageForApproval,
         setProjectLifecycle: t.setProjectLifecycle,
         completeFinalDelivery: t.completeFinalDelivery,
+        recordProjectPayment: t.recordProjectPayment,
         createFinanceTransaction: t.createFinanceTransaction,
         updateFinanceTransaction: t.updateFinanceTransaction,
         deleteFinanceTransaction: t.deleteFinanceTransaction,

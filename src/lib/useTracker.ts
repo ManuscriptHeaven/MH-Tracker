@@ -3736,6 +3736,31 @@ export function useTracker() {
     [currentProfile, data.invoices, loadSupabaseData, mode],
   );
 
+  const recordProjectPayment = useCallback(async (draft: {
+    projectId: string; amount: number; requestId: string;
+    paymentDate: string; paymentMethod?: string; notes?: string;
+  }) => {
+    if (currentProfile?.role !== 'admin') throw new Error('Only administrators can record project payments.');
+    if (!supabase || mode !== 'supabase') throw new Error('Payment recording requires a connected database.');
+    const { data: receipt, error: paymentError } = await supabase.rpc('record_project_payment', {
+      p_project_id: draft.projectId, p_amount: draft.amount, p_request_id: draft.requestId,
+      p_payment_date: draft.paymentDate, p_payment_method: draft.paymentMethod || 'Bank Transfer',
+      p_notes: draft.notes || '',
+    });
+    if (paymentError) throw paymentError;
+    if (!receipt?.transactionId) throw new Error('The database did not confirm this payment.');
+    setData((previous) => ({
+      ...previous,
+      projects: previous.projects.map((project) => project.id === draft.projectId ? {
+        ...project, advance_paid: Number(receipt.totalPaid), remaining_balance: Number(receipt.remainingBalance),
+        payment_status: receipt.paymentStatus, payment_date: draft.paymentDate,
+      } : project),
+      financeTransactions: receipt.transaction ? [receipt.transaction,
+        ...(previous.financeTransactions || []).filter((item) => item.id !== receipt.transactionId)] : previous.financeTransactions,
+    }));
+    return receipt as { totalPaid: number; remainingBalance: number; paymentStatus: string; transactionId: string; duplicate: boolean };
+  }, [currentProfile, mode]);
+
   const createFinanceTransaction = useCallback(
     async (draft: FinanceTransactionDraft) => {
       if (!currentProfile || !canManageEverything(currentProfile)) {
@@ -4909,6 +4934,7 @@ export function useTracker() {
     addEmployeeLedgerEntry,
     deleteEmployeeLedgerEntry,
     saveInvoiceVersion,
+    recordProjectPayment,
     createFinanceTransaction,
     updateFinanceTransaction,
     deleteFinanceTransaction,

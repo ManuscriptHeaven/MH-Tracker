@@ -190,6 +190,8 @@ export async function runAIEvaluationSuite(): Promise<{
       taskComments: [],
       taskChecklistItems: [],
       taskDependencies: [],
+      taskAttachments: [],
+      taskMentions: [],
       notifications: [],
       clientProjectAccess: [],
       revisionRequests: [],
