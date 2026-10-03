@@ -24,6 +24,10 @@ import {
 import { rankEntityCandidates, resolveUniqueEntityMatch } from './aiEntityMatcher';
 import { verifyActionOutcome } from './aiActionVerifier';
 
+function startsIndependentRequest(query: string): boolean {
+  return /^(?:(?:can|could|would|will)\s+you\s+)?(?:how|what|which|who|when|where|why|show|give|provide|list|summarize|send|create|generate|make|record|add|update|change|delete|archive)\b|^please\s+(?:show|give|provide|list|summarize|send|create|generate|make|record|add|update|change|delete|archive)\b/i.test(query.trim());
+}
+
 export class VoiceQueryEngine {
   private static instance: VoiceQueryEngine;
   private memory: ConversationMemory = {};
@@ -217,15 +221,36 @@ export class VoiceQueryEngine {
         };
       }
 
+      // A fresh question or command must not become the missing recipient,
+      // project or amount of an unrelated incomplete request.
       const pendingCompletion = this.memory.pendingCommandCompletion;
       this.memory.pendingCommandCompletion = null;
-      const combined = `${pendingCompletion.originalQuery} ${q}`.trim();
-      const completed = await this.processQuery(combined, ctx);
-      if (completed.success || completed.pendingAction || completed.disambiguation) {
-        completed.displayText =
-          `_Using your follow-up to complete the earlier request._\n\n` + completed.displayText;
+      if (!startsIndependentRequest(q)) {
+        const combined = `${pendingCompletion.originalQuery} ${q}`.trim();
+        const completed = await this.processQuery(combined, ctx);
+        if (completed.success || completed.pendingAction || completed.disambiguation) {
+          completed.displayText =
+            `_Using your follow-up to complete the earlier request._\n\n` + completed.displayText;
+        }
+        return completed;
       }
-      return completed;
+    }
+
+    if (/^(?:please\s+)?generate[.!?\s]*$/i.test(q)) {
+      if (this.memory.lastToolUsed === 'get_invoices_summary') {
+        const result = await this.detectWriteIntent('generate invoice', 'Generate invoice', ctx);
+        if (result) {
+          this.rememberRecoverableCompletion(result, 'Generate invoice for');
+          this.logExecution(ctx, q, result.toolName, result.success, result.error);
+          return result;
+        }
+      }
+      return {
+        success: true,
+        toolName: 'get_project_summary',
+        spokenText: 'What would you like me to generate?',
+        displayText: 'What would you like me to generate? Please name the item and its recipient or project.',
+      };
     }
 
     // ==========================================
@@ -361,8 +386,12 @@ export class VoiceQueryEngine {
     // ==========================================
     let result: AIToolResult;
 
+    // --- INVOICES (read-only; do not route an invoice question to a write planner) ---
+    if (lower.includes('invoice') || /\bbills?\b/.test(lower)) {
+      result = await tools.get_invoices_summary(lower, ctx);
+    }
     // --- TASKS ---
-    if (lower.includes('task') || lower.includes('tasks')) {
+    else if (lower.includes('task') || lower.includes('tasks')) {
       if (lower.includes('overdue')) {
         result = await tools.get_tasks_summary('overdue', ctx);
       } else if (lower.includes('today')) {
@@ -500,9 +529,10 @@ export class VoiceQueryEngine {
       lower.includes('spent this month') ||
       lower.includes('expenses') ||
       lower.includes('financial summary') ||
+      lower.includes('finance summary') ||
       lower.includes('how much have we spent')
     ) {
-      result = await tools.get_finance_summary(undefined, ctx);
+      result = await tools.get_finance_summary(lower, ctx);
     }
     // --- OVERALL SUMMARY / DEFAULT ---
     else if (
@@ -529,7 +559,7 @@ export class VoiceQueryEngine {
     }
     // --- FALLBACK GENERAL MATCH ---
     else {
-      const proj = this.extractProjectFromQuery(q, ctx);
+      const proj = this.containsProjectName(lower, ctx) ? this.extractProjectFromQuery(q, ctx) : undefined;
       if (proj) {
         result = await tools.get_project_details(proj, ctx);
       } else {
@@ -674,55 +704,12 @@ export class VoiceQueryEngine {
     // 0C. DELETE PROJECT / DELETE TASK
     // ----------------------------------------------------
     if ((lower.startsWith('delete project') || lower.startsWith('remove project')) && !lower.includes('task')) {
-      if (ctx.currentProfile.role !== 'admin') {
-        return {
-          success: false,
-          toolName: 'delete_project',
-          error: 'permission_denied',
-          spokenText: 'Only administrators can delete projects.',
-          displayText: '🔒 Only administrators can delete projects.',
-        };
-      }
-
-      const matchedProject = this.findProjectInQueryOrMemory(lower, ctx);
-      if (!matchedProject) {
-        return {
-          success: false,
-          toolName: 'delete_project',
-          error: 'project_not_found',
-          spokenText: "I couldn't find the project to delete.",
-          displayText: '❌ Project not found.',
-        };
-      }
-
-      const preview: AIActionPreview = {
-        actionId: `act-${Date.now()}`,
-        toolName: 'delete_project',
-        category: 'destructive',
-        requiresStrongConfirmation: true,
-        title: 'Delete Project Permanently',
-        description: `Permanently delete ${matchedProject.project_title} (${matchedProject.project_number})`,
-        targetType: 'project',
-        targetId: matchedProject.id,
-        targetTitle: matchedProject.project_title,
-        clientName: matchedProject.client_name,
-        changes: [
-          { field: 'project', label: 'Project', oldValue: matchedProject.project_title, newValue: 'PERMANENT DELETION' },
-        ],
-        payload: { projectId: matchedProject.id },
-        confirmButtonText: 'Yes, Delete Project',
-        cancelButtonText: 'Cancel',
-        spokenPrompt: `Warning: This will permanently delete project ${matchedProject.project_title}. Are you absolutely sure?`,
-      };
-
-      this.memory.pendingAction = preview;
-
       return {
-        success: true,
+        success: false,
         toolName: 'delete_project',
-        spokenText: preview.spokenPrompt,
-        displayText: `⚠️ **Warning:** You are about to permanently delete **${matchedProject.project_title}** (${matchedProject.project_number}).\n\nAre you sure?`,
-        pendingAction: preview,
+        error: 'permanent_delete_disabled',
+        spokenText: 'Permanent project deletion is unavailable. Admins can archive and hide a project with a reason.',
+        displayText: 'Permanent project deletion is unavailable. Use **Archive Project** as an Admin and provide a reason; project history and receipts are preserved.',
       };
     }
 
@@ -1830,7 +1817,8 @@ export class VoiceQueryEngine {
     // ----------------------------------------------------
     if (
       (lower.includes('salary') || lower.includes('advance') || lower.includes('deduction') || lower.includes('payroll')) &&
-      (lower.includes('record') || lower.includes('add') || lower.includes('pay'))
+      /\b(record|add|pay)\b/.test(lower) &&
+      !/^(?:how|what|which|who|when)\b/.test(lower)
     ) {
       if (ctx.currentProfile.role !== 'admin') {
         return {
@@ -1972,6 +1960,15 @@ export class VoiceQueryEngine {
     // J2. INTERNAL COMMUNICATION (e.g. "Send Zain a message saying the revision is due tomorrow")
     // ----------------------------------------------------
     if (lower.startsWith('send ') && (lower.includes('message') || lower.includes('reminder') || lower.includes('saying'))) {
+      if (/\b(?:employees|team|staff)\b/.test(lower) && !this.extractEmployeeFromQuery(lower, ctx)) {
+        return {
+          success: false,
+          toolName: 'send_internal_message',
+          error: 'message_details_required',
+          spokenText: 'Which team member should receive the message, and what should it say?',
+          displayText: 'Please specify one recipient and the message text, for example: **Send Zain a message saying the proof is ready.** Nothing was sent.',
+        };
+      }
       const targetEmp = this.extractEmployeeFromQuery(lower, ctx);
       const targetEmpProfile = targetEmp ? ctx.data.profiles.find((p) => p.full_name === targetEmp) : null;
 
@@ -1984,6 +1981,16 @@ export class VoiceQueryEngine {
           error: 'recipient_not_found',
           spokenText: "I couldn't identify the recipient for this message.",
           displayText: "❌ Recipient not found.",
+        };
+      }
+
+      if (!messageBody || /^(?:about|saying|that)[.\s]*$/i.test(messageBody)) {
+        return {
+          success: false,
+          toolName: 'send_internal_message',
+          error: 'message_details_required',
+          spokenText: 'What should the message say?',
+          displayText: `Please provide the message text for **${targetEmpProfile.full_name}**. Nothing was sent.`,
         };
       }
 

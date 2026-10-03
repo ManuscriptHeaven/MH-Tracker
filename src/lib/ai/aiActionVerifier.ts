@@ -199,14 +199,6 @@ export async function verifyActionOutcome(
         : { status: 'failed', message: 'The task is still present after the delete action.' };
     }
 
-    if (action.toolName === 'delete_project') {
-      const { data, error } = await supabase.from('projects').select('id').eq('id', action.payload.projectId).maybeSingle();
-      if (error) throw error;
-      return !data
-        ? { status: 'verified', message: 'Verified in Tracker: the project is no longer present.' }
-        : { status: 'failed', message: 'The project is still present after the delete action.' };
-    }
-
     return null;
   } catch (error: any) {
     return {
