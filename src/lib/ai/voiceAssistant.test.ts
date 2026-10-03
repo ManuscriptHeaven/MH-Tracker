@@ -915,6 +915,65 @@ export async function runVoiceAssistantTests() {
     ),
     'Test 40: Settled client does not create or preview an unnecessary invoice',
   );
+
+  // Screenshot regression: independent read requests must not be swallowed by
+  // an incomplete send command or mistaken for payroll/payment writes.
+  const previousMonthDate = new Date(`${todayInput().slice(0, 7)}-01T00:00:00Z`);
+  previousMonthDate.setUTCMonth(previousMonthDate.getUTCMonth() - 1);
+  const previousMonth = previousMonthDate.toISOString().slice(0, 7);
+  const routingCtx = createAdminCtx();
+  routingCtx.data = {
+    ...mockData,
+    projects: [
+      ...testProjects,
+      { ...testProjects[0], id: 'proj-previous-month', project_number: 'MH-1999', created_at: `${previousMonth}-05T00:00:00Z`, total_price: 900, advance_paid: 100 },
+    ],
+    financeTransactions: [
+      ...(mockData.financeTransactions || []),
+      { ...mockData.financeTransactions![1], id: 'tx-previous-month', transaction_date: `${previousMonth}-06`, amount: 125 },
+    ],
+    invoices: [{
+      id: 'invoice-sent-1', logical_invoice_id: 'invoice-1', version_number: 1,
+      invoice_number: 'INV-1001', client_name: 'BCH', client_email: 'bch@example.com',
+      month: previousMonthDate.getUTCMonth() + 1, year: previousMonthDate.getUTCFullYear(),
+      month_label: 'Previous month', created_at: `${previousMonth}-10T00:00:00Z`,
+      due_date: `${previousMonth}-25`, items: [], subtotal: 500, total_paid: 0,
+      total_due: 500, status: 'Sent',
+    }],
+  };
+  routingCtx.visibleProjects = routingCtx.data.projects;
+
+  voiceQueryEngine.clearMemory();
+  const aiInvoiceRead = await voiceQueryEngine.processQuery('Can you show me the latest invoice I have issued?', routingCtx);
+  assert(aiInvoiceRead.success && aiInvoiceRead.toolName === 'get_invoices_summary' && aiInvoiceRead.displayText.includes('INV-1001'), 'Test 40a: Latest issued invoice is a read-only invoice lookup');
+  const aiGenerateFollowUp = await voiceQueryEngine.processQuery('Please generate.', routingCtx);
+  assert(aiGenerateFollowUp.toolName === 'generate_client_invoice' && !aiGenerateFollowUp.pendingAction && aiGenerateFollowUp.displayText.includes('client'), 'Test 40b: Generate follow-up asks for a client instead of inventing a project');
+  const aiIncompleteMessage = await voiceQueryEngine.processQuery('Send employees message about.', routingCtx);
+  assert(aiIncompleteMessage.error === 'message_details_required' && !aiIncompleteMessage.pendingAction, 'Test 40c: Incomplete group message asks for details and sends nothing');
+  const aiLastMonthFinance = await voiceQueryEngine.processQuery('Provide me the finance summary for last month.', routingCtx);
+  assert(aiLastMonthFinance.success && aiLastMonthFinance.toolName === 'get_finance_summary' && (aiLastMonthFinance.data as any)?.period === previousMonth && (aiLastMonthFinance.data as any)?.orderRevenue === 900 && (aiLastMonthFinance.data as any)?.expenses === 125, 'Test 40d: New finance request escapes the incomplete message and uses last month');
+  const aiTeamPayroll = await voiceQueryEngine.processQuery('How much do we owe the team in monthly payroll?', routingCtx);
+  assert(aiTeamPayroll.success && aiTeamPayroll.toolName === 'get_payroll_summary' && (aiTeamPayroll.data as any)?.totalMonthlySalary === 1500, 'Test 40e: Payroll question is read-only team summary, not a payroll write');
+
+  voiceQueryEngine.clearMemory();
+  const aiAmbiguousGenerate = await voiceQueryEngine.processQuery('Please generate.', routingCtx);
+  assert(aiAmbiguousGenerate.success && !aiAmbiguousGenerate.pendingAction && !aiAmbiguousGenerate.displayText.includes('project matching'), 'Test 40f: Ambiguous generate request asks for details');
+  const aiNoPermanentDelete = await voiceQueryEngine.processQuery('Delete project MH-1001', routingCtx);
+  assert(!aiNoPermanentDelete.success && aiNoPermanentDelete.error === 'permanent_delete_disabled' && !aiNoPermanentDelete.pendingAction, 'Test 40g: AI cannot preview permanent project deletion');
+  let staleDeleteMutationCalled = false;
+  const staleDeleteCtx = {
+    ...routingCtx,
+    trackerMutations: {
+      ...routingCtx.trackerMutations,
+      deleteProject: async () => { staleDeleteMutationCalled = true; },
+    },
+  } as AIToolContext;
+  const staleDelete = await voiceQueryEngine.executeAction({ toolName: 'delete_project', payload: { projectId: 'proj-1' } } as any, staleDeleteCtx);
+  assert(!staleDelete.success && staleDelete.error === 'permanent_delete_disabled' && !staleDeleteMutationCalled, 'Test 40h: Even a stale delete preview cannot execute a project mutation');
+  voiceQueryEngine.clearMemory();
+  const aiInvoiceDenied = await voiceQueryEngine.processQuery('Show the latest invoice', createEmployeeCtx());
+  assert(!aiInvoiceDenied.success && aiInvoiceDenied.error === 'permission_denied', 'Test 40i: Invoice lookup remains Admin-only');
+
   // TEST 41: Wake Word "Hey James" service test
   let wakeWordTriggered = false;
   wakeWordService.onWakeWordDetected = () => {

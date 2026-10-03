@@ -13,7 +13,6 @@ export type AIPlannedIntent =
   | 'approve_project_milestone'
   | 'update_project_status'
   | 'update_project_due_date'
-  | 'delete_project'
   | 'add_project_note'
   | 'reassign_revision'
   | 'update_revision_status'
@@ -45,7 +44,7 @@ export interface AIPlannerResult {
 }
 
 const ACTION_SIGNAL =
-  /\b(create|add|make|start|generate|invoice|bill|submit|send|share|move|set|change|update|assign|record|approve|complete|deliver|put|draft|write|prepare|banao|bnao|bna\s*do|bana\s*do|karo|kro|kardo|krdo|kar\s*do|kr\s*do|bhejo|bhejdo|bhej\s*do|jama|nikalo|nikaal|nikal\s*do|laga\s*do|lagao|lgao|de\s*do)\b|(?:بناؤ|بنا\s*دو|بھیجو|جمع|انوائس|تبدیل|اسائن|مکمل)/iu;
+  /\b(create|add|make|start|generate|submit|send|share|move|set|change|update|assign|record|approve|complete|deliver|put|draft|write|prepare|banao|bnao|bna\s*do|bana\s*do|karo|kro|kardo|krdo|kar\s*do|kr\s*do|bhejo|bhejdo|bhej\s*do|jama|nikalo|nikaal|nikal\s*do|laga\s*do|lagao|lgao|de\s*do)\b|(?:بناؤ|بنا\s*دو|بھیجو|جمع|تبدیل|اسائن|مکمل)/iu;
 
 export function splitCompoundActionQuery(message: string): string[] {
   const text = message.trim();

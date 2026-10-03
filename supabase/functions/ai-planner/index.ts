@@ -19,7 +19,6 @@ const allowedIntents = new Set([
   'approve_project_milestone',
   'update_project_status',
   'update_project_due_date',
-  'delete_project',
   'add_project_note',
   'reassign_revision',
   'update_revision_status',
@@ -420,7 +419,6 @@ Allowed intents:
 - approve_project_milestone
 - update_project_status
 - update_project_due_date
-- delete_project
 - add_project_note
 - reassign_revision
 - update_revision_status

@@ -353,7 +353,6 @@ export function AIProvider({
         updateTask: t.updateTask,
         deleteTask: t.deleteTask,
         updateProject: t.updateProject,
-        deleteProject: t.deleteProject,
         inviteClient: t.inviteClient,
         addNote: t.addNote,
         createRevisionRequest: t.createRevisionRequest,

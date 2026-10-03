@@ -940,7 +940,11 @@ export async function get_finance_summary(monthQuery: string | undefined, ctx: A
     };
   }
 
-  const currentMonthStr = todayInput().slice(0, 7);
+  const requestedPreviousMonth = /\b(last|previous)\s+month\b/i.test(monthQuery || '');
+  const monthStart = new Date(`${todayInput().slice(0, 7)}-01T00:00:00Z`);
+  if (requestedPreviousMonth) monthStart.setUTCMonth(monthStart.getUTCMonth() - 1);
+  const currentMonthStr = monthStart.toISOString().slice(0, 7);
+  const periodLabel = `${requestedPreviousMonth ? 'Last' : 'This'} Month (${monthStart.toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })})`;
   const allProjects = ctx.data.projects || ctx.visibleProjects || [];
   const monthOrders = allProjects.filter((project) => {
     const createdMonth = (project.created_at || '').slice(0, 7);
@@ -985,11 +989,11 @@ export async function get_finance_summary(monthQuery: string | undefined, ctx: A
   const formattedCollected = ctx.formatMoney(collectedOnOrders, 'USD');
 
   const spoken =
-    `Order revenue this month is ${formattedRevenue} from ${monthOrders.length} ` +
+    `Order revenue for ${periodLabel.toLowerCase()} is ${formattedRevenue} from ${monthOrders.length} ` +
     `${monthOrders.length === 1 ? 'order' : 'orders'}, with ${formattedExpenses} in operating expenses. ` +
     `Revenue less expenses is ${formattedNet}.`;
 
-  let display = `### Finance Summary for This Month\n\n`;
+  let display = `### Finance Summary for ${periodLabel}\n\n`;
   display += `• **Orders:** ${monthOrders.length}\n`;
   display += `• **Order Revenue:** **${formattedRevenue}**\n`;
   display += `• **Collected on Those Orders:** **${formattedCollected}**\n`;
@@ -1010,7 +1014,65 @@ export async function get_finance_summary(monthQuery: string | undefined, ctx: A
       revenueLessExpenses,
       collectedOnOrders,
       orderCount: monthOrders.length,
+      period: currentMonthStr,
     },
+  };
+}
+
+export async function get_invoices_summary(query: string | undefined, ctx: AIToolContext): Promise<AIToolResult> {
+  if (ctx.currentProfile.role !== 'admin') {
+    return {
+      success: false,
+      toolName: 'get_invoices_summary',
+      error: 'permission_denied',
+      spokenText: 'Invoice records are restricted to Admin accounts.',
+      displayText: '🔒 Invoice records are restricted to Admin accounts.',
+    };
+  }
+
+  const versions = [...(ctx.data.invoices || [])].sort((a, b) =>
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime() ||
+    Number(b.version_number || 1) - Number(a.version_number || 1),
+  );
+  const issued = versions.filter((invoice) => invoice.status === 'Sent' || invoice.status === 'Paid');
+  const wantsLatest = /\b(latest|last|recent|issued)\b/i.test(query || '');
+  if (wantsLatest) {
+    const invoice = issued[0];
+    if (!invoice) {
+      const text = 'I found no sent or paid invoices in the accessible invoice records.';
+      return { success: true, toolName: 'get_invoices_summary', spokenText: text, displayText: text, count: 0 };
+    }
+    return {
+      success: true,
+      toolName: 'get_invoices_summary',
+      spokenText: `The latest issued invoice is ${invoice.invoice_number} for ${invoice.client_name}. Its status is ${invoice.status}, with ${ctx.formatMoney(invoice.total_due, 'USD')} due.`,
+      displayText:
+        `### Latest Issued Invoice\n\n` +
+        `• **Invoice:** ${invoice.invoice_number}\n` +
+        `• **Client:** ${invoice.client_name}\n` +
+        `• **Status:** ${invoice.status}\n` +
+        `• **Amount Due:** ${ctx.formatMoney(invoice.total_due, 'USD')}\n` +
+        `• **Recorded:** ${formatDate(invoice.created_at)}`,
+      count: 1,
+      invoice,
+    };
+  }
+
+  const latestVersions = new Map<string, typeof versions[number]>();
+  for (const invoice of versions) {
+    const key = invoice.logical_invoice_id || invoice.id;
+    if (!latestVersions.has(key)) latestVersions.set(key, invoice);
+  }
+  const currentInvoices = [...latestVersions.values()];
+  const outstanding = currentInvoices.reduce((sum, invoice) => sum + Number(invoice.total_due || 0), 0);
+  const text = `There are ${currentInvoices.length} invoices in the accessible records, with ${ctx.formatMoney(outstanding, 'USD')} currently due.`;
+  return {
+    success: true,
+    toolName: 'get_invoices_summary',
+    spokenText: text,
+    displayText: `### Invoice Summary\n\n• **Invoices:** ${currentInvoices.length}\n• **Amount Due:** ${ctx.formatMoney(outstanding, 'USD')}\n• **Sent or Paid:** ${currentInvoices.filter((invoice) => invoice.status !== 'Draft').length}`,
+    count: currentInvoices.length,
+    data: { outstanding, count: currentInvoices.length },
   };
 }
 
