@@ -76,6 +76,7 @@ import type {
   WorkflowSettings,
 } from './types';
 import { CanonicalWorkflowClient } from './workflowClient';
+import { performFinalDelivery } from './finalDelivery';
 
 type AuthMode = 'demo' | 'supabase';
 
@@ -2736,16 +2737,38 @@ export function useTracker() {
   },[currentProfile,data.projects,loadSupabaseData,mode,workflowClient]);
 
   const completeFinalDelivery = useCallback(async (projectId: string, note?: string) => {
-    if(!currentProfile||!workflowClient||mode!=='supabase') throw new Error('Canonical workflow mutations require Supabase mode.');
-    const project=data.projects.find((item)=>item.id===projectId);
-    if(!project) throw new Error('Project not found.');
-    if(project.requires_print&&!project.final_print_pdf_link?.trim())
-      throw new Error('Add the final print-ready PDF before completing delivery.');
-    if(project.requires_ebook&&!project.final_ebook_link?.trim())
-      throw new Error('Add the final eBook/EPUB file before completing delivery.');
-    await workflowClient.completeFinalDelivery(projectId,requireWorkflowVersion(project),note?.trim()||null);
-    await loadSupabaseData(currentProfile);
-  },[currentProfile,data.projects,loadSupabaseData,mode,workflowClient]);
+    const supabaseClient = supabase;
+    if(!currentProfile||!workflowClient||!supabaseClient||mode!=='supabase') throw new Error('Canonical workflow mutations require Supabase mode.');
+    const result = await performFinalDelivery(
+      async () => {
+        const { data: project, error } = await supabaseClient
+          .from('projects')
+          .select('project_status,workflow_version,requires_print,requires_ebook,final_print_pdf_link,final_ebook_link')
+          .eq('id', projectId)
+          .single();
+        if (error) throw error;
+        if (!project) throw new Error('Project not found or unavailable.');
+        return project;
+      },
+      (version) => workflowClient.completeFinalDelivery(projectId,version,note?.trim()||null),
+    );
+    if (result) {
+      // The RPC has committed. Show its canonical snapshot before the broader,
+      // potentially slow dashboard refresh so completion never looks like a no-op.
+      setData((previous) => ({
+        ...previous,
+        projects: previous.projects.map((project) => project.id === projectId
+          ? normalizeProject({ ...project, ...result.project_snapshot } as Project)
+          : project),
+      }));
+    }
+    try {
+      await loadSupabaseData(currentProfile);
+    } catch {
+      setIsLoading(false);
+      throw new Error('Final delivery is completed, but the latest project details could not be refreshed. Reload the page to see the full history.');
+    }
+  },[currentProfile,loadSupabaseData,mode,workflowClient]);
 
   const setProjectLifecycle = useCallback(async (projectId: string, lifecycle: ProjectLifecycleStatus, reason?: string) => {
     if(!currentProfile||!workflowClient||mode!=='supabase') throw new Error('Canonical workflow mutations require Supabase mode.');

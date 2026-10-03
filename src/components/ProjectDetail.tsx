@@ -198,12 +198,15 @@ export function ProjectDetail({
   const [overrideReason, setOverrideReason] = useState('');
   const [overrideExplanation, setOverrideExplanation] = useState('');
   const [overrideError, setOverrideError] = useState<string | null>(null);
+  const [deliveryError, setDeliveryError] = useState<string | null>(null);
   const [isSubmittingWorkflow, setIsSubmittingWorkflow] = useState(false);
   const [quickMsg, setQuickMsg] = useState('');
   const [openingInitialFileId, setOpeningInitialFileId] = useState<string | null>(null);
   const [initialFileError, setInitialFileError] = useState<string | null>(null);
   const [activityFilter, setActivityFilter] = useState<'all' | 'client' | 'team' | 'files' | 'status' | 'revisions' | 'system'>('all');
   const [taskFilter, setTaskFilter] = useState<'all' | 'open' | 'in_progress' | 'done'>('all');
+
+  useEffect(() => setDeliveryError(null), [project.id]);
 
   const trimmedOverrideReason = overrideReason.trim();
   const trimmedOverrideExplanation = overrideExplanation.trim();
@@ -254,10 +257,14 @@ export function ProjectDetail({
   };
 
   const completeDelivery = async () => {
+    if (isSubmittingWorkflow) return;
     if (!window.confirm(`Complete final delivery for "${project.project_title}"?`)) return;
     setIsSubmittingWorkflow(true);
+    setDeliveryError(null);
     try {
       await onCompleteFinalDelivery('Final delivery completed from the project workflow view.');
+    } catch (error) {
+      setDeliveryError(formatWorkflowErrorMessage(error, 'Final delivery could not be completed.'));
     } finally {
       setIsSubmittingWorkflow(false);
     }
@@ -415,6 +422,11 @@ export function ProjectDetail({
   return (
     <Modal title="Project Details" onClose={onClose} width="max-w-6xl">
       <div className="space-y-4">
+        {deliveryError && (
+          <div role="alert" className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-danger font-medium">
+            {deliveryError}
+          </div>
+        )}
         {/* ========================================================================= */}
         {/* FIXED PROJECT HEADER (Always visible across all tabs) */}
         {/* ========================================================================= */}
