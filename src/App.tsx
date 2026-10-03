@@ -408,7 +408,10 @@ export default function App() {
         onArchiveProject={() => onRequestArchive(selectedProjectFresh)}
         onDelete={() => onRequestArchive(selectedProjectFresh)}
         onUpdateProject={updateSelectedProject}
-        onCompleteFinalDelivery={(note) => tracker.completeFinalDelivery(selectedProjectFresh.id, note)}
+        onCompleteFinalDelivery={async (note) => {
+          await tracker.completeFinalDelivery(selectedProjectFresh.id, note);
+          setToast({ message: 'Final delivery completed successfully.', tone: 'success' });
+        }}
         onAddNote={async (noteType, note) => { await tracker.addNote(selectedProjectFresh.id, noteType, note); }}
         onAddRevision={async (note, status) => { await tracker.addRevision(selectedProjectFresh.id, note, status); }}
         onUpdateRevisionRequest={tracker.updateRevisionRequest}
