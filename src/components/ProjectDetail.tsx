@@ -126,6 +126,7 @@ export function ProjectDetail({
   onUpdateRevisionRequest,
   onUpdateRevisionItem,
   onUploadRevisedProof,
+  onGetRevisionAttachmentUrl,
   onGetInitialFileUrl,
   onResolveClientReminder,
   conversations = [],
@@ -163,7 +164,8 @@ export function ProjectDetail({
   onAddRevision: (note: string, status: RevisionStatus) => Promise<void>;
   onUpdateRevisionRequest: (requestId: string, updates: Partial<RevisionRequest>) => Promise<void>;
   onUpdateRevisionItem: (itemId: string, updates: Partial<RevisionItem>) => Promise<void>;
-  onUploadRevisedProof: (requestId: string, file: File) => Promise<void>;
+  onUploadRevisedProof: (requestId: string, file: File, teamResponse?: string) => Promise<void>;
+  onGetRevisionAttachmentUrl: (attachmentId: string) => Promise<string>;
   onGetInitialFileUrl?: (file: ProjectInitialFile) => Promise<string>;
   onResolveClientReminder?: (reminderId: string, status: 'sent' | 'dismissed') => Promise<void>;
   conversations?: Conversation[];
@@ -1153,7 +1155,7 @@ export function ProjectDetail({
                 <div className="mb-3">
                   <h3 className="font-display text-xl font-semibold text-ink">Client Revision Requests</h3>
                   <p className="text-xs text-muted">
-                    Complete records of client-submitted revisions for this project with item checklists, files, and team replies.
+                    Check the requested changes, prepare the updated file, then review and send it for client approval.
                   </p>
                 </div>
 
@@ -1169,6 +1171,7 @@ export function ProjectDetail({
                   onUpdateRequest={onUpdateRevisionRequest}
                   onUpdateItem={onUpdateRevisionItem}
                   onUploadRevisedProof={onUploadRevisedProof}
+                  onGetAttachmentUrl={onGetRevisionAttachmentUrl}
                 />
               </div>
 

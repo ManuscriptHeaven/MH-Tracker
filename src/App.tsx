@@ -417,6 +417,7 @@ export default function App() {
         onUpdateRevisionRequest={tracker.updateRevisionRequest}
         onUpdateRevisionItem={tracker.updateRevisionItem}
         onUploadRevisedProof={tracker.uploadRevisedProof}
+        onGetRevisionAttachmentUrl={tracker.getRevisionAttachmentUrl}
         onGetInitialFileUrl={tracker.getProjectInitialFileUrl}
         onResolveClientReminder={tracker.resolveClientReminder}
         conversations={tracker.data.conversations}
