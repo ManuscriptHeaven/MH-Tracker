@@ -867,6 +867,44 @@ export async function runVoiceAssistantTests() {
   );
   console.log(`   Assistant (Executed): "${res38b.spokenText}"`);
 
+  // Optional final URLs must work in both the AI preview and confirmed execution.
+  voiceQueryEngine.clearMemory();
+  const finalProject: Project = {
+    ...testProjects[0], id: 'proj-final-optional', project_number: 'MH-1998',
+    project_title: 'Optional Final Files', project_status: 'active', status: 'Final Delivery',
+    workflow_stage_key: 'final_delivery', current_stage: 'Final Delivery',
+    workflow_stage_status_key: 'active', workflow_waiting_on_key: 'team',
+    final_print_pdf_link: '', final_ebook_link: '', other_links: '', proof_pdf_link: '',
+    requires_print: true, requires_ebook: true,
+  };
+  let finalSubmissions = 0;
+  const finalCtx = createAdminCtx();
+  finalCtx.data = { ...mockData, projects: [finalProject] };
+  finalCtx.visibleProjects = [finalProject];
+  finalCtx.trackerMutations = {
+    ...finalCtx.trackerMutations,
+    submitStageForApproval: async (id, _note, fileUrl) => {
+      if (id !== finalProject.id || fileUrl) throw new Error('Unexpected final submission');
+      finalSubmissions++;
+    },
+  };
+  const finalPreview = await voiceQueryEngine.processQuery('Submit final delivery for Optional Final Files', finalCtx);
+  assert(Boolean(finalPreview.success && finalPreview.pendingAction &&
+    finalPreview.displayText.includes('Not provided (optional)') && finalSubmissions === 0),
+  'Optional final files: preview allows blank URLs and makes no mutation');
+  const finalConfirmation = await voiceQueryEngine.processQuery('Confirm', finalCtx);
+  assert(Boolean(finalConfirmation.success && finalSubmissions === 1),
+    'Optional final files: confirmation calls the canonical delivery action once');
+
+  voiceQueryEngine.clearMemory();
+  const noProofCtx = createAdminCtx();
+  const noProofProject = { ...finalProject, workflow_stage_key: 'print_version' as const, current_stage: 'Print Version' as const };
+  noProofCtx.data = { ...mockData, projects: [noProofProject] };
+  noProofCtx.visibleProjects = [noProofProject];
+  const proofRequired = await voiceQueryEngine.processQuery('Submit print version for Optional Final Files', noProofCtx);
+  assert(!proofRequired.success && proofRequired.error === 'deliverable_required',
+    'Optional final files: earlier print approval still requires a proof');
+
   // TEST 39: Invoice generation is preview-first and persists only after confirmation
   voiceQueryEngine.clearMemory();
   const invoiceCallsBefore39 = canonicalMutationCalls.invoices.length;

@@ -15,6 +15,7 @@ function assert(condition, message) {
 
 const migration = read('supabase/migrations/20260921000500_schedule_accountability_reminders.sql');
 const resolverMigration = read('supabase/migrations/20260921000600_resolve_client_reminder_rpc.sql');
+const optionalFinalLinksMigration = read('supabase/migrations/20261005075450_optional_final_delivery_links.sql');
 const timeline = read('src/lib/timeline.ts');
 const tracker = read('src/lib/useTracker.ts');
 const workflowErrors = read('src/lib/workflowErrors.ts');
@@ -78,14 +79,14 @@ assert(
 );
 
 assert(
-  migration.includes('workflow_submission_gate') &&
-    migration.includes('workflow_missing_concept_deliverable') &&
-    migration.includes('workflow_missing_print_proof') &&
-    migration.includes('workflow_missing_ebook_proof') &&
-    migration.includes('workflow_missing_final_print_file') &&
-    migration.includes('workflow_missing_final_ebook_file') &&
+  optionalFinalLinksMigration.includes('workflow_submission_gate') &&
+    optionalFinalLinksMigration.includes('workflow_missing_concept_deliverable') &&
+    optionalFinalLinksMigration.includes('workflow_missing_print_proof') &&
+    optionalFinalLinksMigration.includes('workflow_missing_ebook_proof') &&
+    !optionalFinalLinksMigration.includes('workflow_missing_final_print_file') &&
+    !optionalFinalLinksMigration.includes('workflow_missing_final_ebook_file') &&
     workflowErrors.includes('workflow_missing_concept_deliverable'),
-  'submission and final-delivery actions fail closed when required proof/deliverable files are missing',
+  'client-approval proofs remain required while final-delivery URLs are optional',
 );
 
 assert(
