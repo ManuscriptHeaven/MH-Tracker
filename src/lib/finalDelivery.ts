@@ -18,7 +18,7 @@ export class FinalDeliveryFilesSavedError extends Error {
   }
 }
 
-/** Save only the required final file metadata before the canonical completion. */
+/** Save supplied final links before canonical completion; blanks preserve saved links. */
 export async function submitFinalDeliveryWithFiles(
   current: FinalDeliveryFiles,
   draft: Pick<FinalDeliveryFiles, 'final_print_pdf_link' | 'final_ebook_link'>,
@@ -26,15 +26,15 @@ export async function submitFinalDeliveryWithFiles(
   complete: () => Promise<void>,
 ): Promise<void> {
   const updates: ProjectMetadataUpdate = {};
-  const requiredFiles = [
-    { required: current.requires_print, field: 'final_print_pdf_link', label: 'final print-ready PDF' },
-    { required: current.requires_ebook, field: 'final_ebook_link', label: 'final eBook/EPUB file' },
+  const serviceFiles = [
+    { applicable: current.requires_print, field: 'final_print_pdf_link', label: 'final print-ready PDF' },
+    { applicable: current.requires_ebook, field: 'final_ebook_link', label: 'final eBook/EPUB file' },
   ] as const;
 
-  for (const file of requiredFiles) {
-    if (!file.required) continue;
+  for (const file of serviceFiles) {
+    if (!file.applicable) continue;
     const value = draft[file.field]?.trim() || '';
-    if (!value) throw new Error(`Add the ${file.label} before completing delivery.`);
+    if (!value) continue;
     let url: URL;
     try {
       url = new URL(value);
@@ -49,7 +49,7 @@ export async function submitFinalDeliveryWithFiles(
 
   const hasUpdates = Object.keys(updates).length > 0;
   if (hasUpdates) {
-    if (!saveFiles) throw new Error('Ask a manager to save the final file links before completing delivery.');
+    if (!saveFiles) throw new Error('Ask a manager to update final file links, or leave them unchanged to complete delivery.');
     await saveFiles(updates);
   }
   try {
@@ -63,10 +63,6 @@ export async function submitFinalDeliveryWithFiles(
 export interface FinalDeliveryState {
   project_status: string;
   workflow_version: number;
-  requires_print: boolean;
-  requires_ebook: boolean;
-  final_print_pdf_link: string | null;
-  final_ebook_link: string | null;
 }
 
 export async function performFinalDelivery(
@@ -77,12 +73,6 @@ export async function performFinalDelivery(
   if (state.project_status === 'completed') return null;
   if (!Number.isSafeInteger(state.workflow_version) || state.workflow_version < 0) {
     throw new Error('The current workflow version is unavailable. Reload the project and try again.');
-  }
-  if (state.requires_print && !state.final_print_pdf_link?.trim()) {
-    throw new Error('Add the final print-ready PDF before completing delivery.');
-  }
-  if (state.requires_ebook && !state.final_ebook_link?.trim()) {
-    throw new Error('Add the final eBook/EPUB file before completing delivery.');
   }
   return complete(state.workflow_version);
 }

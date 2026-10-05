@@ -2631,7 +2631,7 @@ export function useTracker() {
               ? project.final_ebook_link
               : project.final_print_pdf_link||project.other_links;
 
-      if(!cleanFileUrl&&!existingDeliverable) {
+      if(stage!=='final_delivery'&&!cleanFileUrl&&!existingDeliverable) {
         throw new Error('Add the required proof or deliverable link before sending this stage to the client.');
       }
 
@@ -2743,7 +2743,7 @@ export function useTracker() {
       async () => {
         const { data: project, error } = await supabaseClient
           .from('projects')
-          .select('project_status,workflow_version,requires_print,requires_ebook,final_print_pdf_link,final_ebook_link')
+          .select('project_status,workflow_version')
           .eq('id', projectId)
           .single();
         if (error) throw error;

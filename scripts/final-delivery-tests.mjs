@@ -41,19 +41,28 @@ for (const invalidVersion of [undefined, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) 
 }
 assert.equal(calls, 0, 'invalid state must never reach the mutation');
 
-for (const [missingState, message] of [
-  [{ ...readyState, final_print_pdf_link: '  ' }, /final print-ready PDF/],
-  [{ ...readyState, requires_print: false, requires_ebook: true }, /final eBook\/EPUB file/],
+for (const flags of [
+  { requires_print: true, requires_ebook: false },
+  { requires_print: false, requires_ebook: true },
+  { requires_print: true, requires_ebook: true },
 ]) {
-  await assert.rejects(
-    performFinalDelivery(
-      async () => missingState,
-      async () => { calls++; return receipt; },
-    ),
-    message,
+  const blankState = { ...readyState, ...flags, final_print_pdf_link: null, final_ebook_link: '  ' };
+  assert.equal(await performFinalDelivery(
+    async () => blankState,
+    async (version) => { assert.equal(version, 7); calls++; return receipt; },
+  ), receipt);
+  let saved = false;
+  let completed = false;
+  await submitFinalDeliveryWithFiles(
+    blankState,
+    { final_print_pdf_link: '  ', final_ebook_link: '' },
+    async () => { saved = true; },
+    async () => { completed = true; },
   );
+  assert.equal(saved, false, 'blank links must not create metadata writes');
+  assert.equal(completed, true, 'all service types can complete without links');
 }
-assert.equal(calls, 0, 'missing required deliverables must not reach the mutation');
+assert.equal(calls, 3, 'optional final links must not block the canonical mutation');
 
 const domainError = new Error('workflow_forbidden');
 await assert.rejects(
@@ -83,11 +92,11 @@ await submitFinalDeliveryWithFiles(
     );
   },
 );
-assert.deepEqual(savedFiles, { final_print_pdf_link: 'https://example.test/final.pdf' }, 'save only trimmed, required final-file metadata');
+assert.deepEqual(savedFiles, { final_print_pdf_link: 'https://example.test/final.pdf' }, 'save only trimmed, applicable final-file metadata');
 assert.deepEqual(sequence, ['save', 'read', 'complete:11'], 'save files before completion and use the current canonical workflow version');
 
 calls = 0;
-for (const link of ['', '   ', 'not-a-url', 'javascript:alert(1)', 'file:///final.pdf']) {
+for (const link of ['not-a-url', 'javascript:alert(1)', 'file:///final.pdf']) {
   await assert.rejects(submitFinalDeliveryWithFiles(
     { ...readyState, final_print_pdf_link: '', proof_pdf_link: 'https://example.test/proof.pdf' },
     { final_print_pdf_link: link },
@@ -95,7 +104,21 @@ for (const link of ['', '   ', 'not-a-url', 'javascript:alert(1)', 'file:///fina
     async () => { calls++; },
   ));
 }
-assert.equal(calls, 0, 'missing or unsafe final links cannot save or complete; an interior proof never substitutes automatically');
+assert.equal(calls, 0, 'supplied unsafe final links cannot save or complete');
+
+await submitFinalDeliveryWithFiles(
+  { ...readyState, proof_pdf_link: 'https://example.test/proof.pdf' },
+  { final_print_pdf_link: '' },
+  async () => { throw new Error('Blank draft must neither erase the existing link nor promote a proof'); },
+  async () => {},
+);
+
+await submitFinalDeliveryWithFiles(
+  { ...readyState, final_print_pdf_link: null },
+  { final_print_pdf_link: '' },
+  undefined,
+  async () => {},
+);
 
 await submitFinalDeliveryWithFiles(
   readyState,
@@ -129,12 +152,14 @@ await assert.rejects(submitFinalDeliveryWithFiles(
 ), (error) => error instanceof FinalDeliveryFilesSavedError && error.completionError === domainError,
 'a partial success must preserve the completion domain error and identify that files were saved');
 
-await assert.rejects(submitFinalDeliveryWithFiles(
-  { ...readyState, requires_ebook: true },
+let combinedUpdates;
+await submitFinalDeliveryWithFiles(
+  { ...readyState, requires_ebook: true, final_print_pdf_link: '' },
   { final_print_pdf_link: readyState.final_print_pdf_link, final_ebook_link: '' },
+  async (updates) => { combinedUpdates = updates; },
   async () => { calls++; },
-  async () => { calls++; },
-), /final eBook\/EPUB file/);
-assert.equal(calls, 1, 'Print + eBook delivery must have both required final files before any mutation');
+);
+assert.deepEqual(combinedUpdates, { final_print_pdf_link: readyState.final_print_pdf_link });
+assert.equal(calls, 2, 'Print + eBook delivery can save a supplied print link and omit the eBook link');
 
 console.log('Final delivery behavior tests passed.');

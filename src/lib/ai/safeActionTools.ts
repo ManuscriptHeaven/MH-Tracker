@@ -1351,7 +1351,7 @@ export async function execute_submit_stage_for_approval(
           ? project.final_ebook_link
           : project.final_print_pdf_link || project.other_links;
 
-  if (!payload.fileUrl?.trim() && !existingDeliverable) {
+  if (stageKey !== 'final_delivery' && !payload.fileUrl?.trim() && !existingDeliverable) {
     return {
       success: false,
       toolName: 'submit_stage_for_approval',

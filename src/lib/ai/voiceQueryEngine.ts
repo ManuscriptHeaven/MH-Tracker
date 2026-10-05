@@ -1194,7 +1194,7 @@ export class VoiceQueryEngine {
               ? matchedProject.final_ebook_link
               : matchedProject.final_print_pdf_link || matchedProject.other_links;
 
-      if (!fileUrl && !existingDeliverable) {
+      if (stageKey !== 'final_delivery' && !fileUrl && !existingDeliverable) {
         return {
           success: false,
           toolName: 'submit_stage_for_approval',
@@ -1243,7 +1243,7 @@ export class VoiceQueryEngine {
           `• **Project:** **${matchedProject.project_title}** (${matchedProject.project_number})\n` +
           `• **Client:** ${matchedProject.client_name}\n` +
           `• **Stage:** **${stageLabel}**\n` +
-          `• **Deliverable:** ${fileUrl || existingDeliverable}\n\n` +
+          `• **Deliverable:** ${fileUrl || existingDeliverable || 'Not provided (optional)'}\n\n` +
           '**Nothing has been submitted yet. Confirm to continue.**',
         pendingAction: preview,
       };
