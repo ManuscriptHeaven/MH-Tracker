@@ -65,6 +65,7 @@ import { PaymentBadge, PriorityBadge, RoleBadge, StatusBadge } from './Badges';
 import { ProjectTimelinePanel, TimelineBadge } from './ProjectTimeline';
 import { ProjectDiscussionChat } from './ProjectDiscussionChat';
 import { ScheduleAccountability } from './ScheduleAccountability';
+import { FinalDeliveryModal } from './FinalDeliveryModal';
 import { UserAvatar } from './UserAvatar';
 import { Button, Card, Field, Modal, SelectField, TextareaField } from './ui';
 
@@ -198,7 +199,7 @@ export function ProjectDetail({
   const [overrideReason, setOverrideReason] = useState('');
   const [overrideExplanation, setOverrideExplanation] = useState('');
   const [overrideError, setOverrideError] = useState<string | null>(null);
-  const [deliveryError, setDeliveryError] = useState<string | null>(null);
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [isSubmittingWorkflow, setIsSubmittingWorkflow] = useState(false);
   const [quickMsg, setQuickMsg] = useState('');
   const [openingInitialFileId, setOpeningInitialFileId] = useState<string | null>(null);
@@ -206,7 +207,7 @@ export function ProjectDetail({
   const [activityFilter, setActivityFilter] = useState<'all' | 'client' | 'team' | 'files' | 'status' | 'revisions' | 'system'>('all');
   const [taskFilter, setTaskFilter] = useState<'all' | 'open' | 'in_progress' | 'done'>('all');
 
-  useEffect(() => setDeliveryError(null), [project.id]);
+  useEffect(() => setShowDeliveryModal(false), [project.id]);
 
   const trimmedOverrideReason = overrideReason.trim();
   const trimmedOverrideExplanation = overrideExplanation.trim();
@@ -256,18 +257,8 @@ export function ProjectDetail({
     setShowSubmitModal(true);
   };
 
-  const completeDelivery = async () => {
-    if (isSubmittingWorkflow) return;
-    if (!window.confirm(`Complete final delivery for "${project.project_title}"?`)) return;
-    setIsSubmittingWorkflow(true);
-    setDeliveryError(null);
-    try {
-      await onCompleteFinalDelivery('Final delivery completed from the project workflow view.');
-    } catch (error) {
-      setDeliveryError(formatWorkflowErrorMessage(error, 'Final delivery could not be completed.'));
-    } finally {
-      setIsSubmittingWorkflow(false);
-    }
+  const completeDelivery = () => {
+    if (!isSubmittingWorkflow) setShowDeliveryModal(true);
   };
 
   // File links editing modal state
@@ -422,11 +413,6 @@ export function ProjectDetail({
   return (
     <Modal title="Project Details" onClose={onClose} width="max-w-6xl">
       <div className="space-y-4">
-        {deliveryError && (
-          <div role="alert" className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-danger font-medium">
-            {deliveryError}
-          </div>
-        )}
         {/* ========================================================================= */}
         {/* FIXED PROJECT HEADER (Always visible across all tabs) */}
         {/* ========================================================================= */}
@@ -1543,6 +1529,17 @@ export function ProjectDetail({
           )}
         </div>
       </div>
+
+      {showDeliveryModal && (
+        <FinalDeliveryModal
+          key={project.id}
+          project={project}
+          canEditFiles={canManageAll}
+          onSaveFiles={onUpdateProject}
+          onComplete={onCompleteFinalDelivery}
+          onClose={() => setShowDeliveryModal(false)}
+        />
+      )}
 
       {/* Submit Stage Modal with Explanatory Notes & File Attachment */}
       {showSubmitModal && (
