@@ -77,6 +77,7 @@ import type {
 } from './types';
 import { CanonicalWorkflowClient } from './workflowClient';
 import { performFinalDelivery } from './finalDelivery';
+import { revisionFileLocation } from './revisionWorkflow';
 
 type AuthMode = 'demo' | 'supabase';
 
@@ -2492,6 +2493,19 @@ export function useTracker() {
     },
     [currentProfile, data.projects, data.revisionRequests, loadSupabaseData, mode, workflowClient],
   );
+
+  const getRevisionAttachmentUrl = useCallback(async (attachmentId: string) => {
+    if (!currentProfile) throw new Error('No signed-in profile found.');
+    const attachment = data.revisionAttachments.find((item) => item.id === attachmentId);
+    if (!attachment) throw new Error('Revision attachment not found or unavailable.');
+    const location = revisionFileLocation(attachment.file_url);
+    if (location.url) return location.url;
+    if (!supabase || mode !== 'supabase') throw new Error('Private revision files are unavailable in demo mode.');
+    const { data: signed, error } = await supabase.storage.from('revision-files').createSignedUrl(location.path!, 600);
+    if (error) throw error;
+    if (!signed?.signedUrl) throw new Error('Could not create a secure revision file link.');
+    return signed.signedUrl;
+  }, [currentProfile, data.revisionAttachments, mode]);
 
   const respondToRevisionRequest = useCallback(
     async (requestId: string, decision: Extract<ClientRevisionStatus, 'Approved'>) => {
@@ -4952,6 +4966,7 @@ export function useTracker() {
     updateRevisionRequest,
     updateRevisionItem,
     uploadRevisedProof,
+    getRevisionAttachmentUrl,
     respondToRevisionRequest,
     submitInitialProjectFiles,
     getProjectInitialFileUrl,
