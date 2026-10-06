@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabase';
+import { canSubmitClientFiles, validateClientFileSubmission } from './clientFileSubmission';
 import { sampleData, sampleProfiles } from './sampleData';
 import { errorMessage, firstName, isClientRole, isManagerRole } from './utils';
 import { formatWorkflowErrorMessage } from './workflowErrors';
@@ -2532,11 +2533,11 @@ export function useTracker() {
 
       const project = data.projects.find((item) => item.id === projectId);
       if (!project) throw new Error('Project not found.');
-      if (project.workflow_stage_key !== 'files_received' || !['pending', 'active'].includes(project.workflow_stage_status_key || '')) {
+      if (!canSubmitClientFiles(project)) {
         throw new Error('Initial files can only be submitted while the project is waiting for client files.');
       }
-      if (!files.length) throw new Error('Choose at least one file to submit.');
-      if (files.length > 10) throw new Error('You can submit up to 10 files at once.');
+      const validationError = validateClientFileSubmission(files, note);
+      if (validationError) throw new Error(validationError);
 
       const uploadedPaths: string[] = [];
       const metadata: Array<{
