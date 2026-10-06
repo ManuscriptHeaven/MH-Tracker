@@ -282,7 +282,7 @@ export default function App() {
         <AIAssistantPage projects={visibleProjects} currentProfile={tracker.currentProfile} />
       </ErrorBoundary>
     )}
-    {activeView === 'projects' && isClient && <ClientProjectsPage projects={visibleProjects} searchTerm={searchTerm} onSelectProject={openClientProject} onSubmitFiles={(project) => openClientProject(project, 'files')} />}
+    {activeView === 'projects' && isClient && <ClientProjectsPage projects={visibleProjects} searchTerm={searchTerm} onSelectProject={openClientProject} onSubmitFiles={(project) => openClientProject(project, 'files')} onGetProjectFileUrl={tracker.getProjectFileUrl} />}
     {activeView === 'projects' && !isClient && <ProjectsPage {...pageProps} />}
     {activeView === 'my_tasks' && <TasksPage {...taskPageProps} mode="personal" tasks={tracker.visibleTasks} />}
     {activeView === 'team_tasks' && tracker.canManageAll && <TasksPage {...taskPageProps} mode="team" tasks={tracker.teamTasks} />}
@@ -431,12 +431,14 @@ export default function App() {
         onSendMessage={tracker.sendMessage}
         onGetOrCreateProjectConversation={tracker.getOrCreateProjectConversation}
         onMarkRead={tracker.markConversationRead}
-        onSubmitStageForApproval={async (submissionNote, fileUrl) => {
+        onGetProjectFileUrl={tracker.getProjectFileUrl}
+        onSubmitStageForApproval={async (submissionNote, fileUrl, file) => {
           try {
-            await tracker.submitStageForApproval(selectedProjectFresh.id, submissionNote, fileUrl);
+            await tracker.submitStageForApproval(selectedProjectFresh.id, submissionNote, fileUrl, file);
             setToast({ message: 'Submitted stage for client approval & notified client.', tone: 'success' });
           } catch (err) {
             setToast({ message: errorMessage(err, 'Failed to submit stage for approval.'), tone: 'error' });
+            throw err;
           }
         }}
         onRequestStageSkip={async (stage, reason) => {
@@ -473,6 +475,7 @@ export default function App() {
         onGetOrCreateProjectConversation={tracker.getOrCreateProjectConversation}
         onMarkRead={tracker.markConversationRead}
         onSubmitInitialFiles={tracker.submitInitialProjectFiles}
+        onGetProjectFileUrl={tracker.getProjectFileUrl}
         onGetInitialFileUrl={tracker.getProjectInitialFileUrl}
         onClose={() => setSelectedProject(null)}
         onApproveMilestone={async (projectId, milestone) => {

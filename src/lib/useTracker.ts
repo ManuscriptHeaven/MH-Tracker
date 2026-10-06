@@ -78,6 +78,7 @@ import type {
 } from './types';
 import { CanonicalWorkflowClient } from './workflowClient';
 import { performFinalDelivery } from './finalDelivery';
+import { performStageSubmission, PROJECT_FILE_BUCKET, projectFileLocation, ProofUploadCache, type StageProofProject } from './stageSubmission';
 import { revisionFileLocation } from './revisionWorkflow';
 
 type AuthMode = 'demo' | 'supabase';
@@ -574,7 +575,7 @@ function toWorkflowStage(stage: TimelineStage): WorkflowStage {
   return CANONICAL_STAGE_BY_LABEL[normalized];
 }
 
-function requireWorkflowVersion(project: Project) {
+function requireWorkflowVersion(project: Pick<Project, 'workflow_version'>) {
   if (!Number.isSafeInteger(project.workflow_version) || Number(project.workflow_version) < 0) {
     throw new Error('Phase 6 database configuration is incomplete: project workflow_version is unavailable.');
   }
@@ -923,6 +924,7 @@ export function useTracker() {
   const isRestoringRef = useRef<boolean>(false);
   const revisionSubmissionRetriesRef = useRef(new Map<string, RevisionSubmissionRetry>());
   const revisedProofRetriesRef = useRef(new Map<string, RevisedProofRetry>());
+  const stageProofUploadsRef = useRef(new ProofUploadCache());
   const attendancePresenceRef = useRef<AttendancePresenceRuntime>({
     sessionId: null,
     lastSampleAtMs: 0,
@@ -2629,47 +2631,59 @@ export function useTracker() {
   );
 
   const submitStageForApproval = useCallback(
-    async (projectId: string, submissionNote?: string, fileUrl?: string) => {
+    async (projectId: string, submissionNote?: string, fileUrl?: string, file?: File) => {
       if(!currentProfile) throw new Error('No signed-in profile found.');
       const project=data.projects.find((item)=>item.id===projectId);
       if(!project) throw new Error('Project not found.');
-      if(!workflowClient||mode!=='supabase') throw new Error('Canonical workflow mutations require Supabase mode.');
-
-      const stage=project.workflow_stage_key;
-      const cleanFileUrl=fileUrl?.trim()||'';
-      const existingDeliverable =
-        stage==='design_concept'||stage==='concept_approval'
-          ? project.cover_file_link||project.proof_pdf_link
-          : stage==='print_version'||stage==='print_approval'
-            ? project.proof_pdf_link||project.final_print_pdf_link
-            : stage==='ebook_version'||stage==='ebook_approval'
-              ? project.final_ebook_link
-              : project.final_print_pdf_link||project.other_links;
-
-      if(stage!=='final_delivery'&&!cleanFileUrl&&!existingDeliverable) {
-        throw new Error('Add the required proof or deliverable link before sending this stage to the client.');
+      const client = supabase;
+      if(!workflowClient||!client||mode!=='supabase') throw new Error('Canonical workflow mutations require Supabase mode.');
+      const result = await performStageSubmission(project.workflow_stage_key, submissionNote || '', fileUrl || '', file, {
+        readProject: async () => {
+          const { data: latest, error } = await client.from('projects')
+            .select('id,project_status,workflow_stage_key,workflow_stage_status_key,workflow_version,cover_file_link,proof_pdf_link,final_print_pdf_link,final_ebook_link,other_links')
+            .eq('id', projectId).single();
+          if (error) throw error;
+          return latest as StageProofProject;
+        },
+        upload: (proofFile, latest) => stageProofUploadsRef.current.get(proofFile, `${currentProfile.id}/${projectId}/${latest.workflow_stage_key}`, async () => {
+          const path = `${projectId}/${currentProfile.id}/${createUuid()}-${sanitizeProjectSourceFileName(proofFile.name)}`;
+          const { error } = await client.storage.from(PROJECT_FILE_BUCKET).upload(path, proofFile, { upsert: false });
+          if (error) throw error;
+          return `storage://${PROJECT_FILE_BUCKET}/${path}`;
+        }),
+        saveMetadata: async (patch, latest) => {
+          const { data: saved, error } = await client.from('projects').update(patch)
+            .eq('id', projectId).eq('project_status', 'active')
+            .eq('workflow_stage_key', latest.workflow_stage_key).eq('workflow_stage_status_key', 'active')
+            .eq('workflow_version', latest.workflow_version).select('id').maybeSingle();
+          if (error) throw error;
+          if (!saved) throw new Error('The project changed or access was denied. Reload before submitting.');
+        },
+        submit: (latest, note) => latest.workflow_stage_key === 'final_delivery'
+          ? workflowClient.completeFinalDelivery(projectId, requireWorkflowVersion(latest), note)
+          : workflowClient.submitStageForApproval(projectId, requireWorkflowVersion(latest), note),
+      });
+      if (result.project_snapshot) {
+        const snapshot = normalizeProject({ ...project, ...result.project_snapshot } as Project);
+        setData(previous => ({ ...previous, projects: previous.projects.map(item => item.id === projectId ? { ...item, ...snapshot } : item) }));
       }
-
-      if(cleanFileUrl) {
-        const field:keyof ProjectMetadataUpdate=
-          stage==='ebook_version'||stage==='ebook_approval'
-            ? 'final_ebook_link'
-            : stage==='final_delivery'
-              ? 'final_print_pdf_link'
-              : stage==='design_concept'||stage==='concept_approval'
-                ? 'cover_file_link'
-                : 'proof_pdf_link';
-        await updateProject(projectId,{[field]:cleanFileUrl,...(submissionNote?.trim()?{delivery_notes:submissionNote.trim()}:{})});
-      }
-
-      if(stage==='final_delivery')
-        await workflowClient.completeFinalDelivery(projectId,requireWorkflowVersion(project),submissionNote?.trim()||null);
-      else
-        await workflowClient.submitStageForApproval(projectId,requireWorkflowVersion(project),submissionNote?.trim()||null);
-      await loadSupabaseData(currentProfile);
+      try { await loadSupabaseData(currentProfile); }
+      catch { throw new Error('Submission was recorded, but the view could not refresh. Reload the project before taking another action.'); }
     },
-    [currentProfile,data.projects,loadSupabaseData,mode,updateProject,workflowClient],
+    [currentProfile,data.projects,loadSupabaseData,mode,workflowClient],
   );
+
+  const getProjectFileUrl = useCallback(async (value: string, projectId: string) => {
+    if (!currentProfile || !supabase || mode !== 'supabase' || !data.projects.some(project => project.id === projectId)) {
+      throw new Error('Sign in with access to this project to open its file.');
+    }
+    const location = projectFileLocation(value, projectId);
+    if (!location) throw new Error('The file reference is invalid.');
+    if (location.kind === 'external') return location.url;
+    const { data: signed, error } = await supabase.storage.from(PROJECT_FILE_BUCKET).createSignedUrl(location.path, 600);
+    if (error) throw error;
+    return signed.signedUrl;
+  }, [currentProfile, data.projects, mode]);
 
   const resolveClientReminder = useCallback(
     async (reminderId: string, status: 'sent' | 'dismissed') => {
@@ -4974,6 +4988,7 @@ export function useTracker() {
     resolveClientReminder,
     approveProjectMilestone,
     submitStageForApproval,
+    getProjectFileUrl,
     advanceWorkflowStage,
     completeFinalDelivery,
     setProjectLifecycle,
