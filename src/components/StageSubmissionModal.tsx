@@ -38,7 +38,7 @@ export function StageSubmissionModal({ title, initialUrl = '', onSubmit, onClose
     <div className="space-y-4">
       <TextareaField label="Note (optional)" value={note} disabled={busy} onChange={event => setNote(event.target.value)} rows={4} />
       <label className="grid gap-1.5 text-sm font-medium">
-        Attach File
+        Attach File (optional)
         <input type="file" disabled={busy} className="block w-full min-w-0 rounded-md border border-border p-2 text-sm"
           onChange={event => {
             const selected = event.target.files?.[0];

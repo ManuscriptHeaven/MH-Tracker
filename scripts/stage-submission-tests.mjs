@@ -52,16 +52,34 @@ assert.equal(validateProofFile({name:'x',size:MAX_PROOF_BYTES}),null);
   assert.deepEqual(calls,['read']);
 }
 {
-  const { dependencies } = harness();
-  await assert.rejects(performStageSubmission('design_concept','','',undefined,dependencies), /Attach a file/);
-  const state = {...initial,workflow_stage_key:'final_delivery'};
-  const final = harness([state,state]);
-  await performStageSubmission('final_delivery','','',undefined,final.dependencies);
-  assert.deepEqual(final.calls,['read','read',['submit',7,null]]);
   const existing = {...initial,cover_file_link:privateRef};
   const saved = harness([existing,existing]);
   await performStageSubmission('design_concept','','',undefined,saved.dependencies);
   assert.deepEqual(saved.calls,['read','read',['submit',7,null]]);
+}
+// Every ordinary submission stage permits note-only and completely blank drafts.
+for (const stage of ['design_concept','print_version','ebook_version','final_delivery']) {
+  for (const note of ['', '  ', '  Already shared through email  ']) {
+    const state = {...initial,workflow_stage_key:stage};
+    const { calls, dependencies } = harness([state,state]);
+    assert.equal(await performStageSubmission(stage,note,'  ',undefined,dependencies),receipt);
+    const expected = ['read'];
+    if (note.trim()) expected.push(['metadata',{delivery_notes:note.trim()},7]);
+    expected.push('read',['submit',7,note.trim()||null]);
+    assert.deepEqual(calls,expected, `${stage}: missing file/link must never block or upload`);
+  }
+  const state = {...initial,workflow_stage_key:stage,cover_file_link:privateRef,proof_pdf_link:'https://example.test/saved.pdf',final_ebook_link:privateRef};
+  const saved = harness([state,state]);
+  await performStageSubmission(stage,'A note only','',undefined,saved.dependencies);
+  assert.deepEqual(saved.calls[1][1],{delivery_notes:'A note only'}, 'blank proof inputs must not overwrite existing files');
+  const failing = harness([state,state]);
+  failing.dependencies.submit = async () => { throw new Error('workflow_forbidden'); };
+  await assert.rejects(performStageSubmission(stage,'','',undefined,failing.dependencies), /workflow_forbidden/);
+}
+{
+  const { calls, dependencies } = harness([initial,{...initial,workflow_version:8}]);
+  await assert.rejects(performStageSubmission('design_concept','','',undefined,dependencies), /workflow changed/);
+  assert.deepEqual(calls,['read','read'], 'blank submissions must still fail closed on stale workflow state');
 }
 {
   const { calls, dependencies } = harness([initial,{...initial,workflow_version:8}]);
@@ -87,6 +105,9 @@ for (const failureAt of ['upload','saveMetadata','submit']) {
 }
 const modal = readFileSync('src/components/StageSubmissionModal.tsx','utf8');
 assert.ok(modal.includes('type="file"'));
+assert.ok(modal.includes('Attach File (optional)'));
+assert.ok(modal.includes('File link (optional)'));
+assert.ok(!modal.includes('required='));
 assert.ok(!modal.includes('placeholder='));
 assert.ok(!modal.includes('Client Submission & Approval Request'));
 assert.ok(modal.includes('busyRef.current'));
@@ -99,4 +120,4 @@ assert.ok(tracker.includes('createSignedUrl(location.path, 600)'));
 for (const path of ['src/components/ProjectDetail.tsx','src/components/ClientProjectDetailModal.tsx','src/pages/ClientProjectsPage.tsx']) {
   assert.ok(readFileSync(path,'utf8').includes('ProjectFileLink'), `${path} must open private attachments safely`);
 }
-console.log('Stage submission: upload/link paths, validation, race protection, retry safety, optional final files, private links and UI wiring passed.');
+console.log('Stage submission: optional files/links at every stage, note-only and blank drafts, validation, race protection, retry safety, private links and UI wiring passed.');

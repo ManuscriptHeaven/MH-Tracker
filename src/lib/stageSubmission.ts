@@ -97,9 +97,7 @@ export async function performStageSubmission(
     proof = await dependencies.upload(file, project);
     if (projectFileLocation(proof, project.id)?.kind !== 'private') throw new Error('The uploaded file reference is invalid.');
   }
-  if (!proof && !currentStageProof(project) && project.workflow_stage_key !== 'final_delivery') {
-    throw new Error('Attach a file or add a file link before submitting.');
-  }
+  // Both proof inputs are optional; blank inputs preserve any saved file links.
   const patch: ProjectMetadataUpdate = {
     ...(proof ? { [stageProofField(project.workflow_stage_key)]: proof } : {}),
     ...(note.trim() ? { delivery_notes: note.trim() } : {}),
