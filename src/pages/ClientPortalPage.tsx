@@ -12,6 +12,7 @@ import {
   MessageSquare,
   Plus,
   Repeat2,
+  UploadCloud,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { StatusBadge } from '../components/Badges';
@@ -32,6 +33,7 @@ import type {
   RevisionRequestDraft,
 } from '../lib/types';
 import { cn } from '../lib/utils';
+import { canSubmitClientFiles, CLIENT_FILE_ACTION } from '../lib/clientFileSubmission';
 
 const closedRevisionStatuses: ClientRevisionStatus[] = ['Approved', 'Completed'];
 
@@ -233,11 +235,13 @@ function ProjectQuickActions({
   project,
   onRequestRevision,
   onApproveMilestone,
+  onSubmitFiles,
   compact = false,
 }: {
   project: Project;
   onRequestRevision: (projectId: string) => void;
   onApproveMilestone: (project: Project, milestone: ApprovalMilestone) => Promise<void>;
+  onSubmitFiles?: (project: Project) => void;
   compact?: boolean;
 }) {
   const summary = getTimelineSummary(project);
@@ -248,6 +252,11 @@ function ProjectQuickActions({
 
   return (
     <div className={cn('flex flex-wrap gap-2', compact && 'grid')}>
+      {canSubmitClientFiles(project) && onSubmitFiles ? (
+        <Button type="button" className={compact ? 'w-full justify-center' : undefined} onClick={() => onSubmitFiles(project)}>
+          <UploadCloud className="h-4 w-4" />Submit Files
+        </Button>
+      ) : null}
       {isApprovalPending ? (
         <Button type="button" className={compact ? 'w-full justify-center' : undefined} onClick={() => onApproveMilestone(project, milestone!)}>
           <CheckCircle2 className="h-4 w-4" />
@@ -276,12 +285,14 @@ function ClientProjectCard({
   onRequestRevision,
   onApproveMilestone,
   onSelectProject,
+  onSubmitFiles,
 }: {
   project: Project;
   projectRequests: RevisionRequest[];
   onRequestRevision: (projectId: string) => void;
   onApproveMilestone: (project: Project, milestone: ApprovalMilestone) => Promise<void>;
   onSelectProject?: (project: Project) => void;
+  onSubmitFiles?: (project: Project) => void;
 }) {
   const summary = getTimelineSummary(project);
   void projectRequests;
@@ -297,7 +308,7 @@ function ClientProjectCard({
             </span>
             <StatusBadge status={project.status} />
           </div>
-          <ProjectQuickActions project={project} onRequestRevision={onRequestRevision} onApproveMilestone={onApproveMilestone} />
+          <ProjectQuickActions project={project} onRequestRevision={onRequestRevision} onApproveMilestone={onApproveMilestone} onSubmitFiles={onSubmitFiles} />
         </div>
 
         {/* Project Title & Service */}
@@ -318,7 +329,7 @@ function ClientProjectCard({
         {summary.clientActionRequired ? (
           <div className="mt-3 rounded-md border border-gold/60 bg-[#fff8e8] px-3 py-2 text-xs font-semibold text-ink flex items-center gap-2">
             <AlertCircle className="h-3.5 w-3.5 shrink-0 text-gold" />
-            <span>Your action: {summary.clientActionRequired}</span>
+            <span>Your action: {canSubmitClientFiles(project) ? CLIENT_FILE_ACTION : summary.clientActionRequired}</span>
           </div>
         ) : null}
 
@@ -334,7 +345,7 @@ function ClientProjectCard({
           <div>
             <span className="text-[11px] uppercase tracking-wider font-semibold text-muted block">Waiting On</span>
             <p className={cn("mt-0.5 text-sm font-semibold", summary.waitingOn === 'Client' ? 'text-amber-800 font-bold' : 'text-ink')}>
-              {summary.waitingOn === 'Client' ? 'Your Approval Needed' : summary.waitingOn === 'Manuscript Heaven' ? 'Manuscript Heaven Team' : summary.waitingOn}
+              {canSubmitClientFiles(project) ? 'Your Files or Message Needed' : summary.waitingOn === 'Client' ? 'Your Approval Needed' : summary.waitingOn === 'Manuscript Heaven' ? 'Manuscript Heaven Team' : summary.waitingOn}
             </p>
           </div>
         </div>
@@ -372,10 +383,12 @@ function AttentionPanel({
   projects,
   onRequestRevision,
   onApproveMilestone,
+  onSubmitFiles,
 }: {
   projects: Project[];
   onRequestRevision: (projectId: string) => void;
   onApproveMilestone: (project: Project, milestone: ApprovalMilestone) => Promise<void>;
+  onSubmitFiles?: (project: Project) => void;
 }) {
   if (!projects.length) {
     return (
@@ -396,7 +409,7 @@ function AttentionPanel({
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gold">{project.project_number}</p>
                 <p className="mt-1 font-semibold leading-snug text-ink">{project.project_title}</p>
-                <p className="mt-1 text-sm text-muted">{summary.clientActionRequired || summary.nextMilestone}</p>
+                <p className="mt-1 text-sm text-muted">{canSubmitClientFiles(project) ? CLIENT_FILE_ACTION : summary.clientActionRequired || summary.nextMilestone}</p>
               </div>
               <TimelineBadge project={project} />
             </div>
@@ -405,6 +418,7 @@ function AttentionPanel({
                 project={project}
                 onRequestRevision={onRequestRevision}
                 onApproveMilestone={onApproveMilestone}
+                onSubmitFiles={onSubmitFiles}
                 compact
               />
             </div>
@@ -425,6 +439,7 @@ export function ClientPortalPage({
   onRespondToRevision,
   onApproveMilestone,
   onSelectProject,
+  onSubmitFiles,
 }: {
   projects: Project[];
   revisionRequests: RevisionRequest[];
@@ -435,6 +450,7 @@ export function ClientPortalPage({
   onRespondToRevision: (requestId: string, decision: Extract<ClientRevisionStatus, 'Approved'>) => Promise<void>;
   onApproveMilestone: (projectId: string, milestone: ApprovalMilestone) => Promise<void>;
   onSelectProject?: (project: Project) => void;
+  onSubmitFiles?: (project: Project) => void;
 }) {
   const [revisionProjectId, setRevisionProjectId] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<
@@ -604,6 +620,7 @@ export function ClientPortalPage({
                   onRequestRevision={setRevisionProjectId}
                   onApproveMilestone={approveMilestone}
                   onSelectProject={onSelectProject}
+                  onSubmitFiles={onSubmitFiles}
                 />
               ))}
             </div>
@@ -621,7 +638,7 @@ export function ClientPortalPage({
               <ListChecks className="h-5 w-5 text-gold" />
               <h2 className="font-display text-xl font-semibold">Needs Your Attention</h2>
             </div>
-            <AttentionPanel projects={attentionProjects} onRequestRevision={setRevisionProjectId} onApproveMilestone={approveMilestone} />
+            <AttentionPanel projects={attentionProjects} onRequestRevision={setRevisionProjectId} onApproveMilestone={approveMilestone} onSubmitFiles={onSubmitFiles} />
           </Card>
 
           <Card>

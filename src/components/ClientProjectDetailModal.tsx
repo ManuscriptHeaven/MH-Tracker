@@ -22,7 +22,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { PriorityBadge, StatusBadge } from './Badges';
 import { Button, Modal } from './ui';
 import { formatDate } from '../lib/date';
@@ -48,6 +48,7 @@ import { cn, firstName } from '../lib/utils';
 import { ProjectDiscussionChat } from './ProjectDiscussionChat';
 import { StageClock } from './StageClock';
 import { ClientApprovalConfirmDialog } from './ClientApprovalConfirmDialog';
+import { canSubmitClientFiles, validateClientFileSubmission, CLIENT_FILE_ACTION } from '../lib/clientFileSubmission';
 
 function approvalMilestoneForStage(stage: string): ApprovalMilestone | null {
   // Accept both normalized stage names and legacy status strings
@@ -110,8 +111,10 @@ export function ClientProjectDetailModal({
   onRequestRevision,
   onRespondToStageSkip,
   onRespondToRevision,
+  initialTab = 'overview',
 }: {
   project: Project;
+  initialTab?: 'overview' | 'files';
   profiles: Profile[];
   notes: ProjectNote[];
   revisions: RevisionNote[];
@@ -139,7 +142,7 @@ export function ClientProjectDetailModal({
   onRespondToStageSkip?: (requestId: string, approved: boolean) => Promise<void>;
   onRespondToRevision?: (requestId: string) => Promise<void>;
 }) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'files' | 'messages' | 'revisions' | 'activity'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'files' | 'messages' | 'revisions' | 'activity'>(initialTab);
   const [isApproving, setIsApproving] = useState(false);
   const [showApprovalConfirm, setShowApprovalConfirm] = useState(false);
   const [approvalError, setApprovalError] = useState<string | null>(null);
@@ -147,6 +150,8 @@ export function ClientProjectDetailModal({
   const [initialUploadNote, setInitialUploadNote] = useState('');
   const [isSubmittingInitialFiles, setIsSubmittingInitialFiles] = useState(false);
   const [initialFileError, setInitialFileError] = useState<string | null>(null);
+  const [initialSubmissionSuccess, setInitialSubmissionSuccess] = useState(false);
+  const initialSubmissionBusy = useRef(false);
   const [openingInitialFileId, setOpeningInitialFileId] = useState<string | null>(null);
   const [approvingRevisionId, setApprovingRevisionId] = useState<string | null>(null);
   const [revisionApprovalError, setRevisionApprovalError] = useState<string | null>(null);
@@ -166,9 +171,7 @@ export function ClientProjectDetailModal({
     () => initialFiles.filter((file) => file.project_id === project.id),
     [initialFiles, project.id],
   );
-  const waitingForInitialFiles =
-    project.workflow_stage_key === 'files_received' &&
-    (project.workflow_stage_status_key === 'pending' || project.stage_status === 'PENDING');
+  const waitingForInitialFiles = canSubmitClientFiles(project);
 
   const assignedEmployee = useMemo(
     () => profiles.find((p) => p.id === project.assigned_to),
@@ -275,19 +278,24 @@ export function ClientProjectDetailModal({
   );
 
   async function handleSubmitInitialFiles() {
-    if (!onSubmitInitialFiles || initialUploadFiles.length === 0) return;
+    if (!onSubmitInitialFiles || initialSubmissionBusy.current || !waitingForInitialFiles) return;
+    const validationError = validateClientFileSubmission(initialUploadFiles, initialUploadNote);
+    if (validationError) { setInitialFileError(validationError); return; }
+    initialSubmissionBusy.current = true;
     setInitialFileError(null);
     try {
       setIsSubmittingInitialFiles(true);
-      await onSubmitInitialFiles(project.id, initialUploadFiles, initialUploadNote);
+      await onSubmitInitialFiles(project.id, initialUploadFiles, initialUploadNote.trim());
+      setInitialSubmissionSuccess(true);
       setInitialUploadFiles([]);
       setInitialUploadNote('');
     } catch (error) {
       setInitialFileError(
-        error instanceof Error ? error.message : 'Files could not be submitted. Please try again.',
+        error instanceof Error ? error.message : 'Submission could not be completed. Please try again.',
       );
     } finally {
       setIsSubmittingInitialFiles(false);
+      initialSubmissionBusy.current = false;
     }
   }
 
@@ -433,7 +441,7 @@ export function ClientProjectDetailModal({
         {summary.clientActionRequired ? (
           <div className="mt-4 flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
             <AlertCircle className="h-4 w-4 shrink-0 text-amber-700" />
-            <span>Action Required: {summary.clientActionRequired}</span>
+            <span>Action Required: {waitingForInitialFiles ? CLIENT_FILE_ACTION : summary.clientActionRequired}</span>
           </div>
         ) : null}
 
@@ -454,7 +462,7 @@ export function ClientProjectDetailModal({
           <div className="rounded-lg border border-border bg-white p-3">
             <span className="text-xs font-medium text-muted">Waiting On</span>
             <p className={cn("mt-1 text-sm font-semibold", summary.waitingOn === 'Client' ? 'text-amber-800 font-bold' : 'text-ink')}>
-              {summary.waitingOn === 'Client' ? 'Your Approval Needed' : summary.waitingOn === 'Manuscript Heaven' ? 'Manuscript Heaven Team' : summary.waitingOn}
+              {waitingForInitialFiles ? 'Your Files or Message Needed' : summary.waitingOn === 'Client' ? 'Your Approval Needed' : summary.waitingOn === 'Manuscript Heaven' ? 'Manuscript Heaven Team' : summary.waitingOn}
             </p>
           </div>
         </div>
@@ -634,7 +642,8 @@ export function ClientProjectDetailModal({
 
         {activeTab === 'files' && (
           <div className="space-y-4">
-            {waitingForInitialFiles && onSubmitInitialFiles ? (
+            {initialSubmissionSuccess ? <p role="status" className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">Your submission was recorded and the team was notified. The project has started.</p> : null}
+            {waitingForInitialFiles && onSubmitInitialFiles && !initialSubmissionSuccess ? (
               <div className="rounded-xl border-2 border-dashed border-gold/50 bg-gold/[0.06] p-4 sm:p-5">
                 <div className="flex items-start gap-3">
                   <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gold/20 text-[#7a5518]">
@@ -644,14 +653,14 @@ export function ClientProjectDetailModal({
                     <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#7a5518]">Action Required</p>
                     <h4 className="mt-0.5 font-display text-lg font-semibold text-ink">Submit your project files</h4>
                     <p className="mt-1 text-xs leading-5 text-muted">
-                      As soon as you submit the required files, Files Received will complete automatically and the Design Concept production timer will start.
+                      As soon as you submit the required files or confirm they were already sent, production will start. Attachments are optional—use the message for files sent by email or WhatsApp.
                     </p>
                   </div>
                 </div>
 
                 <label className="mt-4 flex cursor-pointer flex-col items-center justify-center rounded-xl border border-border bg-white px-4 py-5 text-center transition hover:border-gold">
                   <UploadCloud className="h-6 w-6 text-gold" />
-                  <span className="mt-2 text-sm font-semibold text-ink">Choose project files</span>
+                  <span className="mt-2 text-sm font-semibold text-ink">Choose project files (optional)</span>
                   <span className="mt-1 text-[11px] text-muted">Up to 10 files · 100 MB each</span>
                   <input
                     type="file"
@@ -688,12 +697,15 @@ export function ClientProjectDetailModal({
                   </div>
                 ) : null}
 
+                {initialUploadFiles.length > 0 ? <Button type="button" variant="secondary" className="mt-2" disabled={isSubmittingInitialFiles} onClick={() => setInitialUploadFiles([])}>Remove attachments</Button> : null}
+                <label htmlFor="initial-submission-note" className="mt-3 block text-sm font-semibold">Message {initialUploadFiles.length ? '(optional)' : '(required without attachments)'}</label>
                 <textarea
+                  id="initial-submission-note"
                   value={initialUploadNote}
                   onChange={(event) => setInitialUploadNote(event.target.value)}
                   disabled={isSubmittingInitialFiles}
                   rows={2}
-                  placeholder="Optional note for the Manuscript Heaven team..."
+                  placeholder="For example: I already emailed the manuscript, or sent the files on WhatsApp."
                   className="mt-3 w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-gold disabled:opacity-60"
                 />
 
@@ -707,8 +719,8 @@ export function ClientProjectDetailModal({
                   <Button
                     type="button"
                     onClick={() => void handleSubmitInitialFiles()}
-                    disabled={isSubmittingInitialFiles || initialUploadFiles.length === 0}
-                    className="min-w-[190px]"
+                    disabled={isSubmittingInitialFiles || Boolean(validateClientFileSubmission(initialUploadFiles, initialUploadNote))}
+                    className="w-full sm:min-w-[190px] sm:w-auto"
                   >
                     {isSubmittingInitialFiles ? (
                       <LoaderCircle className="h-4 w-4 animate-spin" />

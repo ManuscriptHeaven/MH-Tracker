@@ -1,0 +1,115 @@
+// Disposable in-memory Postgres harness; never connects to Supabase/production.
+// Supply a locally installed PGlite module URL as argv[2]. No app dependency needed.
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const { PGlite } = await import(process.argv[2]);
+const db = new PGlite();
+const client = '11111111-1111-4111-8111-111111111111';
+const project = '22222222-2222-4222-8222-222222222222';
+const receipt = '33333333-3333-4333-8333-333333333333';
+await db.exec(`
+create role phase6_workflow_rpc_owner nologin;
+create role authenticated nologin; create role anon nologin;
+create type public.workflow_stage as enum ('files_received','design_concept');
+create type public.project_lifecycle_status as enum ('active','on_hold','completed','cancelled','archived');
+create table public.projects(id uuid primary key, client_profile_id uuid, project_status project_lifecycle_status,
+ workflow_stage_key workflow_stage, workflow_stage_status_key text, workflow_waiting_on_key text,
+ workflow_version bigint, stage_started_at timestamptz, workflow_settings jsonb,
+ requires_print boolean, requires_ebook boolean, service_capability_status text,
+ files_received_date date, requirements_submitted_at timestamptz, production_seconds_total bigint default 0,
+ client_wait_seconds_total bigint default 0, updated_at timestamptz, stage_due_at timestamptz, final_due_at timestamptz);
+create table public.project_initial_files(id uuid primary key,project_id uuid,uploaded_by uuid,file_name text,file_type text,file_size bigint,storage_path text,created_at timestamptz);
+create table public.project_stage_history(id uuid primary key,project_id uuid,reason text,events jsonb);
+create table public.project_notes(id uuid primary key,project_id uuid,note_type text,note text,added_by uuid,created_at timestamptz);
+alter table public.project_notes enable row level security;
+create table public.notifications(id uuid primary key,project_id uuid);
+create type public.workflow_mutation_result as (project_id uuid,workflow_version bigint,affected jsonb);
+create table public.receipts(id uuid primary key,result public.workflow_mutation_result);
+grant usage,create on schema public to phase6_workflow_rpc_owner;
+grant all on all tables in schema public to phase6_workflow_rpc_owner;
+revoke all on public.project_notes from phase6_workflow_rpc_owner;
+create function public._workflow_current_actor() returns table(actor_id uuid,actor_role text) language sql as $$ select current_setting('test.actor')::uuid,'client' $$;
+create function public.phase6_auth_uid() returns uuid language sql as $$ select current_setting('test.actor')::uuid $$;
+create function public._workflow_can_client_access(p uuid) returns boolean language sql as $$ select client_profile_id=current_setting('test.actor')::uuid from public.projects where id=p $$;
+create function public._workflow_lock_project(p uuid) returns public.projects language sql as $$ select * from public.projects where id=p $$;
+create function public._workflow_request_fingerprint(n text,p uuid,input jsonb) returns text language sql as $$ select input::text $$;
+create function public._workflow_receipt_lookup(n text,p uuid,k uuid,f text) returns public.workflow_mutation_result language sql as $$ select result from public.receipts where id=k $$;
+create function public._workflow_check_version(actual bigint,expected bigint) returns void language plpgsql as $$ begin if actual<>expected then raise exception 'workflow_stale_version'; end if; end $$;
+create function public._workflow_validate_tuple(p public.projects) returns void language plpgsql as $$ begin end $$;
+create function public._workflow_lock_mutation_rows(p uuid) returns void language plpgsql as $$ begin end $$;
+create function public._workflow_checked_manual_skips(p uuid) returns public.workflow_stage[] language sql as $$ select '{}'::public.workflow_stage[] $$;
+create function public._workflow_interval_delta(p uuid,s text,t timestamptz,n timestamptz,settings jsonb) returns table(production_seconds_delta bigint,client_wait_seconds_delta bigint) language sql as $$ select 0::bigint,60::bigint $$;
+create function public._workflow_next_stage(s public.workflow_stage,p boolean,e boolean,c text,m public.workflow_stage[],x boolean) returns table(next_stage public.workflow_stage,skipped_stages public.workflow_stage[],skip_reasons jsonb) language sql as $$ select 'design_concept'::public.workflow_stage,'{}'::public.workflow_stage[],'{}'::jsonb $$;
+create function public._workflow_enter_production(p public.projects,s public.workflow_stage,t timestamptz) returns public.projects language plpgsql as $$ begin p.workflow_stage_key:=s; p.workflow_stage_status_key:='active'; p.workflow_waiting_on_key:='team'; p.stage_started_at:=t; return p; end $$;
+create function public._workflow_route_events(p public.projects,s public.workflow_stage[],r jsonb) returns jsonb language sql as $$ select '[]'::jsonb $$;
+create function public._workflow_event(n text,b public.projects,a public.projects,l jsonb,m jsonb) returns jsonb language sql as $$ select jsonb_build_array(jsonb_build_object('event',n,'metadata',m,'links',l)) $$;
+create function public._workflow_compatibility_projection(p public.project_lifecycle_status,s public.workflow_stage,t text,w text) returns jsonb language sql as $$ select '{}'::jsonb $$;
+create function public._workflow_estimate_remaining_production(p public.projects,t timestamptz,s public.workflow_stage[],d timestamptz) returns timestamptz language sql as $$ select t+interval '7 days' $$;
+create function public._workflow_write_project(p public.projects) returns void language sql as $$ update public.projects set workflow_stage_key=p.workflow_stage_key,workflow_stage_status_key=p.workflow_stage_status_key,workflow_waiting_on_key=p.workflow_waiting_on_key,files_received_date=p.files_received_date,requirements_submitted_at=p.requirements_submitted_at,client_wait_seconds_total=p.client_wait_seconds_total where id=p.id $$;
+create function public._workflow_assert_project_projection(p public.projects) returns void language plpgsql as $$ begin end $$;
+create function public._workflow_assert_milestones(p public.projects) returns void language plpgsql as $$ begin end $$;
+create function public._workflow_emit_events(p uuid,e jsonb,prod bigint,client bigint,n text,t timestamptz,k uuid,c integer) returns uuid[] language plpgsql as $$ declare id uuid:=gen_random_uuid(); begin insert into public.project_stage_history values(id,p,n,e); return array[id]; end $$;
+create function public._workflow_notify(p public.projects,a text,n text,r uuid,t timestamptz) returns uuid[] language plpgsql as $$ declare id uuid:=gen_random_uuid(); begin insert into public.notifications values(id,p.id); return array[id]; end $$;
+create function public._workflow_make_result(p uuid,a jsonb,h uuid[]) returns public.workflow_mutation_result language sql as $$ select row(p,(select workflow_version from public.projects where id=p),a)::public.workflow_mutation_result $$;
+create function public._workflow_receipt_store(n text,p uuid,k uuid,f text,r public.workflow_mutation_result,t timestamptz) returns void language sql as $$ insert into public.receipts values(k,r) $$;
+insert into public.projects(id,client_profile_id,project_status,workflow_stage_key,workflow_stage_status_key,workflow_waiting_on_key,workflow_version) values ('${project}','${client}','active','files_received','pending','client',1);
+set test.actor='${client}';
+`);
+const base = fs.readFileSync('supabase/migrations/20260921000100_client_files_stage_clocks.sql','utf8');
+await db.exec(base.slice(base.indexOf('create or replace function public.workflow_client_submit_files('),base.indexOf('\nreset role;',base.indexOf('create or replace function public.workflow_client_submit_files('))));
+await db.exec(`alter function public.workflow_client_submit_files(uuid,bigint,uuid,jsonb,text) owner to phase6_workflow_rpc_owner;
+revoke all on function public.workflow_client_submit_files(uuid,bigint,uuid,jsonb,text) from public,anon;
+grant execute on function public.workflow_client_submit_files(uuid,bigint,uuid,jsonb,text) to authenticated;`);
+const catalog = () => db.query(`select proowner,proacl::text,proconfig,prosecdef from pg_proc where oid='public.workflow_client_submit_files(uuid,bigint,uuid,jsonb,text)'::regprocedure`);
+const before = (await catalog()).rows;
+const migration = fs.readdirSync('supabase/migrations').find(name=>name.endsWith('_optional_client_source_files.sql'));
+await db.exec(fs.readFileSync(`supabase/migrations/${migration}`,'utf8'));
+assert.deepEqual((await catalog()).rows,before,'owner, ACL, definer and search path unchanged');
+await db.exec('set role authenticated');
+await assert.rejects(()=>db.query(`insert into public.project_notes values(gen_random_uuid(),$1,'client_instruction','Bypass',$2,now())`,[project,client]),/permission denied/,'ordinary clients gain no direct notes write access');
+await db.exec('reset role; set role phase6_workflow_rpc_owner');
+await assert.rejects(()=>db.query(`insert into public.project_notes values(gen_random_uuid(),$1,'internal','Bypass',$2,now())`,[project,client]),/row-level security/,'RPC owner can only insert client_instruction notes');
+await assert.rejects(()=>db.query(`insert into public.project_notes values(gen_random_uuid(),$1,'client_instruction','Bypass',$2,now())`,[project,receipt]),/row-level security/,'actor identity is checked by notes RLS');
+await db.exec('reset role');
+const submit = (files,note,version=1,key=receipt) => db.query('select * from public.workflow_client_submit_files($1,$2,$3,$4::jsonb,$5)',[project,version,key,JSON.stringify(files),note]);
+for (const note of [null,'','   ','\t\n']) await assert.rejects(()=>submit([],note),/workflow_file_note_required/);
+for (const files of [null,{},Array(11).fill({})]) await assert.rejects(()=>submit(files,'Already sent'),/workflow_invalid_file_submission/);
+await assert.rejects(()=>submit([],'Already sent',0),/workflow_stale_version/);
+await db.exec("set test.actor='44444444-4444-4444-8444-444444444444'");
+await assert.rejects(()=>submit([],'Already sent'),/workflow_forbidden/);
+await db.exec(`set test.actor='${client}'`);
+for (const status of ['on_hold','completed','cancelled','archived']) {
+  await db.query('update public.projects set project_status=$1 where id=$2',[status,project]);
+  await assert.rejects(()=>submit([],'Already sent'),/workflow_invalid_state/);
+}
+await db.exec(`update public.projects set project_status='active',workflow_stage_key='design_concept'`);
+await assert.rejects(()=>submit([],'Already sent'),/workflow_invalid_state/);
+await db.exec("update public.projects set workflow_stage_key='files_received'");
+assert.equal((await db.query('select count(*)::int as n from public.project_notes')).rows[0].n,0);
+const result = await submit([],'Already sent through WhatsApp');
+assert.equal(result.rows[0].workflow_version,2);
+const advanced = (await db.query('select * from public.projects')).rows[0];
+assert.equal(advanced.workflow_stage_key,'design_concept');
+assert.equal(advanced.workflow_waiting_on_key,'team');
+assert.ok(advanced.requirements_submitted_at && advanced.files_received_date);
+assert.equal(advanced.client_wait_seconds_total,60);
+assert.deepEqual(result.rows[0].affected.initial_file_ids,[]);
+assert.ok(result.rows[0].affected.source_submission_note_id);
+const saved = (await db.query('select * from public.project_notes')).rows;
+assert.equal(saved[0].added_by,client);
+assert.match(saved[0].note,/Files provided outside the portal: Already sent through WhatsApp/);
+const history = (await db.query('select * from public.project_stage_history')).rows;
+assert.equal(history[0].reason,'Already sent through WhatsApp');
+assert.equal(history[0].events[0].metadata.source,'off_platform_file_confirmation');
+assert.deepEqual((await submit([],'Already sent through WhatsApp')).rows,result.rows,'receipt replay does not reapply');
+for (const table of ['project_notes','project_stage_history','notifications','receipts']) assert.equal((await db.query(`select count(*)::int n from public.${table}`)).rows[0].n,1,`${table} emitted once`);
+assert.equal((await db.query('select count(*)::int n from public.project_initial_files')).rows[0].n,0,'no invented attachment');
+await db.exec("update public.projects set workflow_stage_key='files_received',workflow_stage_status_key='pending',workflow_version=3");
+const attached = {id:'55555555-5555-4555-8555-555555555555',file_name:'manuscript.pdf',file_type:'application/pdf',file_size:100,storage_path:`${project}/${client}/manuscript.pdf`};
+const filesResult = await submit([attached],null,3,'66666666-6666-4666-8666-666666666666');
+assert.equal(filesResult.rows[0].workflow_version,4);
+assert.equal((await db.query('select count(*)::int n from public.project_initial_files')).rows[0].n,1,'existing attached-file path preserved');
+assert.equal((await db.query('select count(*)::int n from public.project_notes')).rows[0].n,1,'optional blank note creates no record');
+await assert.rejects(()=>db.exec(fs.readFileSync(`supabase/migrations/${migration}`,'utf8')),/definition_drift/,'unexpected/reapplied definition fails closed');
+await db.close();
+console.log('Disposable Postgres migration/RPC harness passed: note-only, files, access, lifecycle, stale version, audit, replay and ACL. Helpers are mocked; this is not a full production integration test.');

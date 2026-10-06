@@ -8,6 +8,8 @@ export const WORKFLOW_DOMAIN_MESSAGES = {
   workflow_stale_version: 'This project changed in another session. Fresh project data has been loaded; review it before trying again.',
   idempotency_key_reused: 'This request key was already used for different workflow input. Start the action again.',
   workflow_invalid_state: 'The project is no longer in a state that permits this action.',
+  workflow_file_note_required: 'Tell us where you already sent the files (email or WhatsApp), or attach them here.',
+  workflow_invalid_file_submission: 'Check your attachments. Submit up to 10 files, each no larger than 100 MB.',
   service_capabilities_unresolved: 'Confirm whether this project requires print, ebook, or both before continuing.',
   workflow_invalid_capabilities: 'The selected service capabilities are invalid for this workflow.',
   workflow_revision_not_ready: 'The current revision is not ready for this action.',

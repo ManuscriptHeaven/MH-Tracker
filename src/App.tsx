@@ -40,6 +40,7 @@ export default function App() {
   const [activeView, setActiveView] = useState<ViewKey>('dashboard');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [clientProjectTab, setClientProjectTab] = useState<'overview' | 'files'>('overview');
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [showProjectForm, setShowProjectForm] = useState(false);
   const [showRevisionModal, setShowRevisionModal] = useState(false);
@@ -87,10 +88,14 @@ export default function App() {
 
   function openAddProject() { setEditingProject(null); setShowProjectForm(true); }
   function openEditProject(project: Project) { setEditingProject(project); setShowProjectForm(true); }
+  function openClientProject(project: Project, tab: 'overview' | 'files' = 'overview') {
+    setClientProjectTab(tab);
+    setSelectedProject(project);
+  }
   function openProjectById(projectId: string) {
     const project = visibleProjects.find((item) => item.id === projectId);
     if (!project) { setToast({ message: 'Project is not visible for this user.', tone: 'error' }); return; }
-    setSelectedProject(project);
+    openClientProject(project);
   }
   function onRequestArchive(project: Project) {
     setProjectToArchive(project);
@@ -207,7 +212,7 @@ export default function App() {
     searchTerm,
     canManageAll: tracker.canManageAll,
     currentProfile: tracker.currentProfile,
-    onSelectProject: setSelectedProject,
+    onSelectProject: openClientProject,
     onEditProject: openEditProject,
     onRequestArchive,
     onArchiveProject: onRequestArchive,
@@ -240,7 +245,7 @@ export default function App() {
     onAddDependency: async (taskId: string, dependsOnTaskId: string) => { await tracker.addTaskDependency(taskId, dependsOnTaskId); },
     onRemoveDependency: tracker.removeTaskDependency,
     onCreateSubtask: async (parentTaskId: string, draft: Parameters<typeof tracker.createTask>[0]) => { await tracker.createSubtask(parentTaskId, draft); },
-    onSelectProject: setSelectedProject,
+    onSelectProject: openClientProject,
   };
 
   return (
@@ -267,7 +272,8 @@ export default function App() {
             throw error;
           }
         }}
-        onSelectProject={setSelectedProject}
+        onSelectProject={openClientProject}
+        onSubmitFiles={(project) => openClientProject(project, 'files')}
       />
     )}
     {activeView === 'dashboard' && !isClient && <DashboardPage projects={visibleProjects} profiles={tracker.data.profiles} canViewPayments={tracker.canManageAll} canManageProjects={tracker.canManageAll} currentProfileId={tracker.currentProfile.id} onAddProject={openAddProject} onSelectProject={setSelectedProject} />}
@@ -276,7 +282,7 @@ export default function App() {
         <AIAssistantPage projects={visibleProjects} currentProfile={tracker.currentProfile} />
       </ErrorBoundary>
     )}
-    {activeView === 'projects' && isClient && <ClientProjectsPage projects={visibleProjects} searchTerm={searchTerm} onSelectProject={setSelectedProject} />}
+    {activeView === 'projects' && isClient && <ClientProjectsPage projects={visibleProjects} searchTerm={searchTerm} onSelectProject={openClientProject} onSubmitFiles={(project) => openClientProject(project, 'files')} />}
     {activeView === 'projects' && !isClient && <ProjectsPage {...pageProps} />}
     {activeView === 'my_tasks' && <TasksPage {...taskPageProps} mode="personal" tasks={tracker.visibleTasks} />}
     {activeView === 'team_tasks' && tracker.canManageAll && <TasksPage {...taskPageProps} mode="team" tasks={tracker.teamTasks} />}
@@ -300,7 +306,7 @@ export default function App() {
         onJumpHandled={() => setJumpToConversationId(null)}
       />
     )}
-    {activeView === 'calendar' && <CalendarPage projects={visibleProjects} onSelectProject={setSelectedProject} />}
+    {activeView === 'calendar' && <CalendarPage projects={visibleProjects} onSelectProject={openClientProject} />}
     {activeView === 'attendance' && !isClient && (
       <AttendancePage
         currentProfile={tracker.currentProfile}
@@ -449,6 +455,8 @@ export default function App() {
     )}
     {selectedProjectFresh && isClient && (
       <ClientProjectDetailModal
+        key={selectedProjectFresh.id}
+        initialTab={clientProjectTab}
         project={selectedProjectFresh}
         profiles={tracker.data.profiles}
         notes={tracker.data.projectNotes}

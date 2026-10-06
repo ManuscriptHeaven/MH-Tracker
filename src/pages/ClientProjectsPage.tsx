@@ -1,4 +1,4 @@
-import { FileText } from 'lucide-react';
+import { FileText, UploadCloud } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { PriorityBadge, StatusBadge } from '../components/Badges';
 import { Button, Card, EmptyState } from '../components/ui';
@@ -6,6 +6,7 @@ import { activeClientProjectStatuses, closedStatuses } from '../lib/constants';
 import { formatDate } from '../lib/date';
 import type { Project } from '../lib/types';
 import { cn } from '../lib/utils';
+import { canSubmitClientFiles } from '../lib/clientFileSubmission';
 
 type ClientProjectFilter = 'all' | 'active' | 'completed' | 'cancelled' | 'archived';
 
@@ -53,10 +54,12 @@ export function ClientProjectsPage({
   projects,
   searchTerm,
   onSelectProject,
+  onSubmitFiles,
 }: {
   projects: Project[];
   searchTerm: string;
   onSelectProject?: (project: Project) => void;
+  onSubmitFiles?: (project: Project) => void;
 }) {
   const [filter, setFilter] = useState<ClientProjectFilter>('all');
   const normalizedSearch = searchTerm.trim().toLowerCase();
@@ -139,6 +142,11 @@ export function ClientProjectsPage({
                   <p className="mt-1 text-sm text-muted">
                     {project.service_type} | Due {formatDate(project.due_date)}
                   </p>
+                  {canSubmitClientFiles(project) && onSubmitFiles ? (
+                    <Button type="button" className="mt-3" onClick={() => onSubmitFiles(project)}>
+                      <UploadCloud className="h-4 w-4" />Submit Files
+                    </Button>
+                  ) : null}
                   {onSelectProject ? (
                     <button
                       type="button"
