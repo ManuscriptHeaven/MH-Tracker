@@ -23,6 +23,7 @@ import {
   X,
 } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
+import { ProjectFileLink, type ProjectFileResolver } from './ProjectFileLink';
 import { PriorityBadge, StatusBadge } from './Badges';
 import { Button, Modal } from './ui';
 import { formatDate } from '../lib/date';
@@ -106,6 +107,7 @@ export function ClientProjectDetailModal({
   onMarkRead,
   onSubmitInitialFiles,
   onGetInitialFileUrl,
+  onGetProjectFileUrl,
   onClose,
   onApproveMilestone,
   onRequestRevision,
@@ -136,6 +138,7 @@ export function ClientProjectDetailModal({
   onMarkRead?: (conversationId: string) => void;
   onSubmitInitialFiles?: (projectId: string, files: File[], note?: string) => Promise<unknown>;
   onGetInitialFileUrl?: (file: ProjectInitialFile) => Promise<string>;
+  onGetProjectFileUrl?: ProjectFileResolver;
   onClose: () => void;
   onApproveMilestone: (projectId: string, milestone: ApprovalMilestone) => Promise<void>;
   onRequestRevision: (projectId: string) => void;
@@ -774,11 +777,9 @@ export function ClientProjectDetailModal({
                     </h4>
                     <div className="grid gap-2 sm:grid-cols-2">
                       {group.files.map((file, idx) => (
-                        <a
+                        <ProjectFileLink
                           key={idx}
-                          href={file.url}
-                          target="_blank"
-                          rel="noreferrer"
+                          url={file.url} projectId={project.id} resolve={onGetProjectFileUrl}
                           className="flex items-center justify-between gap-3 rounded-md border border-border bg-ivory p-3 text-sm transition hover:border-gold hover:bg-white"
                         >
                           <div className="min-w-0">
@@ -786,7 +787,7 @@ export function ClientProjectDetailModal({
                             <p className="text-xs text-muted">{file.source}</p>
                           </div>
                           <Download className="h-4 w-4 shrink-0 text-gold" />
-                        </a>
+                        </ProjectFileLink>
                       ))}
                     </div>
                   </div>

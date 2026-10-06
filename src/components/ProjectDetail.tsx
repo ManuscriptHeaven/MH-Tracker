@@ -66,6 +66,9 @@ import { ProjectTimelinePanel, TimelineBadge } from './ProjectTimeline';
 import { ProjectDiscussionChat } from './ProjectDiscussionChat';
 import { ScheduleAccountability } from './ScheduleAccountability';
 import { FinalDeliveryModal } from './FinalDeliveryModal';
+import { StageSubmissionModal } from './StageSubmissionModal';
+import { currentStageProof, privateProjectFileName } from '../lib/stageSubmission';
+import { ProjectFileLink, type ProjectFileResolver } from './ProjectFileLink';
 import { UserAvatar } from './UserAvatar';
 import { Button, Card, Field, Modal, SelectField, TextareaField } from './ui';
 
@@ -128,6 +131,7 @@ export function ProjectDetail({
   onUploadRevisedProof,
   onGetRevisionAttachmentUrl,
   onGetInitialFileUrl,
+  onGetProjectFileUrl,
   onResolveClientReminder,
   conversations = [],
   messages = [],
@@ -167,6 +171,7 @@ export function ProjectDetail({
   onUploadRevisedProof: (requestId: string, file: File, teamResponse?: string) => Promise<void>;
   onGetRevisionAttachmentUrl: (attachmentId: string) => Promise<string>;
   onGetInitialFileUrl?: (file: ProjectInitialFile) => Promise<string>;
+  onGetProjectFileUrl?: ProjectFileResolver;
   onResolveClientReminder?: (reminderId: string, status: 'sent' | 'dismissed') => Promise<void>;
   conversations?: Conversation[];
   messages?: ChatMessage[];
@@ -178,7 +183,7 @@ export function ProjectDetail({
   ) => Promise<ChatMessage>;
   onGetOrCreateProjectConversation?: (projectId: string, isInternal: boolean) => Promise<Conversation>;
   onMarkRead?: (conversationId: string) => void;
-  onSubmitStageForApproval?: (submissionNote?: string, fileUrl?: string) => Promise<void>;
+  onSubmitStageForApproval?: (submissionNote?: string, fileUrl?: string, file?: File) => Promise<void>;
   onRequestStageSkip?: (stage: OfficialTimelineStage, reason: string) => Promise<any>;
   onAdminWorkflowOverride?: (newStage: TimelineStage, reason: string, explanation: string) => Promise<any>;
 }) {
@@ -193,8 +198,6 @@ export function ProjectDetail({
   const [showSkipModal, setShowSkipModal] = useState(false);
   const [showAdminOverrideModal, setShowAdminOverrideModal] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
-  const [submissionNote, setSubmissionNote] = useState('');
-  const [submissionFileUrl, setSubmissionFileUrl] = useState('');
   const [skipTargetStage, setSkipTargetStage] = useState<OfficialTimelineStage>('Ebook Version');
   const [skipReason, setSkipReason] = useState('');
   const [overrideTargetStage, setOverrideTargetStage] = useState<TimelineStage>('Print Version');
@@ -245,17 +248,6 @@ export function ProjectDetail({
   }, [project.id, revisionRequests]);
 
   const openSubmitModal = () => {
-    const norm = normalizeStage(project.current_stage || project.status);
-    const initialUrl =
-      norm === 'Files Received' || norm === 'Design Concept' || norm === 'Concept Approval'
-        ? project.cover_file_link || project.proof_pdf_link || ''
-        : norm === 'Print Version' || norm === 'Print Approval'
-          ? project.proof_pdf_link || project.final_print_pdf_link || ''
-          : norm === 'Ebook Version' || norm === 'Ebook Approval'
-            ? project.final_ebook_link || ''
-            : project.final_print_pdf_link || project.other_links || '';
-    setSubmissionFileUrl(initialUrl);
-    setSubmissionNote('');
     setShowSubmitModal(true);
   };
 
@@ -1053,17 +1045,15 @@ export function ProjectDetail({
                               >
                                 <div className="min-w-0">
                                   <p className="font-semibold text-ink truncate">{file.name}</p>
-                                  <p className="text-[10px] text-muted truncate mt-0.5">{file.url}</p>
+                                  <p className="text-[10px] text-muted truncate mt-0.5">{privateProjectFileName(file.url) || file.url}</p>
                                 </div>
-                                <a
-                                  href={file.url}
-                                  target="_blank"
-                                  rel="noreferrer"
+                                <ProjectFileLink
+                                  url={file.url} projectId={project.id} resolve={onGetProjectFileUrl}
                                   className="shrink-0 rounded-md bg-gold/15 p-1.5 text-ink hover:bg-gold hover:text-white transition"
                                   title="Open file link"
                                 >
                                   <ExternalLink className="h-3.5 w-3.5" />
-                                </a>
+                                </ProjectFileLink>
                               </div>
                             ))}
                           </div>
@@ -1546,7 +1536,7 @@ export function ProjectDetail({
 
       {/* Submit Stage Modal with Explanatory Notes & File Attachment */}
       {showSubmitModal && (
-        <Modal
+        <StageSubmissionModal
           title={
             isRevisionActive
               ? `Submit ${
@@ -1559,67 +1549,14 @@ export function ProjectDetail({
               : `Submit ${project.current_stage || 'Deliverable'} for Client Review`
           }
           onClose={() => setShowSubmitModal(false)}
-          width="max-w-lg"
-        >
-          <div className="space-y-4 text-xs">
-            <div className="rounded-lg border border-gold/30 bg-ivory/60 p-3 text-ink font-medium flex items-start gap-2">
-              <Clock3 className="h-4 w-4 shrink-0 text-gold mt-0.5" />
-              <div>
-                <strong>{isRevisionActive ? 'Revision Submission & Approval Request' : 'Client Submission & Approval Request'}</strong>
-                <p className="mt-0.5 text-muted">
-                  {isRevisionActive
-                    ? 'Submitting this revised proof will pause the internal production clock, set status to Awaiting Client Approval, and send a notification with your attached revised file & notes to the client.'
-                    : 'Submitting this proof will pause the internal production clock, set status to Awaiting Client Approval, and send a notification with your attached file & review notes to the client.'}
-                </p>
-              </div>
-            </div>
-
-            <TextareaField
-              label="Explanatory Note / Instructions for Client"
-              placeholder={
-                isRevisionActive
-                  ? "e.g. We have updated the proof according to your revision requests. Please review the updated layout/files..."
-                  : "e.g. We have completed the formatting and cover proof. Please review pages 1-250 and let us know if any revisions are needed..."
-              }
-              value={submissionNote}
-              onChange={(e) => setSubmissionNote(e.target.value)}
-              rows={4}
-            />
-
-            <Field
-              label="Deliverable / Proof File Link (URL or Google Drive)"
-              placeholder="https://drive.google.com/file/d/example-proof.pdf"
-              value={submissionFileUrl}
-              onChange={(e) => setSubmissionFileUrl(e.target.value)}
-            />
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-border">
-              <Button type="button" variant="secondary" onClick={() => setShowSubmitModal(false)}>
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                onClick={async () => {
-                  setIsSubmittingWorkflow(true);
-                  try {
-                    if (onSubmitStageForApproval) {
-                      await onSubmitStageForApproval(submissionNote, submissionFileUrl);
-                    }
-                    setShowSubmitModal(false);
-                    setSubmissionNote('');
-                  } finally {
-                    setIsSubmittingWorkflow(false);
-                  }
-                }}
-                disabled={isSubmittingWorkflow}
-                className="bg-gold text-white font-semibold hover:bg-gold/90"
-              >
-                <Send className="h-3.5 w-3.5" />
-                {isRevisionActive ? 'Submit Revision & Notify Client' : 'Submit & Notify Client'}
-              </Button>
-            </div>
-          </div>
-        </Modal>
+          initialUrl={currentStageProof(project)}
+          onSubmit={async (note, link, file) => {
+            if (!onSubmitStageForApproval) throw new Error('Stage submission is unavailable. Reload the project.');
+            setIsSubmittingWorkflow(true);
+            try { await onSubmitStageForApproval(note, link, file); }
+            finally { setIsSubmittingWorkflow(false); }
+          }}
+        />
       )}
 
       {/* Request Stage Skip Modal */}

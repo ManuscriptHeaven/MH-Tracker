@@ -3,6 +3,7 @@ import { CheckCircle2, FileCheck } from 'lucide-react';
 import type { Project, ProjectMetadataUpdate } from '../lib/types';
 import { FinalDeliveryFilesSavedError, submitFinalDeliveryWithFiles } from '../lib/finalDelivery';
 import { formatWorkflowErrorMessage } from '../lib/workflowErrors';
+import { privateProjectFileName } from '../lib/stageSubmission';
 import { Button, Field, Modal, TextareaField } from './ui';
 
 export function FinalDeliveryModal({
@@ -18,8 +19,10 @@ export function FinalDeliveryModal({
   onComplete: (note?: string) => Promise<void>;
   onClose: () => void;
 }) {
-  const [printUrl, setPrintUrl] = useState(project.final_print_pdf_link || '');
-  const [ebookUrl, setEbookUrl] = useState(project.final_ebook_link || '');
+  const savedPrintAttachment = privateProjectFileName(project.final_print_pdf_link || '');
+  const savedEbookAttachment = privateProjectFileName(project.final_ebook_link || '');
+  const [printUrl, setPrintUrl] = useState(savedPrintAttachment ? '' : project.final_print_pdf_link || '');
+  const [ebookUrl, setEbookUrl] = useState(savedEbookAttachment ? '' : project.final_ebook_link || '');
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -64,13 +67,17 @@ export function FinalDeliveryModal({
           {project.requires_print && (
             <div className="space-y-1.5">
               <Field label="Final Print-Ready PDF URL (optional)" type="url" placeholder="https://drive.google.com/..." value={printUrl} readOnly={!canEditFiles} disabled={isSubmitting} onChange={(event) => setPrintUrl(event.target.value)} />
+              {savedPrintAttachment && <p className="text-xs text-muted">Saved attachment: {savedPrintAttachment}</p>}
               {!project.final_print_pdf_link?.trim() && project.proof_pdf_link?.trim() && (
                 <p className="text-xs text-muted">An Interior Proof PDF is saved. You may add a separate final print-ready link, or complete delivery without one.</p>
               )}
             </div>
           )}
           {project.requires_ebook && (
+            <div className="space-y-1.5">
             <Field label="Final eBook / EPUB URL (optional)" type="url" placeholder="https://drive.google.com/..." value={ebookUrl} readOnly={!canEditFiles} disabled={isSubmitting} onChange={(event) => setEbookUrl(event.target.value)} />
+            {savedEbookAttachment && <p className="text-xs text-muted">Saved attachment: {savedEbookAttachment}</p>}
+            </div>
           )}
           <p className="text-xs text-muted">Leave links blank to complete without adding files. Existing saved links are kept.</p>
         </div>

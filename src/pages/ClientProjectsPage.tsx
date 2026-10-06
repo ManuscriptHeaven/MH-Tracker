@@ -1,4 +1,5 @@
 import { FileText, UploadCloud } from 'lucide-react';
+import { ProjectFileLink, type ProjectFileResolver } from '../components/ProjectFileLink';
 import { useMemo, useState } from 'react';
 import { PriorityBadge, StatusBadge } from '../components/Badges';
 import { Button, Card, EmptyState } from '../components/ui';
@@ -55,11 +56,13 @@ export function ClientProjectsPage({
   searchTerm,
   onSelectProject,
   onSubmitFiles,
+  onGetProjectFileUrl,
 }: {
   projects: Project[];
   searchTerm: string;
   onSelectProject?: (project: Project) => void;
   onSubmitFiles?: (project: Project) => void;
+  onGetProjectFileUrl?: ProjectFileResolver;
 }) {
   const [filter, setFilter] = useState<ClientProjectFilter>('all');
   const normalizedSearch = searchTerm.trim().toLowerCase();
@@ -164,9 +167,9 @@ export function ClientProjectsPage({
                     Latest File
                   </div>
                   {proof ? (
-                    <a href={proof} target="_blank" rel="noreferrer" className="break-all text-sm font-semibold text-info">
+                    <ProjectFileLink url={proof} projectId={project.id} resolve={onGetProjectFileUrl} className="break-all text-sm font-semibold text-info">
                       Open shared file
-                    </a>
+                    </ProjectFileLink>
                   ) : (
                     <p className="text-sm text-muted">No proof or delivery file has been shared yet.</p>
                   )}
