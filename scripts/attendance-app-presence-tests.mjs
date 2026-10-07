@@ -12,6 +12,7 @@ function assert(condition, message) {
 const migration = fs.readFileSync('supabase/migrations/20260921000800_attendance_app_presence.sql', 'utf8');
 const offlineMigration = fs.readFileSync('supabase/migrations/20260923122430_attendance_offline_resilience.sql', 'utf8');
 const tracker = fs.readFileSync('src/lib/useTracker.ts', 'utf8');
+const presencePolicy = fs.readFileSync('src/lib/attendancePresence.ts', 'utf8');
 const page = fs.readFileSync('src/pages/AttendancePage.tsx', 'utf8');
 const types = fs.readFileSync('src/lib/types.ts', 'utf8');
 const app = fs.readFileSync('src/App.tsx', 'utf8');
@@ -73,6 +74,23 @@ assert(
   tracker.includes('await attendanceFlushRef.current?.();') &&
     tracker.includes('Never let realtime move that timer backward'),
   'break/clock-out actions flush pending time and realtime cannot roll the local timer backward',
+);
+
+assert(
+  presencePolicy.includes('ATTENDANCE_SLEEP_CLOCK_SKEW_MS') &&
+    presencePolicy.includes('evaluateAttendancePresenceSample') &&
+    presencePolicy.includes("pauseReason = 'screen_locked'") &&
+    presencePolicy.includes("pauseReason = 'sleep_detected'"),
+  'attendance policy separates minimized/background runtime from screen-lock and sleep gaps',
+);
+
+assert(
+  tracker.includes('IdleDetectorCtor.requestPermission()') &&
+    tracker.includes("detector.screenState === 'locked'") &&
+    tracker.includes('attendanceMonotonicNow()') &&
+    tracker.includes("document.addEventListener('resume'") &&
+    tracker.includes('Hidden/minimized is still valid office time'),
+  'desktop attendance uses progressive screen-lock detection and dual clocks without pausing on minimize',
 );
 
 assert(
