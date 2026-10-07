@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabase';
+import { evaluateAttendancePresenceSample } from './attendancePresence';
 import { canSubmitClientFiles, validateClientFileSubmission } from './clientFileSubmission';
 import { sampleData, sampleProfiles } from './sampleData';
 import { errorMessage, firstName, isClientRole, isManagerRole } from './utils';
@@ -129,9 +130,35 @@ const ATTENDANCE_PENDING_STORAGE_PREFIX = 'mh_attendance_pending_seconds_v1';
 type AttendancePresenceRuntime = {
   sessionId: string | null;
   lastSampleAtMs: number;
+  lastMonotonicAtMs: number;
+  fractionalMs: number;
   pendingSeconds: number;
   flushing: boolean;
+  screenLocked: boolean;
+  pageAway: boolean;
 };
+
+type AttendanceIdleDetector = EventTarget & {
+  screenState: 'locked' | 'unlocked' | null;
+  start: (options?: { threshold?: number; signal?: AbortSignal }) => Promise<void>;
+};
+
+type AttendanceIdleDetectorConstructor = {
+  new (): AttendanceIdleDetector;
+  requestPermission: () => Promise<'granted' | 'denied'>;
+};
+
+function getAttendanceIdleDetectorConstructor(): AttendanceIdleDetectorConstructor | null {
+  if (typeof window === 'undefined') return null;
+  return (window as Window & { IdleDetector?: AttendanceIdleDetectorConstructor }).IdleDetector || null;
+}
+
+function attendanceMonotonicNow() {
+  if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+    return performance.now();
+  }
+  return Date.now();
+}
 
 function attendancePendingStorageKey(userId: string, sessionId: string) {
   return `${ATTENDANCE_PENDING_STORAGE_PREFIX}:${userId}:${sessionId}`;
@@ -928,10 +955,15 @@ export function useTracker() {
   const attendancePresenceRef = useRef<AttendancePresenceRuntime>({
     sessionId: null,
     lastSampleAtMs: 0,
+    lastMonotonicAtMs: 0,
+    fractionalMs: 0,
     pendingSeconds: 0,
     flushing: false,
+    screenLocked: false,
+    pageAway: false,
   });
   const attendanceFlushRef = useRef<(() => Promise<void>) | null>(null);
+  const attendanceIdlePermissionRef = useRef<'unknown' | 'granted' | 'denied' | 'unsupported'>('unknown');
 
   const loadSupabaseData = useCallback(async (profile: Profile) => {
     if (!supabase) {
@@ -4473,6 +4505,19 @@ export function useTracker() {
       throw new Error('Verified attendance can only be started from MH Tracker on a laptop or desktop.');
     }
 
+    const IdleDetectorCtor = getAttendanceIdleDetectorConstructor();
+    if (IdleDetectorCtor && attendanceIdlePermissionRef.current === 'unknown') {
+      try {
+        // This call happens directly from the Clock In click, which satisfies the
+        // transient-user-activation requirement in supporting Chromium/PWA clients.
+        attendanceIdlePermissionRef.current = await IdleDetectorCtor.requestPermission();
+      } catch {
+        attendanceIdlePermissionRef.current = 'denied';
+      }
+    } else if (!IdleDetectorCtor) {
+      attendanceIdlePermissionRef.current = 'unsupported';
+    }
+
     if (supabase && mode === 'supabase') {
       const { data: session, error: clockError } = await supabase.rpc('attendance_clock_in', { p_note: note });
       if (clockError) throw clockError;
@@ -4592,8 +4637,12 @@ export function useTracker() {
       attendanceFlushRef.current = null;
       attendancePresenceRef.current.sessionId = null;
       attendancePresenceRef.current.lastSampleAtMs = 0;
+      attendancePresenceRef.current.lastMonotonicAtMs = 0;
+      attendancePresenceRef.current.fractionalMs = 0;
       attendancePresenceRef.current.pendingSeconds = 0;
       attendancePresenceRef.current.flushing = false;
+      attendancePresenceRef.current.screenLocked = false;
+      attendancePresenceRef.current.pageAway = false;
       return undefined;
     }
 
@@ -4602,32 +4651,72 @@ export function useTracker() {
     )?.id || null;
 
     const runtime = attendancePresenceRef.current;
+
+    const resetRuntimeClock = () => {
+      runtime.lastSampleAtMs = Date.now();
+      runtime.lastMonotonicAtMs = attendanceMonotonicNow();
+      runtime.fractionalMs = 0;
+    };
+
     if (runtime.sessionId !== activeSession.id) {
       runtime.sessionId = activeSession.id;
-      runtime.lastSampleAtMs = Date.now();
+      resetRuntimeClock();
       runtime.pendingSeconds = readAttendancePendingSeconds(currentProfile.id, activeSession.id);
       runtime.flushing = false;
-    } else if (!runtime.lastSampleAtMs) {
-      runtime.lastSampleAtMs = Date.now();
+      runtime.screenLocked = false;
+      runtime.pageAway = false;
+    } else if (!runtime.lastSampleAtMs || !runtime.lastMonotonicAtMs) {
+      resetRuntimeClock();
     }
 
     let cancelled = false;
+    const idleController = new AbortController();
 
-    const accrueLocalPresence = () => {
+    const markLocalPresenceNow = (nowMs = Date.now()) => {
+      const nowIso = new Date(nowMs).toISOString();
+      setData((previous) => ({
+        ...previous,
+        attendanceSessions: (previous.attendanceSessions || []).map((item) =>
+          item.id === activeSession.id
+            ? {
+                ...item,
+                last_app_heartbeat_at: nowIso,
+                presence_client_kind: 'desktop_web',
+                updated_at: nowIso,
+              }
+            : item,
+        ),
+      }));
+    };
+
+    const accrueLocalPresence = (forcePause = false) => {
       if (cancelled || runtime.sessionId !== activeSession.id) return 0;
 
       const nowMs = Date.now();
-      const elapsedSeconds = Math.max(
-        0,
-        Math.floor((nowMs - runtime.lastSampleAtMs) / 1000),
-      );
+      const nowMonotonicMs = attendanceMonotonicNow();
+      const sample = evaluateAttendancePresenceSample({
+        lastWallMs: runtime.lastSampleAtMs,
+        lastMonotonicMs: runtime.lastMonotonicAtMs,
+        nowWallMs: nowMs,
+        nowMonotonicMs,
+        screenLocked: forcePause || runtime.screenLocked,
+        pageAway: runtime.pageAway,
+      });
+
+      runtime.lastSampleAtMs = nowMs;
+      runtime.lastMonotonicAtMs = nowMonotonicMs;
+
+      if (sample.pauseReason || activeBreakId) {
+        runtime.fractionalMs = 0;
+        // Keep the UI aware that this same page runtime is alive without adding time.
+        markLocalPresenceNow(nowMs);
+        return 0;
+      }
+
+      const totalElapsedMs = sample.wallElapsedMs + runtime.fractionalMs;
+      const elapsedSeconds = Math.max(0, Math.floor(totalElapsedMs / 1000));
+      runtime.fractionalMs = Math.max(0, totalElapsedMs - elapsedSeconds * 1000);
       if (elapsedSeconds <= 0) return 0;
-
-      // Keep the fractional remainder so repeated checkpoints do not lose time.
-      runtime.lastSampleAtMs += elapsedSeconds * 1000;
-
-      // Minimized/background tabs still count. Explicit attendance breaks do not.
-      if (activeBreakId) return 0;
 
       runtime.pendingSeconds += elapsedSeconds;
       writeAttendancePendingSeconds(currentProfile.id, activeSession.id, runtime.pendingSeconds);
@@ -4677,39 +4766,100 @@ export function useTracker() {
       }
     };
 
+    const startScreenLockDetection = async () => {
+      const IdleDetectorCtor = getAttendanceIdleDetectorConstructor();
+      if (!IdleDetectorCtor || attendanceIdlePermissionRef.current === 'denied') return;
+
+      try {
+        const detector = new IdleDetectorCtor();
+
+        const applyScreenState = () => {
+          const locked = detector.screenState === 'locked';
+          if (locked === runtime.screenLocked) return;
+
+          if (locked) {
+            // Prefer a tiny undercount at lock transition over ever crediting a sleep gap.
+            accrueLocalPresence(true);
+            runtime.screenLocked = true;
+            resetRuntimeClock();
+            markLocalPresenceNow();
+            return;
+          }
+
+          runtime.screenLocked = false;
+          resetRuntimeClock();
+          markLocalPresenceNow();
+          void flushPresence();
+        };
+
+        detector.addEventListener('change', applyScreenState);
+        await detector.start({ threshold: 60_000, signal: idleController.signal });
+
+        if (cancelled) return;
+        attendanceIdlePermissionRef.current = 'granted';
+
+        if (detector.screenState === 'locked') {
+          runtime.screenLocked = true;
+          resetRuntimeClock();
+          markLocalPresenceNow();
+        }
+      } catch {
+        // Idle Detection is a progressive enhancement. The dual-clock policy below
+        // still catches sleep on platforms where performance.now() stops during sleep.
+      }
+    };
+
     attendanceFlushRef.current = flushPresence;
 
+    void startScreenLockDetection();
     void flushPresence();
+
     const localCheckpointId = window.setInterval(() => {
       accrueLocalPresence();
     }, 15_000);
     const syncIntervalId = window.setInterval(() => void flushPresence(), 30_000);
 
     const onOnline = () => void flushPresence();
-    const onPageShow = () => void flushPresence();
+    const onPageShow = () => {
+      runtime.pageAway = false;
+      resetRuntimeClock();
+      markLocalPresenceNow();
+      void flushPresence();
+    };
     const onVisibilityChange = () => {
+      // Hidden/minimized is still valid office time. Never pause solely on visibility.
       accrueLocalPresence();
       if (document.visibilityState === 'visible') void flushPresence();
     };
     const onPageHide = () => {
-      // pagehide is synchronous; persist only time earned by this still-running page.
+      // Navigating away / entering bfcache is not "app open" time.
       accrueLocalPresence();
+      runtime.pageAway = true;
+      resetRuntimeClock();
+    };
+    const onResume = () => {
+      // If the OS slept, wall-vs-monotonic skew or the screen lock detector removes
+      // that gap. If only a background tab was frozen, the interval remains creditable.
+      void flushPresence();
     };
 
     window.addEventListener('online', onOnline);
     window.addEventListener('pageshow', onPageShow);
     window.addEventListener('pagehide', onPageHide);
     document.addEventListener('visibilitychange', onVisibilityChange);
+    document.addEventListener('resume', onResume);
 
     return () => {
       accrueLocalPresence();
       cancelled = true;
+      idleController.abort();
       window.clearInterval(localCheckpointId);
       window.clearInterval(syncIntervalId);
       window.removeEventListener('online', onOnline);
       window.removeEventListener('pageshow', onPageShow);
       window.removeEventListener('pagehide', onPageHide);
       document.removeEventListener('visibilitychange', onVisibilityChange);
+      document.removeEventListener('resume', onResume);
       if (attendanceFlushRef.current === flushPresence) {
         attendanceFlushRef.current = null;
       }
