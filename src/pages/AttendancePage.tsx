@@ -250,7 +250,8 @@ export function AttendancePage({
             <h2 className="mt-1 font-display text-2xl font-semibold sm:text-3xl">Time & Attendance</h2>
             <p className="mt-2 max-w-2xl text-sm text-white/65">
               Office time keeps counting while the same MH Tracker window remains open on a laptop or desktop,
-              including when minimized or temporarily offline. Close the app and credited time stops; queued offline time syncs when internet returns.
+              including when minimized, while using another desktop app, or temporarily offline. Screen lock, sleep/hibernate,
+              manual breaks, and closing the app pause credited time; queued offline time syncs when internet returns.
             </p>
           </div>
 
@@ -305,7 +306,7 @@ export function AttendancePage({
             <TimerReset className="h-5 w-5 text-gold" />
             <div>
               <h3 className="font-display text-xl font-semibold text-ink">My office session</h3>
-              <p className="text-xs text-muted">Verified time is earned only while MH Tracker is open on desktop. Breaks and app-closed gaps are excluded automatically.</p>
+              <p className="text-xs text-muted">Verified time is earned while MH Tracker stays open on desktop, even when minimized. Breaks, screen-lock/sleep gaps, and app-closed gaps are excluded automatically.</p>
             </div>
           </div>
 
