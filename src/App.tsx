@@ -21,6 +21,7 @@ import { TasksPage } from './pages/TasksPage';
 import { FinancePage } from './pages/FinancePage';
 import { CommunicationPage } from './pages/CommunicationPage';
 import { AIAssistantPage } from './pages/AIAssistantPage';
+import { SocialStudioPage } from './pages/SocialStudioPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AIProvider } from './lib/ai/aiContext';
 import { CurrencyProvider } from './lib/currency';
@@ -281,6 +282,9 @@ export default function App() {
       <ErrorBoundary>
         <AIAssistantPage projects={visibleProjects} currentProfile={tracker.currentProfile} />
       </ErrorBoundary>
+    )}
+    {activeView === 'social_studio' && tracker.currentProfile.role === 'admin' && (
+      <ErrorBoundary><SocialStudioPage liveWorkspace={tracker.mode === 'supabase'} /></ErrorBoundary>
     )}
     {activeView === 'projects' && isClient && <ClientProjectsPage projects={visibleProjects} searchTerm={searchTerm} onSelectProject={openClientProject} onSubmitFiles={(project) => openClientProject(project, 'files')} onGetProjectFileUrl={tracker.getProjectFileUrl} />}
     {activeView === 'projects' && !isClient && <ProjectsPage {...pageProps} />}
