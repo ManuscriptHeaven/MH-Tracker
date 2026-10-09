@@ -336,6 +336,7 @@ export default function App() {
         onDeleteLedgerEntry={tracker.deleteEmployeeLedgerEntry}
         onUpdateProfile={tracker.updateProfile}
         onAddEmployee={tracker.provisionTeamMember}
+        onSetTeamMemberActive={tracker.setTeamMemberActive}
       />
     )}
     {activeView === 'clients' && tracker.currentProfile.role === 'admin' && (

@@ -10,6 +10,7 @@ import {
   Edit2,
   Eye,
   Mail,
+  MoreHorizontal,
   Phone,
   Plus,
   Search,
@@ -70,6 +71,7 @@ export function TeamPage({
   onDeleteLedgerEntry,
   onUpdateProfile,
   onAddEmployee,
+  onSetTeamMemberActive,
 }: {
   currentProfile?: Profile;
   profiles: Profile[];
@@ -86,6 +88,7 @@ export function TeamPage({
     updates: { full_name?: string; avatar_url?: string | null; phone?: string | null }
   ) => Promise<string | void>;
   onAddEmployee?: (employeeData: { fullName: string; email: string; phone?: string; role: Role }) => Promise<string>;
+  onSetTeamMemberActive?: (profileId: string, active: boolean) => Promise<void>;
 }) {
   const { formatMoney, convertMoney, displayCurrency } = useCurrency();
   const [tab, setTab] = useState<Tab>(() => canManagePayroll ? 'payroll' : 'directory');
@@ -116,8 +119,15 @@ export function TeamPage({
   const [addEmployeeLoading, setAddEmployeeLoading] = useState(false);
   const [addEmployeeError, setAddEmployeeError] = useState<string | null>(null);
   const [provisionSuccess, setProvisionSuccess] = useState<string | null>(null);
+  const [directoryStatus, setDirectoryStatus] = useState<'active' | 'archived'>('active');
+  const [openActionsId, setOpenActionsId] = useState<string | null>(null);
+  const [memberToChange, setMemberToChange] = useState<Profile | null>(null);
+  const [memberChangeError, setMemberChangeError] = useState<string | null>(null);
+  const [memberChangeLoading, setMemberChangeLoading] = useState(false);
 
-  const team = useMemo(() => profiles.filter((p) => !isClientRole(p.role)), [profiles]);
+  const allTeam = useMemo(() => profiles.filter((p) => !isClientRole(p.role)), [profiles]);
+  const team = useMemo(() => allTeam.filter((p) => p.status !== 'inactive'), [allTeam]);
+  const archivedTeam = useMemo(() => allTeam.filter((p) => p.status === 'inactive'), [allTeam]);
   const isEmployeeRole = currentProfile?.role === 'employee';
 
   const visibleTeam = useMemo(() => {
@@ -129,12 +139,12 @@ export function TeamPage({
 
   const overviewRows = useMemo(
     () =>
-      team.map((profile) => ({
+      (canManagePayroll && directoryStatus === 'archived' ? archivedTeam : team).map((profile) => ({
         profile,
         metrics: employeeMetrics(profile, projects, tasks),
         compensation: compensation.find((c) => c.employee_id === profile.id),
       })),
-    [team, projects, tasks, compensation],
+    [team, archivedTeam, directoryStatus, canManagePayroll, projects, tasks, compensation],
   );
 
   const { rows: payrollRows, stats: payrollStats } = useMemo(
@@ -178,7 +188,7 @@ export function TeamPage({
     setSalaryModalProfile(profile);
   }
 
-  const activeDetailProfile = detailModalProfileId ? team.find((p) => p.id === detailModalProfileId) : null;
+  const activeDetailProfile = detailModalProfileId ? allTeam.find((p) => p.id === detailModalProfileId) : null;
   const activeDetailCompensation = detailModalProfileId
     ? compensation.find((c) => c.employee_id === detailModalProfileId)
     : undefined;
@@ -684,11 +694,21 @@ export function TeamPage({
       {/* ========================================================================= */}
       {tab === 'directory' && (
         <div className="space-y-4">
+          {canManagePayroll && (
+            <div className="flex flex-wrap gap-2" aria-label="Team member status">
+              <Button type="button" variant={directoryStatus === 'active' ? 'primary' : 'secondary'} onClick={() => setDirectoryStatus('active')}>
+                Active ({team.length})
+              </Button>
+              <Button type="button" variant={directoryStatus === 'archived' ? 'primary' : 'secondary'} onClick={() => setDirectoryStatus('archived')}>
+                Archived ({archivedTeam.length})
+              </Button>
+            </div>
+          )}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {overviewRows.map(({ profile, metrics, compensation: pay }) => (
               <Card key={profile.id} className="p-4 bg-white space-y-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
+                <div className="flex min-w-0 items-start justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-3">
                     <button
                       type="button"
                       onClick={() => setAvatarTargetProfile(profile)}
@@ -700,12 +720,15 @@ export function TeamPage({
                         <Camera className="h-2.5 w-2.5" />
                       </span>
                     </button>
-                    <div>
-                      <h4 className="font-display font-bold text-sm text-ink">{profile.full_name}</h4>
+                    <div className="min-w-0">
+                      <h4 className="truncate font-display font-bold text-sm text-ink">{profile.full_name}</h4>
                       <RoleBadge role={profile.role} />
+                      {profile.status === 'inactive' && <span className="ml-1 text-xs font-semibold text-muted">Archived</span>}
                     </div>
                   </div>
-                  {canManagePayroll ? (
+                  {canManagePayroll && (
+                    <div className="relative flex shrink-0 items-center gap-1">
+                    {profile.status !== 'inactive' && (
                     <button
                       type="button"
                       onClick={() => openEditSalary(profile.id)}
@@ -714,12 +737,29 @@ export function TeamPage({
                     >
                       <Edit2 className="h-3.5 w-3.5" />
                     </button>
-                  ) : null}
+                    )}
+                    <button type="button" aria-label={`Actions for ${profile.full_name}`} aria-expanded={openActionsId === profile.id}
+                      onClick={() => setOpenActionsId(openActionsId === profile.id ? null : profile.id)}
+                      className="grid h-9 w-9 place-items-center rounded-md text-muted hover:bg-ivory hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold">
+                      <MoreHorizontal className="h-5 w-5" />
+                    </button>
+                    {openActionsId === profile.id && (
+                      <div className="absolute right-0 top-10 z-20 w-52 rounded-lg border border-border bg-white p-1 shadow-lg">
+                        <button type="button" disabled={profile.id === currentProfile?.id}
+                          onClick={() => { setOpenActionsId(null); setMemberChangeError(null); setMemberToChange(profile); }}
+                          className="w-full rounded px-3 py-2 text-left text-xs font-semibold text-ink hover:bg-ivory disabled:cursor-not-allowed disabled:text-muted">
+                          {profile.status === 'inactive' ? 'Restore Team Member' : 'Remove Team Member'}
+                        </button>
+                        {profile.id === currentProfile?.id && <p className="px-3 pb-1 text-[11px] text-muted">You cannot remove yourself.</p>}
+                      </div>
+                    )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-1 text-xs text-muted pt-2 border-t border-border">
                   <p className="flex items-center gap-2 text-charcoal">
-                    <Mail className="h-3.5 w-3.5 text-gold" /> {profile.email}
+                    <Mail className="h-3.5 w-3.5 shrink-0 text-gold" /> <span className="break-all">{profile.email}</span>
                   </p>
                   {profile.phone ? (
                     <p className="flex items-center gap-2 text-charcoal">
@@ -761,12 +801,54 @@ export function TeamPage({
               </Card>
             ))}
           </div>
+          {overviewRows.length === 0 && <p className="rounded-lg border border-border bg-white p-6 text-sm text-muted">No {directoryStatus} team members.</p>}
         </div>
       )}
 
       {/* ========================================================================= */}
       {/* MODALS */}
       {/* ========================================================================= */}
+      {memberToChange && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-4" role="presentation">
+          <Card className="w-full max-w-md space-y-4 bg-white p-5 shadow-xl sm:p-6" >
+            <div role="alertdialog" aria-modal="true" aria-labelledby="team-member-confirm-title" aria-describedby="team-member-confirm-description">
+              <h3 id="team-member-confirm-title" className="font-display text-xl font-semibold text-ink">
+                {memberToChange.status === 'inactive' ? 'Restore' : 'Remove'} {memberToChange.full_name}?
+              </h3>
+              <p id="team-member-confirm-description" className="mt-3 text-sm text-charcoal">
+                {memberToChange.status === 'inactive'
+                  ? 'Restore this team member to the active list and allow team access again. Existing assignments and records remain in place.'
+                  : 'This archives the team member and revokes team access. Their assigned tasks and projects stay assigned and may need reassignment. Attendance, payroll, invoices, and audit history are preserved.'}
+              </p>
+              {memberToChange.status !== 'inactive' && (
+                <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                  Current workload: {employeeMetrics(memberToChange, projects, tasks).active.length} active project(s) and {employeeMetrics(memberToChange, projects, tasks).employeeTasks.filter((task) => task.status !== 'Done').length} open task(s).
+                </p>
+              )}
+              {memberChangeError && <p role="alert" className="mt-3 text-sm text-red-700">{memberChangeError}</p>}
+              <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button type="button" variant="secondary" autoFocus disabled={memberChangeLoading} onClick={() => setMemberToChange(null)}>Cancel</Button>
+                <Button type="button" variant={memberToChange.status === 'inactive' ? 'primary' : 'danger'} disabled={memberChangeLoading}
+                  onClick={async () => {
+                    if (!onSetTeamMemberActive) return;
+                    setMemberChangeLoading(true);
+                    setMemberChangeError(null);
+                    try {
+                      await onSetTeamMemberActive(memberToChange.id, memberToChange.status === 'inactive');
+                      setMemberToChange(null);
+                    } catch (error) {
+                      setMemberChangeError(error instanceof Error ? error.message : 'Could not change team access.');
+                    } finally {
+                      setMemberChangeLoading(false);
+                    }
+                  }}>
+                  {memberChangeLoading ? 'Saving…' : memberToChange.status === 'inactive' ? 'Restore Access' : 'Archive & Revoke Access'}
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
       {showAddEntryModal && (
         <AddPayrollEntryModal
           profiles={team}
@@ -816,7 +898,7 @@ export function TeamPage({
           ledger={ledger}
           projects={projects}
           selectedMonth={selectedMonth}
-          canManage={canManagePayroll}
+          canManage={canManagePayroll && activeDetailProfile.status !== 'inactive'}
           onClose={() => setDetailModalProfileId(null)}
           onOpenAddEntry={(employeeId, defaultType) => {
             openAddEntry(employeeId, defaultType);

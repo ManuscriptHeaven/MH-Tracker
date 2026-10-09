@@ -1329,20 +1329,17 @@ export function useTracker() {
         try {
           profile = await fetchProfile(session.user.id);
         } catch (fetchErr) {
-          console.warn('Failed to fetch live profile during restore, checking cached profile:', fetchErr);
-          const cached = getStoredProfile();
-          if (cached && cached.id === session.user.id) {
-            profile = cached;
-          }
+          console.warn('Failed to verify live profile during restore:', fetchErr);
         }
 
         if (!active) {
           return;
         }
 
-        if (!profile) {
+        if (!profile || profile.status === 'inactive') {
           clearStoredAuth();
           setCurrentProfile(null);
+          await supabase.auth.signOut().catch(() => {});
           return;
         }
 
@@ -1392,7 +1389,11 @@ export function useTracker() {
         try {
           const profile = await fetchProfile(session.user.id);
           if (!active) return;
-          if (profile) {
+          if (profile?.status === 'inactive') {
+            clearStoredAuth();
+            setCurrentProfile(null);
+            await supabase?.auth.signOut().catch(() => {});
+          } else if (profile) {
             setStoredProfile(profile);
             setStoredMode('supabase');
             setMode('supabase');
@@ -1401,6 +1402,9 @@ export function useTracker() {
           }
         } catch (authError) {
           console.warn('onAuthStateChange error:', authError);
+          clearStoredAuth();
+          setCurrentProfile(null);
+          await supabase?.auth.signOut().catch(() => {});
         } finally {
           if (active) {
             setIsInitializing(false);
@@ -1700,6 +1704,10 @@ export function useTracker() {
         if (!profile) {
           throw new Error('This user does not have a profile record yet.');
         }
+        if (profile.status === 'inactive') {
+          await supabase.auth.signOut().catch(() => {});
+          throw new Error('This team account is archived. Ask an admin to restore access.');
+        }
 
         setStoredProfile(profile);
         setStoredMode('supabase');
@@ -1825,6 +1833,10 @@ export function useTracker() {
         // pre-provisioned team role. Signup metadata never assigns a role.
         if (authData.session) {
           const fetchedProfile = (await fetchProfile(userId)) || profileObj;
+          if (fetchedProfile.status === 'inactive') {
+            await supabase.auth.signOut().catch(() => {});
+            throw new Error('This team account is archived. Ask an admin to restore access.');
+          }
           setStoredProfile(fetchedProfile);
           setStoredMode('supabase');
           setMode('supabase');
@@ -3404,6 +3416,33 @@ export function useTracker() {
     },
     [currentProfile, data.profiles, loadSupabaseData, mode],
   );
+
+  const setTeamMemberActive = useCallback(async (profileId: string, active: boolean) => {
+    if (!currentProfile || currentProfile.role !== 'admin') {
+      throw new Error('Only admins can change team access.');
+    }
+    if (profileId === currentProfile.id) {
+      throw new Error('You cannot remove or restore your own account here.');
+    }
+    const target = data.profiles.find((profile) => profile.id === profileId && !isClientRole(profile.role));
+    if (!target) throw new Error('Team member not found. Refresh the page and try again.');
+
+    if (supabase && mode === 'supabase') {
+      const { error: changeError } = await supabase.rpc('set_team_member_active', {
+        p_profile_id: profileId,
+        p_active: active,
+      });
+      if (changeError) throw changeError;
+      await loadSupabaseData(currentProfile);
+    } else {
+      setData((previous) => ({
+        ...previous,
+        profiles: previous.profiles.map((profile) =>
+          profile.id === profileId ? { ...profile, status: active ? 'active' : 'inactive' } : profile,
+        ),
+      }));
+    }
+  }, [currentProfile, data.profiles, loadSupabaseData, mode]);
 
   const updateProfile = useCallback(
     async (
@@ -5164,6 +5203,7 @@ export function useTracker() {
     inviteClient,
     provisionClient,
     provisionTeamMember,
+    setTeamMemberActive,
     updateProfile,
     markNotificationRead,
     markAllNotificationsRead,
