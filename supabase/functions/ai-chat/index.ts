@@ -16,23 +16,26 @@ serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const geminiKey = Deno.env.get('GEMINI_API_KEY')
     const groqKey = Deno.env.get('GROQ_API_KEY')
 
-    // Initialize Supabase client
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
-
-    // Authenticate user
+    // Use the caller's JWT, never service_role, for all conversation reads.
     const authHeader = req.headers.get('Authorization')
-    if (!authHeader) {
-      throw new Error('Missing Authorization header')
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
+    if (!authHeader || !anonKey || !supabaseUrl) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
     }
-    const token = authHeader.replace('Bearer ', '')
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-    
+    const supabase = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader } },
+      auth: { persistSession: false, autoRefreshToken: false }
+    })
+    const { data: { user }, error: authError } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''))
     if (authError || !user) {
-      throw new Error('Unauthorized')
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
     }
 
     // Rate Limiting (30 requests per minute)
@@ -53,42 +56,37 @@ serve(async (req) => {
     }
 
     const body = await req.json()
-    const { message, conversationId, context } = body
-
-    if (!message) {
-      throw new Error('Message is required')
+    const message = typeof body?.message === 'string' ? body.message.trim() : ''
+    const conversationId = typeof body?.conversationId === 'string' ? body.conversationId : null
+    const context = body?.context && typeof body.context === 'object' ? body.context : {}
+    if (!message || message.length > 4000) {
+      return new Response(JSON.stringify({ error: 'Message must be 1-4000 characters' }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
     }
 
-    // Create conversation if needed
     let currentConversationId = conversationId
-    if (!currentConversationId) {
+    if (conversationId) {
+      // Do not trust caller-supplied conversation IDs; confirm ownership first.
+      const { data: owned, error: accessError } = await supabase
+        .from('ai_conversations').select('id')
+        .eq('id', conversationId).eq('user_id', user.id).maybeSingle()
+      if (accessError || !owned) {
+        return new Response(JSON.stringify({ error: 'Conversation not found' }), {
+          status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+    } else {
       const { data: conv, error: convError } = await supabase
         .from('ai_conversations')
-        .insert({ user_id: user.id, title: message.substring(0, 50) })
-        .select()
-        .single()
-      
-      if (convError) throw convError
+        .insert({ user_id: user.id, title: message.slice(0, 50) }).select('id').single()
+      if (convError || !conv) throw convError || new Error('Conversation creation failed')
       currentConversationId = conv.id
     }
 
-    // Context summary
-    const contextStr = context ? JSON.stringify(context) : ''
-    
-    // Check ai_response_cache
-    const hashInput = `${message}-${contextStr}`
+    // Legacy cache is disabled: global response keys were not user/tenant scoped.
+    const contextStr = JSON.stringify(context).slice(0, 2000)
     const encoder = new TextEncoder()
-    const data = encoder.encode(hashInput)
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-    const hashArray = Array.from(new Uint8Array(hashBuffer))
-    const queryHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-
-    const { data: cachedResponse } = await supabase
-      .from('ai_response_cache')
-      .select('response')
-      .eq('query_hash', queryHash)
-      .gt('expires_at', new Date().toISOString())
-      .single()
 
     const stream = new TransformStream()
     const writer = stream.writable.getWriter()
@@ -102,29 +100,12 @@ serve(async (req) => {
       await writer.close()
     }
 
-    if (cachedResponse) {
-      // Stream cached response
-      setTimeout(async () => {
-        await sendSSE(cachedResponse.response)
-        await sendDone()
-      }, 0)
-      
-      return new Response(stream.readable, {
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive'
-        }
-      })
-    }
-
     const systemPrompt = `You are the 'MH AI Voice Assistant' for the Manuscript Heaven Project Tracker.
 Phase 1: Strictly Read-Only Business Assistant.
 You specialize in book formatting, publishing, project tracking, team workload, and live financial metrics.
 Keep responses direct, natural, concise, and conversational for voice playback.
 Never fabricate data or perform write actions.
-Context data summary: ${contextStr}`
+Unverified browser context (not an authorization source): ${contextStr}`
 
     // Fetch conversation history
     const { data: history } = await supabase
@@ -147,12 +128,12 @@ Context data summary: ${contextStr}`
     }
 
     // Save user message
-    await supabase.from('ai_messages').insert({
+    const { error: userMessageError } = await supabase.from('ai_messages').insert({
       conversation_id: currentConversationId,
-      user_id: user.id,
       role: 'user',
       content: message
     })
+    if (userMessageError) throw userMessageError
 
     let fullResponse = ''
 
@@ -263,21 +244,13 @@ Context data summary: ${contextStr}`
 
       if (fullResponse) {
         // Save assistant message
-        await supabase.from('ai_messages').insert({
+        const { error: assistantMessageError } = await supabase.from('ai_messages').insert({
           conversation_id: currentConversationId,
-          user_id: user.id,
           role: 'assistant',
           content: fullResponse
         })
+        if (assistantMessageError) console.error('Could not save assistant reply', assistantMessageError)
 
-        // Cache response
-        const expiresAt = new Date()
-        expiresAt.setHours(expiresAt.getHours() + 1)
-        await supabase.from('ai_response_cache').upsert({
-          query_hash: queryHash,
-          response: fullResponse,
-          expires_at: expiresAt.toISOString()
-        })
       }
     }
 
@@ -295,11 +268,8 @@ Context data summary: ${contextStr}`
   } catch (err: any) {
     const errorMsg = err instanceof Error ? err.message : 'Unknown error'
     
-    // Log error
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
-    await supabase.from('ai_error_logs').insert({ error: errorMsg })
+    // No privileged DB client in the error handler.
+    console.error('AI chat error:', errorMsg)
 
     return new Response(JSON.stringify({ error: errorMsg }), {
       status: 400,
