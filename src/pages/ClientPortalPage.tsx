@@ -191,7 +191,7 @@ function ClientMiniTimeline({ project }: { project: Project }) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gold">Production Timeline</p>
-          <h3 className="mt-1 font-display text-lg font-semibold text-ink">{summary.stage}</h3>
+          <h3 className="mt-1 font-display text-lg font-semibold text-ink">{summary.stageLabel}</h3>
           <p className="mt-1 text-sm text-muted">{summary.nextMilestone}</p>
         </div>
         <div className="flex flex-wrap gap-2">

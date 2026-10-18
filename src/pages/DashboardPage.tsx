@@ -15,6 +15,7 @@ import { UserAvatar } from '../components/UserAvatar';
 import { closedStatuses } from '../lib/constants';
 import { formatDate } from '../lib/date';
 import { getTimelineSummary } from '../lib/timeline';
+import { canConfirmReceivedFiles } from '../lib/clientFileSubmission';
 import { firstName, isClientRole } from '../lib/utils';
 import { useCurrency } from '../lib/currency';
 import type { Profile, Project } from '../lib/types';
@@ -163,6 +164,7 @@ export function DashboardPage({
   currentProfileId,
   onAddProject,
   onSelectProject,
+  onConfirmReceivedFiles,
 }: {
   projects: Project[];
   profiles: Profile[];
@@ -171,9 +173,12 @@ export function DashboardPage({
   currentProfileId: string;
   onAddProject: () => void;
   onSelectProject: (project: Project) => void;
+  onConfirmReceivedFiles?: (project: Project) => void;
 }) {
   const { formatMoney } = useCurrency();
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
+  const currentProfile = profiles.find((profile) => profile.id === currentProfileId);
+  const canConfirmFiles = (project: Project) => Boolean(onConfirmReceivedFiles && currentProfile && canConfirmReceivedFiles(project, currentProfile));
 
   const isRevision = (project: Project) =>
     project.status === 'In Revision' || project.stage_status === 'REVISION_ACTIVE';
@@ -427,6 +432,12 @@ export function DashboardPage({
                       </td>
                       <td className="border-b border-border/60 px-4 py-3.5">
                         <ProjectTimelineCompact project={project} />
+                        {canConfirmFiles(project) ? (
+                          <Button variant="secondary" className="mt-2 min-h-8 text-xs"
+                            onClick={(event) => { event.stopPropagation(); onConfirmReceivedFiles?.(project); }}>
+                            Files Already Received — Start Design Concept
+                          </Button>
+                        ) : null}
                       </td>
                       <td className="border-b border-border/60 px-3 py-4 align-top">
                         <p className={`text-xs font-semibold ${finalDueClass(project)}`}>
@@ -470,9 +481,9 @@ export function DashboardPage({
           <div className="space-y-3 bg-[#faf9f6]/60 p-3 md:hidden">
             {visibleProjects.length ? (
               visibleProjects.map((project) => (
+                <div key={project.id}>
                 <button
                   type="button"
-                  key={project.id}
                   onClick={() => onSelectProject(project)}
                   className="w-full rounded-2xl border border-border bg-white p-4 text-left shadow-xs transition active:scale-[0.99]"
                 >
@@ -506,6 +517,13 @@ export function DashboardPage({
                     <ChevronRight className="h-4 w-4" />
                   </div>
                 </button>
+                {canConfirmFiles(project) ? (
+                  <Button variant="secondary" className="mt-2 w-full text-xs"
+                    onClick={() => onConfirmReceivedFiles?.(project)}>
+                    Files Already Received — Start Design Concept
+                  </Button>
+                ) : null}
+                </div>
               ))
             ) : (
               <div className="rounded-2xl border border-dashed border-border bg-white p-8 text-center">

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, FilePenLine, RefreshCw, Send, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, FilePenLine, RefreshCw, Send, ShieldCheck, Sparkles } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 type Platform = 'facebook' | 'instagram' | 'linkedin';
 type Status = 'draft' | 'in_review' | 'approved';
 
-interface Brand { id: string; name: string }
+interface BrandBrief { audience: string; voice: string; goals: string; avoid: string }
+interface Brand { id: string; name: string; brief: Partial<BrandBrief> }
 interface Post {
   id: string;
   brand_id: string;
@@ -26,9 +27,11 @@ interface Revision {
 }
 
 const emptyDraft = { title: '', platform: 'facebook' as Platform, caption: '', imageBrief: '' };
+const emptyBrief: BrandBrief = { audience: '', voice: '', goals: '', avoid: '' };
 
 export function SocialStudioPage({ liveWorkspace }: { liveWorkspace: boolean }) {
   const [brand, setBrand] = useState<Brand | null>(null);
+  const [brief, setBrief] = useState<BrandBrief>(emptyBrief);
   const [posts, setPosts] = useState<Post[]>([]);
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -47,7 +50,7 @@ export function SocialStudioPage({ liveWorkspace }: { liveWorkspace: boolean }) 
     setLoading(true);
     try {
       const { data: brands, error: brandError } = await supabase
-        .from('social_brands').select('id,name').eq('slug', 'manuscript-heaven').single();
+        .from('social_brands').select('id,name,brief').eq('slug', 'manuscript-heaven').single();
       if (brandError) throw brandError;
       const [postResult, revisionResult] = await Promise.all([
         supabase.from('social_posts').select('id,brand_id,title,status,current_revision_id,approved_revision_id,approved_at,updated_at')
@@ -57,6 +60,7 @@ export function SocialStudioPage({ liveWorkspace }: { liveWorkspace: boolean }) 
       if (postResult.error) throw postResult.error;
       if (revisionResult.error) throw revisionResult.error;
       setBrand(brands as Brand);
+      setBrief({ ...emptyBrief, ...(brands.brief as Partial<BrandBrief>) });
       setPosts((postResult.data || []) as Post[]);
       setRevisions((revisionResult.data || []) as Revision[]);
     } catch (cause) {
@@ -143,6 +147,43 @@ export function SocialStudioPage({ liveWorkspace }: { liveWorkspace: boolean }) 
     }, selectedPost ? 'New revision saved. Approval must be requested again.' : 'Draft saved.');
   }
 
+  async function saveBrief(event: React.FormEvent) {
+    event.preventDefault();
+    const client = supabase;
+    if (!client || !brand || !liveWorkspace) return;
+    await run(async () => {
+      const { error: saveError } = await client.rpc('social_update_brand_brief', {
+        p_brand_id: brand.id, p_brief: brief,
+      });
+      if (saveError) throw saveError;
+    }, 'Brand brief saved. Future suggestions will use it.');
+  }
+
+  async function generateDraft() {
+    const client = supabase;
+    if (!client || !brand || !liveWorkspace || !draft.title.trim()) {
+      setError('Add a working title or topic first.');
+      return;
+    }
+    if ((draft.caption || draft.imageBrief) && !window.confirm('Replace the caption and visual brief currently in the editor?')) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const { data, error: generateError } = await client.functions.invoke('social-draft', {
+        body: { brandId: brand.id, title: draft.title.trim(), platform: draft.platform },
+      });
+      if (generateError) throw generateError;
+      if (typeof data?.caption !== 'string' || typeof data?.imageBrief !== 'string') throw new Error('Invalid suggestion. Please try again.');
+      setDraft((current) => ({ ...current, caption: data.caption, imageBrief: data.imageBrief }));
+      setNotice('AI suggestion added to the editor. Review and save it as a draft or new revision.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not generate a suggestion.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function changeStatus(action: 'social_submit_post' | 'social_approve_post' | 'social_request_changes') {
     const client = supabase;
     if (!liveWorkspace || !client || !selectedPost || !selectedRevision) return;
@@ -182,6 +223,23 @@ export function SocialStudioPage({ liveWorkspace }: { liveWorkspace: boolean }) 
     {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
     {notice && <div role="status" className="rounded-xl border border-green-200 bg-green-50 p-3 text-sm text-green-800">{notice}</div>}
 
+    <section className="rounded-2xl border border-stone-200 bg-white p-4 sm:p-6" aria-label="Brand brief">
+      <h2 className="font-semibold text-ink">Brand brief</h2>
+      <p className="mt-1 text-sm text-muted">Set the guidance used for future AI suggestions. Keep private client information out of this brief.</p>
+      <form onSubmit={(event) => void saveBrief(event)} className="mt-4 grid gap-3 sm:grid-cols-2">
+        {([
+          ['audience', 'Audience'], ['voice', 'Voice and tone'],
+          ['goals', 'Goals and calls to action'], ['avoid', 'Claims and language to avoid'],
+        ] as const).map(([key, label]) => <label key={key} className="block text-sm font-medium text-ink">{label}
+          <textarea value={brief[key]} onChange={(event) => setBrief({ ...brief, [key]: event.target.value })}
+            maxLength={1000} rows={3} disabled={busy || loading || !brand}
+            className="mt-1 w-full rounded-xl border border-stone-300 p-3 text-sm" />
+        </label>)}
+        <div className="sm:col-span-2"><button type="submit" disabled={busy || loading || !brand}
+          className="rounded-xl border border-stone-300 px-4 py-2 text-sm disabled:opacity-50">Save brand brief</button></div>
+      </form>
+    </section>
+
     <div className="grid gap-5 lg:grid-cols-[minmax(240px,0.8fr)_minmax(0,1.7fr)]">
       <section className="rounded-2xl border border-stone-200 bg-white p-4" aria-label="Post drafts">
         <div className="mb-4 flex items-center justify-between gap-2">
@@ -219,6 +277,10 @@ export function SocialStudioPage({ liveWorkspace }: { liveWorkspace: boolean }) 
               rows={3} maxLength={2000} className="mt-1 w-full rounded-xl border border-stone-300 p-3 text-sm" />
           </label>
           <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => void generateDraft()} disabled={busy || loading || !brand}
+              className="inline-flex items-center gap-2 rounded-xl border border-amber-600 px-4 py-2.5 text-sm font-medium text-amber-800 disabled:opacity-50">
+              <Sparkles size={16} /> Suggest with AI
+            </button>
             <button type="submit" disabled={busy || loading || !brand} className="rounded-xl bg-ink px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50">
               {selectedPost ? 'Save new revision' : 'Save draft'}
             </button>

@@ -141,6 +141,7 @@ export function ProjectDetail({
   onSubmitStageForApproval,
   onRequestStageSkip,
   onAdminWorkflowOverride,
+  onConfirmReceivedFiles,
 }: {
   project: Project;
   profiles: Profile[];
@@ -186,6 +187,7 @@ export function ProjectDetail({
   onSubmitStageForApproval?: (submissionNote?: string, fileUrl?: string, file?: File) => Promise<void>;
   onRequestStageSkip?: (stage: OfficialTimelineStage, reason: string) => Promise<any>;
   onAdminWorkflowOverride?: (newStage: TimelineStage, reason: string, explanation: string) => Promise<any>;
+  onConfirmReceivedFiles?: () => void;
 }) {
   const { formatMoney } = useCurrency();
   const handleArchive = onRequestArchive || onArchiveProject || onDelete;
@@ -540,7 +542,7 @@ export function ProjectDetail({
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 rounded-lg border border-border bg-ivory/60 p-3 text-xs">
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-muted block">Current Stage</span>
-              <span className="font-semibold text-ink truncate block mt-0.5">{summary.stage}</span>
+              <span className="font-semibold text-ink truncate block mt-0.5">{summary.stageLabel}</span>
             </div>
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-muted block">Waiting On</span>
@@ -583,11 +585,20 @@ export function ProjectDetail({
             <div className="mt-3 flex items-center gap-2 rounded-md border border-orange-300 bg-orange-50 px-3 py-2 text-xs font-semibold text-orange-900">
               <AlertTriangle className="h-4 w-4 shrink-0 text-orange-600" />
               <span>
-                <strong>Revision Active ({summary.stage}):</strong> Client requested changes. 2 production days allocated.
+                <strong>Revision Active ({summary.stageLabel}):</strong> Client requested changes. 2 production days allocated.
               </span>
             </div>
           ) : null}
         </div>
+
+        {onConfirmReceivedFiles ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <p className="text-sm text-amber-900">Already have the files by email or WhatsApp? Start the design concept without another client upload.</p>
+            <Button onClick={onConfirmReceivedFiles} className="text-xs">
+              <FileCheck className="h-4 w-4" /> Files Already Received — Start Design Concept
+            </Button>
+          </div>
+        ) : null}
 
         <ScheduleAccountability
           project={project}

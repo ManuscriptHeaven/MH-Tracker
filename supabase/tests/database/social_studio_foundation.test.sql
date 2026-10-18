@@ -1,4 +1,4 @@
--- Run only after the social_studio_foundation migration on the approved staging
+-- Run only after the social_studio_foundation and social_brand_brief migrations on approved staging
 -- database. All synthetic posts roll back. Never run this against production.
 begin;
 
@@ -48,6 +48,16 @@ begin
   perform set_config('request.jwt.claim.sub', v_admin::text, true);
   perform set_config('request.jwt.claims', jsonb_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
   select id into v_brand from public.social_brands where slug = 'manuscript-heaven';
+  perform public.social_update_brand_brief(v_brand, jsonb_build_object(
+    'audience', 'Authors', 'voice', 'Warm', 'goals', 'Book inquiries', 'avoid', 'Guarantees'));
+  perform pg_temp.social_assert((select brief ->> 'audience' = 'Authors'
+    from public.social_brands where id = v_brand), 'admin can save a brand brief');
+  v_denied := false;
+  begin
+    perform public.social_update_brand_brief(v_brand, '{"audience":"x"}'::jsonb);
+  exception when sqlstate '22023' then v_denied := true;
+  end;
+  perform pg_temp.social_assert(v_denied, 'incomplete brand brief denied');
   v_post := public.social_create_post(v_brand, 'Studio test', 'Initial caption', 'facebook', '');
   select current_revision_id into v_first from public.social_posts where id = v_post;
   perform pg_temp.social_assert(v_first is not null, 'create saves an initial revision');
@@ -75,12 +85,21 @@ begin
   perform set_config('request.jwt.claims', jsonb_build_object('sub', v_employee, 'role', 'authenticated')::text, true);
   perform pg_temp.social_assert((select count(*) = 0 from public.social_posts where id = v_post),
     'employee cannot read unpublished content');
+  perform pg_temp.social_assert((select count(*) = 0 from public.social_brands where id = v_brand),
+    'employee cannot read the brand brief');
   v_denied := false;
   begin
     perform public.social_create_post(v_brand, 'Denied', 'Denied', 'facebook', '');
   exception when insufficient_privilege then v_denied := true;
   end;
   perform pg_temp.social_assert(v_denied, 'employee cannot create a post');
+  v_denied := false;
+  begin
+    perform public.social_update_brand_brief(v_brand, jsonb_build_object(
+      'audience', '', 'voice', '', 'goals', '', 'avoid', ''));
+  exception when insufficient_privilege then v_denied := true;
+  end;
+  perform pg_temp.social_assert(v_denied, 'employee cannot edit the brand brief');
 
   perform set_config('request.jwt.claim.sub', v_client::text, true);
   perform set_config('request.jwt.claims', jsonb_build_object('sub', v_client, 'role', 'authenticated')::text, true);
