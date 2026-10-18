@@ -47,6 +47,15 @@ assert(sample.creditSeconds === 0 && sample.pauseReason === 'screen_locked', 'lo
 sample = evaluateAttendancePresenceSample({
   lastWallMs: 1_000,
   lastMonotonicMs: 500,
+  nowWallMs: 301_000,
+  nowMonotonicMs: 300_500,
+  userIdle: true,
+});
+assert(sample.creditSeconds === 0 && sample.pauseReason === 'user_idle', 'system user-idle intervals never earn verified time');
+
+sample = evaluateAttendancePresenceSample({
+  lastWallMs: 1_000,
+  lastMonotonicMs: 500,
   nowWallMs: 31_000,
   nowMonotonicMs: 30_500,
   pageAway: true,
