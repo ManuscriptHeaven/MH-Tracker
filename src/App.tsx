@@ -321,6 +321,7 @@ export default function App() {
         canManageAll={tracker.canManageAll}
         desktopAttendanceCapable={tracker.desktopAttendanceCapable}
         idleDetectionStatus={tracker.idleDetectionStatus}
+        onEnableIdleDetection={tracker.enableAttendanceIdleDetection}
         onClockIn={tracker.clockInAttendance}
         onClockOut={tracker.clockOutAttendance}
         onStartBreak={tracker.startAttendanceBreak}
