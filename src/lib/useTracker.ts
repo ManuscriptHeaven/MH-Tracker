@@ -135,11 +135,13 @@ type AttendancePresenceRuntime = {
   pendingSeconds: number;
   flushing: boolean;
   screenLocked: boolean;
+  userIdle: boolean;
   pageAway: boolean;
 };
 
 type AttendanceIdleDetector = EventTarget & {
   screenState: 'locked' | 'unlocked' | null;
+  userState: 'active' | 'idle' | null;
   start: (options?: { threshold?: number; signal?: AbortSignal }) => Promise<void>;
 };
 
@@ -960,10 +962,12 @@ export function useTracker() {
     pendingSeconds: 0,
     flushing: false,
     screenLocked: false,
+    userIdle: false,
     pageAway: false,
   });
   const attendanceFlushRef = useRef<(() => Promise<void>) | null>(null);
   const attendanceIdlePermissionRef = useRef<'unknown' | 'granted' | 'denied' | 'unsupported'>('unknown');
+  const [idleDetectionStatus, setIdleDetectionStatus] = useState<'active' | 'idle' | 'locked' | 'unavailable'>('unavailable');
 
   const loadSupabaseData = useCallback(async (profile: Profile) => {
     if (!supabase) {
@@ -4650,7 +4654,9 @@ export function useTracker() {
       attendancePresenceRef.current.pendingSeconds = 0;
       attendancePresenceRef.current.flushing = false;
       attendancePresenceRef.current.screenLocked = false;
+      attendancePresenceRef.current.userIdle = false;
       attendancePresenceRef.current.pageAway = false;
+      setIdleDetectionStatus('unavailable');
       return undefined;
     }
 
@@ -4672,6 +4678,7 @@ export function useTracker() {
       runtime.pendingSeconds = readAttendancePendingSeconds(currentProfile.id, activeSession.id);
       runtime.flushing = false;
       runtime.screenLocked = false;
+      runtime.userIdle = false;
       runtime.pageAway = false;
     } else if (!runtime.lastSampleAtMs || !runtime.lastMonotonicAtMs) {
       resetRuntimeClock();
@@ -4708,6 +4715,7 @@ export function useTracker() {
         nowWallMs: nowMs,
         nowMonotonicMs,
         screenLocked: forcePause || runtime.screenLocked,
+        userIdle: runtime.userIdle,
         pageAway: runtime.pageAway,
       });
 
@@ -4753,6 +4761,8 @@ export function useTracker() {
 
       accrueLocalPresence();
       if (!navigator.onLine || runtime.flushing) return;
+      // Do not advertise fresh server-side working presence while activity is paused.
+      if ((runtime.userIdle || runtime.screenLocked) && runtime.pendingSeconds === 0) return;
 
       const pendingSeconds = runtime.pendingSeconds;
       runtime.pendingSeconds = 0;
@@ -4776,44 +4786,40 @@ export function useTracker() {
 
     const startScreenLockDetection = async () => {
       const IdleDetectorCtor = getAttendanceIdleDetectorConstructor();
-      if (!IdleDetectorCtor || attendanceIdlePermissionRef.current === 'denied') return;
+      if (!IdleDetectorCtor || attendanceIdlePermissionRef.current === 'denied') {
+        setIdleDetectionStatus('unavailable');
+        return;
+      }
 
       try {
         const detector = new IdleDetectorCtor();
-
-        const applyScreenState = () => {
+        const applyIdleState = () => {
+          if (cancelled) return;
           const locked = detector.screenState === 'locked';
-          if (locked === runtime.screenLocked) return;
-
-          if (locked) {
-            // Prefer a tiny undercount at lock transition over ever crediting a sleep gap.
-            accrueLocalPresence(true);
-            runtime.screenLocked = true;
+          const userIdle = detector.userState === 'idle';
+          if (locked !== runtime.screenLocked || userIdle !== runtime.userIdle) {
+            // Credit the last active slice when the five-minute idle threshold is reached.
+            // Never credit the uncertain last slice when the screen locks.
+            accrueLocalPresence(locked && !runtime.screenLocked);
+            runtime.screenLocked = locked;
+            runtime.userIdle = userIdle;
             resetRuntimeClock();
             markLocalPresenceNow();
-            return;
+            void flushPresence();
           }
-
-          runtime.screenLocked = false;
-          resetRuntimeClock();
-          markLocalPresenceNow();
-          void flushPresence();
+          setIdleDetectionStatus(locked ? 'locked' : userIdle ? 'idle' : 'active');
         };
 
-        detector.addEventListener('change', applyScreenState);
-        await detector.start({ threshold: 60_000, signal: idleController.signal });
+        detector.addEventListener('change', applyIdleState);
+        await detector.start({ threshold: 300_000, signal: idleController.signal });
 
         if (cancelled) return;
         attendanceIdlePermissionRef.current = 'granted';
-
-        if (detector.screenState === 'locked') {
-          runtime.screenLocked = true;
-          resetRuntimeClock();
-          markLocalPresenceNow();
-        }
+        applyIdleState();
       } catch {
-        // Idle Detection is a progressive enhancement. The dual-clock policy below
-        // still catches sleep on platforms where performance.now() stops during sleep.
+        // Unsupported/blocked desktop idle detection is shown clearly in the UI.
+        // Do not claim system-wide inactivity is being detected without permission.
+        if (!cancelled) setIdleDetectionStatus('unavailable');
       }
     };
 
@@ -5199,6 +5205,7 @@ export function useTracker() {
     refreshAttendance,
     recordAttendanceHeartbeat,
     desktopAttendanceCapable: isDesktopAttendanceClient(),
+    idleDetectionStatus,
     clockInAttendance,
     clockOutAttendance,
     startAttendanceBreak,
