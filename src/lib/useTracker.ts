@@ -968,6 +968,7 @@ export function useTracker() {
   const attendanceFlushRef = useRef<(() => Promise<void>) | null>(null);
   const attendanceIdlePermissionRef = useRef<'unknown' | 'granted' | 'denied' | 'unsupported'>('unknown');
   const [idleDetectionStatus, setIdleDetectionStatus] = useState<'active' | 'idle' | 'locked' | 'unavailable'>('unavailable');
+  const [idlePermissionVersion, setIdlePermissionVersion] = useState(0);
 
   const loadSupabaseData = useCallback(async (profile: Profile) => {
     if (!supabase) {
@@ -4565,6 +4566,24 @@ export function useTracker() {
   }, [currentProfile, mode]);
 
 
+  const enableAttendanceIdleDetection = useCallback(async () => {
+    const Detector = getAttendanceIdleDetectorConstructor();
+    if (!Detector) {
+      attendanceIdlePermissionRef.current = 'unsupported';
+      return false;
+    }
+    try {
+      const permission = await Detector.requestPermission();
+      attendanceIdlePermissionRef.current = permission;
+      setIdlePermissionVersion((version) => version + 1);
+      return permission === 'granted';
+    } catch {
+      attendanceIdlePermissionRef.current = 'denied';
+      setIdlePermissionVersion((version) => version + 1);
+      return false;
+    }
+  }, []);
+
   const recordAttendanceHeartbeat = useCallback(async (clientElapsedSeconds = 0) => {
     if (!currentProfile || isClientRole(currentProfile.role)) return null;
     if (!isDesktopAttendanceClient()) return null;
@@ -4787,6 +4806,9 @@ export function useTracker() {
     const startScreenLockDetection = async () => {
       const IdleDetectorCtor = getAttendanceIdleDetectorConstructor();
       if (!IdleDetectorCtor || attendanceIdlePermissionRef.current === 'denied') {
+        runtime.userIdle = false;
+        runtime.screenLocked = false;
+        resetRuntimeClock();
         setIdleDetectionStatus('unavailable');
         return;
       }
@@ -4888,6 +4910,7 @@ export function useTracker() {
         attendanceBreak.user_id === currentProfile?.id && !attendanceBreak.ended_at,
     )?.id,
     recordAttendanceHeartbeat,
+    idlePermissionVersion,
   ]);
 
   const startAttendanceBreak = useCallback(async () => {
@@ -5206,6 +5229,7 @@ export function useTracker() {
     recordAttendanceHeartbeat,
     desktopAttendanceCapable: isDesktopAttendanceClient(),
     idleDetectionStatus,
+    enableAttendanceIdleDetection,
     clockInAttendance,
     clockOutAttendance,
     startAttendanceBreak,
