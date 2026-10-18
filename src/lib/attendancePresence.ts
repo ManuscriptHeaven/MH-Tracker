@@ -6,6 +6,7 @@ export type AttendancePresenceSampleInput = {
   nowWallMs: number;
   nowMonotonicMs: number;
   screenLocked?: boolean;
+  userIdle?: boolean;
   pageAway?: boolean;
 };
 
@@ -14,7 +15,7 @@ export type AttendancePresenceSample = {
   wallElapsedMs: number;
   monotonicElapsedMs: number;
   clockSkewMs: number;
-  pauseReason: 'screen_locked' | 'page_away' | 'sleep_detected' | null;
+  pauseReason: 'screen_locked' | 'user_idle' | 'page_away' | 'sleep_detected' | null;
 };
 
 /**
@@ -38,6 +39,8 @@ export function evaluateAttendancePresenceSample(
 
   if (input.screenLocked) {
     pauseReason = 'screen_locked';
+  } else if (input.userIdle) {
+    pauseReason = 'user_idle';
   } else if (input.pageAway) {
     pauseReason = 'page_away';
   } else if (clockSkewMs >= ATTENDANCE_SLEEP_CLOCK_SKEW_MS) {
