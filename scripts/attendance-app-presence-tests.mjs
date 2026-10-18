@@ -14,6 +14,7 @@ const offlineMigration = fs.readFileSync('supabase/migrations/20260923122430_att
 const tracker = fs.readFileSync('src/lib/useTracker.ts', 'utf8');
 const presencePolicy = fs.readFileSync('src/lib/attendancePresence.ts', 'utf8');
 const page = fs.readFileSync('src/pages/AttendancePage.tsx', 'utf8');
+const reminder = fs.readFileSync('src/components/AttendanceReminder.tsx', 'utf8');
 const types = fs.readFileSync('src/lib/types.ts', 'utf8');
 const app = fs.readFileSync('src/App.tsx', 'utf8');
 
@@ -117,6 +118,37 @@ assert(
     page.includes('Verified live') &&
     app.includes('desktopAttendanceCapable={tracker.desktopAttendanceCapable}'),
   'manager reporting and CSV exports use verified app-presence time',
+);
+
+assert(
+  presencePolicy.includes("pauseReason = 'user_idle'") &&
+    tracker.includes("detector.userState === 'idle'") &&
+    tracker.includes('threshold: 300_000') &&
+    tracker.includes('userIdle: runtime.userIdle') &&
+    tracker.includes("setIdleDetectionStatus('unavailable')") &&
+    page.includes('Idle · Time paused') &&
+    page.includes('Enable / retry idle detection'),
+  'system-wide idle detection stops credit after five inactive minutes and unsupported browsers are disclosed',
+);
+
+assert(
+  page.includes('standardWorkdaySeconds = 8 * 3600') &&
+    page.includes('monthlyTargetSeconds = daysWorked * standardWorkdaySeconds') &&
+    page.includes("label: 'Month · Actual'") &&
+    page.includes("label: 'Target · 8h/day'") &&
+    page.includes('unusuallyLongDays') &&
+    page.includes('unverifiedLegacySessions') &&
+    page.includes('Never present clock-in-to-clock-out calendar time as verified work'),
+  'actual verified time is separate from 8h/day targets and suspicious historical records remain flagged',
+);
+
+assert(
+  app.includes('<AttendanceReminder') &&
+    reminder.includes('REMINDER_EVERY_SECONDS = 30 * 60') &&
+    reminder.includes("Notification.permission === 'granted'") &&
+    reminder.includes("document.hidden") &&
+    page.includes('Enable desktop time reminders'),
+  '30-minute credited-time reminders remain global with optional permission-based desktop notifications',
 );
 
 if (process.exitCode) {
