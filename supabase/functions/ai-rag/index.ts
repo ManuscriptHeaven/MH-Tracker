@@ -12,23 +12,46 @@ serve(async (req) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || ''
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || ''
     const geminiKey = Deno.env.get('GEMINI_API_KEY')
+    const authHeader = req.headers.get('Authorization') || ''
 
-    if (!geminiKey) throw new Error('GEMINI_API_KEY missing')
+    if (!authHeader || !supabaseUrl || !anonKey) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+    // RLS is the final authorization boundary; never query RAG with service_role.
+    const supabase = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader } },
+      auth: { persistSession: false, autoRefreshToken: false }
+    })
+    const { data: { user }, error: authError } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''))
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+    // Knowledge has no tenant scope yet. Until then, only active admins may search.
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles').select('role,status').eq('id', user.id).maybeSingle()
+    if (profileError || profile?.role !== 'admin' || profile?.status !== 'active') {
+      return new Response(JSON.stringify({ error: 'Forbidden' }), {
+        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
-    const authHeader = req.headers.get('Authorization')
-    if (!authHeader) throw new Error('Missing Authorization header')
-    
-    const token = authHeader.replace('Bearer ', '')
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-    
-    if (authError || !user) throw new Error('Unauthorized')
-
-    const { query, topK = 5 } = await req.json()
-    if (!query) throw new Error('Query is required')
+    const body = await req.json()
+    const query = typeof body?.query === 'string' ? body.query.trim() : ''
+    const requestedK = Number(body?.topK ?? 5)
+    const topK = Number.isFinite(requestedK) ? Math.max(1, Math.min(20, Math.floor(requestedK))) : 5
+    if (!query || query.length > 2000) {
+      return new Response(JSON.stringify({ error: 'Query must be 1-2000 characters' }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+    if (!geminiKey) throw new Error('Knowledge search is not configured')
 
     // Generate embedding using Gemini
     const embedRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${geminiKey}`, {
