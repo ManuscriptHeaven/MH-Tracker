@@ -35,6 +35,7 @@ import type { Project, ProjectDraft, ProjectLifecycleStatus, ProjectMetadataUpda
 
 import { RevisionRequestModal } from './components/RevisionRequestModal';
 import { Toast, type ToastData } from './components/Toast';
+import { AttendanceReminder } from './components/AttendanceReminder';
 import { OfflineBanner } from './components/OfflineBanner';
 
 export default function App() {
@@ -319,6 +320,7 @@ export default function App() {
         breaks={tracker.data.attendanceBreaks || []}
         canManageAll={tracker.canManageAll}
         desktopAttendanceCapable={tracker.desktopAttendanceCapable}
+        idleDetectionStatus={tracker.idleDetectionStatus}
         onClockIn={tracker.clockInAttendance}
         onClockOut={tracker.clockOutAttendance}
         onStartBreak={tracker.startAttendanceBreak}
@@ -612,6 +614,14 @@ export default function App() {
       </Modal>
     )}
     <Toast toast={toast} onClose={() => setToast(null)} onOpenProject={openProjectById} />
+    {!isClient && tracker.currentProfile && (
+      <AttendanceReminder
+        userId={tracker.currentProfile.id}
+        sessions={tracker.data.attendanceSessions || []}
+        breaks={tracker.data.attendanceBreaks || []}
+        enabled={tracker.desktopAttendanceCapable}
+      />
+    )}
     {tracker.canManageAll && <AIDailyPopup />}
   </Layout>
   {activeView !== 'ai_assistant' && tracker.canManageAll && (
