@@ -128,12 +128,12 @@ Unverified browser context (not an authorization source): ${contextStr}`
     }
 
     // Save user message
-    await supabase.from('ai_messages').insert({
+    const { error: userMessageError } = await supabase.from('ai_messages').insert({
       conversation_id: currentConversationId,
-      user_id: user.id,
       role: 'user',
       content: message
     })
+    if (userMessageError) throw userMessageError
 
     let fullResponse = ''
 
@@ -244,12 +244,12 @@ Unverified browser context (not an authorization source): ${contextStr}`
 
       if (fullResponse) {
         // Save assistant message
-        await supabase.from('ai_messages').insert({
+        const { error: assistantMessageError } = await supabase.from('ai_messages').insert({
           conversation_id: currentConversationId,
-          user_id: user.id,
           role: 'assistant',
           content: fullResponse
         })
+        if (assistantMessageError) console.error('Could not save assistant reply', assistantMessageError)
 
       }
     }
@@ -268,11 +268,8 @@ Unverified browser context (not an authorization source): ${contextStr}`
   } catch (err: any) {
     const errorMsg = err instanceof Error ? err.message : 'Unknown error'
     
-    // Log error
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
-    await supabase.from('ai_error_logs').insert({ error: errorMsg })
+    // No privileged DB client in the error handler.
+    console.error('AI chat error:', errorMsg)
 
     return new Response(JSON.stringify({ error: errorMsg }), {
       status: 400,
