@@ -275,8 +275,8 @@ export const DEFAULT_WORKFLOW_SETTINGS: WorkflowSettings = {
 };
 
 export const timelineProgressByStage: Record<TimelineStage, number> = {
-  'Files Received': 10,
-  'Design Concept': 25,
+  'Files Received': 0,
+  'Design Concept': 0,
   'Concept Approval': 35,
   'Print Version': 50,
   'Print Approval': 65,
@@ -284,7 +284,7 @@ export const timelineProgressByStage: Record<TimelineStage, number> = {
   'Ebook Approval': 85,
   'Final Delivery': 95,
   'Files Required': 0,
-  'Design Concept in Progress': 25,
+  'Design Concept in Progress': 0,
   'Awaiting Concept Approval': 35,
   'Concept Revisions': 30,
   'Print Version in Progress': 50,

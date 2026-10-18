@@ -280,6 +280,7 @@ export type TimelineHealth =
 
 export interface TimelineSummary {
   stage: TimelineStage;
+  stageLabel: string;
   officialStage: OfficialTimelineStage | 'Completed' | 'On Hold' | 'Cancelled';
   stageStatus: ClockState;
   progress: number;
@@ -354,7 +355,7 @@ export function getTimelineMilestones(project: TimelineProject): TimelineMilesto
 
     return {
       key: `stage-${index + 1}-${stageName.toLowerCase().replace(/\s+/g, '-')}`,
-      label: stageName,
+      label: stageName === 'Files Received' && state === 'paused' ? 'Waiting for Files' : stageName,
       stageName,
       date,
       state,
@@ -884,7 +885,7 @@ export function deriveProjectTimeline<T extends TimelineProject>(
   next.stage_completed_at = null;
 
   next.current_stage = normStage as TimelineStage;
-  next.progress_percentage = timelineProgressByStage[next.current_stage as TimelineStage] || 10;
+  next.progress_percentage = timelineProgressByStage[next.current_stage as TimelineStage] ?? 0;
 
   const waitingForInitialFiles =
     next.current_stage === 'Files Received' &&
@@ -1051,6 +1052,9 @@ export function getTimelineSummary(project: TimelineProject): TimelineSummary {
 
   return {
     stage: (derived.current_stage || 'Files Received') as TimelineStage,
+    stageLabel: officialStage === 'Files Received' && waitingOn === 'Client'
+      ? 'Waiting for Files'
+      : derived.current_stage || 'Files Received',
     officialStage,
     stageStatus,
     progress: Number(derived.progress_percentage || 0),

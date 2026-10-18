@@ -92,7 +92,7 @@ assert(
 assert(
   tracker.includes('files_received_days: 0') &&
     !projectDetail.includes('Submit Files Received'),
-  'Files Received remains a client-owned zero-production-time action with no team advance button',
+  'file intake consumes zero production time and does not expose a generic stage-advance action',
 );
 
 assert(

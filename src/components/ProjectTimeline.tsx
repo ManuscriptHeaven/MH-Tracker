@@ -61,7 +61,7 @@ export function ProjectTimelineCompact({ project }: { project: Project }) {
   return (
     <div className="min-w-0 space-y-2">
       <div className="flex min-w-0 items-center gap-2 text-xs">
-        <span className="min-w-0 flex-1 truncate font-semibold text-ink">{summary.stage}</span>
+        <span className="min-w-0 flex-1 truncate font-semibold text-ink">{summary.stageLabel}</span>
         <span className="shrink-0 text-[10px] font-bold text-muted">{summary.progress}%</span>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-ivory">
@@ -94,7 +94,7 @@ export function ProjectTimelinePanel({ project, clientView = false }: { project:
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gold">Official Production Timeline</p>
-          <h3 className="mt-1 font-display text-xl font-semibold text-ink">{summary.stage}</h3>
+          <h3 className="mt-1 font-display text-xl font-semibold text-ink">{summary.stageLabel}</h3>
           <p className="mt-1 text-sm text-muted">{summary.nextMilestone}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

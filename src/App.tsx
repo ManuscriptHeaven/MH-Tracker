@@ -4,6 +4,8 @@ import { Layout, type ViewKey } from './components/Layout';
 import { ProjectDetail } from './components/ProjectDetail';
 import { ClientProjectDetailModal } from './components/ClientProjectDetailModal';
 import { ProjectFormModal } from './components/ProjectFormModal';
+import { ReceivedFilesModal } from './components/ReceivedFilesModal';
+import { canConfirmReceivedFiles } from './lib/clientFileSubmission';
 import { Button, Modal, TextareaField } from './components/ui';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
@@ -40,6 +42,7 @@ export default function App() {
   const [activeView, setActiveView] = useState<ViewKey>('dashboard');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [receivedFilesProjectId, setReceivedFilesProjectId] = useState<string | null>(null);
   const [clientProjectTab, setClientProjectTab] = useState<'overview' | 'files'>('overview');
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [showProjectForm, setShowProjectForm] = useState(false);
@@ -53,6 +56,7 @@ export default function App() {
   const [jumpToConversationId, setJumpToConversationId] = useState<string | null>(null);
   const visibleProjects = tracker.visibleProjects;
   const isClient = tracker.currentProfile ? isClientRole(tracker.currentProfile.role) : false;
+  const receivedFilesProject = visibleProjects.find((project) => project.id === receivedFilesProjectId);
 
   const selectedProjectFresh = useMemo(() => selectedProject
     ? visibleProjects.find((project) => project.id === selectedProject.id) || null
@@ -276,7 +280,7 @@ export default function App() {
         onSubmitFiles={(project) => openClientProject(project, 'files')}
       />
     )}
-    {activeView === 'dashboard' && !isClient && <DashboardPage projects={visibleProjects} profiles={tracker.data.profiles} canViewPayments={tracker.canManageAll} canManageProjects={tracker.canManageAll} currentProfileId={tracker.currentProfile.id} onAddProject={openAddProject} onSelectProject={setSelectedProject} />}
+    {activeView === 'dashboard' && !isClient && <DashboardPage projects={visibleProjects} profiles={tracker.data.profiles} canViewPayments={tracker.canManageAll} canManageProjects={tracker.canManageAll} currentProfileId={tracker.currentProfile.id} onAddProject={openAddProject} onSelectProject={setSelectedProject} onConfirmReceivedFiles={tracker.mode === 'supabase' ? (project) => setReceivedFilesProjectId(project.id) : undefined} />}
     {activeView === 'ai_assistant' && tracker.canManageAll && (
       <ErrorBoundary>
         <AIAssistantPage projects={visibleProjects} currentProfile={tracker.currentProfile} />
@@ -408,6 +412,8 @@ export default function App() {
         tasks={tracker.data.tasks}
         currentProfile={tracker.currentProfile}
         canManageAll={tracker.canManageAll}
+        onConfirmReceivedFiles={tracker.mode === 'supabase' && canConfirmReceivedFiles(selectedProjectFresh, tracker.currentProfile)
+          ? () => setReceivedFilesProjectId(selectedProjectFresh.id) : undefined}
         onClose={() => setSelectedProject(null)}
         onEdit={() => openEditProject(selectedProjectFresh)}
         onRequestArchive={() => onRequestArchive(selectedProjectFresh)}
@@ -454,6 +460,14 @@ export default function App() {
           setToast({ message: 'Administrative workflow override recorded.', tone: 'success' });
         }}
       />
+    )}
+    {receivedFilesProject && tracker.currentProfile && canConfirmReceivedFiles(receivedFilesProject, tracker.currentProfile) && (
+      <ReceivedFilesModal key={receivedFilesProject.id} project={receivedFilesProject}
+        onClose={() => setReceivedFilesProjectId(null)}
+        onConfirm={async (source, note) => {
+          await tracker.confirmReceivedProjectFiles(receivedFilesProject.id, source, note);
+          setToast({ message: 'Files marked as received. The design concept timeline has started.', tone: 'success' });
+        }} />
     )}
     {selectedProjectFresh && isClient && (
       <ClientProjectDetailModal

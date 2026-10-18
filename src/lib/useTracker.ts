@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabase';
 import { evaluateAttendancePresenceSample } from './attendancePresence';
-import { canSubmitClientFiles, validateClientFileSubmission } from './clientFileSubmission';
+import { canConfirmReceivedFiles, canSubmitClientFiles, receivedFilesNote, validateClientFileSubmission, type ReceivedFileSource } from './clientFileSubmission';
 import { sampleData, sampleProfiles } from './sampleData';
 import { errorMessage, firstName, isClientRole, isManagerRole } from './utils';
 import { formatWorkflowErrorMessage } from './workflowErrors';
@@ -2789,6 +2789,14 @@ export function useTracker() {
     [currentProfile,data.projects,loadSupabaseData,mode,workflowClient],
   );
 
+  const confirmReceivedProjectFiles = useCallback(async (projectId: string, source: ReceivedFileSource, note?: string) => {
+    if (!currentProfile || !workflowClient || mode !== 'supabase') throw new Error('File receipt confirmation requires a signed-in team account.');
+    const project = data.projects.find((item) => item.id === projectId);
+    if (!project || !canConfirmReceivedFiles(project, currentProfile)) throw new Error('This project is not available for file receipt confirmation.');
+    await workflowClient.advanceStage(projectId, requireWorkflowVersion(project), receivedFilesNote(source, note));
+    await loadSupabaseData(currentProfile);
+  }, [currentProfile, data.projects, loadSupabaseData, mode, workflowClient]);
+
   const advanceWorkflowStage = useCallback(async (projectId: string, note?: string) => {
     if(!currentProfile||!workflowClient||mode!=='supabase') throw new Error('Canonical workflow mutations require Supabase mode.');
     const project=data.projects.find((item)=>item.id===projectId);
@@ -5134,6 +5142,7 @@ export function useTracker() {
     getRevisionAttachmentUrl,
     respondToRevisionRequest,
     submitInitialProjectFiles,
+    confirmReceivedProjectFiles,
     getProjectInitialFileUrl,
     resolveClientReminder,
     approveProjectMilestone,
