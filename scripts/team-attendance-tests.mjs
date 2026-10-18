@@ -82,10 +82,10 @@ assert(
   page.includes('Clock Out') &&
   page.includes('Start Break') &&
   page.includes('End Break') &&
-  page.includes('Today') &&
-  page.includes('This week') &&
-  page.includes('This month') &&
-  page.includes('Days worked'),
+  page.includes("label: 'Today · Actual'") &&
+  page.includes("label: 'Week · Actual'") &&
+  page.includes("label: 'Month · Actual'") &&
+  page.includes("label: 'Days worked'"),
   'team members can track live office time, breaks and personal attendance totals',
 );
 
