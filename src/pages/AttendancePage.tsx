@@ -444,6 +444,9 @@ export function AttendancePage({
               <p className="mt-1 truncate text-xl font-extrabold text-ink">{value}</p>
             </Card>
           ))}
+          <p className="col-span-2 text-xs text-muted sm:col-span-4 lg:col-span-2">
+            The 8h target is a comparison, not a limit on verified time. Days worked currently means distinct clock-in dates; multi-day shifts need a daily activity ledger before these figures can be used for payroll.
+          </p>
         </div>
       </section>
 
