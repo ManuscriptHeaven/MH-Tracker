@@ -28,6 +28,7 @@ type Props = {
   canManageAll: boolean;
   desktopAttendanceCapable: boolean;
   idleDetectionStatus: 'active' | 'idle' | 'locked' | 'unavailable';
+  onEnableIdleDetection: () => Promise<boolean>;
   onClockIn: (note?: string) => Promise<AttendanceSession>;
   onClockOut: (note?: string) => Promise<AttendanceSession>;
   onStartBreak: () => Promise<AttendanceBreak>;
@@ -107,6 +108,7 @@ export function AttendancePage({
   canManageAll,
   desktopAttendanceCapable,
   idleDetectionStatus,
+  onEnableIdleDetection,
   onClockIn,
   onClockOut,
   onStartBreak,
@@ -393,7 +395,11 @@ export function AttendancePage({
 
           {activeSession && idleDetectionStatus === 'unavailable' ? (
             <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-              System-wide idle detection is not available or permission was denied. Time may continue while the computer is unattended. Use a supported Chromium desktop browser and allow idle detection to enable automatic inactivity pauses.
+              <p>System-wide idle detection is not available or permission was denied. Time may continue while the computer is unattended. Supported Chromium desktop browsers can detect activity in other applications.</p>
+              <Button type="button" variant="secondary" disabled={busy} className="mt-2 min-h-9 text-xs" onClick={() => void run(async () => {
+                const granted = await onEnableIdleDetection();
+                if (!granted) throw new Error('Idle detection is unavailable or blocked. Check browser site permissions.');
+              })}>Enable / retry idle detection</Button>
             </div>
           ) : null}
           {activeSession && typeof Notification !== 'undefined' && reminderPermission !== 'granted' ? (
