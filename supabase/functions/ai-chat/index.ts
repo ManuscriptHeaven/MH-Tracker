@@ -56,22 +56,31 @@ serve(async (req) => {
     }
 
     const body = await req.json()
-    const { message, conversationId, context } = body
-
-    if (!message) {
-      throw new Error('Message is required')
+    const message = typeof body?.message === 'string' ? body.message.trim() : ''
+    const conversationId = typeof body?.conversationId === 'string' ? body.conversationId : null
+    const context = body?.context && typeof body.context === 'object' ? body.context : {}
+    if (!message || message.length > 4000) {
+      return new Response(JSON.stringify({ error: 'Message must be 1-4000 characters' }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
     }
 
-    // Create conversation if needed
     let currentConversationId = conversationId
-    if (!currentConversationId) {
+    if (conversationId) {
+      // Do not trust caller-supplied conversation IDs; confirm ownership first.
+      const { data: owned, error: accessError } = await supabase
+        .from('ai_conversations').select('id')
+        .eq('id', conversationId).eq('user_id', user.id).maybeSingle()
+      if (accessError || !owned) {
+        return new Response(JSON.stringify({ error: 'Conversation not found' }), {
+          status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+    } else {
       const { data: conv, error: convError } = await supabase
         .from('ai_conversations')
-        .insert({ user_id: user.id, title: message.substring(0, 50) })
-        .select()
-        .single()
-      
-      if (convError) throw convError
+        .insert({ user_id: user.id, title: message.slice(0, 50) }).select('id').single()
+      if (convError || !conv) throw convError || new Error('Conversation creation failed')
       currentConversationId = conv.id
     }
 
