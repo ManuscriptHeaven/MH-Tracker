@@ -85,18 +85,14 @@ CREATE TABLE IF NOT EXISTS knowledge_base_documents (
 
 ALTER TABLE knowledge_base_documents ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "All authenticated users can read knowledge_base_documents"
-ON knowledge_base_documents
-FOR SELECT
-TO authenticated
-USING (true);
-
-CREATE POLICY "Admin can insert/update/delete knowledge_base_documents"
+-- Temporary fail-closed access until a tenant-scoped knowledge model is shipped.
+-- Phase 6 app roles are verified server-side, not through JWT's standard `role` claim.
+CREATE POLICY "AI knowledge documents admin only"
 ON knowledge_base_documents
 FOR ALL
 TO authenticated
-USING (auth.jwt() ->> 'role' = 'admin')
-WITH CHECK (auth.jwt() ->> 'role' = 'admin');
+USING ((SELECT public.phase6_app_actor_class()) = 'admin')
+WITH CHECK ((SELECT public.phase6_app_actor_class()) = 'admin');
 
 -- 4. knowledge_base_chunks
 CREATE TABLE IF NOT EXISTS knowledge_base_chunks (
@@ -110,17 +106,12 @@ CREATE TABLE IF NOT EXISTS knowledge_base_chunks (
 
 ALTER TABLE knowledge_base_chunks ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "All authenticated users can read knowledge_base_chunks"
+CREATE POLICY "AI knowledge chunks admin only"
 ON knowledge_base_chunks
-FOR SELECT
+FOR ALL
 TO authenticated
-USING (true);
-
-CREATE POLICY "Admin or service role can insert chunks"
-ON knowledge_base_chunks
-FOR INSERT
-TO authenticated, service_role
-WITH CHECK (auth.jwt() ->> 'role' = 'admin' OR current_user = 'service_role');
+USING ((SELECT public.phase6_app_actor_class()) = 'admin')
+WITH CHECK ((SELECT public.phase6_app_actor_class()) = 'admin');
 
 CREATE INDEX IF NOT EXISTS idx_knowledge_base_chunks_document_id ON knowledge_base_chunks(document_id);
 
