@@ -84,23 +84,9 @@ serve(async (req) => {
       currentConversationId = conv.id
     }
 
-    // Context summary
-    const contextStr = context ? JSON.stringify(context) : ''
-    
-    // Check ai_response_cache
-    const hashInput = `${message}-${contextStr}`
+    // Legacy cache is disabled: global response keys were not user/tenant scoped.
+    const contextStr = JSON.stringify(context).slice(0, 2000)
     const encoder = new TextEncoder()
-    const data = encoder.encode(hashInput)
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-    const hashArray = Array.from(new Uint8Array(hashBuffer))
-    const queryHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-
-    const { data: cachedResponse } = await supabase
-      .from('ai_response_cache')
-      .select('response')
-      .eq('query_hash', queryHash)
-      .gt('expires_at', new Date().toISOString())
-      .single()
 
     const stream = new TransformStream()
     const writer = stream.writable.getWriter()
@@ -114,29 +100,12 @@ serve(async (req) => {
       await writer.close()
     }
 
-    if (cachedResponse) {
-      // Stream cached response
-      setTimeout(async () => {
-        await sendSSE(cachedResponse.response)
-        await sendDone()
-      }, 0)
-      
-      return new Response(stream.readable, {
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive'
-        }
-      })
-    }
-
     const systemPrompt = `You are the 'MH AI Voice Assistant' for the Manuscript Heaven Project Tracker.
 Phase 1: Strictly Read-Only Business Assistant.
 You specialize in book formatting, publishing, project tracking, team workload, and live financial metrics.
 Keep responses direct, natural, concise, and conversational for voice playback.
 Never fabricate data or perform write actions.
-Context data summary: ${contextStr}`
+Unverified browser context (not an authorization source): ${contextStr}`
 
     // Fetch conversation history
     const { data: history } = await supabase
@@ -282,14 +251,6 @@ Context data summary: ${contextStr}`
           content: fullResponse
         })
 
-        // Cache response
-        const expiresAt = new Date()
-        expiresAt.setHours(expiresAt.getHours() + 1)
-        await supabase.from('ai_response_cache').upsert({
-          query_hash: queryHash,
-          response: fullResponse,
-          expires_at: expiresAt.toISOString()
-        })
       }
     }
 
