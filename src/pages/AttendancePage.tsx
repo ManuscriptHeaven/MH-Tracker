@@ -169,13 +169,13 @@ export function AttendancePage({
   const monthlyDayTotals = new Map<string, number>();
   for (const session of monthSessions) {
     const seconds = myVerifiedSeconds(session);
-    if (seconds >= 60) {
+    if (seconds > 0) {
       const key = localDayKey(session.clock_in);
       monthlyDayTotals.set(key, (monthlyDayTotals.get(key) || 0) + seconds);
     }
   }
   const monthSeconds = monthSessions.reduce((total, session) => total + myVerifiedSeconds(session), 0);
-  const daysWorked = monthlyDayTotals.size;
+  const daysWorked = [...monthlyDayTotals.values()].filter((seconds) => seconds >= 60).length;
   const standardWorkdaySeconds = 8 * 3600;
   const monthlyTargetSeconds = daysWorked * standardWorkdaySeconds;
   const monthBalanceSeconds = monthSeconds - monthlyTargetSeconds;
