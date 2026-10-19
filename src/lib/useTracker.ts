@@ -971,7 +971,7 @@ export function useTracker() {
     screenLocked: false,
     pageAway: false,
   });
-  const attendanceFlushRef = useRef<(() => Promise<void>) | null>(null);
+  const attendanceFlushRef = useRef<(() => Promise<boolean>) | null>(null);
   const attendanceIdlePermissionRef = useRef<'unknown' | 'granted' | 'denied' | 'unsupported'>('unknown');
 
   const loadSupabaseData = useCallback(async (profile: Profile) => {
@@ -4795,12 +4795,12 @@ export function useTracker() {
       return elapsedSeconds;
     };
 
-    const flushPresence = async () => {
-      if (cancelled) return;
+    const flushPresence = async (): Promise<boolean> => {
+      if (cancelled) return false;
 
       accrueLocalPresence();
-      if (!navigator.onLine || runtime.flushing) return;
-      if (runtime.pendingSeconds === 0 && runtime.pendingDailySlices.length === 0) return;
+      if (!navigator.onLine || runtime.flushing) return false;
+      if (runtime.pendingSeconds === 0 && runtime.pendingDailySlices.length === 0) return true;
 
       runtime.flushing = true;
       try {
@@ -4828,6 +4828,7 @@ export function useTracker() {
       } finally {
         runtime.flushing = false;
       }
+      return runtime.pendingSeconds === 0 && runtime.pendingDailySlices.length === 0;
     };
 
     const startScreenLockDetection = async () => {
@@ -4945,7 +4946,10 @@ export function useTracker() {
     if (!currentProfile) throw new Error('Not logged in.');
 
     if (supabase && mode === 'supabase') {
-      await attendanceFlushRef.current?.();
+      const allCreditedTimeSynced = await attendanceFlushRef.current?.();
+      if (allCreditedTimeSynced === false) {
+        throw new Error('Unsynced attendance is still queued. Reconnect and sync before ending the shift or starting a break.');
+      }
       const { data: attendanceBreak, error: breakError } = await supabase.rpc('attendance_start_break');
       if (breakError) throw breakError;
       if (!attendanceBreak) throw new Error('Break start did not return a record.');
@@ -5009,7 +5013,10 @@ export function useTracker() {
     if (!currentProfile) throw new Error('Not logged in.');
 
     if (supabase && mode === 'supabase') {
-      await attendanceFlushRef.current?.();
+      const allCreditedTimeSynced = await attendanceFlushRef.current?.();
+      if (allCreditedTimeSynced === false) {
+        throw new Error('Unsynced attendance is still queued. Reconnect and sync before ending the shift or starting a break.');
+      }
       const { data: session, error: clockError } = await supabase.rpc('attendance_clock_out', { p_note: note || null });
       if (clockError) throw clockError;
       if (!session) throw new Error('Clock-out did not return an attendance session.');
