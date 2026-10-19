@@ -75,6 +75,12 @@ const sql = fs.readFileSync('supabase/migrations/20261019000100_attendance_daily
 assert(sql.includes('enable row level security') && sql.includes('for select to authenticated') && sql.includes('auth.uid()'), 'ledger has actor-scoped read RLS');
 assert(sql.includes('revoke all on public.attendance_daily_credits') && sql.includes('grant select on public.attendance_daily_credits'), 'clients cannot insert directly');
 assert(sql.includes('source_key uuid not null') && sql.includes('attendance_daily_credit_source_unique'), 'source keys are deduplicated by database');
+assert(sql.includes('references public.attendance_sessions(id) on delete restrict') &&
+       sql.includes('references public.profiles(id) on delete restrict'),
+  'ledger records cannot disappear silently when an employee or session is deleted');
+assert(sql.includes("create or replace function public.attendance_start_break()") &&
+       sql.includes("create or replace function public.attendance_clock_out(p_note text default null)"),
+  'break/clock-out are updated to prevent legacy auto-credit after daily sync');
 assert(sql.includes('for update') && sql.includes('attendance_slice_overlap'), 'per-session lock prevents overlapping concurrent tab/device credits');
 assert(sql.includes('attendance_slice_overlaps_break') && sql.includes('v_max_verified'), 'break overlaps and impossible session totals are refused');
 assert(sql.includes("at time zone v_time_zone") && sql.includes('attendance_slice_outside_session_or_day'), 'server validates the local work date');
