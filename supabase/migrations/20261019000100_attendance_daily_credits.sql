@@ -31,7 +31,17 @@ drop policy if exists attendance_daily_credits_self_read on public.attendance_da
 create policy attendance_daily_credits_self_read
 on public.attendance_daily_credits
 for select to authenticated
-using (user_id = (select auth.uid()));
+using (
+  -- The caller must already be allowed to see the parent attendance session.
+  -- This inherits existing team-manager visibility without granting new
+  -- cross-user or cross-workspace access via the daily-credit ledger.
+  exists (
+    select 1
+    from public.attendance_sessions s
+    where s.id = attendance_daily_credits.session_id
+      and s.user_id = attendance_daily_credits.user_id
+  )
+);
 
 -- No direct client INSERT/UPDATE/DELETE: write via validated RPC only.
 revoke all on public.attendance_daily_credits from public, anon, authenticated;
