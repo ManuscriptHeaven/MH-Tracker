@@ -28,7 +28,6 @@ import { AIProvider } from './lib/ai/aiContext';
 import { CurrencyProvider } from './lib/currency';
 import { AIChatButton } from './components/ai/AIChatButton';
 import { AIChatPanel } from './components/ai/AIChatPanel';
-import { AIDailyPopup } from './components/ai/AIDailyPopup';
 import { useTracker } from './lib/useTracker';
 import { errorMessage, isClientRole } from './lib/utils';
 import type { Project, ProjectDraft, ProjectLifecycleStatus, ProjectMetadataUpdate } from './lib/types';
@@ -612,7 +611,6 @@ export default function App() {
       </Modal>
     )}
     <Toast toast={toast} onClose={() => setToast(null)} onOpenProject={openProjectById} />
-    {tracker.canManageAll && <AIDailyPopup />}
   </Layout>
   {activeView !== 'ai_assistant' && tracker.canManageAll && (
     <>
