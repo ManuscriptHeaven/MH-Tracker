@@ -202,6 +202,105 @@ $$;
 revoke all on function public.attendance_sync_daily_slices(jsonb) from public, anon;
 grant execute on function public.attendance_sync_daily_slices(jsonb) to authenticated;
 
+-- With dated credit RPCs, time must be credited only by an accepted slice,
+-- never speculatively at a break or clock-out boundary. The previous functions
+-- credited up to 90 heartbeat seconds there, causing unattributed double credit.
+create or replace function public.attendance_start_break()
+returns public.attendance_breaks
+language plpgsql
+security definer
+set search_path = ''
+as $
+declare
+  v_actor uuid := auth.uid();
+  v_now timestamptz := clock_timestamp();
+  v_session public.attendance_sessions;
+  v_row public.attendance_breaks;
+begin
+  if v_actor is null then
+    raise exception 'attendance_not_authenticated' using errcode = '42501';
+  end if;
+
+  select * into v_session
+  from public.attendance_sessions
+  where user_id = v_actor and status = 'active'
+  order by clock_in desc limit 1 for update;
+
+  if v_session.id is null then
+    raise exception 'attendance_not_clocked_in' using errcode = '22023';
+  end if;
+
+  if exists (
+    select 1 from public.attendance_breaks
+    where session_id = v_session.id and ended_at is null
+  ) then
+    raise exception 'attendance_break_already_active' using errcode = '23505';
+  end if;
+
+  update public.attendance_sessions
+  set last_app_heartbeat_at = v_now, updated_at = v_now
+  where id = v_session.id;
+
+  insert into public.attendance_breaks(session_id, user_id, started_at)
+  values (v_session.id, v_actor, v_now)
+  returning * into v_row;
+
+  return v_row;
+end;
+$;
+
+create or replace function public.attendance_clock_out(p_note text default null)
+returns public.attendance_sessions
+language plpgsql
+security definer
+set search_path = ''
+as $
+declare
+  v_actor uuid := auth.uid();
+  v_now timestamptz := clock_timestamp();
+  v_session public.attendance_sessions;
+  v_row public.attendance_sessions;
+begin
+  if v_actor is null then
+    raise exception 'attendance_not_authenticated' using errcode = '42501';
+  end if;
+
+  select * into v_session
+  from public.attendance_sessions
+  where user_id = v_actor and status = 'active'
+  order by clock_in desc limit 1 for update;
+
+  if v_session.id is null then
+    raise exception 'attendance_not_clocked_in' using errcode = '22023';
+  end if;
+
+  update public.attendance_breaks
+  set ended_at = v_now
+  where session_id = v_session.id and ended_at is null;
+
+  update public.attendance_sessions
+  set
+    clock_out = v_now,
+    status = 'completed',
+    note = case
+      when nullif(btrim(coalesce(p_note,'')), '') is null then note
+      else left(btrim(p_note), 1000)
+    end,
+    last_app_heartbeat_at = v_now,
+    updated_at = v_now
+  where id = v_session.id
+  returning * into v_row;
+
+  return v_row;
+end;
+$;
+
+-- Preserve only signed-in attendance access, not public/anon RPC execution.
+revoke all on function public.attendance_start_break() from public, anon;
+grant execute on function public.attendance_start_break() to authenticated;
+revoke all on function public.attendance_clock_out(text) from public, anon;
+grant execute on function public.attendance_clock_out(text) to authenticated;
+
 -- Read-only per-day rollup. SECURITY INVOKER preserves the underlying
 -- attendance_daily_credits RLS filter for employee self-service reports.
 create or replace view public.attendance_daily_totals
