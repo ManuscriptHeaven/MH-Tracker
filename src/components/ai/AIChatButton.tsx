@@ -11,7 +11,7 @@ export function AIChatButton() {
   return (
     <button
       onClick={toggleChat}
-      aria-label="Toggle AI Assistant"
+      aria-label={isOpen ? "Close AI Assistant and stop listening" : "Wake AI Assistant"}
       className={cn(
         "fixed z-[60] bottom-24 right-4 lg:bottom-6 lg:right-6",
         "flex items-center gap-2 rounded-full px-3.5 py-3 lg:px-4 lg:py-3.5",
@@ -33,13 +33,13 @@ export function AIChatButton() {
           <Volume2 className="w-5 h-5 text-gold animate-bounce" />
         ) : (
           <div className="flex items-center justify-center w-5 h-5 rounded-full bg-gold/20">
-            <Mic className="w-4 h-4 text-gold" />
+            <Sparkles className="w-4 h-4 text-gold" />
           </div>
         )}
       </div>
 
       <span className="hidden sm:inline font-semibold text-xs tracking-wide text-linen uppercase">
-        {isOpen ? 'Close' : isListening ? 'Listening...' : 'AI Assistant'}
+        {isOpen ? 'Close' : isListening ? 'Listening...' : 'Wake Assistant'}
       </span>
 
       {hasUnread && !isOpen && (
