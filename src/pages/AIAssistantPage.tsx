@@ -69,6 +69,7 @@ export function AIAssistantPage({
     voiceError,
     startVoice,
     stopVoice,
+    stopSpeaking,
     toggleMute,
     clearConversation,
     clearVoiceError,
@@ -250,6 +251,12 @@ export function AIAssistantPage({
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, isProcessing, liveTranscript, activeTab]);
+
+  // Leaving the AI Command Center also releases the microphone immediately.
+  useEffect(() => () => {
+    stopVoice();
+    stopSpeaking();
+  }, [stopVoice, stopSpeaking]);
 
   function handleVoiceToggle() {
     clearVoiceError();
