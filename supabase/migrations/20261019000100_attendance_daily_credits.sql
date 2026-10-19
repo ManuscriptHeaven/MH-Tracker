@@ -6,8 +6,8 @@
 
 create table if not exists public.attendance_daily_credits (
   id uuid primary key default gen_random_uuid(),
-  session_id uuid not null references public.attendance_sessions(id) on delete cascade,
-  user_id uuid not null references public.profiles(id) on delete cascade,
+  session_id uuid not null references public.attendance_sessions(id) on delete restrict,
+  user_id uuid not null references public.profiles(id) on delete restrict,
   source_key uuid not null,
   local_work_date date not null,
   time_zone text not null,
