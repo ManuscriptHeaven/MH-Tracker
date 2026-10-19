@@ -112,7 +112,7 @@ assert(
 );
 
 assert(
-  page.includes('Verified App Hours') &&
+  page.includes('Recorded Session Hours · Unreconciled') &&
     page.includes('Time paused · last app signal') &&
     page.includes('Verified live') &&
     app.includes('desktopAttendanceCapable={tracker.desktopAttendanceCapable}'),
