@@ -328,5 +328,27 @@ group by c.user_id, c.local_work_date;
 revoke all on public.attendance_daily_totals from public, anon;
 grant select on public.attendance_daily_totals to authenticated;
 
+-- Keep historical/unattributed session seconds visible without inventing
+-- calendar-day evidence. Session RLS and ledger RLS both apply to this view.
+create or replace view public.attendance_session_credit_reconciliation
+with (security_invoker = true)
+as
+select
+  s.id as session_id,
+  s.user_id,
+  s.clock_in,
+  s.clock_out,
+  coalesce(s.verified_seconds,0)::bigint as recorded_seconds,
+  coalesce(sum(c.credited_seconds),0)::bigint as dated_seconds,
+  greatest(0, coalesce(s.verified_seconds,0) - coalesce(sum(c.credited_seconds),0))::bigint as unattributed_seconds,
+  greatest(0, coalesce(sum(c.credited_seconds),0) - coalesce(s.verified_seconds,0))::bigint as overcredited_discrepancy_seconds,
+  (extract(epoch from (coalesce(s.clock_out,now()) - s.clock_in)) > 86400) as crosses_24h
+from public.attendance_sessions s
+left join public.attendance_daily_credits c on c.session_id=s.id
+group by s.id;
+
+revoke all on public.attendance_session_credit_reconciliation from public, anon;
+grant select on public.attendance_session_credit_reconciliation to authenticated;
+
 comment on table public.attendance_daily_credits is
   'Verified daily attendance slices added after the V2 cutover. Historical session aggregates are intentionally not backfilled.';
