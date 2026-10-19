@@ -202,5 +202,22 @@ $$;
 revoke all on function public.attendance_sync_daily_slices(jsonb) from public, anon;
 grant execute on function public.attendance_sync_daily_slices(jsonb) to authenticated;
 
+-- Read-only per-day rollup. SECURITY INVOKER preserves the underlying
+-- attendance_daily_credits RLS filter for employee self-service reports.
+create or replace view public.attendance_daily_totals
+with (security_invoker = true)
+as
+select
+  c.user_id,
+  c.local_work_date,
+  sum(c.credited_seconds)::bigint as actual_seconds,
+  (sum(c.credited_seconds) >= 60) as counts_as_day_worked,
+  count(*)::bigint as accepted_slices
+from public.attendance_daily_credits c
+group by c.user_id, c.local_work_date;
+
+revoke all on public.attendance_daily_totals from public, anon;
+grant select on public.attendance_daily_totals to authenticated;
+
 comment on table public.attendance_daily_credits is
   'Verified daily attendance slices added after the V2 cutover. Historical session aggregates are intentionally not backfilled.';
