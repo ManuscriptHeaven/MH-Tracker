@@ -56,3 +56,9 @@ insert into public.attendance_sessions(id,user_id,clock_in,status,verified_secon
    clock_timestamp() - interval '1 hour','active',0);
 
 grant usage on schema public to authenticated, anon;
+grant select on public.attendance_sessions to authenticated;
+alter table public.attendance_sessions enable row level security;
+create policy attendance_sessions_select on public.attendance_sessions
+  for select to authenticated
+  using (user_id = auth.uid() or public.phase6_app_actor_class() in ('admin','project_manager'));
+
