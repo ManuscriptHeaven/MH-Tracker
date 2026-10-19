@@ -210,7 +210,6 @@ export function AIProvider({
   activeViewRef.current = activeView;
   const selectedProjectRef = useRef<any>(selectedProject);
   selectedProjectRef.current = selectedProject;
-  const dailyPopupCheckRef = useRef<string | null>(null);
 
   // Persist audit logs
   useEffect(() => {
@@ -356,8 +355,14 @@ export function AIProvider({
     } as any;
   }, []);
 
-  const openChat = useCallback(() => setIsOpen(true), []);
+  const isOpenRef = useRef(false);
+  isOpenRef.current = isOpen;
+  const openChat = useCallback(() => {
+    isOpenRef.current = true;
+    setIsOpen(true);
+  }, []);
   const closeChat = useCallback(() => {
+    isOpenRef.current = false;
     setIsOpen(false);
     voiceService.stopListening();
     voiceService.stopSpeaking();
@@ -370,6 +375,7 @@ export function AIProvider({
       closeChat();
       return;
     }
+    isOpenRef.current = true;
     setIsOpen(true);
     if (settingsRef.current.voiceEnabled) {
       setVoiceError(null);
@@ -427,7 +433,7 @@ export function AIProvider({
   }, []);
 
   const speakText = useCallback(async (text: string) => {
-    if (!text) return;
+    if (!text || (!isOpenRef.current && activeViewRef.current !== 'ai_assistant')) return;
     await voiceService.speak(text, settingsRef.current.voiceLanguage);
   }, []);
 
@@ -613,7 +619,7 @@ export function AIProvider({
           .then(refreshOperatorIntelligence);
 
         // Speak response if voice TTS is enabled and not muted
-        if (settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
+        if ((isOpenRef.current || activeViewRef.current === 'ai_assistant') && settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
           voiceService.speak(result.spokenText || result.displayText, settingsRef.current.voiceLanguage);
         }
       } catch (e: any) {
@@ -738,7 +744,7 @@ export function AIProvider({
           })
           .then(refreshOperatorIntelligence);
 
-        if (settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
+        if ((isOpenRef.current || activeViewRef.current === 'ai_assistant') && settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
           voiceService.speak(result.spokenText || result.displayText, settingsRef.current.voiceLanguage);
         }
       } catch (e: any) {
@@ -820,7 +826,7 @@ export function AIProvider({
       })
       .then(refreshOperatorIntelligence);
 
-    if (settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
+    if ((isOpenRef.current || activeViewRef.current === 'ai_assistant') && settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
       voiceService.speak('Action cancelled.', settingsRef.current.voiceLanguage);
     }
   }, [refreshOperatorIntelligence]);
