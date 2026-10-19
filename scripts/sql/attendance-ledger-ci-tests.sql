@@ -95,6 +95,21 @@ begin
   end if;
 end $$;
 
+-- A project manager sees the same session-scoped records as the existing
+-- attendance_sessions RLS policy, but never receives write privileges.
+select set_config('request.jwt.claim.sub','44444444-4444-4444-8444-444444444444',false);
+do $ begin
+  if (select count(*) from public.attendance_daily_totals) <> 1 then
+    raise exception 'manager cannot see authorized team daily total';
+  end if;
+  if (select count(*) from public.attendance_session_credit_reconciliation) <> 3 then
+    raise exception 'manager cannot see authorized session reconciliation records';
+  end if;
+  if has_table_privilege('authenticated','public.attendance_daily_credits','INSERT') then
+    raise exception 'project manager inherited unrestricted ledger writes';
+  end if;
+end $;
+
 -- Confirm one actor cannot inspect another actor's ledger records.
 select set_config('request.jwt.claim.sub','22222222-2222-4222-8222-222222222222',false);
 do $$ begin
