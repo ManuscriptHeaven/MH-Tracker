@@ -266,7 +266,7 @@ export function AttendancePage({
   }
 
   function exportCsv() {
-    const rows = [['Name', 'Role', 'Clock In', 'Clock Out', 'Verified App Hours', 'Note', 'Correction Reason']];
+    const rows = [['Name', 'Role', 'Clock In', 'Clock Out', 'Recorded Session Hours · Unreconciled', 'Note', 'Correction Reason']];
     const cutoff =
       teamWindow === 'today'
         ? new Date(new Date(nowMs).setHours(0, 0, 0, 0)).getTime()
@@ -492,10 +492,10 @@ export function AttendancePage({
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-2">
           {([
-            { label: 'Today', value: formatDuration(todaySeconds), icon: CalendarDays },
-            { label: 'This week', value: formatDuration(weekSeconds), icon: History },
-            { label: 'This month', value: formatDuration(monthSeconds), icon: TimerReset },
-            { label: 'Days worked', value: String(daysWorked), icon: CheckCircle2 },
+            { label: 'Today · Session records', value: formatDuration(todaySeconds), icon: CalendarDays },
+            { label: 'Week · Session records', value: formatDuration(weekSeconds), icon: History },
+            { label: 'Month · Unreconciled', value: formatDuration(monthSeconds), icon: TimerReset },
+            { label: 'Clock-in dates · provisional', value: String(daysWorked), icon: CheckCircle2 },
           ] as const).map(({ label, value, icon: Icon }) => (
             <Card key={label} className="min-w-0 p-4">
               <Icon className="h-4 w-4 text-gold" />
@@ -503,6 +503,7 @@ export function AttendancePage({
               <p className="mt-1 truncate text-xl font-extrabold text-ink">{value}</p>
             </Card>
           ))}
+          <p className="col-span-2 text-xs text-muted sm:col-span-4 lg:col-span-2">Session-based figures above are retained for historical visibility and are not reconciled daily work totals. Use the accepted daily ledger below for verified dates and 8h targets.</p>
         </div>
       </section>
 
@@ -590,7 +591,7 @@ export function AttendancePage({
       <Card className="overflow-hidden p-0">
         <div className="border-b border-border px-4 py-4 sm:px-5">
           <h3 className="font-display text-xl font-semibold text-ink">My attendance history</h3>
-          <p className="text-xs text-muted">Recent sessions show verified MH Tracker time; breaks and app-closed gaps are excluded.</p>
+          <p className="text-xs text-muted">Session records may include historical or unattributed hours. Use the dated ledger above to review accepted verified time.</p>
         </div>
         <div className="divide-y divide-border">
           {mySessions.slice(0, 20).map((session) => {
