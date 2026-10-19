@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabase';
+import {
+  splitAttendanceIntervalByLocalDate,
+  mergeAttendanceDailySlices,
+  readPendingAttendanceDailySlices,
+  writePendingAttendanceDailySlices,
+  type AttendanceDailySlice,
+} from './attendanceDailyLedger';
 import { evaluateAttendancePresenceSample } from './attendancePresence';
 import { canConfirmReceivedFiles, canSubmitClientFiles, receivedFilesNote, validateClientFileSubmission, type ReceivedFileSource } from './clientFileSubmission';
 import { sampleData, sampleProfiles } from './sampleData';
@@ -133,6 +140,7 @@ type AttendancePresenceRuntime = {
   lastMonotonicAtMs: number;
   fractionalMs: number;
   pendingSeconds: number;
+  pendingDailySlices: AttendanceDailySlice[];
   flushing: boolean;
   screenLocked: boolean;
   pageAway: boolean;
@@ -958,6 +966,7 @@ export function useTracker() {
     lastMonotonicAtMs: 0,
     fractionalMs: 0,
     pendingSeconds: 0,
+    pendingDailySlices: [],
     flushing: false,
     screenLocked: false,
     pageAway: false,
@@ -4631,6 +4640,40 @@ export function useTracker() {
     return updated;
   }, [currentProfile, mode]);
 
+  const recordAttendanceDailySlices = useCallback(async (slices: AttendanceDailySlice[]) => {
+    if (!currentProfile || isClientRole(currentProfile.role) || !isDesktopAttendanceClient()) return null;
+    if (slices.length === 0) return null;
+
+    if (supabase && mode === 'supabase') {
+      const { data: session, error: syncError } = await supabase.rpc('attendance_sync_daily_slices', {
+        p_slices: slices,
+      });
+      if (syncError) throw syncError;
+      if (!session) throw new Error('Daily attendance sync returned no session.');
+
+      const confirmed = session as AttendanceSession;
+      setData((previous) => ({
+        ...previous,
+        attendanceSessions: (previous.attendanceSessions || []).map((item) =>
+          item.id === confirmed.id ? {
+            ...confirmed,
+            verified_seconds: Math.max(
+              Number(item.verified_seconds || 0),
+              Number(confirmed.verified_seconds || 0),
+            ),
+            last_app_heartbeat_at: (item.last_app_heartbeat_at &&
+              new Date(item.last_app_heartbeat_at).getTime() > new Date(confirmed.last_app_heartbeat_at || 0).getTime())
+                ? item.last_app_heartbeat_at : confirmed.last_app_heartbeat_at,
+          } : item,
+        ),
+      }));
+      return confirmed;
+    }
+
+    // Demo already earned local time. A flush must not add it twice.
+    return null;
+  }, [currentProfile, mode]);
+
   useEffect(() => {
     if (!currentProfile || isClientRole(currentProfile.role) || !isDesktopAttendanceClient()) {
       attendanceFlushRef.current = null;
@@ -4648,6 +4691,7 @@ export function useTracker() {
       attendancePresenceRef.current.lastMonotonicAtMs = 0;
       attendancePresenceRef.current.fractionalMs = 0;
       attendancePresenceRef.current.pendingSeconds = 0;
+      attendancePresenceRef.current.pendingDailySlices = [];
       attendancePresenceRef.current.flushing = false;
       attendancePresenceRef.current.screenLocked = false;
       attendancePresenceRef.current.pageAway = false;
@@ -4670,6 +4714,7 @@ export function useTracker() {
       runtime.sessionId = activeSession.id;
       resetRuntimeClock();
       runtime.pendingSeconds = readAttendancePendingSeconds(currentProfile.id, activeSession.id);
+      runtime.pendingDailySlices = readPendingAttendanceDailySlices(currentProfile.id, activeSession.id);
       runtime.flushing = false;
       runtime.screenLocked = false;
       runtime.pageAway = false;
@@ -4726,8 +4771,10 @@ export function useTracker() {
       runtime.fractionalMs = Math.max(0, totalElapsedMs - elapsedSeconds * 1000);
       if (elapsedSeconds <= 0) return 0;
 
-      runtime.pendingSeconds += elapsedSeconds;
-      writeAttendancePendingSeconds(currentProfile.id, activeSession.id, runtime.pendingSeconds);
+      const earnedStartMs = nowMs - elapsedSeconds * 1000;
+      const slices = splitAttendanceIntervalByLocalDate(earnedStartMs, nowMs, createUuid);
+      runtime.pendingDailySlices = mergeAttendanceDailySlices(runtime.pendingDailySlices, slices);
+      writePendingAttendanceDailySlices(currentProfile.id, activeSession.id, runtime.pendingDailySlices);
 
       const nowIso = new Date(nowMs).toISOString();
       setData((previous) => ({
@@ -4753,22 +4800,31 @@ export function useTracker() {
 
       accrueLocalPresence();
       if (!navigator.onLine || runtime.flushing) return;
+      if (runtime.pendingSeconds === 0 && runtime.pendingDailySlices.length === 0) return;
 
-      const pendingSeconds = runtime.pendingSeconds;
-      runtime.pendingSeconds = 0;
-      writeAttendancePendingSeconds(currentProfile.id, activeSession.id, 0);
       runtime.flushing = true;
-
       try {
-        await recordAttendanceHeartbeat(pendingSeconds);
-      } catch (heartbeatError) {
-        runtime.pendingSeconds += pendingSeconds;
-        writeAttendancePendingSeconds(
-          currentProfile.id,
-          activeSession.id,
-          runtime.pendingSeconds,
-        );
-        console.warn('Attendance heartbeat failed; local time remains queued:', heartbeatError);
+        // Earlier offline queues have only a scalar duration, with no reliable
+        // calendar date. Flush once as legacy/unattributed time.
+        const legacySeconds = runtime.pendingSeconds;
+        if (legacySeconds > 0) {
+          await recordAttendanceHeartbeat(legacySeconds);
+          runtime.pendingSeconds = Math.max(0, runtime.pendingSeconds - legacySeconds);
+          writeAttendancePendingSeconds(currentProfile.id, activeSession.id, runtime.pendingSeconds);
+        }
+
+        // Stable source keys make replay after a network error idempotent.
+        const batch = runtime.pendingDailySlices.slice(0, 120);
+        if (batch.length > 0) {
+          await recordAttendanceDailySlices(batch);
+          const acceptedKeys = new Set(batch.map((slice) => slice.source_key));
+          runtime.pendingDailySlices = runtime.pendingDailySlices.filter(
+            (slice) => !acceptedKeys.has(slice.source_key),
+          );
+          writePendingAttendanceDailySlices(currentProfile.id, activeSession.id, runtime.pendingDailySlices);
+        }
+      } catch (syncError) {
+        console.warn('Attendance daily sync failed; slices remain queued:', syncError);
       } finally {
         runtime.flushing = false;
       }
@@ -4882,6 +4938,7 @@ export function useTracker() {
         attendanceBreak.user_id === currentProfile?.id && !attendanceBreak.ended_at,
     )?.id,
     recordAttendanceHeartbeat,
+    recordAttendanceDailySlices,
   ]);
 
   const startAttendanceBreak = useCallback(async () => {
