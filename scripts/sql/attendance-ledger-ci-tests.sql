@@ -114,6 +114,13 @@ begin
   end;
 end $$;
 
+-- SECURITY INVOKER view must not leak other users' dated totals.
+do $ begin
+  if (select count(*) from public.attendance_daily_totals) <> 0 then
+    raise exception 'daily totals view leaked another user';
+  end if;
+end $;
+
 reset role;
 
 -- Add a break as trusted test setup, then verify any slice touching it fails.
@@ -160,6 +167,9 @@ begin
   if (select sum(credited_seconds) from public.attendance_daily_credits
       where session_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') <> 40 then
     raise exception 'daily ledger total expected 40';
+  end if;
+  if (select sum(actual_seconds) from public.attendance_daily_totals) <> 40 then
+    raise exception 'read-only daily totals should equal credited ledger seconds';
   end if;
 end $$;
 
