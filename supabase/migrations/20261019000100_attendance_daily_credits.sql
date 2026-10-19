@@ -70,8 +70,11 @@ begin
     raise exception 'attendance_role_denied' using errcode = '42501';
   end if;
 
-  if jsonb_typeof(p_slices) <> 'array' or jsonb_array_length(p_slices) > 120 then
+  if jsonb_typeof(p_slices) is distinct from 'array' then
     raise exception 'attendance_invalid_slice_batch' using errcode = '22023';
+  end if;
+  if jsonb_array_length(p_slices) > 120 then
+    raise exception 'attendance_slice_batch_too_large' using errcode = '22023';
   end if;
 
   select * into v_session
@@ -101,7 +104,7 @@ begin
       v_ended_at := (v_slice->>'ended_at')::timestamptz;
       v_time_zone := v_slice->>'time_zone';
       v_local_work_date := (v_slice->>'local_work_date')::date;
-    exception when invalid_text_representation or datetime_field_overflow then
+    exception when invalid_text_representation or invalid_datetime_format or datetime_field_overflow then
       raise exception 'attendance_invalid_slice_value at %', v_index using errcode = '22023';
     end;
 
@@ -129,7 +132,7 @@ begin
     end if;
 
     v_credit := floor(extract(epoch from (v_ended_at - v_started_at)))::bigint;
-    if v_started_at < v_session.clock_in
+    if v_started_at < (v_session.clock_in - interval '1 second')
        or v_ended_at > v_now
        or v_ended_at <= v_started_at
        or v_credit not between 1 and 57600
