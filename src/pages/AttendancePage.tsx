@@ -27,6 +27,7 @@ type Props = {
   breaks: AttendanceBreak[];
   canManageAll: boolean;
   desktopAttendanceCapable: boolean;
+  attendanceTabRole: 'leader' | 'secondary' | 'unsupported';
   onClockIn: (note?: string) => Promise<AttendanceSession>;
   onClockOut: (note?: string) => Promise<AttendanceSession>;
   onStartBreak: () => Promise<AttendanceBreak>;
@@ -113,6 +114,7 @@ export function AttendancePage({
   breaks,
   canManageAll,
   desktopAttendanceCapable,
+  attendanceTabRole,
   onClockIn,
   onClockOut,
   onStartBreak,
@@ -232,7 +234,11 @@ export function AttendancePage({
   const currentStatus = !desktopAttendanceCapable
     ? 'Laptop required'
     : activeSession
-      ? activeBreak
+      ? attendanceTabRole === 'unsupported'
+        ? 'Browser cannot verify single-tab attendance'
+        : attendanceTabRole === 'secondary'
+          ? 'Another Tracker tab is recording'
+      : activeBreak
         ? 'On break'
         : appConnected
           ? browserOnline
@@ -310,11 +316,19 @@ export function AttendancePage({
             </div>
           </div>
 
+          {activeSession && attendanceTabRole !== 'leader' ? (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+              {attendanceTabRole === 'unsupported'
+                ? 'This browser does not support the Web Locks API required to prevent duplicate attendance across tabs. Use an updated desktop browser to earn verified time.'
+                : 'Another open MH Tracker tab owns this attendance session. This tab displays data but does not add or upload duplicate seconds. Close the other tab to transfer tracking.'}
+            </div>
+          ) : null}
+
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             {!activeSession ? (
               <Button
                 type="button"
-                disabled={busy || !desktopAttendanceCapable}
+                disabled={busy || !desktopAttendanceCapable || (typeof navigator !== 'undefined' && !navigator.locks)}
                 onClick={() => void run(async () => { await onClockIn(note.trim()); setNote(''); })}
                 className="min-h-12 w-full"
               >
