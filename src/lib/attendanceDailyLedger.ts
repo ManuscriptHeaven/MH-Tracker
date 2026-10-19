@@ -86,3 +86,47 @@ export function mergeAttendanceDailySlices(
   }
   return [...byKey.values()];
 }
+
+const DAILY_QUEUE_PREFIX = 'mh_attendance_daily_slices_v1';
+
+/** Queue keys are scoped to the signed-in actor and attendance session. */
+function dailyQueueKey(userId: string, sessionId: string) {
+  return `${DAILY_QUEUE_PREFIX}:${userId}:${sessionId}`;
+}
+
+export function readPendingAttendanceDailySlices(userId: string, sessionId: string): AttendanceDailySlice[] {
+  try {
+    const raw = window.localStorage.getItem(dailyQueueKey(userId, sessionId));
+    if (!raw) return [];
+    const value: unknown = JSON.parse(raw);
+    if (!Array.isArray(value)) return [];
+    const valid = value.filter((item): item is AttendanceDailySlice =>
+      typeof item === 'object' && item !== null &&
+      typeof item.source_key === 'string' &&
+      typeof item.started_at === 'string' &&
+      typeof item.ended_at === 'string' &&
+      typeof item.time_zone === 'string' &&
+      typeof item.local_work_date === 'string'
+    );
+    return mergeAttendanceDailySlices([], valid);
+  } catch {
+    return [];
+  }
+}
+
+export function writePendingAttendanceDailySlices(
+  userId: string,
+  sessionId: string,
+  slices: AttendanceDailySlice[],
+): void {
+  try {
+    const key = dailyQueueKey(userId, sessionId);
+    if (slices.length === 0) {
+      window.localStorage.removeItem(key);
+    } else {
+      window.localStorage.setItem(key, JSON.stringify(slices));
+    }
+  } catch {
+    // Storage-denied environments still track in memory and retry on reconnect.
+  }
+}
