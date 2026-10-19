@@ -52,6 +52,7 @@ declare
   v_now timestamptz := clock_timestamp();
   v_session public.attendance_sessions;
   v_slice jsonb;
+  v_existing public.attendance_daily_credits;
   v_source_key uuid;
   v_started_at timestamptz;
   v_ended_at timestamptz;
@@ -108,20 +109,20 @@ begin
       raise exception 'attendance_invalid_slice_value at %', v_index using errcode = '22023';
     end;
 
-    -- A retransmitted source key is a successful no-op. The row lock serializes
-    -- retries and competing tab/device requests for the same active session.
-    if exists (
-      select 1 from public.attendance_daily_credits c
-      where c.user_id = v_actor and c.source_key = v_source_key
-        and c.session_id = v_session.id
-    ) then
-      continue;
-    end if;
+    -- A retransmitted source key is a successful no-op ONLY for identical
+    -- payloads. Reject accidental UUID reuse with conflicting intervals.
+    select * into v_existing
+    from public.attendance_daily_credits c
+    where c.user_id = v_actor and c.source_key = v_source_key;
 
-    if exists (
-      select 1 from public.attendance_daily_credits c
-      where c.user_id = v_actor and c.source_key = v_source_key
-    ) then
+    if v_existing.id is not null then
+      if v_existing.session_id = v_session.id
+        and v_existing.started_at = v_started_at
+        and v_existing.ended_at = v_ended_at
+        and v_existing.time_zone = v_time_zone
+        and v_existing.local_work_date = v_local_work_date then
+        continue;
+      end if;
       raise exception 'attendance_source_key_reused' using errcode = '23505';
     end if;
 
