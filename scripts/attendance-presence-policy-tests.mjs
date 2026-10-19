@@ -47,6 +47,25 @@ assert(sample.creditSeconds === 0 && sample.pauseReason === 'screen_locked', 'lo
 sample = evaluateAttendancePresenceSample({
   lastWallMs: 1_000,
   lastMonotonicMs: 500,
+  nowWallMs: 7_201_000,
+  nowMonotonicMs: 7_200_500,
+  maxCreditableMs: 300_000,
+});
+assert(sample.creditSeconds === 300 && sample.creditableElapsedMs === 300_000,
+  'delayed idle event cannot grant a two-hour unattended background gap');
+
+sample = evaluateAttendancePresenceSample({
+  lastWallMs: 1_000,
+  lastMonotonicMs: 500,
+  nowWallMs: 301_000,
+  nowMonotonicMs: 300_500,
+  userIdle: true,
+});
+assert(sample.creditSeconds === 0 && sample.pauseReason === 'user_idle', 'system user-idle intervals never earn verified time');
+
+sample = evaluateAttendancePresenceSample({
+  lastWallMs: 1_000,
+  lastMonotonicMs: 500,
   nowWallMs: 31_000,
   nowMonotonicMs: 30_500,
   pageAway: true,

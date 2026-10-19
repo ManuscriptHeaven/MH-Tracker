@@ -27,6 +27,8 @@ type Props = {
   breaks: AttendanceBreak[];
   canManageAll: boolean;
   desktopAttendanceCapable: boolean;
+  idleDetectionStatus: 'active' | 'idle' | 'locked' | 'unavailable';
+  onEnableIdleDetection: () => Promise<boolean>;
   onClockIn: (note?: string) => Promise<AttendanceSession>;
   onClockOut: (note?: string) => Promise<AttendanceSession>;
   onStartBreak: () => Promise<AttendanceBreak>;
@@ -72,7 +74,7 @@ function isPresenceFresh(session: AttendanceSession | null, nowMs: number) {
   return Number.isFinite(heartbeat) && nowMs - heartbeat <= APP_PRESENCE_STALE_MS;
 }
 
-function getSessionSeconds(session: AttendanceSession, breaks: AttendanceBreak[], nowMs: number) {
+function getSessionSeconds(session: AttendanceSession, breaks: AttendanceBreak[], nowMs: number, locallyPaused = false) {
   if (typeof session.verified_seconds === 'number') {
     const base = Math.max(0, Number(session.verified_seconds || 0));
     if (session.status !== 'active' || !session.last_app_heartbeat_at) return base;
@@ -80,24 +82,16 @@ function getSessionSeconds(session: AttendanceSession, breaks: AttendanceBreak[]
     const hasActiveBreak = breaks.some(
       (item) => item.session_id === session.id && !item.ended_at,
     );
-    if (hasActiveBreak || !isPresenceFresh(session, nowMs)) return base;
+    if (hasActiveBreak || locallyPaused || !isPresenceFresh(session, nowMs)) return base;
 
     const heartbeat = new Date(session.last_app_heartbeat_at).getTime();
     const liveTail = Math.max(0, Math.floor((nowMs - heartbeat) / 1000));
     return base + Math.min(liveTail, 30);
   }
 
-  // Legacy/demo fallback for records created before verified app-presence accounting.
-  const start = new Date(session.clock_in).getTime();
-  const end = session.clock_out ? new Date(session.clock_out).getTime() : nowMs;
-  const breakSeconds = breaks
-    .filter((item) => item.session_id === session.id)
-    .reduce((total, item) => {
-      const breakStart = new Date(item.started_at).getTime();
-      const breakEnd = item.ended_at ? new Date(item.ended_at).getTime() : nowMs;
-      return total + Math.max(0, Math.floor((breakEnd - breakStart) / 1000));
-    }, 0);
-  return Math.max(0, Math.floor((end - start) / 1000) - breakSeconds);
+  // Never present clock-in-to-clock-out calendar time as verified work.
+  // Historical records without verified_seconds remain stored and flagged below.
+  return 0;
 }
 
 function dateTimeLocalValue(value: string) {
@@ -113,6 +107,8 @@ export function AttendancePage({
   breaks,
   canManageAll,
   desktopAttendanceCapable,
+  idleDetectionStatus,
+  onEnableIdleDetection,
   onClockIn,
   onClockOut,
   onStartBreak,
@@ -128,6 +124,7 @@ export function AttendancePage({
   const [editClockOut, setEditClockOut] = useState('');
   const [editReason, setEditReason] = useState('');
   const [teamWindow, setTeamWindow] = useState<'today' | '7d' | '30d'>('today');
+  const [reminderPermission, setReminderPermission] = useState(() => typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
@@ -152,25 +149,38 @@ export function AttendancePage({
     ? myBreaks.find((item) => item.session_id === activeSession.id && !item.ended_at) || null
     : null;
 
+  const locallyPaused = idleDetectionStatus === 'idle' || idleDetectionStatus === 'locked';
+  const myVerifiedSeconds = (session: AttendanceSession) => getSessionSeconds(
+    session, myBreaks, nowMs, session.id === activeSession?.id && locallyPaused,
+  );
   const todayKey = localDayKey(new Date(nowMs));
   const todaySessions = mySessions.filter((session) => localDayKey(session.clock_in) === todayKey);
-  const todaySeconds = todaySessions.reduce((total, session) => total + getSessionSeconds(session, myBreaks, nowMs), 0);
+  const todaySeconds = todaySessions.reduce((total, session) => total + myVerifiedSeconds(session), 0);
 
   const weekStart = startOfWeek(new Date(nowMs)).getTime();
   const weekSeconds = mySessions
     .filter((session) => new Date(session.clock_in).getTime() >= weekStart)
-    .reduce((total, session) => total + getSessionSeconds(session, myBreaks, nowMs), 0);
+    .reduce((total, session) => total + myVerifiedSeconds(session), 0);
 
   const monthStart = new Date(new Date(nowMs).getFullYear(), new Date(nowMs).getMonth(), 1).getTime();
-  const monthSeconds = mySessions
-    .filter((session) => new Date(session.clock_in).getTime() >= monthStart)
-    .reduce((total, session) => total + getSessionSeconds(session, myBreaks, nowMs), 0);
-
-  const daysWorked = new Set(
-    mySessions
-      .filter((session) => new Date(session.clock_in).getTime() >= monthStart)
-      .map((session) => localDayKey(session.clock_in)),
-  ).size;
+  const monthSessions = mySessions.filter((session) =>
+    new Date(session.clock_in).getTime() >= monthStart && new Date(session.clock_in).getTime() <= nowMs
+  );
+  const monthlyDayTotals = new Map<string, number>();
+  for (const session of monthSessions) {
+    const seconds = myVerifiedSeconds(session);
+    if (seconds > 0) {
+      const key = localDayKey(session.clock_in);
+      monthlyDayTotals.set(key, (monthlyDayTotals.get(key) || 0) + seconds);
+    }
+  }
+  const monthSeconds = monthSessions.reduce((total, session) => total + myVerifiedSeconds(session), 0);
+  const daysWorked = [...monthlyDayTotals.values()].filter((seconds) => seconds >= 60).length;
+  const standardWorkdaySeconds = 8 * 3600;
+  const monthlyTargetSeconds = daysWorked * standardWorkdaySeconds;
+  const monthBalanceSeconds = monthSeconds - monthlyTargetSeconds;
+  const unusuallyLongDays = [...monthlyDayTotals.values()].filter((seconds) => seconds > 16 * 3600).length;
+  const unverifiedLegacySessions = monthSessions.filter((session) => typeof session.verified_seconds !== 'number').length;
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true);
@@ -234,7 +244,11 @@ export function AttendancePage({
     : activeSession
       ? activeBreak
         ? 'On break'
-        : appConnected
+        : idleDetectionStatus === 'idle'
+          ? 'Idle · Time paused'
+          : idleDetectionStatus === 'locked'
+            ? 'Locked · Time paused'
+            : appConnected
           ? browserOnline
             ? 'Working · Verified'
             : 'Working · Offline'
@@ -249,9 +263,8 @@ export function AttendancePage({
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-gold">Office Attendance</p>
             <h2 className="mt-1 font-display text-2xl font-semibold sm:text-3xl">Time & Attendance</h2>
             <p className="mt-2 max-w-2xl text-sm text-white/65">
-              Office time keeps counting while the same MH Tracker window remains open on a laptop or desktop,
-              including when minimized, while using another desktop app, or temporarily offline. Screen lock, sleep/hibernate,
-              manual breaks, and closing the app pause credited time; queued offline time syncs when internet returns.
+              Verified time counts while MH Tracker runs on desktop, including minimized or offline. With system idle detection enabled,
+              inactivity pauses after 5 minutes; screen lock, sleep, breaks, and closing the app also pause time. Offline slices sync when connected.
             </p>
           </div>
 
@@ -266,7 +279,7 @@ export function AttendancePage({
                   ? 'bg-rose-400'
                   : activeBreak
                     ? 'bg-amber-400'
-                    : activeSession && appConnected
+                    : activeSession && appConnected && !locallyPaused
                       ? 'bg-emerald-400'
                       : activeSession
                         ? 'bg-slate-400'
@@ -274,14 +287,16 @@ export function AttendancePage({
               }`} />
             </div>
             <p className="mt-3 font-mono text-3xl font-bold tracking-tight text-gold">
-              {activeSession ? formatTimer(getSessionSeconds(activeSession, myBreaks, nowMs)) : '00:00:00'}
+              {activeSession ? formatTimer(myVerifiedSeconds(activeSession)) : '00:00:00'}
             </p>
             {activeSession ? (
               <p className="mt-1 text-xs text-white/55">
                 Clocked in {new Date(activeSession.clock_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 {activeBreak
                   ? ' · break active'
-                  : appConnected
+                  : locallyPaused
+                    ? ' · computer inactive, time paused'
+                    : appConnected
                     ? browserOnline
                       ? ' · MH Tracker connected'
                       : ' · tracking offline, sync pending'
@@ -306,7 +321,7 @@ export function AttendancePage({
             <TimerReset className="h-5 w-5 text-gold" />
             <div>
               <h3 className="font-display text-xl font-semibold text-ink">My office session</h3>
-              <p className="text-xs text-muted">Verified time is earned while MH Tracker stays open on desktop, even when minimized. Breaks, screen-lock/sleep gaps, and app-closed gaps are excluded automatically.</p>
+              <p className="text-xs text-muted">Verified working time excludes breaks, detected inactivity, screen-lock/sleep gaps and closed-app gaps. Detection of activity outside the browser requires system idle permission.</p>
             </div>
           </div>
 
@@ -368,7 +383,7 @@ export function AttendancePage({
             </div>
           ) : null}
 
-          {activeSession && !activeBreak && !appConnected && desktopAttendanceCapable ? (
+          {activeSession && !activeBreak && !appConnected && !locallyPaused && desktopAttendanceCapable ? (
             <div className="mt-4 flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
               <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
@@ -378,6 +393,23 @@ export function AttendancePage({
             </div>
           ) : null}
 
+          {activeSession && idleDetectionStatus === 'unavailable' ? (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+              <p>System-wide idle detection is not available or permission was denied. Time may continue while the computer is unattended. Supported Chromium desktop browsers can detect activity in other applications.</p>
+              <Button type="button" variant="secondary" disabled={busy} className="mt-2 min-h-9 text-xs" onClick={() => void run(async () => {
+                const granted = await onEnableIdleDetection();
+                if (!granted) throw new Error('Idle detection is unavailable or blocked. Check browser site permissions.');
+              })}>Enable / retry idle detection</Button>
+            </div>
+          ) : null}
+          {activeSession && typeof Notification !== 'undefined' && reminderPermission !== 'granted' ? (
+            <Button type="button" variant="secondary" className="mt-3 min-h-9 text-xs" disabled={reminderPermission === 'denied'} onClick={async () => {
+              const permission = await Notification.requestPermission();
+              setReminderPermission(permission);
+            }}>
+              Enable desktop time reminders
+            </Button>
+          ) : null}
           <div className="mt-4">
             <TextareaField
               label={activeSession ? 'End-of-day note (optional)' : 'Start note (optional)'}
@@ -399,10 +431,12 @@ export function AttendancePage({
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-2">
           {([
-            { label: 'Today', value: formatDuration(todaySeconds), icon: CalendarDays },
-            { label: 'This week', value: formatDuration(weekSeconds), icon: History },
-            { label: 'This month', value: formatDuration(monthSeconds), icon: TimerReset },
+            { label: 'Today · Actual', value: formatDuration(todaySeconds), icon: CalendarDays },
+            { label: 'Week · Actual', value: formatDuration(weekSeconds), icon: History },
+            { label: 'Month · Actual', value: formatDuration(monthSeconds), icon: TimerReset },
             { label: 'Days worked', value: String(daysWorked), icon: CheckCircle2 },
+            { label: 'Target · 8h/day', value: formatDuration(monthlyTargetSeconds), icon: History },
+            { label: 'Actual vs target', value: `${monthBalanceSeconds >= 0 ? '+' : '−'}${formatDuration(Math.abs(monthBalanceSeconds))}`, icon: CheckCircle2 },
           ] as const).map(({ label, value, icon: Icon }) => (
             <Card key={label} className="min-w-0 p-4">
               <Icon className="h-4 w-4 text-gold" />
@@ -410,8 +444,20 @@ export function AttendancePage({
               <p className="mt-1 truncate text-xl font-extrabold text-ink">{value}</p>
             </Card>
           ))}
+          <p className="col-span-2 text-xs text-muted sm:col-span-4 lg:col-span-2">
+            The 8h target is a comparison, not a limit on verified time. Days worked currently means distinct clock-in dates; multi-day shifts need a daily activity ledger before these figures can be used for payroll.
+          </p>
         </div>
       </section>
+
+      {(unverifiedLegacySessions > 0 || unusuallyLongDays > 0) ? (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="font-semibold">Attendance review recommended</p>
+          {unverifiedLegacySessions > 0 ? <p>{unverifiedLegacySessions} historical session(s) lack verified seconds and are excluded from actual hours. No source data was deleted.</p> : null}
+          {unusuallyLongDays > 0 ? <p>{unusuallyLongDays} day(s) exceed 16 tracked hours. Review extended or overnight sessions; no automatic cap was applied.</p> : null}
+          <p className="text-xs">Daily attribution currently uses clock-in date; overnight shifts need day-split records for precise payroll reporting.</p>
+        </div>
+      ) : null}
 
       <Card className="overflow-hidden p-0">
         <div className="border-b border-border px-4 py-4 sm:px-5">
@@ -436,7 +482,7 @@ export function AttendancePage({
                   {sessionBreaks.length} break{sessionBreaks.length === 1 ? '' : 's'}
                   {session.adjustment_reason ? ' · corrected' : ''}
                 </p>
-                <p className="text-right text-sm font-bold text-ink">{formatDuration(getSessionSeconds(session, myBreaks, nowMs))}</p>
+                <p className="text-right text-sm font-bold text-ink">{formatDuration(myVerifiedSeconds(session))}{typeof session.verified_seconds !== 'number' ? ' (unverified)' : ''}</p>
                 {session.note || session.adjustment_reason ? (
                   <div className="sm:col-span-4 rounded-lg bg-ivory px-3 py-2 text-xs text-muted">
                     {session.note ? <span>Note: {session.note}</span> : null}
@@ -460,7 +506,7 @@ export function AttendancePage({
                   <Users className="h-5 w-5 text-gold" />
                   <h3 className="font-display text-xl font-semibold text-ink">Team attendance today</h3>
                 </div>
-                <p className="mt-1 text-xs text-muted">Live verified app presence, today’s credited time, and month-to-date hours.</p>
+                <p className="mt-1 text-xs text-muted">Verified app presence and tracked totals. A heartbeat alone does not prove active computer use.</p>
               </div>
             </div>
 
@@ -477,8 +523,8 @@ export function AttendancePage({
                   ? personBreak
                     ? 'On break'
                     : personConnected
-                      ? 'Working'
-                      : 'App closed'
+                      ? 'App connected'
+                      : 'Paused / disconnected'
                   : 'Off duty';
                 const personToday = personSessions
                   .filter((session) => localDayKey(session.clock_in) === todayKey)

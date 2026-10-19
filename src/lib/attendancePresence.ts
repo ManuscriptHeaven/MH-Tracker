@@ -6,15 +6,18 @@ export type AttendancePresenceSampleInput = {
   nowWallMs: number;
   nowMonotonicMs: number;
   screenLocked?: boolean;
+  userIdle?: boolean;
   pageAway?: boolean;
+  maxCreditableMs?: number;
 };
 
 export type AttendancePresenceSample = {
   creditSeconds: number;
   wallElapsedMs: number;
+  creditableElapsedMs: number;
   monotonicElapsedMs: number;
   clockSkewMs: number;
-  pauseReason: 'screen_locked' | 'page_away' | 'sleep_detected' | null;
+  pauseReason: 'screen_locked' | 'user_idle' | 'page_away' | 'sleep_detected' | null;
 };
 
 /**
@@ -33,11 +36,19 @@ export function evaluateAttendancePresenceSample(
   const wallElapsedMs = Math.max(0, input.nowWallMs - input.lastWallMs);
   const monotonicElapsedMs = Math.max(0, input.nowMonotonicMs - input.lastMonotonicMs);
   const clockSkewMs = Math.max(0, wallElapsedMs - monotonicElapsedMs);
+  // In an idle-transition event delayed by background throttling, cap the
+  // unknown gap to the detector threshold instead of granting many idle hours.
+  const creditableElapsedMs = Math.min(
+    wallElapsedMs,
+    Math.max(0, input.maxCreditableMs ?? wallElapsedMs),
+  );
 
   let pauseReason: AttendancePresenceSample['pauseReason'] = null;
 
   if (input.screenLocked) {
     pauseReason = 'screen_locked';
+  } else if (input.userIdle) {
+    pauseReason = 'user_idle';
   } else if (input.pageAway) {
     pauseReason = 'page_away';
   } else if (clockSkewMs >= ATTENDANCE_SLEEP_CLOCK_SKEW_MS) {
@@ -45,7 +56,8 @@ export function evaluateAttendancePresenceSample(
   }
 
   return {
-    creditSeconds: pauseReason ? 0 : Math.floor(wallElapsedMs / 1000),
+    creditSeconds: pauseReason ? 0 : Math.floor(creditableElapsedMs / 1000),
+    creditableElapsedMs,
     wallElapsedMs,
     monotonicElapsedMs,
     clockSkewMs,
