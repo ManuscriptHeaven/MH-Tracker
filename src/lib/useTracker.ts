@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabase';
+import { startAttendanceTabLeadership } from './attendanceTabLeadership';
 import {
   splitAttendanceIntervalByLocalDate,
   mergeAttendanceDailySlices,
@@ -141,6 +142,7 @@ type AttendancePresenceRuntime = {
   fractionalMs: number;
   pendingSeconds: number;
   pendingDailySlices: AttendanceDailySlice[];
+  isLeader: boolean;
   flushing: boolean;
   screenLocked: boolean;
   pageAway: boolean;
@@ -967,11 +969,13 @@ export function useTracker() {
     fractionalMs: 0,
     pendingSeconds: 0,
     pendingDailySlices: [],
+    isLeader: false,
     flushing: false,
     screenLocked: false,
     pageAway: false,
   });
   const attendanceFlushRef = useRef<(() => Promise<boolean>) | null>(null);
+  const [attendanceTabRole, setAttendanceTabRole] = useState<'leader' | 'secondary' | 'unsupported'>('secondary');
   const attendanceIdlePermissionRef = useRef<'unknown' | 'granted' | 'denied' | 'unsupported'>('unknown');
 
   const loadSupabaseData = useCallback(async (profile: Profile) => {
@@ -4692,7 +4696,9 @@ export function useTracker() {
       attendancePresenceRef.current.fractionalMs = 0;
       attendancePresenceRef.current.pendingSeconds = 0;
       attendancePresenceRef.current.pendingDailySlices = [];
+      attendancePresenceRef.current.isLeader = false;
       attendancePresenceRef.current.flushing = false;
+      setAttendanceTabRole('secondary');
       attendancePresenceRef.current.screenLocked = false;
       attendancePresenceRef.current.pageAway = false;
       return undefined;
@@ -4715,6 +4721,7 @@ export function useTracker() {
       resetRuntimeClock();
       runtime.pendingSeconds = readAttendancePendingSeconds(currentProfile.id, activeSession.id);
       runtime.pendingDailySlices = readPendingAttendanceDailySlices(currentProfile.id, activeSession.id);
+      runtime.isLeader = false;
       runtime.flushing = false;
       runtime.screenLocked = false;
       runtime.pageAway = false;
@@ -4743,7 +4750,7 @@ export function useTracker() {
     };
 
     const accrueLocalPresence = (forcePause = false) => {
-      if (cancelled || runtime.sessionId !== activeSession.id) return 0;
+      if (cancelled || runtime.sessionId !== activeSession.id || !runtime.isLeader) return 0;
 
       const nowMs = Date.now();
       const nowMonotonicMs = attendanceMonotonicNow();
@@ -4799,7 +4806,7 @@ export function useTracker() {
       if (cancelled) return false;
 
       accrueLocalPresence();
-      if (!navigator.onLine || runtime.flushing) return false;
+      if (!runtime.isLeader || !navigator.onLine || runtime.flushing) return false;
       if (runtime.pendingSeconds === 0 && runtime.pendingDailySlices.length === 0) return true;
 
       runtime.flushing = true;
@@ -4876,8 +4883,33 @@ export function useTracker() {
 
     attendanceFlushRef.current = flushPresence;
 
+    const leadership = startAttendanceTabLeadership(
+      currentProfile.id,
+      activeSession.id,
+      (ownsLock) => {
+        if (cancelled) return;
+        if (!ownsLock && runtime.isLeader) {
+          // Preserve the last earned slice before releasing this tab's lock.
+          accrueLocalPresence();
+        }
+        runtime.isLeader = ownsLock;
+        resetRuntimeClock();
+        setAttendanceTabRole(ownsLock ? 'leader' : 'secondary');
+        if (ownsLock) {
+          // A previous owner may have left unsynced records in localStorage.
+          runtime.pendingDailySlices = mergeAttendanceDailySlices(
+            runtime.pendingDailySlices,
+            readPendingAttendanceDailySlices(currentProfile.id, activeSession.id),
+          );
+          void flushPresence();
+        }
+      },
+    );
+    if (!leadership.supported) {
+      setAttendanceTabRole('unsupported');
+    }
+
     void startScreenLockDetection();
-    void flushPresence();
 
     const localCheckpointId = window.setInterval(() => {
       accrueLocalPresence();
@@ -4917,6 +4949,8 @@ export function useTracker() {
     return () => {
       accrueLocalPresence();
       cancelled = true;
+      leadership.stop();
+      runtime.isLeader = false;
       idleController.abort();
       window.clearInterval(localCheckpointId);
       window.clearInterval(syncIntervalId);
@@ -5263,6 +5297,7 @@ export function useTracker() {
     refreshAttendance,
     recordAttendanceHeartbeat,
     desktopAttendanceCapable: isDesktopAttendanceClient(),
+    attendanceTabRole,
     clockInAttendance,
     clockOutAttendance,
     startAttendanceBreak,
