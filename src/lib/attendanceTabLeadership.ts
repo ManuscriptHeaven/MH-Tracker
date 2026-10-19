@@ -30,7 +30,7 @@ export function startAttendanceTabLeadership(
   sessionId: string,
   onOwnershipChange: (isLeader: boolean) => void,
   manager: AttendanceLockManager | undefined = (
-    typeof navigator !== 'undefined' ? navigator.locks : undefined
+    typeof navigator !== 'undefined' ? navigator.locks as AttendanceLockManager | undefined : undefined
   ),
 ): AttendanceTabLeadership {
   if (!manager || typeof manager.request !== 'function') {
