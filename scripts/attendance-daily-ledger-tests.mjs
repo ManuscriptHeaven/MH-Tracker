@@ -86,5 +86,23 @@ assert(sql.includes('attendance_slice_overlaps_break') && sql.includes('v_max_ve
 assert(sql.includes("at time zone v_time_zone") && sql.includes('attendance_slice_outside_session_or_day'), 'server validates the local work date');
 assert(!sql.includes('update public.attendance_daily_credits c set local_work_date'), 'migration does not fabricate historical days');
 
+
+const page = fs.readFileSync('src/pages/AttendancePage.tsx','utf8');
+assert(sql.includes('attendance_session_credit_reconciliation') &&
+       sql.includes('unattributed_seconds') &&
+       sql.includes('with (security_invoker = true)') &&
+       sql.includes('attendance_daily_totals'),
+  'security-invoker reporting separates accepted dated time from legacy historical seconds');
+assert(page.includes("from('attendance_daily_totals')") &&
+       page.includes("from('attendance_session_credit_reconciliation')") &&
+       page.includes("ledgerState === 'ready'") &&
+       page.includes('Month · Dated actual') &&
+       page.includes('Historical · Unattributed') &&
+       page.includes('mh-attendance-daily-verified.csv'),
+  'attendance UI shows real server accepted daily dates and a read-only export');
+assert(sql.includes('from public.attendance_sessions s') &&
+       sql.includes('s.id = attendance_daily_credits.session_id'),
+  'daily ledger visibility inherits existing parent attendance session RLS');
+
 if (process.exitCode) console.error('Attendance daily ledger foundation tests FAILED.');
 else console.log('ALL ATTENDANCE DAILY LEDGER FOUNDATION TESTS PASSED.');
