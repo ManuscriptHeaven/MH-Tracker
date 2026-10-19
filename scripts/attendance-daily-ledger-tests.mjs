@@ -1,4 +1,4 @@
-import { splitAttendanceIntervalByLocalDate, sumAttendanceDailySliceSeconds, mergeAttendanceDailySlices } from '../src/lib/attendanceDailyLedger.ts';
+import { splitAttendanceIntervalByLocalDate, sumAttendanceDailySliceSeconds, mergeAttendanceDailySlices, readPendingAttendanceDailySlices, writePendingAttendanceDailySlices } from '../src/lib/attendanceDailyLedger.ts';
 import fs from 'node:fs';
 
 function assert(condition, message) {
@@ -40,6 +40,36 @@ assert(long.length >= 4 && long.every(x => {
 
 assert(splitAttendanceIntervalByLocalDate(10_000, 10_000, key).length === 0, 'no time credited for zero-duration slice');
 assert(splitAttendanceIntervalByLocalDate(10_000, 9_000, key).length === 0, 'backward clock does not credit time');
+
+
+const simulatedStorage = new Map();
+globalThis.window = { localStorage: {
+  getItem: (k) => simulatedStorage.get(k) ?? null,
+  setItem: (k, v) => simulatedStorage.set(k, String(v)),
+  removeItem: (k) => simulatedStorage.delete(k),
+}};
+writePendingAttendanceDailySlices('user1', 'session1', crossing);
+assert(readPendingAttendanceDailySlices('user1','session1').length === 2,
+  'queued offline slices survive a simulated restart');
+assert(readPendingAttendanceDailySlices('user2','session1').length === 0,
+  'pending slices cannot leak into a different user storage key');
+writePendingAttendanceDailySlices('user1','session1',[]);
+assert(readPendingAttendanceDailySlices('user1','session1').length === 0,
+  'acknowledged offline slices are removed from the queue');
+delete globalThis.window;
+
+const tracker = fs.readFileSync('src/lib/useTracker.ts','utf8');
+assert(tracker.includes("supabase.rpc('attendance_sync_daily_slices'") &&
+  tracker.includes('pendingDailySlices: AttendanceDailySlice[]') &&
+  tracker.includes('splitAttendanceIntervalByLocalDate') &&
+  tracker.includes('recordAttendanceDailySlices(batch)'),
+  'attendance runtime sends dated slices using the new server RPC');
+assert(tracker.includes('await recordAttendanceHeartbeat(legacySeconds)') &&
+  !tracker.includes('runtime.pendingSeconds += elapsedSeconds'),
+  'pre-ledger scalar queue remains separately attributable instead of becoming fabricated daily credits');
+assert(tracker.includes('allCreditedTimeSynced === false') &&
+  tracker.includes('Unsynced attendance is still queued'),
+  'manual break/clock-out cannot silently discard failed offline daily syncs');
 
 const sql = fs.readFileSync('supabase/migrations/20261019000100_attendance_daily_credits.sql','utf8');
 assert(sql.includes('enable row level security') && sql.includes('for select to authenticated') && sql.includes('auth.uid()'), 'ledger has actor-scoped read RLS');
