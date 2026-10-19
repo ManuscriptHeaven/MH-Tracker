@@ -4723,7 +4723,7 @@ export function useTracker() {
       }));
     };
 
-    const accrueLocalPresence = (forcePause = false) => {
+    const accrueLocalPresence = (forcePause = false, maxCreditableMs?: number) => {
       if (cancelled || runtime.sessionId !== activeSession.id) return 0;
 
       const nowMs = Date.now();
@@ -4736,6 +4736,7 @@ export function useTracker() {
         screenLocked: forcePause || runtime.screenLocked,
         userIdle: runtime.userIdle,
         pageAway: runtime.pageAway,
+        maxCreditableMs,
       });
 
       runtime.lastSampleAtMs = nowMs;
@@ -4748,7 +4749,7 @@ export function useTracker() {
         return 0;
       }
 
-      const totalElapsedMs = sample.wallElapsedMs + runtime.fractionalMs;
+      const totalElapsedMs = sample.creditableElapsedMs + runtime.fractionalMs;
       const elapsedSeconds = Math.max(0, Math.floor(totalElapsedMs / 1000));
       runtime.fractionalMs = Math.max(0, totalElapsedMs - elapsedSeconds * 1000);
       if (elapsedSeconds <= 0) return 0;
@@ -4822,7 +4823,10 @@ export function useTracker() {
           if (locked !== runtime.screenLocked || userIdle !== runtime.userIdle) {
             // Credit the last active slice when the five-minute idle threshold is reached.
             // Never credit the uncertain last slice when the screen locks.
-            accrueLocalPresence(locked && !runtime.screenLocked);
+            accrueLocalPresence(
+              locked && !runtime.screenLocked,
+              userIdle && !runtime.userIdle ? 300_000 : undefined,
+            );
             runtime.screenLocked = locked;
             runtime.userIdle = userIdle;
             resetRuntimeClock();
