@@ -4883,31 +4883,37 @@ export function useTracker() {
 
     attendanceFlushRef.current = flushPresence;
 
-    const leadership = startAttendanceTabLeadership(
-      currentProfile.id,
-      activeSession.id,
-      (ownsLock) => {
-        if (cancelled) return;
-        if (!ownsLock && runtime.isLeader) {
-          // Preserve the last earned slice before releasing this tab's lock.
-          accrueLocalPresence();
-        }
-        runtime.isLeader = ownsLock;
-        resetRuntimeClock();
-        setAttendanceTabRole(ownsLock ? 'leader' : 'secondary');
-        if (ownsLock) {
-          // A previous owner may have left unsynced records in localStorage.
-          runtime.pendingDailySlices = mergeAttendanceDailySlices(
-            runtime.pendingDailySlices,
-            readPendingAttendanceDailySlices(currentProfile.id, activeSession.id),
-          );
-          void flushPresence();
-        }
-      },
-    );
-    if (!leadership.supported) {
-      setAttendanceTabRole('unsupported');
-    }
+    let leadership: ReturnType<typeof startAttendanceTabLeadership> | null = null;
+    let ownershipGeneration = 0;
+
+    const claimSessionLeadership = () => {
+      const generation = ++ownershipGeneration;
+      leadership = startAttendanceTabLeadership(
+        currentProfile.id,
+        activeSession.id,
+        (ownsLock) => {
+          // The old pagehide lock may finish releasing AFTER pageshow has
+          // started a new request; ignore ownership changes from old requests.
+          if (cancelled || generation !== ownershipGeneration) return;
+          if (!ownsLock && runtime.isLeader) {
+            accrueLocalPresence();
+          }
+          runtime.isLeader = ownsLock;
+          resetRuntimeClock();
+          setAttendanceTabRole(ownsLock ? 'leader' : 'secondary');
+          if (ownsLock) {
+            runtime.pendingDailySlices = mergeAttendanceDailySlices(
+              runtime.pendingDailySlices,
+              readPendingAttendanceDailySlices(currentProfile.id, activeSession.id),
+            );
+            void flushPresence();
+          }
+        },
+      );
+      if (!leadership.supported) setAttendanceTabRole('unsupported');
+    };
+
+    claimSessionLeadership();
 
     void startScreenLockDetection();
 
@@ -4920,6 +4926,7 @@ export function useTracker() {
     const onPageShow = () => {
       runtime.pageAway = false;
       resetRuntimeClock();
+      if (!leadership) claimSessionLeadership();
       markLocalPresenceNow();
       void flushPresence();
     };
@@ -4929,9 +4936,14 @@ export function useTracker() {
       if (document.visibilityState === 'visible') void flushPresence();
     };
     const onPageHide = () => {
-      // Navigating away / entering bfcache is not "app open" time.
+      // A page held in back-forward cache must not retain the attendance lock.
       accrueLocalPresence();
       runtime.pageAway = true;
+      runtime.isLeader = false;
+      ++ownershipGeneration;
+      leadership?.stop();
+      leadership = null;
+      setAttendanceTabRole('secondary');
       resetRuntimeClock();
     };
     const onResume = () => {
@@ -4949,7 +4961,9 @@ export function useTracker() {
     return () => {
       accrueLocalPresence();
       cancelled = true;
-      leadership.stop();
+      ++ownershipGeneration;
+      leadership?.stop();
+      leadership = null;
       runtime.isLeader = false;
       idleController.abort();
       window.clearInterval(localCheckpointId);
