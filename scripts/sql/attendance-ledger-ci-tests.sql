@@ -173,6 +173,48 @@ begin
   end if;
 end $$;
 
+-- Even with a stale legacy heartbeat, break and clock-out must not
+-- accidentally credit time outside the accepted dated ledger.
+reset role;
+update public.attendance_sessions
+set last_app_heartbeat_at=clock_timestamp()-interval '30 seconds'
+where id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+set role authenticated;
+select set_config('request.jwt.claim.sub','11111111-1111-4111-8111-111111111111',false);
+do $
+declare v_row public.attendance_breaks;
+begin
+  select * into v_row from public.attendance_start_break();
+  if v_row.id is null then raise exception 'break start failed'; end if;
+  if (select verified_seconds from public.attendance_sessions
+      where id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') <> 70 then
+    raise exception 'break start double-credited stale heartbeat time';
+  end if;
+end $;
+
+reset role;
+update public.attendance_sessions
+set last_app_heartbeat_at=clock_timestamp()-interval '30 seconds'
+where id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+set role authenticated;
+select set_config('request.jwt.claim.sub','11111111-1111-4111-8111-111111111111',false);
+do $
+declare v_row public.attendance_sessions;
+begin
+  select * into v_row from public.attendance_clock_out('completed');
+  if v_row.status <> 'completed' then raise exception 'clock-out failed'; end if;
+  if v_row.verified_seconds <> 70 then
+    raise exception 'clock-out double-credited stale heartbeat time';
+  end if;
+  if exists (
+    select 1 from public.attendance_breaks
+    where session_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+      and ended_at is null
+  ) then raise exception 'clock-out failed to close active break'; end if;
+end $;
+
 reset role;
 
 select 'ATTENDANCE LEDGER: ALL POSTGRESQL/RLS INTEGRATION TESTS PASSED' as result;
