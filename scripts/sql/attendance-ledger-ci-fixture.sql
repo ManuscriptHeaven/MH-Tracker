@@ -23,6 +23,7 @@ create table public.attendance_sessions(
   clock_in timestamptz not null,
   clock_out timestamptz,
   status text not null,
+  note text,
   verified_seconds bigint not null default 0,
   last_app_heartbeat_at timestamptz,
   presence_client_kind text,
