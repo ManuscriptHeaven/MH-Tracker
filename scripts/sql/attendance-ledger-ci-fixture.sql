@@ -66,3 +66,11 @@ create policy attendance_sessions_select on public.attendance_sessions
   for select to authenticated
   using (user_id = auth.uid() or public.phase6_app_actor_class() in ('admin','project_manager'));
 
+-- Match the production attendance_breaks SELECT grant and row-level policy.
+-- Authenticated users can view their own breaks; team managers/admins can
+-- review employees without granting cross-user access to other team roles.
+grant select on public.attendance_breaks to authenticated;
+alter table public.attendance_breaks enable row level security;
+create policy attendance_breaks_select on public.attendance_breaks
+  for select to authenticated
+  using (user_id = auth.uid() or public.phase6_app_actor_class() in ('admin','project_manager'));
