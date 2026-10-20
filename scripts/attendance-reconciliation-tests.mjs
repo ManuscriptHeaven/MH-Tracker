@@ -15,6 +15,7 @@ const app = fs.readFileSync('src/App.tsx','utf8');
 const attendancePage = fs.readFileSync('src/pages/AttendancePage.tsx','utf8');
 const workflow = fs.readFileSync('.github/workflows/attendance-ledger-integration.yml','utf8');
 const ledger = fs.readFileSync('supabase/migrations/20261019000100_attendance_daily_credits.sql','utf8');
+const fixture = fs.readFileSync('scripts/sql/attendance-ledger-ci-fixture.sql','utf8');
 
 assert(sql.includes('create table if not exists public.attendance_reconciliation_audit') &&
   sql.includes('previous_record jsonb not null') && sql.includes('updated_record jsonb not null') &&
@@ -72,6 +73,11 @@ assert(component.includes("currentProfile.role !== 'admin'") &&
 assert(ledger.includes('as $$') && !ledger.includes('as $\n') &&
   !ledger.includes('\n$;\n'),
   'existing attendance migration contains valid dollar-quoted PostgreSQL RPCs');
+
+assert(fixture.includes('grant select on public.attendance_breaks to authenticated') &&
+  fixture.includes('alter table public.attendance_breaks enable row level security') &&
+  fixture.includes('create policy attendance_breaks_select'),
+  'disposable SQL fixture mirrors production break visibility for employees and managers');
 
 if (process.exitCode) console.error('Attendance reconciliation static certification FAILED.');
 else console.log('ALL ATTENDANCE RECONCILIATION STATIC CERTIFICATION CHECKS PASSED.');
