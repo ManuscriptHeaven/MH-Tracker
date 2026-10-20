@@ -65,13 +65,11 @@ export function AIAssistantPage({
     isListening,
     isSpeaking,
     isMuted,
-    isWakeWordListening,
-    toggleWakeWordListener,
-    settings,
     liveTranscript,
     voiceError,
     startVoice,
     stopVoice,
+    stopSpeaking,
     toggleMute,
     clearConversation,
     clearVoiceError,
@@ -254,6 +252,12 @@ export function AIAssistantPage({
     }
   }, [messages, isProcessing, liveTranscript, activeTab]);
 
+  // Leaving the AI Command Center also releases the microphone immediately.
+  useEffect(() => () => {
+    stopVoice();
+    stopSpeaking();
+  }, [stopVoice, stopSpeaking]);
+
   function handleVoiceToggle() {
     clearVoiceError();
     if (isListening) {
@@ -325,29 +329,13 @@ export function AIAssistantPage({
             ) : null}
           </button>
 
-          <button
-            type="button"
-            onClick={toggleWakeWordListener}
-            className={cn(
-              'inline-flex min-h-10 items-center gap-2 rounded-xl border px-3 text-xs font-semibold transition',
-              settings.wakeWordEnabled
-                ? 'border-gold/50 bg-gold/10 text-[#7a5518]'
-                : 'border-border bg-white text-muted hover:text-ink',
-            )}
+          <span
+            className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-border bg-white px-3 text-xs font-semibold text-muted"
+            title="The microphone is off until you press Speak."
           >
-            <span className="relative flex h-2 w-2">
-              {settings.wakeWordEnabled && isWakeWordListening ? (
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-gold opacity-60" />
-              ) : null}
-              <span
-                className={cn(
-                  'relative inline-flex h-2 w-2 rounded-full',
-                  settings.wakeWordEnabled ? 'bg-gold' : 'bg-muted',
-                )}
-              />
-            </span>
-            {settings.wakeWordEnabled ? 'Hey James On' : 'Hey James Off'}
-          </button>
+            <MicOff className="h-4 w-4" />
+            Click to Speak
+          </span>
 
           <button
             type="button"
