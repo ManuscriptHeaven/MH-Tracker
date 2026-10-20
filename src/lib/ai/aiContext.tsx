@@ -102,7 +102,6 @@ interface AIContextType {
   isListening: boolean;
   isSpeaking: boolean;
   isMuted: boolean;
-  isWakeWordListening: boolean;
   liveTranscript: string;
   voiceError: string | null;
   dailySummary: DailySummary | null;
@@ -128,8 +127,6 @@ interface AIContextType {
   startVoice: () => void;
   stopVoice: () => void;
   toggleMute: () => void;
-  toggleWakeWordListener: () => void;
-  triggerWakeUpGreeting: () => Promise<void>;
   speakText: (text: string) => Promise<void>;
   stopSpeaking: () => void;
   clearVoiceError: () => void;
@@ -188,15 +185,13 @@ export function AIProvider({
   const [operatorIntelligence, setOperatorIntelligence] = useState<AIOperatorIntelligence | null>(null);
   const [showDailyPopup, setShowDailyPopup] = useState(false);
 
-  const [isWakeWordListening, setIsWakeWordListening] = useState(false);
-
   const [settings, setSettings] = useState<AIUserSettings>({
     voiceEnabled: true,
     voiceLanguage: 'en-US',
     ttsEnabled: true,
     autoSpeak: true,
     isMuted: false,
-    wakeWordEnabled: true,
+    wakeWordEnabled: false,
     wakeWord: 'hey james',
     assistantName: 'James',
   });
@@ -215,7 +210,6 @@ export function AIProvider({
   activeViewRef.current = activeView;
   const selectedProjectRef = useRef<any>(selectedProject);
   selectedProjectRef.current = selectedProject;
-  const dailyPopupCheckRef = useRef<string | null>(null);
 
   // Persist audit logs
   useEffect(() => {
@@ -282,30 +276,15 @@ export function AIProvider({
     refreshDailyBriefing,
   ]);
 
-  // Show the briefing once per day unless this user dismissed it.
-  useEffect(() => {
-    const userId = tracker.currentProfile?.id;
-    if (!userId) return;
-
-    const today = new Date().toISOString().slice(0, 10);
-    const checkKey = userId + ':' + today;
-    if (dailyPopupCheckRef.current === checkKey) return;
-    dailyPopupCheckRef.current = checkKey;
-    setShowDailyPopup(false);
-
-    void (async () => {
-      const dismissed = await aiService.wasDailySummaryDismissedToday();
-      if (!dismissed) {
-        setShowDailyPopup(true);
-      }
-    })();
-  }, [tracker.currentProfile?.id]);
+  // Daily briefing remains available within the AI Command Center.
+  // Do not open a proactive assistant popup while the assistant is asleep.
 
   // Initialize user settings and saved conversation history.
   useEffect(() => {
     async function init() {
       const loadedSettings = await aiService.getUserSettings();
-      setSettings((prev) => ({ ...prev, ...loadedSettings }));
+      // Always-listening is retired even for users with legacy saved preferences.
+      setSettings((prev) => ({ ...prev, ...loadedSettings, wakeWordEnabled: false }));
       voiceService.setMuted(Boolean(loadedSettings.isMuted));
       if (loadedSettings.voiceLanguage) {
         voiceService.setLanguage(loadedSettings.voiceLanguage);
@@ -376,22 +355,33 @@ export function AIProvider({
     } as any;
   }, []);
 
-  const openChat = useCallback(() => setIsOpen(true), []);
+  const isOpenRef = useRef(false);
+  isOpenRef.current = isOpen;
+  const openChat = useCallback(() => {
+    isOpenRef.current = true;
+    setIsOpen(true);
+  }, []);
   const closeChat = useCallback(() => {
+    isOpenRef.current = false;
     setIsOpen(false);
-    voiceService.stopSpeaking();
     voiceService.stopListening();
+    voiceService.stopSpeaking();
   }, []);
 
+  // One click wakes the floating assistant and, if voice input is enabled,
+  // starts a single speech-recognition session. Closing cancels both.
   const toggleChat = useCallback(() => {
-    setIsOpen((p) => {
-      const next = !p;
-      if (!next && isSpeaking) {
-        voiceService.stopSpeaking();
-      }
-      return next;
-    });
-  }, [isSpeaking]);
+    if (isOpen) {
+      closeChat();
+      return;
+    }
+    isOpenRef.current = true;
+    setIsOpen(true);
+    if (settingsRef.current.voiceEnabled) {
+      setVoiceError(null);
+      void voiceService.startListening(settingsRef.current.voiceLanguage);
+    }
+  }, [isOpen, closeChat]);
 
   const minimizeChat = useCallback((min: boolean) => setIsChatMinimized(min), []);
 
@@ -443,7 +433,7 @@ export function AIProvider({
   }, []);
 
   const speakText = useCallback(async (text: string) => {
-    if (!text) return;
+    if (!text || (!isOpenRef.current && activeViewRef.current !== 'ai_assistant')) return;
     await voiceService.speak(text, settingsRef.current.voiceLanguage);
   }, []);
 
@@ -460,67 +450,19 @@ export function AIProvider({
     voiceService.stopListening();
   }, []);
 
-  const toggleWakeWordListener = useCallback(() => {
-    setSettings((prev) => {
-      const next = !prev.wakeWordEnabled;
-      if (!next) {
-        wakeWordService.stopListening();
-      }
-      return { ...prev, wakeWordEnabled: next };
-    });
+  // Retire background wake-word recognition completely, including on unmount.
+  useEffect(() => {
+    wakeWordService.stopListening();
+    return () => {
+      wakeWordService.stopListening();
+      voiceService.stopListening();
+      voiceService.stopSpeaking();
+    };
   }, []);
 
   const clearVoiceError = useCallback(() => {
     setVoiceError(null);
   }, []);
-
-  const triggerWakeUpGreeting = useCallback(async () => {
-    setIsOpen(true);
-    const userName = trackerRef.current?.currentProfile?.full_name?.split(' ')[0] || 'there';
-    const assistantName = settingsRef.current?.assistantName || 'James';
-    const welcomeText = `Hello ${userName}! I'm ${assistantName}, your AI Assistant. How can I assist you today?`;
-
-    const welcomeMsg: AIMessage = {
-      id: `msg-${Date.now()}`,
-      conversationId: activeConversationId || 'default',
-      role: 'assistant',
-      content: welcomeText,
-      createdAt: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, welcomeMsg]);
-
-    if (settingsRef.current.ttsEnabled && !settingsRef.current.isMuted) {
-      await voiceService.speak(welcomeText, settingsRef.current.voiceLanguage);
-    }
-    
-    startVoice();
-  }, [startVoice]);
-
-  // Synchronize Wake Word Service Event Listeners
-  useEffect(() => {
-    wakeWordService.onListeningStateChange = (active) => {
-      setIsWakeWordListening(active);
-    };
-
-    wakeWordService.onWakeWordDetected = () => {
-      triggerWakeUpGreeting();
-    };
-  }, [triggerWakeUpGreeting]);
-
-  // Manage background Wake Word listener loop
-  useEffect(() => {
-    const isManagerOrAdmin =
-      trackerRef.current?.canManageAll ||
-      trackerRef.current?.currentProfile?.role === 'admin' ||
-      trackerRef.current?.currentProfile?.role === 'project_manager' ||
-      trackerRef.current?.currentProfile?.role === 'manager';
-
-    if (settings.wakeWordEnabled && !isListening && !isSpeaking && isManagerOrAdmin) {
-      wakeWordService.startListening(settings.wakeWord || 'hey james', settings.assistantName || 'James');
-    } else {
-      wakeWordService.stopListening();
-    }
-  }, [settings.wakeWordEnabled, settings.wakeWord, settings.assistantName, isListening, isSpeaking]);
 
   // Voice Event Handlers
   useEffect(() => {
@@ -677,7 +619,7 @@ export function AIProvider({
           .then(refreshOperatorIntelligence);
 
         // Speak response if voice TTS is enabled and not muted
-        if (settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
+        if ((isOpenRef.current || activeViewRef.current === 'ai_assistant') && settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
           voiceService.speak(result.spokenText || result.displayText, settingsRef.current.voiceLanguage);
         }
       } catch (e: any) {
@@ -802,7 +744,7 @@ export function AIProvider({
           })
           .then(refreshOperatorIntelligence);
 
-        if (settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
+        if ((isOpenRef.current || activeViewRef.current === 'ai_assistant') && settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
           voiceService.speak(result.spokenText || result.displayText, settingsRef.current.voiceLanguage);
         }
       } catch (e: any) {
@@ -884,7 +826,7 @@ export function AIProvider({
       })
       .then(refreshOperatorIntelligence);
 
-    if (settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
+    if ((isOpenRef.current || activeViewRef.current === 'ai_assistant') && settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
       voiceService.speak('Action cancelled.', settingsRef.current.voiceLanguage);
     }
   }, [refreshOperatorIntelligence]);
@@ -905,7 +847,8 @@ export function AIProvider({
 
   const updateSettings = useCallback(
     async (newSettings: Partial<AIUserSettings>) => {
-      const updated = { ...settings, ...newSettings };
+      // A stale client must never re-enable always-on wake-word recognition.
+      const updated = { ...settings, ...newSettings, wakeWordEnabled: false };
       setSettings(updated);
       if (newSettings.isMuted !== undefined) {
         voiceService.setMuted(newSettings.isMuted);
@@ -930,7 +873,6 @@ export function AIProvider({
     isListening,
     isSpeaking,
     isMuted: Boolean(settings.isMuted),
-    isWakeWordListening,
     liveTranscript,
     voiceError,
     dailySummary,
@@ -955,8 +897,6 @@ export function AIProvider({
     startVoice,
     stopVoice,
     toggleMute,
-    toggleWakeWordListener,
-    triggerWakeUpGreeting,
     speakText,
     stopSpeaking,
     clearVoiceError,
