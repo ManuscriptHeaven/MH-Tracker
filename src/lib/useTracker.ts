@@ -1214,6 +1214,8 @@ export function useTracker() {
         employment_condition: item.employment_condition || 'active',
         condition_start_date: item.condition_start_date || null,
         condition_end_date: item.condition_end_date || null,
+        employment_end_date: item.employment_end_date || null,
+        employment_return_date: item.employment_return_date || null,
         created_at: item.created_at || '',
       })),
       projects: mergePayments(projects, payments),
@@ -3487,6 +3489,10 @@ export function useTracker() {
           employment_condition: condition,
           condition_start_date: ['holiday', 'leave'].includes(condition) ? startDate : null,
           condition_end_date: ['holiday', 'leave'].includes(condition) ? endDate : null,
+          employment_end_date: exiting ? new Date().toISOString().slice(0, 10) : profile.employment_end_date,
+          employment_return_date: !exiting && profile.status === 'inactive'
+            ? new Date().toISOString().slice(0, 10)
+            : profile.employment_return_date,
         } : profile),
       }));
     },
