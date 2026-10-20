@@ -5,7 +5,9 @@ begin;
 alter table public.profiles
   add column if not exists employment_condition text not null default 'active',
   add column if not exists condition_start_date date,
-  add column if not exists condition_end_date date;
+  add column if not exists condition_end_date date,
+  add column if not exists employment_end_date date,
+  add column if not exists employment_return_date date;
 alter table public.profiles drop constraint if exists profiles_employment_condition_check;
 alter table public.profiles add constraint profiles_employment_condition_check
   check (employment_condition in ('active', 'holiday', 'leave', 'resigned', 'retired', 'terminated'));
@@ -50,6 +52,7 @@ declare
   v_target public.profiles%rowtype;
   v_updated public.profiles%rowtype;
   v_access_status text;
+  v_previous_inactive boolean;
   v_reason text := pg_catalog.btrim(coalesce(p_reason, ''));
 begin
   if public.phase6_app_actor_class() is distinct from 'admin' then
@@ -94,6 +97,7 @@ begin
     end if;
   end if;
 
+  v_previous_inactive := (v_target.status = 'inactive');
   v_access_status := case
     when p_condition in ('resigned', 'retired', 'terminated') then 'inactive'
     else 'active'
@@ -109,7 +113,9 @@ begin
      set status = v_access_status,
          employment_condition = p_condition,
          condition_start_date = case when p_condition in ('holiday','leave') then p_start_date else null end,
-         condition_end_date = case when p_condition in ('holiday','leave') then p_end_date else null end
+         condition_end_date = case when p_condition in ('holiday','leave') then p_end_date else null end,
+         employment_end_date = case when v_access_status = 'inactive' then current_date else employment_end_date end,
+         employment_return_date = case when v_access_status = 'active' and v_previous_inactive then current_date else employment_return_date end
    where id = p_employee_id
    returning * into v_updated;
 
