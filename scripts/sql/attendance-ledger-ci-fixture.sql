@@ -74,3 +74,8 @@ alter table public.attendance_breaks enable row level security;
 create policy attendance_breaks_select on public.attendance_breaks
   for select to authenticated
   using (user_id = auth.uid() or public.phase6_app_actor_class() in ('admin','project_manager'));
+
+-- Emulate the excessive legacy grants currently present in production. The
+-- migration must revoke direct writes/TRUNCATE and restore only safe SELECT.
+grant all privileges on table public.attendance_sessions, public.attendance_breaks
+  to anon, authenticated;
