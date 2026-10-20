@@ -220,7 +220,7 @@ returns public.attendance_breaks
 language plpgsql
 security definer
 set search_path = ''
-as $
+as $$
 declare
   v_actor uuid := auth.uid();
   v_now timestamptz := clock_timestamp();
@@ -257,14 +257,14 @@ begin
 
   return v_row;
 end;
-$;
+$$;
 
 create or replace function public.attendance_clock_out(p_note text default null)
 returns public.attendance_sessions
 language plpgsql
 security definer
 set search_path = ''
-as $
+as $$
 declare
   v_actor uuid := auth.uid();
   v_now timestamptz := clock_timestamp();
@@ -303,7 +303,7 @@ begin
 
   return v_row;
 end;
-$;
+$$;
 
 -- Preserve only signed-in attendance access, not public/anon RPC execution.
 revoke all on function public.attendance_start_break() from public, anon;
