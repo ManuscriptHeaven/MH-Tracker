@@ -34,6 +34,7 @@ import { errorMessage, isClientRole } from './lib/utils';
 import type { Project, ProjectDraft, ProjectLifecycleStatus, ProjectMetadataUpdate } from './lib/types';
 
 import { RevisionRequestModal } from './components/RevisionRequestModal';
+import { AttendanceReconciliationAdmin } from './components/AttendanceReconciliationAdmin';
 import { Toast, type ToastData } from './components/Toast';
 import { OfflineBanner } from './components/OfflineBanner';
 
@@ -312,6 +313,7 @@ export default function App() {
     )}
     {activeView === 'calendar' && <CalendarPage projects={visibleProjects} onSelectProject={openClientProject} />}
     {activeView === 'attendance' && !isClient && (
+      <>
       <AttendancePage
         currentProfile={tracker.currentProfile}
         profiles={tracker.data.profiles}
@@ -326,6 +328,15 @@ export default function App() {
         onEndBreak={tracker.endAttendanceBreak}
         onAdjustSession={tracker.adjustAttendanceSession}
       />
+      {tracker.currentProfile.role === 'admin' && (
+        <AttendanceReconciliationAdmin
+          currentProfile={tracker.currentProfile}
+          profiles={tracker.data.profiles}
+          sessions={tracker.data.attendanceSessions || []}
+          onReconciled={tracker.refreshAttendance}
+        />
+      )}
+      </>
     )}
     {activeView === 'team' && (
       <TeamPage
