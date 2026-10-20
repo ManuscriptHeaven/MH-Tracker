@@ -775,7 +775,7 @@ export function AttendancePage({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h3 className="font-display text-xl font-semibold text-ink">Correct attendance record</h3>
-                <p className="mt-1 text-xs text-muted">Admin corrections are audit-marked and require a reason. Correcting the session window does not fabricate verified app-presence time.</p>
+                <p className="mt-1 text-xs text-muted">Admin corrections now create an immutable audit entry with before/after snapshots and require a detailed reason (15+ characters). Adjusting session times never manufactures dated verified credits.</p>
               </div>
               <button type="button" className="text-sm font-bold text-muted" onClick={() => setEditing(null)}>✕</button>
             </div>
@@ -790,7 +790,7 @@ export function AttendancePage({
               <Button type="button" variant="secondary" onClick={() => setEditing(null)}>Cancel</Button>
               <Button
                 type="button"
-                disabled={busy || editReason.trim().length < 5 || !editClockIn || !editClockOut}
+                disabled={busy || editReason.trim().length < 15 || !editClockIn || !editClockOut}
                 onClick={() => void run(async () => {
                   await onAdjustSession(
                     editing.id,
