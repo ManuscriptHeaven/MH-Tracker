@@ -5,7 +5,9 @@ on:
     branches: [main]
     paths:
       - 'supabase/migrations/*attendance_daily_credits.sql'
+      - 'supabase/migrations/*attendance_admin_reconciliation.sql'
       - 'scripts/sql/attendance-ledger-ci-*.sql'
+      - 'scripts/sql/attendance-reconciliation-ci-tests.sql'
       - '.github/workflows/attendance-ledger-integration.yml'
   workflow_dispatch:
 
@@ -50,3 +52,7 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261019000100_attendance_daily_credits.sql
       - name: Verify ledger authorization and runtime invariants
         run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/attendance-ledger-ci-tests.sql
+      - name: Apply append-only admin reconciliation schema
+        run: psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261020000100_attendance_admin_reconciliation.sql
+      - name: Verify admin-only corrections evidence and immutable audit
+        run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/attendance-reconciliation-ci-tests.sql
