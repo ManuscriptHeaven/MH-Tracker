@@ -66,7 +66,9 @@ const tracker = fs.readFileSync('src/lib/useTracker.ts', 'utf8');
 const ui = fs.readFileSync('src/pages/AttendancePage.tsx','utf8');
 assert(tracker.includes('!runtime.isLeader') &&
        tracker.includes('startAttendanceTabLeadership(') &&
-       tracker.includes('leadership.stop()') &&
+       tracker.includes('leadership?.stop()') &&
+       tracker.includes('claimSessionLeadership()') &&
+       tracker.includes('ownershipGeneration') &&
        tracker.includes('attendanceTabRole'),
   'attendance runtime restricts local accrual and sync to the elected tab');
 assert(ui.includes('Another Tracker tab is recording') &&
