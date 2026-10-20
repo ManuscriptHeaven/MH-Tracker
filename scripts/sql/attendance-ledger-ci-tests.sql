@@ -2,7 +2,7 @@
 -- Tests real Postgres execution, SQL assertions and authenticated RLS.
 \set ON_ERROR_STOP on
 
-do $ 
+do $$ 
 declare v_table text; v_role text; v_privilege text;
 begin
   foreach v_table in array array['attendance_sessions','attendance_breaks'] loop
@@ -21,9 +21,9 @@ begin
       raise exception 'anon session/break read access leaked: %',v_table;
     end if;
   end loop;
-end $;
+end $$;
 
-do $ begin
+do $$ begin
   if has_function_privilege('anon','public.attendance_sync_daily_slices(jsonb)','EXECUTE') then
     raise exception 'SECURITY FAILURE: anon can execute daily sync';
   end if;
