@@ -4,6 +4,21 @@
 -- session ownership, break windows, idempotency and mutual-exclusion checks.
 -- Existing aggregate verified_seconds are intentionally unchanged on migration.
 
+-- The legacy attendance tables predate this ledger and currently grant
+-- dangerous direct table privileges to web API roles (including TRUNCATE).
+-- RLS does not authorize TRUNCATE: it bypasses row policies entirely.
+-- Attendance writes are intentionally performed only through owner-checked
+-- security-definer clock, break, heartbeat and ledger RPCs.
+-- Preserve authenticated SELECT for the existing employee/manager interface.
+revoke all privileges on table
+  public.attendance_sessions,
+  public.attendance_breaks
+from public, anon, authenticated;
+grant select on table
+  public.attendance_sessions,
+  public.attendance_breaks
+to authenticated;
+
 create table if not exists public.attendance_daily_credits (
   id uuid primary key default gen_random_uuid(),
   session_id uuid not null references public.attendance_sessions(id) on delete restrict,
