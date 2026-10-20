@@ -1210,7 +1210,11 @@ export function useTracker() {
       profiles: (profilesRes.data as Partial<Profile>[]).map((item) => ({
         id: item.id || '', full_name: item.full_name || 'Team member', email: item.email || '',
         role: item.role || 'employee', avatar_url: item.avatar_url || null, phone: item.phone || null,
-        status: item.status || 'active', created_at: item.created_at || '',
+        status: item.status || 'active',
+        employment_condition: item.employment_condition || 'active',
+        condition_start_date: item.condition_start_date || null,
+        condition_end_date: item.condition_end_date || null,
+        created_at: item.created_at || '',
       })),
       projects: mergePayments(projects, payments),
       revisionNotes: revisionsRes.data as RevisionNote[],
@@ -1340,9 +1344,10 @@ export function useTracker() {
           return;
         }
 
-        if (!profile) {
+        if (!profile || profile.status === 'inactive') {
           clearStoredAuth();
           setCurrentProfile(null);
+          if (profile?.status === 'inactive') await supabase.auth.signOut();
           return;
         }
 
@@ -1392,6 +1397,12 @@ export function useTracker() {
         try {
           const profile = await fetchProfile(session.user.id);
           if (!active) return;
+          if (profile?.status === 'inactive') {
+            clearStoredAuth();
+            setCurrentProfile(null);
+            await supabase.auth.signOut();
+            return;
+          }
           if (profile) {
             setStoredProfile(profile);
             setStoredMode('supabase');
@@ -1701,6 +1712,10 @@ export function useTracker() {
           throw new Error('This user does not have a profile record yet.');
         }
 
+        if (profile.status === 'inactive') {
+          await supabase.auth.signOut();
+          throw new Error('Your MH Tracker access is inactive. Contact your administrator.');
+        }
         setStoredProfile(profile);
         setStoredMode('supabase');
         setMode('supabase');
@@ -3411,6 +3426,71 @@ export function useTracker() {
       return 'Team member pre-provisioned. Ask them to sign up using this email.';
     },
     [currentProfile, data.profiles, loadSupabaseData, mode],
+  );
+
+  const setTeamEmploymentCondition = useCallback(
+    async (
+      employeeId: string,
+      condition: import('./types').EmploymentCondition,
+      startDate?: string | null,
+      endDate?: string | null,
+      reason?: string,
+    ) => {
+      if (!currentProfile || currentProfile.role !== 'admin') {
+        throw new Error('Only admins can change employment status.');
+      }
+      if (employeeId === currentProfile.id) throw new Error('You cannot change your own employment status.');
+      const member = data.profiles.find((p) => p.id === employeeId);
+      if (!member || member.role === 'admin' || member.role === 'client') {
+        throw new Error('Choose a non-admin team member.');
+      }
+      const valid = ['active', 'holiday', 'leave', 'resigned', 'retired', 'terminated'];
+      if (!valid.includes(condition)) throw new Error('Invalid employment status.');
+      if (condition === 'holiday' || condition === 'leave') {
+        if (!startDate || !endDate || endDate < startDate) {
+          throw new Error('Please select valid holiday or leave dates.');
+        }
+      }
+      const exiting = ['resigned', 'retired', 'terminated'].includes(condition);
+      if (exiting && (!reason || reason.trim().length < 3)) {
+        throw new Error('Please provide a reason for archiving.');
+      }
+
+      if (supabase && mode === 'supabase') {
+        const { error: conditionError } = await supabase.rpc('admin_set_team_employment_condition', {
+          p_employee_id: employeeId,
+          p_condition: condition,
+          p_start_date: condition === 'holiday' || condition === 'leave' ? startDate : null,
+          p_end_date: condition === 'holiday' || condition === 'leave' ? endDate : null,
+          p_reason: reason?.trim() || null,
+        });
+        if (conditionError) throw conditionError;
+        await loadSupabaseData(currentProfile);
+        return;
+      }
+
+      if (exiting) {
+        const pendingTasks = data.tasks.some((task) =>
+          task.assigned_to === employeeId && task.status !== 'Done' && !task.archived_at);
+        const activeProjects = data.projects.some((project) =>
+          (project.assigned_to === employeeId || project.project_manager === employeeId) &&
+          !['Completed', 'Delivered', 'Cancelled', 'Archived'].includes(project.status));
+        if (pendingTasks || activeProjects) {
+          throw new Error('Reassign open tasks and active projects before archiving this employee.');
+        }
+      }
+      setData((previous) => ({
+        ...previous,
+        profiles: previous.profiles.map((profile) => profile.id === employeeId ? {
+          ...profile,
+          status: exiting ? 'inactive' : 'active',
+          employment_condition: condition,
+          condition_start_date: ['holiday', 'leave'].includes(condition) ? startDate : null,
+          condition_end_date: ['holiday', 'leave'].includes(condition) ? endDate : null,
+        } : profile),
+      }));
+    },
+    [currentProfile, data.profiles, data.projects, data.tasks, loadSupabaseData, mode],
   );
 
   const updateProfile = useCallback(
@@ -5173,6 +5253,7 @@ export function useTracker() {
     inviteClient,
     provisionClient,
     provisionTeamMember,
+    setTeamEmploymentCondition,
     updateProfile,
     markNotificationRead,
     markAllNotificationsRead,
