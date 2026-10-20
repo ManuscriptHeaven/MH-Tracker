@@ -65,6 +65,9 @@ begin
   if v_before.id is null then
     raise exception 'attendance_completed_session_required' using errcode = '22023';
   end if;
+  if v_before.clock_out is null or v_before.clock_out < v_before.clock_in then
+    raise exception 'attendance_missing_completed_window' using errcode = '22023';
+  end if;
   if p_expected_seconds is distinct from v_before.verified_seconds then
     raise exception 'attendance_record_changed_reload' using errcode = '40001';
   end if;
@@ -145,7 +148,8 @@ begin
     coalesce(b.ended_at,v_before.clock_out)-b.started_at
   )))::bigint)),0) into v_break_seconds
     from public.attendance_breaks b where b.session_id=p_session_id;
-  if greatest(0,coalesce(v_before.verified_seconds,0)) >
+  if v_before.verified_seconds < v_dated or
+     greatest(0,coalesce(v_before.verified_seconds,0)) >
      greatest(0,floor(extract(epoch from (p_clock_out-p_clock_in)))::bigint-v_break_seconds) then
     raise exception 'attendance_window_shorter_than_recorded_time' using errcode = '22023';
   end if;
