@@ -2,7 +2,28 @@
 -- Tests real Postgres execution, SQL assertions and authenticated RLS.
 \set ON_ERROR_STOP on
 
-do $$ begin
+do $ 
+declare v_table text; v_role text; v_privilege text;
+begin
+  foreach v_table in array array['attendance_sessions','attendance_breaks'] loop
+    foreach v_role in array array['anon','authenticated'] loop
+      foreach v_privilege in array array['INSERT','UPDATE','DELETE','TRUNCATE','TRIGGER','REFERENCES'] loop
+        if has_table_privilege(v_role,format('public.%I',v_table),v_privilege) then
+          raise exception 'SECURITY FAILURE: % can % on %',
+            v_role,v_privilege,v_table;
+        end if;
+      end loop;
+    end loop;
+    if not has_table_privilege('authenticated',format('public.%I',v_table),'SELECT') then
+      raise exception 'authenticated session/break read access was lost: %',v_table;
+    end if;
+    if has_table_privilege('anon',format('public.%I',v_table),'SELECT') then
+      raise exception 'anon session/break read access leaked: %',v_table;
+    end if;
+  end loop;
+end $;
+
+do $ begin
   if has_function_privilege('anon','public.attendance_sync_daily_slices(jsonb)','EXECUTE') then
     raise exception 'SECURITY FAILURE: anon can execute daily sync';
   end if;
