@@ -183,7 +183,15 @@ export function calculateEmployeePayroll(
   }
 
   // Formula: BASE PAY + PROJECT EARNINGS + BONUSES + OTHER - DEDUCTIONS = TOTAL PAYABLE
-  const effectiveBase = salaryType === 'Per Project' ? 0 : baseSalary;
+  // Preserve prior-month salary history, but do not accrue a new base salary
+  // between an employee's departure and reactivation. Departure month remains
+  // full by default; any final partial-month adjustment is an explicit ledger item.
+  const endMonth = profile.employment_end_date?.slice(0, 7);
+  const returnMonth = profile.employment_return_date?.slice(0, 7);
+  const afterDepartureBeforeReturn = Boolean(
+    endMonth && normMonth > endMonth && (!returnMonth || normMonth < returnMonth),
+  );
+  const effectiveBase = salaryType === 'Per Project' || afterDepartureBeforeReturn ? 0 : baseSalary;
   const totalPayable = Math.max(0, effectiveBase + projectEarnings + bonuses + otherEarnings - deductions);
 
   // OUTSTANDING = TOTAL PAYABLE - TOTAL PAID
