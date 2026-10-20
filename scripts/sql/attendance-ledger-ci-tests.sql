@@ -98,7 +98,7 @@ end $$;
 -- A project manager sees the same session-scoped records as the existing
 -- attendance_sessions RLS policy, but never receives write privileges.
 select set_config('request.jwt.claim.sub','44444444-4444-4444-8444-444444444444',false);
-do $ begin
+do $$ begin
   if (select count(*) from public.attendance_daily_totals) <> 1 then
     raise exception 'manager cannot see authorized team daily total';
   end if;
@@ -108,7 +108,7 @@ do $ begin
   if has_table_privilege('authenticated','public.attendance_daily_credits','INSERT') then
     raise exception 'project manager inherited unrestricted ledger writes';
   end if;
-end $;
+end $$;
 
 -- Confirm one actor cannot inspect another actor's ledger records.
 select set_config('request.jwt.claim.sub','22222222-2222-4222-8222-222222222222',false);
@@ -130,11 +130,11 @@ begin
 end $$;
 
 -- SECURITY INVOKER view must not leak other users' dated totals.
-do $ begin
+do $$ begin
   if (select count(*) from public.attendance_daily_totals) <> 0 then
     raise exception 'daily totals view leaked another user';
   end if;
-end $;
+end $$;
 
 reset role;
 
@@ -197,7 +197,7 @@ where id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 set role authenticated;
 select set_config('request.jwt.claim.sub','11111111-1111-4111-8111-111111111111',false);
-do $
+do $$
 declare v_row public.attendance_breaks;
 begin
   select * into v_row from public.attendance_start_break();
@@ -206,7 +206,7 @@ begin
       where id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') <> 70 then
     raise exception 'break start double-credited stale heartbeat time';
   end if;
-end $;
+end $$;
 
 reset role;
 update public.attendance_sessions
@@ -215,7 +215,7 @@ where id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 set role authenticated;
 select set_config('request.jwt.claim.sub','11111111-1111-4111-8111-111111111111',false);
-do $
+do $$
 declare v_row public.attendance_sessions;
 begin
   select * into v_row from public.attendance_clock_out('completed');
@@ -228,7 +228,7 @@ begin
     where session_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
       and ended_at is null
   ) then raise exception 'clock-out failed to close active break'; end if;
-end $;
+end $$;
 
 reset role;
 
