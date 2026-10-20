@@ -16,6 +16,7 @@ const attendancePage = fs.readFileSync('src/pages/AttendancePage.tsx','utf8');
 const workflow = fs.readFileSync('.github/workflows/attendance-ledger-integration.yml','utf8');
 const ledger = fs.readFileSync('supabase/migrations/20261019000100_attendance_daily_credits.sql','utf8');
 const fixture = fs.readFileSync('scripts/sql/attendance-ledger-ci-fixture.sql','utf8');
+const ledgerSqlTests = fs.readFileSync('scripts/sql/attendance-ledger-ci-tests.sql','utf8');
 
 assert(sql.includes('create table if not exists public.attendance_reconciliation_audit') &&
   sql.includes('previous_record jsonb not null') && sql.includes('updated_record jsonb not null') &&
@@ -78,6 +79,18 @@ assert(fixture.includes('grant select on public.attendance_breaks to authenticat
   fixture.includes('alter table public.attendance_breaks enable row level security') &&
   fixture.includes('create policy attendance_breaks_select'),
   'disposable SQL fixture mirrors production break visibility for employees and managers');
+
+assert(ledger.includes('revoke all privileges on table') &&
+  ledger.includes('public.attendance_sessions') &&
+  ledger.includes('public.attendance_breaks') &&
+  ledger.includes('from public, anon, authenticated') &&
+  ledger.includes('grant select on table') &&
+  fixture.includes('grant all privileges on table public.attendance_sessions, public.attendance_breaks') &&
+  ledgerSqlTests.includes("'TRUNCATE','TRIGGER','REFERENCES'"),
+  'migration removes direct high-risk attendance table grants from API roles');
+assert(!/do \\$(?!\\$)|end \\$;/.test(ledgerSqlTests) &&
+  (ledgerSqlTests.match(/do \\$\\$/g) || []).length === (ledgerSqlTests.match(/end \\$\\$/g) || []).length,
+  'PostgreSQL ledger security suite uses correctly paired dollar-quoted DO blocks');
 
 if (process.exitCode) console.error('Attendance reconciliation static certification FAILED.');
 else console.log('ALL ATTENDANCE RECONCILIATION STATIC CERTIFICATION CHECKS PASSED.');
