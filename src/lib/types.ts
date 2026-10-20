@@ -208,6 +208,8 @@ export interface Profile {
   employment_condition?: EmploymentCondition;
   condition_start_date?: string | null;
   condition_end_date?: string | null;
+  employment_end_date?: string | null;
+  employment_return_date?: string | null;
   created_at: string;
 }
 
