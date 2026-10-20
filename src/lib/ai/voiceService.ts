@@ -21,6 +21,8 @@ export class VoiceService {
   private isMuted: boolean = false;
   private silenceTimer: any = null;
   private restartTimeout: any = null;
+  // Invalidate pending microphone-permission requests when the assistant closes.
+  private listeningRequestId = 0;
 
   private constructor() {
     this.initSynth();
@@ -69,11 +71,13 @@ export class VoiceService {
       rec.lang = this.currentLanguage;
 
       rec.onstart = () => {
+        if (this.recognition !== rec) return;
         this.isCurrentlyListening = true;
         this.onListeningChange?.(true);
       };
 
       rec.onresult = (event: any) => {
+        if (this.recognition !== rec) return;
         if (this.isCurrentlySpeaking) {
           this.stopSpeaking();
         }
@@ -100,6 +104,7 @@ export class VoiceService {
       };
 
       rec.onerror = (event: any) => {
+        if (this.recognition !== rec) return;
         console.warn('Speech recognition error event:', event.error);
         this.isCurrentlyListening = false;
         this.onListeningChange?.(false);
@@ -122,6 +127,7 @@ export class VoiceService {
       };
 
       rec.onend = () => {
+        if (this.recognition !== rec) return;
         this.isCurrentlyListening = false;
         this.onListeningChange?.(false);
         this.clearSilenceTimer();
@@ -181,6 +187,10 @@ export class VoiceService {
   }
 
   public async startListening(language?: string) {
+    // Stop the previous recognition session before requesting access.
+    // A later Stop/Close increments this token and cancels this start attempt.
+    this.stopListening();
+    const requestId = this.listeningRequestId;
     if (language) {
       this.setLanguage(language);
     }
@@ -195,6 +205,7 @@ export class VoiceService {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         stream.getTracks().forEach((track) => track.stop());
       } catch (micErr: any) {
+        if (requestId !== this.listeningRequestId) return;
         if (micErr.name === 'NotAllowedError' || micErr.name === 'PermissionDeniedError') {
           this.onError?.('Microphone access was denied. Please allow microphone permissions in your browser.');
           return;
@@ -202,8 +213,8 @@ export class VoiceService {
       }
     }
 
-    // Create a fresh SpeechRecognition instance on every session to avoid stale socket states
-    this.stopListening();
+    // The panel may have closed while getUserMedia was awaiting user permission.
+    if (requestId !== this.listeningRequestId) return;
     this.recognition = this.createRecognitionInstance();
 
     if (!this.recognition) {
@@ -225,12 +236,19 @@ export class VoiceService {
   }
 
   public stopListening() {
+    this.listeningRequestId += 1;
     this.clearSilenceTimer();
     if (this.recognition) {
-      try {
-        this.recognition.stop();
-      } catch (e) {}
+      const previous = this.recognition;
       this.recognition = null;
+      // Ignore any late transcript, start or end event after closing.
+      previous.onresult = null;
+      previous.onstart = null;
+      previous.onerror = null;
+      previous.onend = null;
+      try {
+        previous.abort();
+      } catch (e) {}
     }
     this.isCurrentlyListening = false;
     this.onListeningChange?.(false);
@@ -318,13 +336,14 @@ export class VoiceService {
   }
 
   public stopSpeaking() {
-    if (this.synth && this.isCurrentlySpeaking) {
+    // Cancel queued utterances too, not just audio already in progress.
+    if (this.synth) {
       try {
         this.synth.cancel();
       } catch (e) {}
-      this.isCurrentlySpeaking = false;
-      this.onSpeakingChange?.(false);
     }
+    this.isCurrentlySpeaking = false;
+    this.onSpeakingChange?.(false);
   }
 }
 
