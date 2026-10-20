@@ -65,7 +65,9 @@ begin
   if v_before.id is null then
     raise exception 'attendance_completed_session_required' using errcode = '22023';
   end if;
-  if v_before.clock_out is null or v_before.clock_out < v_before.clock_in then
+  if v_before.clock_out is null
+     or v_before.clock_out < v_before.clock_in
+     or v_before.clock_out > clock_timestamp() then
     raise exception 'attendance_missing_completed_window' using errcode = '22023';
   end if;
   if p_expected_seconds is distinct from v_before.verified_seconds then
