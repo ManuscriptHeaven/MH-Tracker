@@ -326,7 +326,11 @@ export default function App() {
         onClockOut={tracker.clockOutAttendance}
         onStartBreak={tracker.startAttendanceBreak}
         onEndBreak={tracker.endAttendanceBreak}
-        onAdjustSession={tracker.adjustAttendanceSession}
+        onAdjustSession={async (sessionId, clockIn, clockOut, reason) => {
+          const result = await tracker.adjustAttendanceSession(sessionId, clockIn, clockOut, reason);
+          window.dispatchEvent(new Event('mh:attendance-reconciled'));
+          return result;
+        }}
       />
       {tracker.currentProfile.role === 'admin' && (
         <AttendanceReconciliationAdmin
