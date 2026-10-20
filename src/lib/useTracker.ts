@@ -1349,7 +1349,7 @@ export function useTracker() {
         if (!profile || profile.status === 'inactive') {
           clearStoredAuth();
           setCurrentProfile(null);
-          if (profile?.status === 'inactive') await supabase.auth.signOut();
+          if (profile?.status === 'inactive') await supabase?.auth.signOut();
           return;
         }
 
@@ -1402,7 +1402,7 @@ export function useTracker() {
           if (profile?.status === 'inactive') {
             clearStoredAuth();
             setCurrentProfile(null);
-            await supabase.auth.signOut();
+            await supabase?.auth.signOut();
             return;
           }
           if (profile) {
@@ -1715,7 +1715,7 @@ export function useTracker() {
         }
 
         if (profile.status === 'inactive') {
-          await supabase.auth.signOut();
+          await supabase?.auth.signOut();
           throw new Error('Your MH Tracker access is inactive. Contact your administrator.');
         }
         setStoredProfile(profile);
@@ -1867,7 +1867,7 @@ export function useTracker() {
   const signOut = useCallback(async () => {
     try {
       if (supabase && mode === 'supabase') {
-        await supabase.auth.signOut();
+        await supabase?.auth.signOut();
       }
     } catch (err) {
       console.warn('Sign out warning:', err);
