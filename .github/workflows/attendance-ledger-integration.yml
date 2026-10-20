@@ -1,6 +1,12 @@
 name: Attendance Ledger PostgreSQL / RLS Integration
 
 on:
+  push:
+    branches: [feat/attendance-daily-ledger-foundation]
+    paths:
+      - 'supabase/migrations/*attendance*.sql'
+      - 'scripts/sql/attendance-*.sql'
+      - '.github/workflows/attendance-ledger-integration.yml'
   pull_request:
     branches: [main]
     paths:
