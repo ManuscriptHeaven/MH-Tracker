@@ -59,6 +59,14 @@ export function AttendanceReconciliationAdmin({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [auditRefreshVersion, setAuditRefreshVersion] = useState(0);
+
+  useEffect(() => {
+    const refresh = () => setAuditRefreshVersion((previous) => previous + 1);
+    window.addEventListener('mh:attendance-reconciled', refresh);
+    return () => window.removeEventListener('mh:attendance-reconciled', refresh);
+  }, []);
+
 
   const completedSessions = useMemo(() => sessions
     .filter((session) => session.status === 'completed' && session.clock_out)
@@ -109,7 +117,7 @@ export function AttendanceReconciliationAdmin({
     };
     void load();
     return () => { cancelled = true; };
-  }, [currentProfile.role, selectedId, notice]);
+  }, [currentProfile.role, selectedId, notice, auditRefreshVersion]);
 
   if (currentProfile.role !== 'admin') return null;
 
