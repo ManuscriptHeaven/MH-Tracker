@@ -85,7 +85,7 @@ assert(
   page.includes('Today') &&
   page.includes('Week · Session records') &&
   page.includes('Month · 8h-day equivalent') &&
-  page.includes('Days worked'),
+  page.includes('Days with verified time'),
   'team members can track live office time, breaks and personal attendance totals',
 );
 
