@@ -18,6 +18,7 @@ import {
   Users,
   UserPlus,
   Wallet,
+  UserRoundCog,
 } from 'lucide-react';
 import { PayrollStatusBadge, RoleBadge } from '../components/Badges';
 import { Button, Card, Field, SelectField } from '../components/ui';
@@ -33,14 +34,28 @@ import {
   getPreviousMonth,
   normalizeMonth,
 } from '../lib/payrollUtils';
-import type { EmployeeCompensation, EmployeeLedgerEntry, Profile, Project, Role, Task } from '../lib/types';
+import type { AttendanceBreak, AttendanceSession, EmployeeCompensation, EmployeeLedgerEntry, EmploymentCondition, Profile, Project, Role, Task } from '../lib/types';
 import { firstName, initials, isClientRole } from '../lib/utils';
 import { AddPayrollEntryModal } from '../components/payroll/AddPayrollEntryModal';
 import { RecordPayrollPaymentModal } from '../components/payroll/RecordPayrollPaymentModal';
 import { EditEmployeeSalaryModal } from '../components/payroll/EditEmployeeSalaryModal';
 import { EmployeePayrollDetailModal } from '../components/payroll/EmployeePayrollDetailModal';
+import { effectiveEmploymentCondition, TeamStatusModal } from '../components/TeamStatusModal';
 
 type Tab = 'payroll' | 'directory';
+
+function currentDutyStatus(profile: Profile, sessions: AttendanceSession[], breaks: AttendanceBreak[]) {
+  if (profile.status === 'inactive') return null;
+  const condition = effectiveEmploymentCondition(profile);
+  if (condition === 'On Holiday' || condition === 'On Leave') return null;
+  const liveSession = sessions.find((session) =>
+    session.user_id === profile.id && session.status === 'active' && !session.clock_out);
+  if (!liveSession || !liveSession.last_app_heartbeat_at) return 'Offline';
+  const heartbeatAge = Date.now() - Date.parse(liveSession.last_app_heartbeat_at);
+  if (!Number.isFinite(heartbeatAge) || heartbeatAge < 0 || heartbeatAge > 120000) return 'Offline';
+  if (breaks.some((item) => item.session_id === liveSession.id && !item.ended_at)) return 'On Break';
+  return 'On Duty';
+}
 
 function employeeMetrics(profile: Profile, projects: Project[], tasks: Task[]) {
   const assigned = projects.filter((project) => project.assigned_to === profile.id);
@@ -70,6 +85,9 @@ export function TeamPage({
   onDeleteLedgerEntry,
   onUpdateProfile,
   onAddEmployee,
+  onSetEmploymentCondition,
+  attendanceSessions = [],
+  attendanceBreaks = [],
 }: {
   currentProfile?: Profile;
   profiles: Profile[];
@@ -86,6 +104,12 @@ export function TeamPage({
     updates: { full_name?: string; avatar_url?: string | null; phone?: string | null }
   ) => Promise<string | void>;
   onAddEmployee?: (employeeData: { fullName: string; email: string; phone?: string; role: Role }) => Promise<string>;
+  onSetEmploymentCondition?: (
+    employeeId: string, condition: EmploymentCondition,
+    startDate?: string | null, endDate?: string | null, reason?: string,
+  ) => Promise<void>;
+  attendanceSessions?: AttendanceSession[];
+  attendanceBreaks?: AttendanceBreak[];
 }) {
   const { formatMoney, convertMoney, displayCurrency } = useCurrency();
   const [tab, setTab] = useState<Tab>(() => canManagePayroll ? 'payroll' : 'directory');
@@ -116,6 +140,8 @@ export function TeamPage({
   const [addEmployeeLoading, setAddEmployeeLoading] = useState(false);
   const [addEmployeeError, setAddEmployeeError] = useState<string | null>(null);
   const [provisionSuccess, setProvisionSuccess] = useState<string | null>(null);
+  const [statusTarget, setStatusTarget] = useState<Profile | null>(null);
+  const [showFormerMembers, setShowFormerMembers] = useState(false);
 
   const team = useMemo(() => profiles.filter((p) => !isClientRole(p.role)), [profiles]);
   const isEmployeeRole = currentProfile?.role === 'employee';
@@ -129,12 +155,12 @@ export function TeamPage({
 
   const overviewRows = useMemo(
     () =>
-      team.map((profile) => ({
+      team.filter((profile) => showFormerMembers || profile.status !== 'inactive').map((profile) => ({
         profile,
         metrics: employeeMetrics(profile, projects, tasks),
         compensation: compensation.find((c) => c.employee_id === profile.id),
       })),
-    [team, projects, tasks, compensation],
+    [team, projects, tasks, compensation, showFormerMembers],
   );
 
   const { rows: payrollRows, stats: payrollStats } = useMemo(
@@ -177,6 +203,16 @@ export function TeamPage({
     if (!profile) return;
     setSalaryModalProfile(profile);
   }
+
+  const formerTeamCount = team.filter((profile) => profile.status === 'inactive').length;
+  const statusPendingTasks = statusTarget
+    ? tasks.filter((task) => task.assigned_to === statusTarget.id && task.status !== 'Done' && !task.archived_at).length
+    : 0;
+  const statusActiveProjects = statusTarget
+    ? projects.filter((project) =>
+      (project.assigned_to === statusTarget.id || project.project_manager === statusTarget.id) &&
+      !closedStatuses.includes(project.status)).length
+    : 0;
 
   const activeDetailProfile = detailModalProfileId ? team.find((p) => p.id === detailModalProfileId) : null;
   const activeDetailCompensation = detailModalProfileId
@@ -684,6 +720,14 @@ export function TeamPage({
       {/* ========================================================================= */}
       {tab === 'directory' && (
         <div className="space-y-4">
+          {canManagePayroll && formerTeamCount > 0 && (
+            <div className="flex justify-end">
+              <button type="button" onClick={() => setShowFormerMembers((value) => !value)}
+                className="min-h-9 rounded-xl border border-border bg-white px-3 text-xs font-semibold text-ink hover:border-gold/60">
+                {showFormerMembers ? 'Hide Former Team Members' : `Show Former Team Members (${formerTeamCount})`}
+              </button>
+            </div>
+          )}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {overviewRows.map(({ profile, metrics, compensation: pay }) => (
               <Card key={profile.id} className="p-4 bg-white space-y-3">
@@ -703,17 +747,38 @@ export function TeamPage({
                     <div>
                       <h4 className="font-display font-bold text-sm text-ink">{profile.full_name}</h4>
                       <RoleBadge role={profile.role} />
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                          profile.status === 'inactive'
+                            ? 'border-slate-200 bg-slate-100 text-slate-700'
+                            : effectiveEmploymentCondition(profile) === 'Active'
+                              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                              : 'border-amber-200 bg-amber-50 text-amber-800'
+                        }`}>
+                          {effectiveEmploymentCondition(profile)}
+                        </span>
+                        {currentDutyStatus(profile, attendanceSessions, attendanceBreaks) && (
+                          <span className="rounded-full border border-border bg-ivory/70 px-2 py-0.5 text-[10px] font-semibold text-muted">
+                            {currentDutyStatus(profile, attendanceSessions, attendanceBreaks)}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                   {canManagePayroll ? (
-                    <button
-                      type="button"
-                      onClick={() => openEditSalary(profile.id)}
-                      className="text-muted hover:text-gold p-1 rounded"
-                      title="Edit Salary"
-                    >
-                      <Edit2 className="h-3.5 w-3.5" />
-                    </button>
+                    <div className="flex shrink-0 flex-col items-end gap-2">
+                      <button type="button" onClick={() => openEditSalary(profile.id)}
+                        className="rounded p-1 text-muted hover:text-gold" title="Edit Salary">
+                        <Edit2 className="h-3.5 w-3.5" />
+                      </button>
+                      {profile.role !== 'admin' && profile.id !== currentProfile?.id && onSetEmploymentCondition && (
+                        <button type="button" onClick={() => setStatusTarget(profile)}
+                          className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-gold/40 bg-ivory/50 px-2 text-[10px] font-bold text-ink transition hover:bg-gold/20"
+                          title="Manage employee status or archive">
+                          <UserRoundCog className="h-3.5 w-3.5" /> Manage Status
+                        </button>
+                      )}
+                    </div>
                   ) : null}
                 </div>
 
@@ -767,6 +832,17 @@ export function TeamPage({
       {/* ========================================================================= */}
       {/* MODALS */}
       {/* ========================================================================= */}
+      {statusTarget && onSetEmploymentCondition && (
+        <TeamStatusModal
+          key={statusTarget.id}
+          profile={statusTarget}
+          pendingTasks={statusPendingTasks}
+          openProjects={statusActiveProjects}
+          onClose={() => setStatusTarget(null)}
+          onSave={(condition, startDate, endDate, reason) =>
+            onSetEmploymentCondition(statusTarget.id, condition, startDate, endDate, reason)}
+        />
+      )}
       {showAddEntryModal && (
         <AddPayrollEntryModal
           profiles={team}

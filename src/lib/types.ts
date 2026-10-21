@@ -195,6 +195,8 @@ export type TaskVisibility = 'team' | 'private';
 export type TaskAssignmentRole = 'primary' | 'collaborator' | 'reviewer';
 export type TaskDependencyType = 'blocks';
 
+export type EmploymentCondition = 'active' | 'holiday' | 'leave' | 'resigned' | 'retired' | 'terminated';
+
 export interface Profile {
   id: string;
   full_name: string;
@@ -203,6 +205,11 @@ export interface Profile {
   avatar_url?: string | null;
   phone?: string | null;
   status?: 'active' | 'inactive';
+  employment_condition?: EmploymentCondition;
+  condition_start_date?: string | null;
+  condition_end_date?: string | null;
+  employment_end_date?: string | null;
+  employment_return_date?: string | null;
   created_at: string;
 }
 
