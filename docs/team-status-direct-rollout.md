@@ -1,7 +1,7 @@
 # Team Status direct-production rollout and recovery
 
 This release is intentionally not using a paid staging database. The DDL migration
-`supabase/migrations/20261020090000_employee_lifecycle_status.sql` is additive;
+`supabase/migrations/20261021153055_employee_lifecycle_status_20261021.sql` is additive;
 it does not update or delete any existing employee, payroll, task or project rows.
 
 ## Preflight
