@@ -1,4 +1,4 @@
-import { splitAttendanceIntervalByLocalDate, sumAttendanceDailySliceSeconds, mergeAttendanceDailySlices, readPendingAttendanceDailySlices, writePendingAttendanceDailySlices } from '../src/lib/attendanceDailyLedger.ts';
+import { splitAttendanceIntervalByLocalDate, sumAttendanceDailySliceSeconds, mergeAttendanceDailySlices, reconcilePendingAttendanceDailySlices, readPendingAttendanceDailySlices, writePendingAttendanceDailySlices } from '../src/lib/attendanceDailyLedger.ts';
 import fs from 'node:fs';
 
 function assert(condition, message) {
@@ -58,6 +58,35 @@ assert(readPendingAttendanceDailySlices('user1','session1').length === 0,
   'acknowledged offline slices are removed from the queue');
 delete globalThis.window;
 
+const accepted = [{ started_at: '2026-10-21T08:14:03.000Z', ended_at: '2026-10-21T08:14:18.000Z' }];
+const toSlice = (id, from, to) => ({
+  source_key: id,
+  started_at: `2026-10-21T08:14:${String(from).padStart(2,'0')}.000Z`,
+  ended_at: `2026-10-21T08:14:${String(to).padStart(2,'0')}.000Z`,
+  local_work_date: '2026-10-21', time_zone: 'Asia/Karachi',
+});
+const staleQueue = [
+  toSlice(key(), 0, 30),
+  toSlice(key(), 28, 40),
+];
+const repaired = reconcilePendingAttendanceDailySlices(staleQueue, accepted, key);
+assert(repaired.length === 3, 'server-accepted and queued interval overlaps split into uncredited pieces');
+assert(sumAttendanceDailySliceSeconds(repaired) === 25,
+  'overlap recovery excludes 15 accepted seconds and 2 duplicate queued seconds');
+assert(repaired.every(x => !accepted.some(y => Date.parse(x.started_at) < Date.parse(y.ended_at) &&
+  Date.parse(x.ended_at) > Date.parse(y.started_at))),
+  'recovery never sends accepted intervals back to PostgreSQL');
+assert(new Set(repaired.map(x => x.source_key)).size === repaired.length &&
+  repaired.every(x => !staleQueue.some(y => y.source_key === x.source_key)),
+  'every trimmed or split interval receives a fresh stable source key');
+assert(JSON.stringify(reconcilePendingAttendanceDailySlices(repaired,accepted,key)) === JSON.stringify(repaired),
+  'rebasing an already repaired queue preserves source IDs on retry');
+const allAccepted = reconcilePendingAttendanceDailySlices(
+  [toSlice(key(), 3, 18)], accepted, key);
+assert(allAccepted.length === 0, 'fully acknowledged intervals are removed from stale local queue');
+assert(staleQueue[0].ended_at.endsWith(':30.000Z'), 'recovery never mutates a caller-owned queued slice');
+
+
 const tracker = fs.readFileSync('src/lib/useTracker.ts','utf8');
 assert(tracker.includes("supabase.rpc('attendance_sync_daily_slices'") &&
   tracker.includes('pendingDailySlices: AttendanceDailySlice[]') &&
@@ -70,6 +99,19 @@ assert(tracker.includes('await recordAttendanceHeartbeat(legacySeconds)') &&
 assert(tracker.includes('allCreditedTimeSynced === false') &&
   tracker.includes('Unsynced attendance is still queued'),
   'manual break/clock-out cannot silently discard failed offline daily syncs');
+
+assert(tracker.includes("code !== '23P01'") &&
+  tracker.includes(".from('attendance_daily_credits')") &&
+  tracker.includes("reconcilePendingAttendanceDailySlices(") &&
+  tracker.includes("writePendingAttendanceDailySlices(currentProfile.id, activeSession.id, repaired)") &&
+  tracker.includes("if (batch.length > 0) await recordAttendanceDailySlices(batch)"),
+  'live overlap recovery only repairs duplicate queued slices and preserves retry IDs');
+
+const hotfix = fs.readFileSync('supabase/migrations/20261021084024_attendance_daily_legacy_credit_compat.sql','utf8');
+assert(hotfix.includes('v_dated_total + v_credit > v_max_verified') &&
+  hotfix.includes('attendance_slice_overlap') &&
+  hotfix.includes('verified_seconds = greatest('),
+  'legacy saturated aggregate retains wall-clock cap, interval exclusion, and no-total-decrease');
 
 const sql = fs.readFileSync('supabase/migrations/20261021080547_attendance_daily_credits_v2_20261019.sql','utf8');
 assert(sql.includes('enable row level security') && sql.includes('for select to authenticated') && sql.includes('auth.uid()'), 'ledger has actor-scoped read RLS');

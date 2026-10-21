@@ -4,6 +4,7 @@ import { startAttendanceTabLeadership } from './attendanceTabLeadership';
 import {
   splitAttendanceIntervalByLocalDate,
   mergeAttendanceDailySlices,
+  reconcilePendingAttendanceDailySlices,
   readPendingAttendanceDailySlices,
   writePendingAttendanceDailySlices,
   type AttendanceDailySlice,
@@ -4821,9 +4822,34 @@ export function useTracker() {
         }
 
         // Stable source keys make replay after a network error idempotent.
-        const batch = runtime.pendingDailySlices.slice(0, 120);
+        // One previously accepted slice can overlap a stale queued interval
+        // (e.g. two tabs or an old local checkpoint). Resolve only genuine
+        // overlap errors by subtracting the server's already credited ranges.
+        // The server remains authoritative and still rejects duplicate credit.
+        let batch = runtime.pendingDailySlices.slice(0, 120);
         if (batch.length > 0) {
-          await recordAttendanceDailySlices(batch);
+          try {
+            await recordAttendanceDailySlices(batch);
+          } catch (syncError) {
+            const code = typeof syncError === 'object' && syncError !== null && 'code' in syncError
+              ? String((syncError as { code?: unknown }).code || '') : '';
+            if (code !== '23P01' || !supabase || mode !== 'supabase') throw syncError;
+            const { data: accepted, error: readError } = await supabase
+              .from('attendance_daily_credits')
+              .select('started_at,ended_at')
+              .eq('session_id', activeSession.id);
+            if (readError) throw readError;
+            const repaired = reconcilePendingAttendanceDailySlices(
+              runtime.pendingDailySlices, accepted || [], createUuid,
+            );
+            if (JSON.stringify(repaired) === JSON.stringify(runtime.pendingDailySlices)) throw syncError;
+            // Persist the repaired queue BEFORE retrying: new keys must remain
+            // identical if a network interruption follows the RPC commit.
+            runtime.pendingDailySlices = repaired;
+            writePendingAttendanceDailySlices(currentProfile.id, activeSession.id, repaired);
+            batch = repaired.slice(0, 120);
+            if (batch.length > 0) await recordAttendanceDailySlices(batch);
+          }
           const acceptedKeys = new Set(batch.map((slice) => slice.source_key));
           runtime.pendingDailySlices = runtime.pendingDailySlices.filter(
             (slice) => !acceptedKeys.has(slice.source_key),

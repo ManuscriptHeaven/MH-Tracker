@@ -58,6 +58,10 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261021080547_attendance_daily_credits_v2_20261019.sql
       - name: Verify ledger authorization and runtime invariants
         run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/attendance-ledger-ci-tests.sql
+      - name: Apply legacy attendance credit compatibility hotfix
+        run: psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261021084024_attendance_daily_legacy_credit_compat.sql
+      - name: Verify legacy heartbeat compatibility and overlap security
+        run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/attendance-legacy-credit-ci-tests.sql
       - name: Apply append-only admin reconciliation schema
         run: psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261021080615_attendance_admin_reconciliation_v2_20261020.sql
       - name: Verify admin-only corrections evidence and immutable audit

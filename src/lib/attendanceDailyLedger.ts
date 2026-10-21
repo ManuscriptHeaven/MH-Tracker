@@ -130,3 +130,62 @@ export function writePendingAttendanceDailySlices(
     // Storage-denied environments still track in memory and retry on reconnect.
   }
 }
+
+/**
+ * Recover a queue after the database reports overlapping accepted intervals.
+ * Already accepted seconds are removed, and any overlap between remaining
+ * queued slices is trimmed before retrying. Never grant duplicate seconds or
+ * modify an already accepted source-key payload.
+ *
+ * Newly split/trimmed slices get fresh UUIDs. Callers persist the returned
+ * queue BEFORE retrying so a network interruption keeps those IDs stable.
+ */
+export function reconcilePendingAttendanceDailySlices(
+  pending: AttendanceDailySlice[],
+  accepted: ReadonlyArray<{ started_at: string; ended_at: string }>,
+  createSourceKey: () => string,
+): AttendanceDailySlice[] {
+  const occupied: Array<[number, number]> = [];
+  for (const slice of accepted) {
+    const a = Date.parse(slice.started_at);
+    const b = Date.parse(slice.ended_at);
+    if (Number.isFinite(a) && Number.isFinite(b) && b > a) occupied.push([a, b]);
+  }
+  const sorted = [...pending].sort((a, b) =>
+    Date.parse(a.started_at) - Date.parse(b.started_at) || a.source_key.localeCompare(b.source_key));
+  const unique: AttendanceDailySlice[] = [];
+
+  for (const slice of sorted) {
+    const a = Date.parse(slice.started_at);
+    const b = Date.parse(slice.ended_at);
+    if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) {
+      // Preserve malformed entries for diagnosis rather than quietly losing time.
+      unique.push(slice);
+      continue;
+    }
+    let remaining: Array<[number, number]> = [[a, b]];
+    for (const [start, end] of occupied) {
+      remaining = remaining.flatMap(([left, right]) => {
+        if (end <= left || start >= right) return [[left, right] as [number, number]];
+        const fragments: Array<[number, number]> = [];
+        if (left < start) fragments.push([left, start]);
+        if (end < right) fragments.push([end, right]);
+        return fragments;
+      });
+      if (!remaining.length) break;
+    }
+    for (const [start, end] of remaining) {
+      if (end - start < 1000) continue;
+      const unchanged = start === a && end === b;
+      const part: AttendanceDailySlice = unchanged ? slice : {
+        ...slice,
+        source_key: createSourceKey(),
+        started_at: new Date(start).toISOString(),
+        ended_at: new Date(end).toISOString(),
+      };
+      unique.push(part);
+      occupied.push([start, end]);
+    }
+  }
+  return unique;
+}
