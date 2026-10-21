@@ -71,7 +71,7 @@ assert(tracker.includes('allCreditedTimeSynced === false') &&
   tracker.includes('Unsynced attendance is still queued'),
   'manual break/clock-out cannot silently discard failed offline daily syncs');
 
-const sql = fs.readFileSync('supabase/migrations/20261019000100_attendance_daily_credits.sql','utf8');
+const sql = fs.readFileSync('supabase/migrations/20261021080547_attendance_daily_credits_v2_20261019.sql','utf8');
 assert(sql.includes('enable row level security') && sql.includes('for select to authenticated') && sql.includes('auth.uid()'), 'ledger has actor-scoped read RLS');
 assert(sql.includes('revoke all on public.attendance_daily_credits') && sql.includes('grant select on public.attendance_daily_credits'), 'clients cannot insert directly');
 assert(sql.includes('source_key uuid not null') && sql.includes('attendance_daily_credit_source_unique'), 'source keys are deduplicated by database');

@@ -1,7 +1,9 @@
 # MH Tracker Attendance V2 — Production Cutover Gate
 
 **Production project:** existing MH Tracker Supabase (PostgreSQL 17).
-**Change scope:** `20261019000100_attendance_daily_credits.sql` followed by `20261020000100_attendance_admin_reconciliation.sql`.
+**Release state (2026-10-21):** Both database migrations applied successfully to the shared MH Tracker Supabase database. Project owner expressly waived the backup for this deployment because existing attendance entries are test-only. This is not a general recommendation to skip future backups. Cloudflare live frontend is not yet released; Windows QA remains outstanding.
+
+**Change scope:** `20261021080547_attendance_daily_credits_v2_20261019.sql` followed by `20261021080615_attendance_admin_reconciliation_v2_20261020.sql`.
 **Policy:** no deletion, no historical backfill, no automatic correction to old `attendance_sessions.verified_seconds`.
 
 ## Preconditions — all mandatory
@@ -36,7 +38,7 @@ supabase db dump --linked --data-only -f "C:\MH-Tracker-Private-Backups\mh-pre-a
 
 The CLI's default export excludes Supabase-managed schemas such as `auth` and `storage`, and the default schema dump excludes table data. These two files safeguard the **public app schema and data**, not a complete Supabase disaster-recovery image. Evaluate whether auth, storage, and custom-role state also need separate backup. Never upload backups to a public repository or include connection passwords in issues or chats.
 
-**Required sign-off:** identify the location of both encrypted files, confirm they are nonempty, and verify they are readable. Prefer testing restore in a local/disposable Postgres environment before production. If an appropriate backup cannot be confirmed, **STOP**.
+**Normal required sign-off:** identify and verify backup files, ideally with a test restore. **Exception granted for 2026-10-21 attendance-only cutover:** the owner declined backup protection for test-only attendance data, acknowledged the recovery risk, and authorized applying the database migrations without an export.
 
 Official instructions: https://supabase.com/docs/guides/platform/backups and https://supabase.com/docs/reference/cli/supabase-db-dump
 

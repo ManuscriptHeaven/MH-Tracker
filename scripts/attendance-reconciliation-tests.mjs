@@ -8,13 +8,13 @@ function assert(value, message) {
   }
 }
 
-const sql = fs.readFileSync('supabase/migrations/20261020000100_attendance_admin_reconciliation.sql','utf8');
+const sql = fs.readFileSync('supabase/migrations/20261021080615_attendance_admin_reconciliation_v2_20261020.sql','utf8');
 const tests = fs.readFileSync('scripts/sql/attendance-reconciliation-ci-tests.sql','utf8');
 const component = fs.readFileSync('src/components/AttendanceReconciliationAdmin.tsx','utf8');
 const app = fs.readFileSync('src/App.tsx','utf8');
 const attendancePage = fs.readFileSync('src/pages/AttendancePage.tsx','utf8');
 const workflow = fs.readFileSync('.github/workflows/attendance-ledger-integration.yml','utf8');
-const ledger = fs.readFileSync('supabase/migrations/20261019000100_attendance_daily_credits.sql','utf8');
+const ledger = fs.readFileSync('supabase/migrations/20261021080547_attendance_daily_credits_v2_20261019.sql','utf8');
 const fixture = fs.readFileSync('scripts/sql/attendance-ledger-ci-fixture.sql','utf8');
 const ledgerSqlTests = fs.readFileSync('scripts/sql/attendance-ledger-ci-tests.sql','utf8');
 

@@ -55,10 +55,10 @@ jobs:
       - name: Apply test-only Supabase authorization fixtures
         run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/attendance-ledger-ci-fixture.sql
       - name: Execute PR migration on disposable PostgreSQL 17
-        run: psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261019000100_attendance_daily_credits.sql
+        run: psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261021080547_attendance_daily_credits_v2_20261019.sql
       - name: Verify ledger authorization and runtime invariants
         run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/attendance-ledger-ci-tests.sql
       - name: Apply append-only admin reconciliation schema
-        run: psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261020000100_attendance_admin_reconciliation.sql
+        run: psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261021080615_attendance_admin_reconciliation_v2_20261020.sql
       - name: Verify admin-only corrections evidence and immutable audit
         run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/attendance-reconciliation-ci-tests.sql
