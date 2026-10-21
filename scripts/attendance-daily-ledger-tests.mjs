@@ -107,7 +107,7 @@ assert(tracker.includes("code !== '23P01'") &&
   tracker.includes("if (batch.length > 0) await recordAttendanceDailySlices(batch)"),
   'live overlap recovery only repairs duplicate queued slices and preserves retry IDs');
 
-const hotfix = fs.readFileSync('supabase/migrations/20261021100000_attendance_daily_legacy_credit_compat.sql','utf8');
+const hotfix = fs.readFileSync('supabase/migrations/20261021084024_attendance_daily_legacy_credit_compat.sql','utf8');
 assert(hotfix.includes('v_dated_total + v_credit > v_max_verified') &&
   hotfix.includes('attendance_slice_overlap') &&
   hotfix.includes('verified_seconds = greatest('),
