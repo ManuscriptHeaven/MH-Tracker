@@ -2,6 +2,7 @@ import { CheckCircle2, Clock3, ExternalLink, ListChecks, Plus, X } from 'lucide-
 import { type FormEvent, useMemo, useState } from 'react';
 import { PriorityBadge, TaskStatusBadge } from '../components/Badges';
 import { TaskDetailModal } from '../components/tasks/TaskDetailModal';
+import { ActiveProjectPicker } from '../components/tasks/ActiveProjectPicker';
 import { Button, Card, EmptyState, Field, SelectField, TextareaField } from '../components/ui';
 import { priorityOptions, taskStatuses } from '../lib/constants';
 import { deadlineClass, formatDate, todayInput } from '../lib/date';
@@ -567,18 +568,11 @@ export function TasksPage({
               />
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <SelectField
-                  label="Project"
-                  value={draft.project_id || ''}
-                  onChange={(e) => update('project_id', e.target.value || null)}
-                >
-                  <option value="">Select Project (Optional)</option>
-                  {projects.map((proj) => (
-                    <option key={proj.id} value={proj.id}>
-                      {proj.project_number} - {proj.project_title}
-                    </option>
-                  ))}
-                </SelectField>
+                <ActiveProjectPicker
+                  projects={projects}
+                  value={draft.project_id}
+                  onChange={(projectId) => update('project_id', projectId)}
+                />
 
                 <Field
                   label="Start Date"
