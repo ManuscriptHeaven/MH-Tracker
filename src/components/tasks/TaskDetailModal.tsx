@@ -16,6 +16,7 @@ import type {
 } from '../../lib/types';
 import { firstName, isClientRole, isManagerRole } from '../../lib/utils';
 import { Button, Card, Field, Modal, SelectField, TextareaField } from '../ui';
+import { ActiveProjectPicker } from './ActiveProjectPicker';
 
 type Props = {
   task: Task;
@@ -132,10 +133,12 @@ export function TaskDetailModal(props: Props) {
               </div>
               <TextareaField label="Description" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <SelectField label="Project" disabled={!canReassign} value={form.project_id} onChange={(event) => setForm({ ...form, project_id: event.target.value })}>
-                  <option value="">No project</option>
-                  {projects.map((project) => <option key={project.id} value={project.id}>{project.project_number} · {project.project_title}</option>)}
-                </SelectField>
+                <ActiveProjectPicker
+                  projects={projects}
+                  disabled={!canReassign}
+                  value={form.project_id}
+                  onChange={(projectId) => setForm((previous) => ({ ...previous, project_id: projectId || '' }))}
+                />
                 <SelectField label="Primary assignee" disabled={!canReassign} value={form.assigned_to} onChange={(event) => setForm({ ...form, assigned_to: event.target.value })}>
                   <option value="">Unassigned</option>
                   {teamProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.full_name}</option>)}
