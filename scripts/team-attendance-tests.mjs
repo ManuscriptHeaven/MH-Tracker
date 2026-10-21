@@ -84,8 +84,8 @@ assert(
   page.includes('End Break') &&
   page.includes('Today') &&
   page.includes('Week · Session records') &&
-  page.includes('Month · Unreconciled') &&
-  page.includes('Days worked'),
+  page.includes('Month · 8h-day equivalent') &&
+  page.includes('Days with verified time'),
   'team members can track live office time, breaks and personal attendance totals',
 );
 

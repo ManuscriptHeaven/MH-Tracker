@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   CalendarDays,
+  ChevronDown,
   CheckCircle2,
   Coffee,
   Download,
@@ -17,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Button, Card, Field, TextareaField } from '../components/ui';
 import { roleLabels } from '../lib/constants';
+import { formatEightHourDayEquivalent, groupAttendanceHistoryByDay } from '../lib/attendanceHistoryPresentation';
 import { supabase } from '../lib/supabase';
 import { isClientRole } from '../lib/utils';
 import type { AttendanceBreak, AttendanceSession, Profile } from '../lib/types';
@@ -151,6 +153,7 @@ export function AttendancePage({
   const [editClockOut, setEditClockOut] = useState('');
   const [editReason, setEditReason] = useState('');
   const [teamWindow, setTeamWindow] = useState<'today' | '7d' | '30d'>('today');
+  const [showOlderHistory, setShowOlderHistory] = useState(false);
   const [dailyTotals, setDailyTotals] = useState<AttendanceDayTotal[]>([]);
   const [sessionReconciliation, setSessionReconciliation] = useState<AttendanceSessionReconciliation[]>([]);
   const [ledgerState, setLedgerState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
@@ -215,6 +218,8 @@ export function AttendancePage({
     () => breaks.filter((item) => item.user_id === currentProfile.id),
     [breaks, currentProfile.id],
   );
+  const historyDays = useMemo(() => groupAttendanceHistoryByDay(mySessions), [mySessions]);
+  const visibleHistoryDays = showOlderHistory ? historyDays : historyDays.slice(0, 12);
   const activeSession = mySessions.find((session) => session.status === 'active') || null;
   const activeBreak = activeSession
     ? myBreaks.find((item) => item.session_id === activeSession.id && !item.ended_at) || null
@@ -492,18 +497,21 @@ export function AttendancePage({
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-2">
           {([
-            { label: 'Today · Session records', value: formatDuration(todaySeconds), icon: CalendarDays },
-            { label: 'Week · Session records', value: formatDuration(weekSeconds), icon: History },
-            { label: 'Month · Unreconciled', value: formatDuration(monthSeconds), icon: TimerReset },
-            { label: 'Clock-in dates · provisional', value: String(daysWorked), icon: CheckCircle2 },
-          ] as const).map(({ label, value, icon: Icon }) => (
+            { label: 'Today · Session records', value: formatDuration(todaySeconds), detail: 'Recorded session time', icon: CalendarDays },
+            { label: 'Week · Session records', value: formatDuration(weekSeconds), detail: 'Recorded session time', icon: History },
+            { label: 'Month · 8h-day equivalent', value: formatEightHourDayEquivalent(monthSeconds), detail: `${formatDuration(monthSeconds)} recorded · provisional`, icon: TimerReset },
+            { label: 'Clock-in dates · provisional', value: String(daysWorked), detail: 'Distinct clock-in dates, not approved shifts', icon: CheckCircle2 },
+          ] as const).map(({ label, value, detail, icon: Icon }) => (
             <Card key={label} className="min-w-0 p-4">
               <Icon className="h-4 w-4 text-gold" />
               <p className="mt-3 text-[10px] font-bold uppercase tracking-wider text-muted">{label}</p>
-              <p className="mt-1 truncate text-xl font-extrabold text-ink">{value}</p>
+              <p className="mt-1 text-xl font-extrabold tabular-nums text-ink">{value}</p>
+              <p className="mt-1 text-[10px] leading-relaxed text-muted">{detail}</p>
             </Card>
           ))}
-          <p className="col-span-2 text-xs text-muted sm:col-span-4 lg:col-span-2">Session-based figures above are retained for historical visibility and are not reconciled daily work totals. Use the accepted daily ledger below for verified dates and 8h targets.</p>
+          <p className="col-span-2 text-xs text-muted sm:col-span-4 lg:col-span-2">
+            1 workday equivalent = 8 hours. Month totals are shown as easier-to-read equivalents, not verified days worked or payroll approval. Only the dated ledger below confirms accepted daily time.
+          </p>
         </div>
       </section>
 
@@ -552,21 +560,22 @@ export function AttendancePage({
           <>
             <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
               {([
-                { label: 'Month · Dated actual', value: formatDuration(ledgerMonthSeconds) },
-                { label: 'Days worked · ≥1 min', value: String(ledgerDaysWorked) },
-                { label: 'Target · 8h/day', value: formatDuration(ledgerTargetSeconds) },
-                { label: 'Historical · Unattributed', value: formatDuration(legacyUnattributedSeconds) },
-              ] as const).map(({ label, value }) => (
+                { label: 'Month · Verified actual', value: formatDuration(ledgerMonthSeconds), detail: 'Accepted dated credits only' },
+                { label: 'Days with verified time', value: String(ledgerDaysWorked), detail: 'At least 1 minute credited per date' },
+                { label: 'Target · 8h/day', value: formatDuration(ledgerTargetSeconds), detail: 'For verified attendance dates' },
+                { label: 'Earlier time · 8h-day equivalent', value: formatEightHourDayEquivalent(legacyUnattributedSeconds), detail: `${formatDuration(legacyUnattributedSeconds)} without verified dates` },
+              ] as const).map(({ label, value, detail }) => (
                 <div key={label} className="rounded-xl border border-border p-3">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-muted">{label}</p>
-                  <p className="mt-2 text-xl font-bold text-ink">{value}</p>
+                  <p className="mt-2 text-xl font-bold tabular-nums text-ink">{value}</p>
+                  <p className="mt-1 text-[10px] leading-relaxed text-muted">{detail}</p>
                 </div>
               ))}
             </div>
             <p className="mt-3 text-xs text-muted">
               Dated actual vs 8-hour target: {ledgerMonthSeconds >= ledgerTargetSeconds ? '+' : '−'}
               {formatDuration(Math.abs(ledgerMonthSeconds - ledgerTargetSeconds))}.
-              No daily cap or automatic overtime approval. Unattributed time is excluded from dated actual.
+              No daily cap or automatic overtime approval. Earlier time is displayed in 8-hour equivalents only and is excluded from verified daily totals.
               {ledgerReviewCount > 0 ? ` ${ledgerReviewCount} multi-day/discrepant sessions require audit.` : ''}
             </p>
             <div className="mt-4 divide-y divide-border rounded-xl border border-border">
@@ -590,39 +599,133 @@ export function AttendancePage({
 
       <Card className="overflow-hidden p-0">
         <div className="border-b border-border px-4 py-4 sm:px-5">
-          <h3 className="font-display text-xl font-semibold text-ink">My attendance history</h3>
-          <p className="text-xs text-muted">Session records may include historical or unattributed hours. Use the dated ledger above to review accepted verified time.</p>
+          <div className="flex items-center gap-2">
+            <History className="h-4 w-4 text-gold" />
+            <h3 className="font-display text-xl font-semibold text-ink">My attendance history</h3>
+          </div>
+          <p className="mt-1 text-xs text-muted">
+            Choose a date to expand its sessions, clock times, breaks and notes. These are session records, not audited daily credits.
+          </p>
         </div>
-        <div className="divide-y divide-border">
-          {mySessions.slice(0, 20).map((session) => {
-            const sessionBreaks = myBreaks.filter((item) => item.session_id === session.id);
+        <div className="space-y-2 p-3 sm:p-4">
+          {visibleHistoryDays.map((day) => {
+            const recordedSeconds = day.sessions.reduce(
+              (total, session) => total + getSessionSeconds(session, myBreaks, nowMs), 0,
+            );
+            const sessionCount = day.sessions.length;
+            const containsActive = day.sessions.some((session) => session.status === 'active');
+            const verifiedDay = dailyTotals.find((row) => row.user_id === currentProfile.id && row.local_work_date === day.dateKey);
+            const readableDate = day.dateKey === 'unknown' ? 'Unknown clock-in date'
+              : new Date(`${day.dateKey}T12:00:00`).toLocaleDateString([], {
+                weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+              });
             return (
-              <div key={session.id} className="grid gap-2 px-4 py-3 text-sm sm:grid-cols-[140px_1fr_1fr_100px] sm:items-center sm:px-5">
-                <div>
-                  <p className="font-semibold text-ink">{new Date(session.clock_in).toLocaleDateString()}</p>
-                  <p className="text-[10px] text-muted">{session.status === 'active' ? 'Active session' : 'Completed'}</p>
-                </div>
-                <p className="text-xs text-charcoal">
-                  {new Date(session.clock_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  {' → '}
-                  {session.clock_out ? new Date(session.clock_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
-                </p>
-                <p className="text-xs text-muted">
-                  {sessionBreaks.length} break{sessionBreaks.length === 1 ? '' : 's'}
-                  {session.adjustment_reason ? ' · corrected' : ''}
-                </p>
-                <p className="text-right text-sm font-bold text-ink">{formatDuration(getSessionSeconds(session, myBreaks, nowMs))}</p>
-                {session.note || session.adjustment_reason ? (
-                  <div className="sm:col-span-4 rounded-lg bg-ivory px-3 py-2 text-xs text-muted">
-                    {session.note ? <span>Note: {session.note}</span> : null}
-                    {session.note && session.adjustment_reason ? <span> · </span> : null}
-                    {session.adjustment_reason ? <span>Correction: {session.adjustment_reason}</span> : null}
+              <details key={day.dateKey} className="group overflow-hidden rounded-xl border border-border bg-white">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 outline-offset-[-3px] transition-colors hover:bg-ivory focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold [&::-webkit-details-marker]:hidden sm:px-4">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ivory text-gold">
+                      <CalendarDays className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-ink">{readableDate}</p>
+                      <p className="mt-0.5 text-[11px] text-muted">
+                        {sessionCount} session{sessionCount === 1 ? '' : 's'}
+                        {containsActive ? ' · Active now' : ' · Completed'}
+                      </p>
+                    </div>
                   </div>
-                ) : null}
-              </div>
+                  <div className="flex shrink-0 items-center gap-2 sm:gap-4">
+                    <div className="text-right">
+                      <p className="text-sm font-bold tabular-nums text-ink">{formatDuration(recordedSeconds)}</p>
+                      <p className="text-[10px] text-muted">Session time</p>
+                    </div>
+                    <ChevronDown className="h-4 w-4 text-muted transition-transform group-open:rotate-180" aria-hidden="true" />
+                  </div>
+                </summary>
+                <div className="border-t border-border bg-[#fcfbf8] px-3 py-3 sm:px-4">
+                  {verifiedDay && ledgerState === 'ready' ? (
+                    <p className="mb-3 rounded-lg border border-border bg-white px-3 py-2 text-xs text-charcoal">
+                      Accepted dated time on this date: <strong>{formatDuration(Number(verifiedDay.actual_seconds || 0))}</strong>
+                    </p>
+                  ) : null}
+                  <div className="space-y-3">
+                    {day.sessions.map((session) => {
+                      const sessionBreaks = myBreaks.filter((item) => item.session_id === session.id);
+                      const totalBreakSeconds = sessionBreaks.reduce((total, item) => {
+                        const stop = item.ended_at ? new Date(item.ended_at).getTime() : nowMs;
+                        return total + Math.max(0, Math.floor((stop - new Date(item.started_at).getTime()) / 1000));
+                      }, 0);
+                      return (
+                        <article key={session.id} className="rounded-lg border border-border bg-white p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-xs font-bold text-ink">
+                                {session.status === 'active' ? 'Active session' : 'Completed session'}
+                              </p>
+                              <p className="mt-0.5 text-[10px] text-muted">Clock-in date · {day.dateKey}</p>
+                            </div>
+                            <span className="text-sm font-bold tabular-nums text-ink">
+                              {formatDuration(getSessionSeconds(session, myBreaks, nowMs))}
+                            </span>
+                          </div>
+                          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wide text-muted">Clock in</p>
+                              <p className="mt-1 text-xs font-semibold text-ink">
+                                {new Date(session.clock_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wide text-muted">Clock out</p>
+                              <p className="mt-1 text-xs font-semibold text-ink">
+                                {session.clock_out
+                                  ? new Date(session.clock_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                  : 'In progress'}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wide text-muted">Breaks</p>
+                              <p className="mt-1 text-xs font-semibold text-ink">
+                                {sessionBreaks.length} · {formatDuration(totalBreakSeconds)}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wide text-muted">Record</p>
+                              <p className="mt-1 text-xs font-semibold text-ink">
+                                {session.adjustment_reason ? 'Corrected' : 'Session total'}
+                              </p>
+                            </div>
+                          </div>
+                          {session.clock_out && localDayKey(session.clock_out) !== day.dateKey ? (
+                            <p className="mt-2 text-[11px] text-muted">
+                              Crosses midnight · clocked out {new Date(session.clock_out).toLocaleDateString()}.
+                              This record stays under its clock-in date.
+                            </p>
+                          ) : null}
+                          {session.note || session.adjustment_reason ? (
+                            <div className="mt-3 rounded-lg bg-ivory px-3 py-2 text-xs text-muted">
+                              {session.note ? <p>Note: {session.note}</p> : null}
+                              {session.adjustment_reason ? <p>Correction: {session.adjustment_reason}</p> : null}
+                            </div>
+                          ) : null}
+                        </article>
+                      );
+                    })}
+                  </div>
+                </div>
+              </details>
             );
           })}
-          {!mySessions.length ? <div className="px-5 py-10 text-center text-sm text-muted">No attendance records yet.</div> : null}
+          {!historyDays.length ? (
+            <div className="px-3 py-8 text-center text-sm text-muted">No attendance records yet.</div>
+          ) : null}
+          {historyDays.length > 12 ? (
+            <div className="pt-2 text-center">
+              <Button type="button" variant="secondary" onClick={() => setShowOlderHistory((previous) => !previous)}>
+                {showOlderHistory ? 'Show recent dates' : `Show all ${historyDays.length} dates`}
+              </Button>
+            </div>
+          ) : null}
         </div>
       </Card>
 
