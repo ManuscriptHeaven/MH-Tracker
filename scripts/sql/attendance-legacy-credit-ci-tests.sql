@@ -1,9 +1,16 @@
 -- Run after daily ledger tests and legacy compatibility migration on disposable PG17.
 \set ON_ERROR_STOP on
+-- Test-only fixture seed: emulate a legacy browser that already credited
+-- its entire session by heartbeat, before the new dated ledger is applied.
+update public.attendance_sessions
+  set verified_seconds = greatest(0,floor(extract(epoch from (
+    clock_timestamp() - clock_in)))::bigint)
+  where id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
 set role authenticated;
 select set_config('request.jwt.claim.sub','22222222-2222-4222-8222-222222222222',false);
 
-do $$
+do $
 declare
   v_prior bigint;
   v_response public.attendance_sessions;
@@ -12,15 +19,6 @@ declare
   v_payload jsonb;
   v_dated bigint;
 begin
-  -- Simulate an earlier web client that saturated the whole-session verified
-  -- aggregate with heartbeat time without any dated credit.
-  reset role;
-  update public.attendance_sessions
-    set verified_seconds = greatest(0,floor(extract(epoch from (
-       clock_timestamp() - clock_in)))::bigint)
-    where id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-  set role authenticated;
-  perform set_config('request.jwt.claim.sub','22222222-2222-4222-8222-222222222222',false);
   select verified_seconds into v_prior from public.attendance_sessions
     where id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
