@@ -3,7 +3,7 @@
    App Shell & Static Asset Caching with Strict Privacy Protection
    ========================================================================= */
 
-const CACHE_VERSION = 'mh-tracker-v1.0.0';
+const CACHE_VERSION = 'mh-tracker-v1.0.1';
 const STATIC_CACHE_NAME = `mh-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE_NAME = `mh-runtime-${CACHE_VERSION}`;
 
