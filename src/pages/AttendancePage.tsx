@@ -614,7 +614,7 @@ export function AttendancePage({
             );
             const sessionCount = day.sessions.length;
             const containsActive = day.sessions.some((session) => session.status === 'active');
-            const verifiedDay = myLedgerDays.find((row) => row.local_work_date === day.dateKey);
+            const verifiedDay = dailyTotals.find((row) => row.user_id === currentProfile.id && row.local_work_date === day.dateKey);
             const readableDate = day.dateKey === 'unknown' ? 'Unknown clock-in date'
               : new Date(`${day.dateKey}T12:00:00`).toLocaleDateString([], {
                 weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
