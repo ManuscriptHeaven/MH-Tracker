@@ -1,4 +1,4 @@
-import { CheckCircle2, Clock3, ExternalLink, ListChecks, Plus, X } from 'lucide-react';
+import { CheckCircle2, Clock3, ExternalLink, ListChecks, Plus, UserRound, X } from 'lucide-react';
 import { type FormEvent, useMemo, useState } from 'react';
 import { PriorityBadge, TaskStatusBadge } from '../components/Badges';
 import { TaskDetailModal } from '../components/tasks/TaskDetailModal';
@@ -6,6 +6,7 @@ import { ActiveProjectPicker } from '../components/tasks/ActiveProjectPicker';
 import { Button, Card, EmptyState, Field, SelectField, TextareaField } from '../components/ui';
 import { priorityOptions, taskStatuses } from '../lib/constants';
 import { deadlineClass, formatDate, todayInput } from '../lib/date';
+import { compareTaskAttention, compareTaskCompletion, isOpenTask, isTaskOverdue, matchesTaskQuickFilter, type TaskQuickFilter, type TaskSort } from '../lib/taskView';
 import { firstName, isClientRole } from '../lib/utils';
 import type { Profile, Project, Task, TaskAssignee, TaskChecklistItem, TaskComment, TaskDependency, TaskDraft, TaskStatus } from '../lib/types';
 
@@ -51,9 +52,9 @@ function getStatusDotColor(task: Task) {
 
 function getDueDateText(due_date: string | null, status: TaskStatus) {
   if (!due_date) return 'No due date';
-  if (status === 'Done') return `Completed · ${formatDate(due_date)}`;
+  if (status === 'Done') return `Due ${formatDate(due_date)}`;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayInput();
   if (due_date === today) return 'Due Today';
 
   const diffDays = Math.ceil((new Date(`${due_date}T00:00:00`).getTime() - new Date(`${today}T00:00:00`).getTime()) / (1000 * 3600 * 24));
@@ -140,15 +141,18 @@ export function TasksPage({
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
   
-  const [quickFilter, setQuickFilter] = useState<'all' | 'mine' | 'due_today' | 'overdue' | 'blocked' | 'done'>('all');
-  const [sortBy, setSortBy] = useState<'due' | 'priority' | 'recent' | 'project' | 'status'>('due');
+  const [quickFilter, setQuickFilter] = useState<TaskQuickFilter>('active');
+  const [sortBy, setSortBy] = useState<TaskSort>('attention');
   const [employeeFilter, setEmployeeFilter] = useState<string>('all');
   const [projectFilter, setProjectFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
 
   const teamProfiles = profiles.filter((profile) => !isClientRole(profile.role));
   const normalizedSearch = searchTerm.trim().toLowerCase();
+  const today = todayInput();
 
   // Mode restriction check:
   // In personal mode, strictly filter tasks assigned to current user.
@@ -188,38 +192,30 @@ export function TasksPage({
 
         return !normalizedSearch || haystack.includes(normalizedSearch);
       })
-      .filter((task) => {
-        if (quickFilter === 'all') return true;
-        if (quickFilter === 'mine') return task.assigned_to === currentProfile.id || taskAssignees.some((item) => item.task_id === task.id && item.profile_id === currentProfile.id);
-        if (quickFilter === 'due_today') return task.status !== 'Done' && task.due_date === new Date().toISOString().slice(0, 10);
-        if (quickFilter === 'overdue') {
-          return task.status !== 'Done' && task.due_date !== null && new Date(`${task.due_date}T23:59:59`) < new Date();
-        }
-        if (quickFilter === 'blocked') return task.status === 'Blocked';
-        if (quickFilter === 'done') return task.status === 'Done';
-        return true;
-      })
+      .filter((task) => matchesTaskQuickFilter(
+        task,
+        quickFilter,
+        task.assigned_to === currentProfile.id ||
+          taskAssignees.some((item) => item.task_id === task.id && item.profile_id === currentProfile.id),
+        today,
+      ))
       .sort((a, b) => {
+        // Completed tasks never jump ahead of open work, even with custom sorting.
+        const completion = compareTaskCompletion(a, b);
+        if (completion) return completion;
+        if (sortBy === 'attention') return compareTaskAttention(a, b, today);
         if (sortBy === 'priority') {
           return ({ Urgent: 0, High: 1, Normal: 2, Low: 3 }[a.priority] - { Urgent: 0, High: 1, Normal: 2, Low: 3 }[b.priority]);
         }
-        if (sortBy === 'recent') {
-          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-        }
+        if (sortBy === 'recent') return b.created_at.localeCompare(a.created_at);
         if (sortBy === 'project') {
           return projectLabel(getProject(projects, a.project_id)).localeCompare(projectLabel(getProject(projects, b.project_id)));
         }
-        if (sortBy === 'status') {
-          return a.status.localeCompare(b.status);
-        }
-        if (a.status === 'Done' && b.status !== 'Done') return 1;
-        if (a.status !== 'Done' && b.status === 'Done') return -1;
-
-        const aDate = a.due_date ? new Date(a.due_date).getTime() : Number.MAX_SAFE_INTEGER;
-        const bDate = b.due_date ? new Date(b.due_date).getTime() : Number.MAX_SAFE_INTEGER;
-        return aDate - bDate || new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        if (sortBy === 'status') return a.status.localeCompare(b.status);
+        return (a.due_date || '9999-12-31').localeCompare(b.due_date || '9999-12-31') ||
+          b.created_at.localeCompare(a.created_at);
       });
-  }, [personalTasks, mode, employeeFilter, projectFilter, priorityFilter, projects, profiles, normalizedSearch, quickFilter, sortBy, taskAssignees, currentProfile.id]);
+  }, [personalTasks, mode, employeeFilter, projectFilter, priorityFilter, projects, profiles, normalizedSearch, quickFilter, sortBy, taskAssignees, currentProfile.id, today]);
 
   function update<K extends keyof TaskDraft>(key: K, value: TaskDraft[K]) {
     setDraft((previous) => ({ ...previous, [key]: value }));
@@ -251,33 +247,45 @@ export function TasksPage({
     }
   }
 
-  const counts = useMemo(() => {
-    const list = personalTasks;
-    return {
-      all: list.length,
-      open: list.filter((t) => t.status !== 'Done').length,
-      dueToday: list.filter((t) => t.status !== 'Done' && t.due_date === new Date().toISOString().slice(0, 10)).length,
-      overdue: list.filter((t) => t.status !== 'Done' && t.due_date && new Date(`${t.due_date}T23:59:59`) < new Date()).length,
-      blocked: list.filter((t) => t.status === 'Blocked').length,
-      done: list.filter((t) => t.status === 'Done').length,
-    };
-  }, [personalTasks]);
+  const counts = useMemo(() => ({
+    all: personalTasks.length,
+    active: personalTasks.filter(isOpenTask).length,
+    inProgress: personalTasks.filter((task) => task.status === 'In Progress').length,
+    dueToday: personalTasks.filter((task) => isOpenTask(task) && task.due_date === today).length,
+    overdue: personalTasks.filter((task) => isTaskOverdue(task, today)).length,
+    blocked: personalTasks.filter((task) => task.status === 'Blocked').length,
+    done: personalTasks.filter((task) => task.status === 'Done').length,
+    mine: personalTasks.filter((task) => isOpenTask(task) &&
+      (task.assigned_to === currentProfile.id ||
+        taskAssignees.some((item) => item.task_id === task.id && item.profile_id === currentProfile.id))).length,
+  }), [personalTasks, taskAssignees, currentProfile.id, today]);
+
+  async function updateTaskStatus(taskId: string, status: TaskStatus) {
+    if (statusUpdatingId) return;
+    setStatusUpdatingId(taskId);
+    setListError(null);
+    try {
+      await onUpdateTask(taskId, { status });
+    } catch (error) {
+      setListError(error instanceof Error ? error.message : 'Task status could not be updated.');
+    } finally {
+      setStatusUpdatingId(null);
+    }
+  }
 
   return (
     <div className="min-w-0 space-y-4 sm:space-y-6">
-      {/* Top Banner / Header */}
-      <div className="flex flex-col gap-4 rounded-2xl border border-border bg-gradient-to-r from-ink via-ink/95 to-ink/90 p-4 text-white shadow-md sm:flex-row sm:items-center sm:justify-between sm:p-6">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-gold">
+      {/* Compact workspace banner with primary action */}
+      <div className="flex flex-col gap-3 rounded-2xl border border-border bg-gradient-to-r from-ink via-ink/95 to-ink/90 p-4 text-white shadow-md sm:flex-row sm:items-center sm:justify-between sm:p-6">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-gold">
             {mode === 'personal' ? 'Personal Workspace' : 'Team Workspace'}
           </p>
           <h2 className="mt-1 font-display text-2xl font-bold tracking-tight sm:text-3xl">
             {mode === 'personal' ? 'My Tasks' : 'Team Tasks'}
           </h2>
-          <p className="mt-1 text-sm text-white/70">
-            {mode === 'personal'
-              ? 'Personal task list for your assigned workload.'
-              : 'Overview and management of tasks across all team members.'}
+          <p className="mt-1 text-xs text-white/70 sm:text-sm">
+            Focus on active work. Completed tasks are available in the history filters.
           </p>
         </div>
         <Button
@@ -287,254 +295,206 @@ export function TasksPage({
             setFormError(null);
             setShowAddModal(true);
           }}
-          className="w-full shadow-md transition hover:scale-[1.02] active:scale-[0.98] sm:w-auto"
+          className="w-full shadow-md sm:w-auto"
         >
           <Plus className="h-4 w-4" />
           Add Task
         </Button>
       </div>
 
-      {/* Summary Metrics Row */}
-      <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-4 xl:grid-cols-5">
-        <SummaryCard label="Open" value={counts.open} />
-        <SummaryCard label="Due Today" value={counts.dueToday} colorClass="text-orange-600" />
+      {/* Workload at a glance: completed work stays in history */}
+      <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-4 xl:grid-cols-5" aria-label="Task overview">
+        <SummaryCard label="Active Tasks" value={counts.active} />
+        <SummaryCard label="In Progress" value={counts.inProgress} colorClass="text-blue-700" />
         <SummaryCard label="Overdue" value={counts.overdue} colorClass="text-rose-600" />
-        <SummaryCard label="Blocked" value={counts.blocked} colorClass="text-red-700" />
+        <SummaryCard label="Blocked" value={counts.blocked} colorClass="text-orange-700" />
         <SummaryCard label="Completed" value={counts.done} colorClass="text-emerald-700" />
       </section>
 
-      {/* Filter and Control Bar */}
       <div className="min-w-0 rounded-xl border border-border bg-white p-3 shadow-sm sm:p-4">
-        <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-        {/* Quick Filter Tabs */}
-        <div className="-mx-1 flex min-w-0 snap-x items-center gap-1.5 overflow-x-auto px-1 pb-1 scrollbar-thin">
-          {([
-            ['all', 'All', counts.all],
-            ['mine', 'My Tasks', personalTasks.filter((task) => task.assigned_to === currentProfile.id || taskAssignees.some((item) => item.task_id === task.id && item.profile_id === currentProfile.id)).length],
-            ['due_today', 'Due Today', counts.dueToday],
-            ['overdue', 'Overdue', counts.overdue],
-            ['blocked', 'Blocked', counts.blocked],
-            ['done', 'Completed', counts.done],
-          ] as const).map(([id, label, count]) => {
-            const active = quickFilter === id;
-            return (
+        <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          {/* Active is the initial view. Tabs remain available for history and exceptions. */}
+          <div className="-mx-1 flex min-w-0 snap-x items-center gap-1.5 overflow-x-auto px-1 pb-1 scrollbar-thin" role="group" aria-label="Task views">
+            {([
+              ['active', 'Active', counts.active],
+              ['in_progress', 'In Progress', counts.inProgress],
+              ['mine', 'My Tasks', counts.mine],
+              ['due_today', 'Due Today', counts.dueToday],
+              ['overdue', 'Overdue', counts.overdue],
+              ['blocked', 'Blocked', counts.blocked],
+              ['done', 'Completed', counts.done],
+              ['all', 'All', counts.all],
+            ] as const).map(([id, label, count]) => (
               <button
                 key={id}
                 type="button"
                 onClick={() => setQuickFilter(id)}
-                className={`flex shrink-0 snap-start items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold transition ${
-                  active
+                aria-pressed={quickFilter === id}
+                className={`flex shrink-0 snap-start items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold ${
+                  quickFilter === id
                     ? 'bg-ink text-white shadow-sm'
                     : 'bg-ivory text-charcoal hover:bg-gold/15 hover:text-ink'
                 }`}
               >
                 <span>{label}</span>
-                <span
-                  className={`rounded-full px-1.5 py-0.5 text-[10px] ${
-                    active ? 'bg-gold text-ink font-bold' : 'bg-black/5 text-muted'
-                  }`}
-                >
-                  {count}
-                </span>
+                <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                  quickFilter === id ? 'bg-gold text-ink font-bold' : 'bg-black/5 text-muted'
+                }`}>{count}</span>
               </button>
-            );
-          })}
-        </div>
+            ))}
+          </div>
 
-        {/* Filters & Sorting Controls */}
-        <div className="grid min-w-0 grid-cols-1 gap-2.5 sm:grid-cols-2 xl:flex xl:flex-wrap xl:items-center xl:gap-3">
-          {mode === 'team' ? (
-              <SelectField
-                value={employeeFilter}
-                onChange={(event) => setEmployeeFilter(event.target.value)}
-                className="w-full min-w-0 text-xs sm:w-full xl:w-44"
-              >
-                <option value="all">All Employees</option>
-                {teamProfiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>
-                    {firstName(profile.full_name)}
-                  </option>
-                ))}
+          {/* Secondary filters. All filters apply without resetting the chosen task view. */}
+          <div className="grid min-w-0 grid-cols-1 gap-2.5 sm:grid-cols-2 xl:flex xl:flex-wrap xl:items-center xl:gap-3">
+            {mode === 'team' ? (
+              <SelectField aria-label="Filter team member" value={employeeFilter} onChange={(event) => setEmployeeFilter(event.target.value)} className="w-full min-w-0 text-xs sm:w-full xl:w-36">
+                <option value="all">All Team Members</option>
+                {teamProfiles.map((profile) => <option key={profile.id} value={profile.id}>{firstName(profile.full_name)}</option>)}
               </SelectField>
-          ) : null}
-
-          <SelectField value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)} className="w-full min-w-0 text-xs sm:w-full xl:w-44">
-            <option value="all">All Projects</option>
-            {projects.map((proj) => <option key={proj.id} value={proj.id}>{proj.project_number}</option>)}
-          </SelectField>
-          <SelectField value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)} className="w-full min-w-0 text-xs sm:w-full xl:w-36">
-            <option value="all">All Priorities</option>
-            {priorityOptions.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
-          </SelectField>
-
-          <div className="flex min-w-0 items-center gap-2 sm:col-span-2 xl:col-span-1 xl:min-w-44">
-            <span className="text-xs font-medium text-muted">Sort:</span>
-            <SelectField
-              value={sortBy}
-              onChange={(event) => setSortBy(event.target.value as typeof sortBy)}
-              className="w-full text-xs"
-            >
-              <option value="due">Due Date</option>
-              <option value="priority">Priority</option>
-              <option value="recent">Recently Added</option>
-              <option value="project">Project</option>
-              <option value="status">Status</option>
+            ) : null}
+            <SelectField aria-label="Filter project" value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)} className="w-full min-w-0 text-xs xl:w-36">
+              <option value="all">All Projects</option>
+              {projects.map((project) => <option key={project.id} value={project.id}>{project.project_number} · {project.project_title}</option>)}
             </SelectField>
+            <SelectField aria-label="Filter priority" value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)} className="w-full min-w-0 text-xs xl:w-32">
+              <option value="all">All Priorities</option>
+              {priorityOptions.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
+            </SelectField>
+            <div className="flex min-w-0 items-center gap-2 sm:col-span-2 xl:col-span-1 xl:min-w-40">
+              <span className="shrink-0 text-xs font-medium text-muted">Sort:</span>
+              <SelectField aria-label="Sort tasks" value={sortBy} onChange={(event) => setSortBy(event.target.value as TaskSort)} className="w-full min-w-0 text-xs">
+                <option value="attention">Needs Attention</option>
+                <option value="due">Due Date</option>
+                <option value="priority">Priority</option>
+                <option value="recent">Recently Added</option>
+                <option value="project">Project</option>
+                <option value="status">Status</option>
+              </SelectField>
+            </div>
           </div>
         </div>
       </div>
-      </div>
 
-      {/* Task List */}
-      {filteredTasks.length ? (
-        <div className="space-y-3">
-          {filteredTasks.map((task) => {
-            const project = getProject(projects, task.project_id);
-            const dotColor = getStatusDotColor(task);
-            const dueDateText = getDueDateText(task.due_date, task.status);
+      {/* Compact, scannable rows instead of expanded task cards */}
+      <section className="space-y-2.5" aria-label="Task list">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-0.5">
+          <h3 className="text-sm font-bold text-ink">
+            {quickFilter === 'active' ? 'Active work' : quickFilter === 'done' ? 'Completed history' : quickFilter === 'all' ? 'All tasks' : 'Filtered tasks'}
+            <span className="ml-2 font-normal text-muted">({filteredTasks.length})</span>
+          </h3>
+          <p className="text-xs text-muted">Select a task to see full details</p>
+        </div>
+        {listError ? <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{listError}</p> : null}
+        {filteredTasks.length ? filteredTasks.map((task) => {
+          const project = getProject(projects, task.project_id);
+          const dotColor = getStatusDotColor(task);
+          const dueDateText = getDueDateText(task.due_date, task.status);
+          const updating = statusUpdatingId === task.id;
 
-            return (
-              <div
-                key={task.id}
-                className="group relative min-w-0 overflow-hidden rounded-xl border border-border bg-white p-3.5 shadow-sm transition duration-200 hover:border-gold/50 hover:shadow-md sm:p-5"
-              >
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  {/* Left Main Information */}
-                  <div className="flex min-w-0 flex-1 items-start gap-2.5 sm:gap-3.5">
-                    {/* Status Dot */}
-                    <div className="mt-1.5 flex shrink-0 items-center justify-center">
-                      <span className={`h-3 w-3 rounded-full shadow-sm ${dotColor}`} />
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      {/* Header line: Title, Priority, Due Date */}
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="min-w-0 break-words font-display text-base font-bold leading-tight text-ink sm:text-lg">
-                          {task.title}
-                        </h3>
-                        <PriorityBadge priority={task.priority} />
-                        <span className={`text-xs font-semibold ${taskDeadlineTone(task)}`}>
-                          {dueDateText}
-                        </span>
-                      </div>
-
-                      {/* Subtitle line: Project Number & Title */}
-                      <p className="mt-1 min-w-0 text-xs font-medium text-muted">
-                        {project ? (
-                          <span className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 font-semibold text-charcoal">
-                            <span>{project.project_number}</span>
-                            <span>·</span>
-                            <span className="min-w-0 break-words">{project.project_title}</span>
-                          </span>
-                        ) : (
-                          <span>No project</span>
-                        )}
-                      </p>
-
-                      {/* Description Snippet */}
-                      {task.description ? (
-                        <p className="mt-2.5 break-words whitespace-pre-wrap rounded-lg border border-border/40 bg-ivory/60 p-3 text-sm leading-relaxed text-charcoal/90">
-                          {task.description}
-                        </p>
-                      ) : null}
-                      {task.status === 'Blocked' && task.blocked_reason ? (
-                        <p className="mt-2 rounded-md border border-red-200 bg-red-50 p-2 text-xs font-medium text-red-700">
-                          Blocked: {task.blocked_reason}
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  {/* Top Right Quick Action (Mobile/Desktop) */}
-                  <div className="flex shrink-0 items-center gap-2 self-start">
+          return (
+            <article
+              key={task.id}
+              className="group relative min-w-0 overflow-hidden rounded-xl border border-border bg-white px-3 py-3 shadow-sm transition hover:border-gold/60 hover:shadow-md sm:px-4"
+            >
+              <div className="flex min-w-0 flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
+                    <span className={`h-2.5 w-2.5 shrink-0 rounded-full shadow-sm ${dotColor}`} aria-hidden="true" />
+                    <button
+                      type="button"
+                      onClick={() => setSelectedTaskId(task.id)}
+                      className="min-w-0 break-words font-display text-base font-bold leading-snug text-ink text-left hover:text-gold focus-visible:rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold"
+                    >
+                      {task.title}
+                    </button>
+                    <PriorityBadge priority={task.priority} />
                     <TaskStatusBadge status={task.status} />
                   </div>
+                  <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
+                    <span className="min-w-0 break-words" title={project ? project.project_title : 'No linked project'}>
+                      {project ? `${project.project_number} · ${project.project_title}` : 'No project'}
+                    </span>
+                    {mode === 'team' ? (
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                        <UserRound className="h-3 w-3" />
+                        {profileName(profiles, task.assigned_to)}
+                      </span>
+                    ) : null}
+                    <span className={`inline-flex items-center gap-1 whitespace-nowrap font-medium ${taskDeadlineTone(task)}`}>
+                      <Clock3 className="h-3 w-3" />
+                      {dueDateText}
+                    </span>
+                  </div>
+                  {task.description ? (
+                    <p className="mt-1.5 line-clamp-1 break-words text-xs leading-relaxed text-charcoal/80" title={task.description}>{task.description}</p>
+                  ) : null}
+                  {task.status === 'Blocked' && task.blocked_reason ? (
+                    <p className="mt-1.5 line-clamp-1 text-xs font-medium text-rose-700" title={task.blocked_reason}>
+                      Blocked: {task.blocked_reason}
+                    </p>
+                  ) : null}
                 </div>
 
-                {/* Card Footer Divider & Action Controls */}
-                <div className="mt-4 flex flex-col gap-3 border-t border-border/60 pt-3 text-xs lg:flex-row lg:items-center lg:justify-between">
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-muted">
-                    {mode === 'team' ? (
-                      <p>
-                        Assigned: <strong className="text-ink">{profileName(profiles, task.assigned_to)}</strong>
-                      </p>
-                    ) : null}
-
-                    {task.due_date ? (
-                      <p className="flex items-center gap-1">
-                        <Clock3 className="h-3.5 w-3.5 text-muted" />
-                        <span>Due: {formatDate(task.due_date)}</span>
-                      </p>
-                    ) : null}
+                <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center lg:shrink-0 lg:justify-end">
+                  <div className="col-span-2 flex min-w-0 items-center gap-1.5 sm:col-span-1">
+                    <SelectField
+                      aria-label={`Change status of ${task.title}`}
+                      value={task.status}
+                      disabled={statusUpdatingId !== null}
+                      onChange={(event) => void updateTaskStatus(task.id, event.target.value as TaskStatus)}
+                      className="!min-h-9 w-full min-w-0 bg-ivory px-2 text-xs font-medium sm:w-32"
+                    >
+                      {taskStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+                    </SelectField>
                   </div>
-
-                  <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
-                    <Button type="button" variant="secondary" onClick={() => setSelectedTaskId(task.id)} className="h-9 w-full gap-1 px-2.5 text-xs sm:h-8 sm:w-auto">
-                      <ListChecks className="h-3.5 w-3.5" />Details
-                    </Button>
-                    {/* Status Dropdown */}
-                    <div className="col-span-2 flex min-w-0 items-center gap-1.5 sm:col-span-1">
-                      <span className="shrink-0 text-muted font-medium">Status:</span>
-                      <SelectField
-                        value={task.status}
-                        onChange={(e) => onUpdateTask(task.id, { status: e.target.value as TaskStatus })}
-                        className="h-9 min-w-0 flex-1 bg-ivory py-1 text-xs font-medium sm:h-8 sm:w-36"
-                      >
-                        {taskStatuses.map((st) => (
-                          <option key={st} value={st}>
-                            {st}
-                          </option>
-                        ))}
-                      </SelectField>
-                    </div>
-
-                    {/* Open Project Link Button */}
-                    {project && onSelectProject ? (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        onClick={() => onSelectProject(project)}
-                        className="h-9 w-full gap-1 px-2.5 text-xs sm:h-8 sm:w-auto"
-                      >
-                        Open Project
-                        <ExternalLink className="h-3 w-3" />
-                      </Button>
-                    ) : null}
-
-                    {/* Done / Reopen Toggle Button */}
+                  <Button type="button" variant="secondary" onClick={() => setSelectedTaskId(task.id)} className="!min-h-9 h-9 w-full gap-1 px-2.5 text-xs sm:w-auto">
+                    <ListChecks className="h-3.5 w-3.5" />
+                    Details
+                  </Button>
+                  {project && onSelectProject ? (
                     <Button
                       type="button"
-                      variant={task.status === 'Done' ? 'secondary' : 'primary'}
-                      onClick={() => onUpdateTask(task.id, { status: task.status === 'Done' ? 'To Do' : 'Done' })}
-                      className="h-9 w-full px-3 text-xs sm:h-8 sm:w-auto"
+                      variant="secondary"
+                      title={`Open project ${project.project_number}`}
+                      onClick={() => onSelectProject(project)}
+                      className="!min-h-9 h-9 w-full gap-1 px-2.5 text-xs sm:w-auto"
                     >
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                      {task.status === 'Done' ? 'Reopen' : 'Done'}
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      Project
                     </Button>
-                  </div>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant={task.status === 'Done' ? 'secondary' : 'primary'}
+                    disabled={statusUpdatingId !== null}
+                    onClick={() => void updateTaskStatus(task.id, task.status === 'Done' ? 'To Do' : 'Done')}
+                    className="!min-h-9 h-9 w-full gap-1 px-2.5 text-xs sm:w-auto"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    {updating ? 'Saving…' : task.status === 'Done' ? 'Reopen' : 'Done'}
+                  </Button>
                 </div>
               </div>
-            );
-          })}
-        </div>
-      ) : (
-        <EmptyState
-          title="No tasks found"
-          message="No tasks match your current filter or search criteria."
-          action={
-            <Button
-              type="button"
-              onClick={() => {
-                setDraft(defaultDraft(currentProfile));
-                setShowAddModal(true);
-              }}
-            >
-              <Plus className="h-4 w-4" />
-              Add Task
-            </Button>
-          }
-        />
-      )}
+            </article>
+          );
+        }) : (
+          <EmptyState
+            title={quickFilter === 'active' ? 'No active tasks' : 'No tasks found'}
+            message={quickFilter === 'active'
+              ? 'All caught up, or no active tasks match the selected filters.'
+              : 'No tasks match the selected filters or search.'}
+            action={
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => { setQuickFilter('all'); setProjectFilter('all'); setEmployeeFilter('all'); setPriorityFilter('all'); }}
+              >
+                View All Tasks
+              </Button>
+            }
+          />
+        )}
+      </section>
 
       {/* Task Creation Modal */}
       {showAddModal ? (
