@@ -1,7 +1,7 @@
 import { BookOpen, CheckCircle2, Crown, KeyRound, LockKeyhole, ShieldCheck, Sparkles, UserRound } from 'lucide-react';
 import { type FormEvent, useEffect, useState } from 'react';
 import { Button, Card, Field } from '../components/ui';
-import { isSupabaseConfigured } from '../lib/supabase';
+import { isSupabaseConfigured, supabase } from '../lib/supabase';
 import type { Profile, Role } from '../lib/types';
 
 export function LoginPage({
@@ -47,6 +47,29 @@ export function LoginPage({
   const [setupFullName, setSetupFullName] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const [activationSuccess, setActivationSuccess] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetSending, setResetSending] = useState(false);
+  const [resetResult, setResetResult] = useState('');
+
+  async function handleRequestReset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase) return;
+    setResetSending(true);
+    setResetResult('');
+    try {
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(resetEmail.trim(), {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (resetError) throw resetError;
+      // Do not disclose whether an address has an account.
+      setResetResult('If an account exists for this email, a password reset link will arrive shortly. Check your spam folder too.');
+    } catch {
+      setResetResult('Unable to send a reset email right now. Please try again later.');
+    } finally {
+      setResetSending(false);
+    }
+  }
 
   async function handleLoginSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -217,7 +240,15 @@ export function LoginPage({
                 </div>
               )}
 
-              <form onSubmit={handleLoginSubmit} className="space-y-4">
+              {showForgotPassword ? (
+                <form onSubmit={handleRequestReset} className="space-y-4">
+                  <p className="text-sm text-muted">Enter the registered email address for your employee or client account.</p>
+                  <Field label="Account email" type="email" value={resetEmail} onChange={event => setResetEmail(event.target.value)} autoComplete="email" required />
+                  {resetResult && <p role="status" className="rounded-md bg-linen p-3 text-sm">{resetResult}</p>}
+                  <Button type="submit" className="w-full" disabled={resetSending}>{resetSending ? 'Sending...' : 'Send reset link'}</Button>
+                  <button type="button" className="w-full text-sm text-muted underline" onClick={() => { setShowForgotPassword(false); setResetResult(''); }}>Back to sign in</button>
+                </form>
+              ) : <form onSubmit={handleLoginSubmit} className="space-y-4">
                 <Field
                   label="Email or First Name"
                   type="text"
@@ -244,7 +275,10 @@ export function LoginPage({
                   <UserRound className="h-4 w-4" />
                   {isLoading ? 'Signing in...' : 'Sign In'}
                 </Button>
-              </form>
+              </form>}
+              {isSupabaseConfigured && !showForgotPassword && (
+                <button type="button" className="mt-3 w-full text-center text-sm font-medium text-ink underline" onClick={() => { setResetEmail(loginName.includes('@') ? loginName : ''); setShowForgotPassword(true); setFormError(null); }}>Forgot password?</button>
+              )}
 
               <div className="mt-6 border-t border-border pt-4 text-center">
                 <p className="text-xs text-muted">
