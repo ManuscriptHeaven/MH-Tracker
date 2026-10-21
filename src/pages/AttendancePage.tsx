@@ -17,8 +17,29 @@ import {
 } from 'lucide-react';
 import { Button, Card, Field, TextareaField } from '../components/ui';
 import { roleLabels } from '../lib/constants';
+import { supabase } from '../lib/supabase';
 import { isClientRole } from '../lib/utils';
 import type { AttendanceBreak, AttendanceSession, Profile } from '../lib/types';
+
+type AttendanceDayTotal = {
+  user_id: string;
+  local_work_date: string;
+  actual_seconds: number | string;
+  counts_as_day_worked: boolean;
+  accepted_slices: number | string;
+};
+
+type AttendanceSessionReconciliation = {
+  session_id: string;
+  user_id: string;
+  clock_in: string;
+  clock_out: string | null;
+  recorded_seconds: number | string;
+  dated_seconds: number | string;
+  unattributed_seconds: number | string;
+  overcredited_discrepancy_seconds: number | string;
+  crosses_24h: boolean;
+};
 
 type Props = {
   currentProfile: Profile;
@@ -27,6 +48,7 @@ type Props = {
   breaks: AttendanceBreak[];
   canManageAll: boolean;
   desktopAttendanceCapable: boolean;
+  attendanceTabRole: 'leader' | 'secondary' | 'unsupported';
   onClockIn: (note?: string) => Promise<AttendanceSession>;
   onClockOut: (note?: string) => Promise<AttendanceSession>;
   onStartBreak: () => Promise<AttendanceBreak>;
@@ -113,6 +135,7 @@ export function AttendancePage({
   breaks,
   canManageAll,
   desktopAttendanceCapable,
+  attendanceTabRole,
   onClockIn,
   onClockOut,
   onStartBreak,
@@ -128,11 +151,56 @@ export function AttendancePage({
   const [editClockOut, setEditClockOut] = useState('');
   const [editReason, setEditReason] = useState('');
   const [teamWindow, setTeamWindow] = useState<'today' | '7d' | '30d'>('today');
+  const [dailyTotals, setDailyTotals] = useState<AttendanceDayTotal[]>([]);
+  const [sessionReconciliation, setSessionReconciliation] = useState<AttendanceSessionReconciliation[]>([]);
+  const [ledgerState, setLedgerState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!supabase) {
+      setLedgerState('unavailable');
+      return undefined;
+    }
+
+    let disposed = false;
+    const refreshLedger = async () => {
+      if (!supabase) return;
+      const cutoff = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000);
+      const [daysResult, sessionsResult] = await Promise.all([
+        supabase.from('attendance_daily_totals')
+          .select('user_id,local_work_date,actual_seconds,counts_as_day_worked,accepted_slices')
+          .gte('local_work_date', localDayKey(cutoff))
+          .order('local_work_date', { ascending: false }),
+        supabase.from('attendance_session_credit_reconciliation')
+          .select('session_id,user_id,clock_in,clock_out,recorded_seconds,dated_seconds,unattributed_seconds,overcredited_discrepancy_seconds,crosses_24h')
+          .gte('clock_in', cutoff.toISOString()),
+      ]);
+
+      if (disposed) return;
+      if (daysResult.error || sessionsResult.error) {
+        // Old deployments must not silently label historical values as verified
+        // daily ledger credits when the migration is not installed.
+        setLedgerState('unavailable');
+        return;
+      }
+      setDailyTotals((daysResult.data || []) as AttendanceDayTotal[]);
+      setSessionReconciliation((sessionsResult.data || []) as AttendanceSessionReconciliation[]);
+      setLedgerState('ready');
+    };
+
+    void refreshLedger();
+    const refreshId = window.setInterval(() => void refreshLedger(), 30_000);
+    window.addEventListener('online', refreshLedger);
+    return () => {
+      disposed = true;
+      window.clearInterval(refreshId);
+      window.removeEventListener('online', refreshLedger);
+    };
+  }, [currentProfile.id]);
 
   const teamProfiles = useMemo(
     () => profiles.filter((profile) => !isClientRole(profile.role) && profile.status !== 'inactive'),
@@ -171,6 +239,19 @@ export function AttendancePage({
       .filter((session) => new Date(session.clock_in).getTime() >= monthStart)
       .map((session) => localDayKey(session.clock_in)),
   ).size;
+  const monthKey = localDayKey(new Date(nowMs)).slice(0, 7);
+  const myLedgerDays = dailyTotals.filter((day) =>
+    day.user_id === currentProfile.id && day.local_work_date.startsWith(monthKey),
+  );
+  const ledgerMonthSeconds = myLedgerDays.reduce((total, day) => total + Number(day.actual_seconds || 0), 0);
+  const ledgerDaysWorked = myLedgerDays.filter((day) => Number(day.actual_seconds || 0) >= 60).length;
+  const ledgerTargetSeconds = ledgerDaysWorked * 8 * 3600;
+  const legacyUnattributedSeconds = sessionReconciliation
+    .filter((row) => row.user_id === currentProfile.id && localDayKey(row.clock_in).startsWith(monthKey))
+    .reduce((total, row) => total + Number(row.unattributed_seconds || 0), 0);
+  const ledgerReviewCount = sessionReconciliation.filter((row) =>
+    row.crosses_24h || Number(row.overcredited_discrepancy_seconds || 0) > 0,
+  ).length;
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true);
@@ -185,7 +266,7 @@ export function AttendancePage({
   }
 
   function exportCsv() {
-    const rows = [['Name', 'Role', 'Clock In', 'Clock Out', 'Verified App Hours', 'Note', 'Correction Reason']];
+    const rows = [['Name', 'Role', 'Clock In', 'Clock Out', 'Recorded Session Hours · Unreconciled', 'Note', 'Correction Reason']];
     const cutoff =
       teamWindow === 'today'
         ? new Date(new Date(nowMs).setHours(0, 0, 0, 0)).getTime()
@@ -232,7 +313,11 @@ export function AttendancePage({
   const currentStatus = !desktopAttendanceCapable
     ? 'Laptop required'
     : activeSession
-      ? activeBreak
+      ? attendanceTabRole === 'unsupported'
+        ? 'Browser cannot verify single-tab attendance'
+        : attendanceTabRole === 'secondary'
+          ? 'Another Tracker tab is recording'
+      : activeBreak
         ? 'On break'
         : appConnected
           ? browserOnline
@@ -310,11 +395,19 @@ export function AttendancePage({
             </div>
           </div>
 
+          {activeSession && attendanceTabRole !== 'leader' ? (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+              {attendanceTabRole === 'unsupported'
+                ? 'This browser does not support the Web Locks API required to prevent duplicate attendance across tabs. Use an updated desktop browser to earn verified time.'
+                : 'Another open MH Tracker tab owns this attendance session. This tab displays data but does not add or upload duplicate seconds. Close the other tab to transfer tracking.'}
+            </div>
+          ) : null}
+
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             {!activeSession ? (
               <Button
                 type="button"
-                disabled={busy || !desktopAttendanceCapable}
+                disabled={busy || !desktopAttendanceCapable || (typeof navigator !== 'undefined' && !navigator.locks)}
                 onClick={() => void run(async () => { await onClockIn(note.trim()); setNote(''); })}
                 className="min-h-12 w-full"
               >
@@ -399,10 +492,10 @@ export function AttendancePage({
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-2">
           {([
-            { label: 'Today', value: formatDuration(todaySeconds), icon: CalendarDays },
-            { label: 'This week', value: formatDuration(weekSeconds), icon: History },
-            { label: 'This month', value: formatDuration(monthSeconds), icon: TimerReset },
-            { label: 'Days worked', value: String(daysWorked), icon: CheckCircle2 },
+            { label: 'Today · Session records', value: formatDuration(todaySeconds), icon: CalendarDays },
+            { label: 'Week · Session records', value: formatDuration(weekSeconds), icon: History },
+            { label: 'Month · Unreconciled', value: formatDuration(monthSeconds), icon: TimerReset },
+            { label: 'Clock-in dates · provisional', value: String(daysWorked), icon: CheckCircle2 },
           ] as const).map(({ label, value, icon: Icon }) => (
             <Card key={label} className="min-w-0 p-4">
               <Icon className="h-4 w-4 text-gold" />
@@ -410,13 +503,95 @@ export function AttendancePage({
               <p className="mt-1 truncate text-xl font-extrabold text-ink">{value}</p>
             </Card>
           ))}
+          <p className="col-span-2 text-xs text-muted sm:col-span-4 lg:col-span-2">Session-based figures above are retained for historical visibility and are not reconciled daily work totals. Use the accepted daily ledger below for verified dates and 8h targets.</p>
         </div>
       </section>
+
+      <Card className="p-4 sm:p-5">
+        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+          <div>
+            <h3 className="font-display text-xl font-semibold text-ink">Daily verified attendance ledger</h3>
+            <p className="text-xs text-muted">
+              Accepted day-by-day time only; historical session totals are shown separately and never assigned to invented dates.
+            </p>
+          </div>
+          {ledgerState === 'ready' ? (
+            <Button type="button" variant="secondary" onClick={() => {
+              const rows = [['Team member', 'Work date', 'Credited hours', 'Worked day', 'Accepted slices']];
+              for (const day of dailyTotals) {
+                const profile = profiles.find((member) => member.id === day.user_id);
+                rows.push([
+                  profile?.full_name || 'Team member',
+                  day.local_work_date,
+                  (Number(day.actual_seconds || 0) / 3600).toFixed(3),
+                  Number(day.actual_seconds || 0) >= 60 ? 'Yes' : 'No',
+                  String(day.accepted_slices),
+                ]);
+              }
+              const csv = rows.map((row) =>
+                row.map((cell) => `"${String(cell).replace(/"/g,'""')}"`).join(',')
+              ).join('\n');
+              const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'mh-attendance-daily-verified.csv';
+              a.click();
+              URL.revokeObjectURL(url);
+            }} className="min-h-9 px-3 text-xs">
+              <Download className="h-3.5 w-3.5" /> Daily CSV
+            </Button>
+          ) : null}
+        </div>
+        {ledgerState !== 'ready' ? (
+          <p className="mt-4 text-sm text-amber-700">
+            {ledgerState === 'loading'
+              ? 'Loading the verified daily ledger…'
+              : 'Daily-ledger verification is unavailable. Existing session totals should not be used for payroll reconciliation.'}
+          </p>
+        ) : (
+          <>
+            <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {([
+                { label: 'Month · Dated actual', value: formatDuration(ledgerMonthSeconds) },
+                { label: 'Days worked · ≥1 min', value: String(ledgerDaysWorked) },
+                { label: 'Target · 8h/day', value: formatDuration(ledgerTargetSeconds) },
+                { label: 'Historical · Unattributed', value: formatDuration(legacyUnattributedSeconds) },
+              ] as const).map(({ label, value }) => (
+                <div key={label} className="rounded-xl border border-border p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted">{label}</p>
+                  <p className="mt-2 text-xl font-bold text-ink">{value}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-muted">
+              Dated actual vs 8-hour target: {ledgerMonthSeconds >= ledgerTargetSeconds ? '+' : '−'}
+              {formatDuration(Math.abs(ledgerMonthSeconds - ledgerTargetSeconds))}.
+              No daily cap or automatic overtime approval. Unattributed time is excluded from dated actual.
+              {ledgerReviewCount > 0 ? ` ${ledgerReviewCount} multi-day/discrepant sessions require audit.` : ''}
+            </p>
+            <div className="mt-4 divide-y divide-border rounded-xl border border-border">
+              {myLedgerDays.length === 0 ? (
+                <p className="p-3 text-xs text-muted">No accepted daily credits for this month.</p>
+              ) : myLedgerDays.slice(0, 35).map((day) => (
+                <div key={day.local_work_date} className="flex justify-between gap-3 p-3 text-xs">
+                  <span className="font-semibold text-ink">{day.local_work_date}</span>
+                  <span>{formatDuration(Number(day.actual_seconds || 0))}</span>
+                </div>
+              ))}
+            </div>
+            {canManageAll && (
+              <p className="mt-3 text-xs text-muted">
+                Managers can download all authorized employees' dated ledger rows in the CSV above.
+              </p>
+            )}
+          </>
+        )}
+      </Card>
 
       <Card className="overflow-hidden p-0">
         <div className="border-b border-border px-4 py-4 sm:px-5">
           <h3 className="font-display text-xl font-semibold text-ink">My attendance history</h3>
-          <p className="text-xs text-muted">Recent sessions show verified MH Tracker time; breaks and app-closed gaps are excluded.</p>
+          <p className="text-xs text-muted">Session records may include historical or unattributed hours. Use the dated ledger above to review accepted verified time.</p>
         </div>
         <div className="divide-y divide-border">
           {mySessions.slice(0, 20).map((session) => {
@@ -600,7 +775,7 @@ export function AttendancePage({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h3 className="font-display text-xl font-semibold text-ink">Correct attendance record</h3>
-                <p className="mt-1 text-xs text-muted">Admin corrections are audit-marked and require a reason. Correcting the session window does not fabricate verified app-presence time.</p>
+                <p className="mt-1 text-xs text-muted">Admin corrections now create an immutable audit entry with before/after snapshots and require a detailed reason (15+ characters). Adjusting session times never manufactures dated verified credits.</p>
               </div>
               <button type="button" className="text-sm font-bold text-muted" onClick={() => setEditing(null)}>✕</button>
             </div>
@@ -615,7 +790,7 @@ export function AttendancePage({
               <Button type="button" variant="secondary" onClick={() => setEditing(null)}>Cancel</Button>
               <Button
                 type="button"
-                disabled={busy || editReason.trim().length < 5 || !editClockIn || !editClockOut}
+                disabled={busy || editReason.trim().length < 15 || !editClockIn || !editClockOut}
                 onClick={() => void run(async () => {
                   await onAdjustSession(
                     editing.id,

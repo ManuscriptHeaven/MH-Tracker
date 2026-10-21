@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabase';
+import { startAttendanceTabLeadership } from './attendanceTabLeadership';
+import {
+  splitAttendanceIntervalByLocalDate,
+  mergeAttendanceDailySlices,
+  readPendingAttendanceDailySlices,
+  writePendingAttendanceDailySlices,
+  type AttendanceDailySlice,
+} from './attendanceDailyLedger';
 import { evaluateAttendancePresenceSample } from './attendancePresence';
 import { canConfirmReceivedFiles, canSubmitClientFiles, receivedFilesNote, validateClientFileSubmission, type ReceivedFileSource } from './clientFileSubmission';
 import { sampleData, sampleProfiles } from './sampleData';
@@ -133,6 +141,8 @@ type AttendancePresenceRuntime = {
   lastMonotonicAtMs: number;
   fractionalMs: number;
   pendingSeconds: number;
+  pendingDailySlices: AttendanceDailySlice[];
+  isLeader: boolean;
   flushing: boolean;
   screenLocked: boolean;
   pageAway: boolean;
@@ -958,11 +968,14 @@ export function useTracker() {
     lastMonotonicAtMs: 0,
     fractionalMs: 0,
     pendingSeconds: 0,
+    pendingDailySlices: [],
+    isLeader: false,
     flushing: false,
     screenLocked: false,
     pageAway: false,
   });
-  const attendanceFlushRef = useRef<(() => Promise<void>) | null>(null);
+  const attendanceFlushRef = useRef<(() => Promise<boolean>) | null>(null);
+  const [attendanceTabRole, setAttendanceTabRole] = useState<'leader' | 'secondary' | 'unsupported'>('secondary');
   const attendanceIdlePermissionRef = useRef<'unknown' | 'granted' | 'denied' | 'unsupported'>('unknown');
 
   const loadSupabaseData = useCallback(async (profile: Profile) => {
@@ -4631,6 +4644,40 @@ export function useTracker() {
     return updated;
   }, [currentProfile, mode]);
 
+  const recordAttendanceDailySlices = useCallback(async (slices: AttendanceDailySlice[]) => {
+    if (!currentProfile || isClientRole(currentProfile.role) || !isDesktopAttendanceClient()) return null;
+    if (slices.length === 0) return null;
+
+    if (supabase && mode === 'supabase') {
+      const { data: session, error: syncError } = await supabase.rpc('attendance_sync_daily_slices', {
+        p_slices: slices,
+      });
+      if (syncError) throw syncError;
+      if (!session) throw new Error('Daily attendance sync returned no session.');
+
+      const confirmed = session as AttendanceSession;
+      setData((previous) => ({
+        ...previous,
+        attendanceSessions: (previous.attendanceSessions || []).map((item) =>
+          item.id === confirmed.id ? {
+            ...confirmed,
+            verified_seconds: Math.max(
+              Number(item.verified_seconds || 0),
+              Number(confirmed.verified_seconds || 0),
+            ),
+            last_app_heartbeat_at: (item.last_app_heartbeat_at &&
+              new Date(item.last_app_heartbeat_at).getTime() > new Date(confirmed.last_app_heartbeat_at || 0).getTime())
+                ? item.last_app_heartbeat_at : confirmed.last_app_heartbeat_at,
+          } : item,
+        ),
+      }));
+      return confirmed;
+    }
+
+    // Demo already earned local time. A flush must not add it twice.
+    return null;
+  }, [currentProfile, mode]);
+
   useEffect(() => {
     if (!currentProfile || isClientRole(currentProfile.role) || !isDesktopAttendanceClient()) {
       attendanceFlushRef.current = null;
@@ -4648,7 +4695,10 @@ export function useTracker() {
       attendancePresenceRef.current.lastMonotonicAtMs = 0;
       attendancePresenceRef.current.fractionalMs = 0;
       attendancePresenceRef.current.pendingSeconds = 0;
+      attendancePresenceRef.current.pendingDailySlices = [];
+      attendancePresenceRef.current.isLeader = false;
       attendancePresenceRef.current.flushing = false;
+      setAttendanceTabRole('secondary');
       attendancePresenceRef.current.screenLocked = false;
       attendancePresenceRef.current.pageAway = false;
       return undefined;
@@ -4670,6 +4720,8 @@ export function useTracker() {
       runtime.sessionId = activeSession.id;
       resetRuntimeClock();
       runtime.pendingSeconds = readAttendancePendingSeconds(currentProfile.id, activeSession.id);
+      runtime.pendingDailySlices = readPendingAttendanceDailySlices(currentProfile.id, activeSession.id);
+      runtime.isLeader = false;
       runtime.flushing = false;
       runtime.screenLocked = false;
       runtime.pageAway = false;
@@ -4698,7 +4750,7 @@ export function useTracker() {
     };
 
     const accrueLocalPresence = (forcePause = false) => {
-      if (cancelled || runtime.sessionId !== activeSession.id) return 0;
+      if (cancelled || runtime.sessionId !== activeSession.id || !runtime.isLeader) return 0;
 
       const nowMs = Date.now();
       const nowMonotonicMs = attendanceMonotonicNow();
@@ -4726,8 +4778,10 @@ export function useTracker() {
       runtime.fractionalMs = Math.max(0, totalElapsedMs - elapsedSeconds * 1000);
       if (elapsedSeconds <= 0) return 0;
 
-      runtime.pendingSeconds += elapsedSeconds;
-      writeAttendancePendingSeconds(currentProfile.id, activeSession.id, runtime.pendingSeconds);
+      const earnedStartMs = nowMs - elapsedSeconds * 1000;
+      const slices = splitAttendanceIntervalByLocalDate(earnedStartMs, nowMs, createUuid);
+      runtime.pendingDailySlices = mergeAttendanceDailySlices(runtime.pendingDailySlices, slices);
+      writePendingAttendanceDailySlices(currentProfile.id, activeSession.id, runtime.pendingDailySlices);
 
       const nowIso = new Date(nowMs).toISOString();
       setData((previous) => ({
@@ -4748,30 +4802,40 @@ export function useTracker() {
       return elapsedSeconds;
     };
 
-    const flushPresence = async () => {
-      if (cancelled) return;
+    const flushPresence = async (): Promise<boolean> => {
+      if (cancelled) return false;
 
       accrueLocalPresence();
-      if (!navigator.onLine || runtime.flushing) return;
+      if (!runtime.isLeader || !navigator.onLine || runtime.flushing) return false;
+      if (runtime.pendingSeconds === 0 && runtime.pendingDailySlices.length === 0) return true;
 
-      const pendingSeconds = runtime.pendingSeconds;
-      runtime.pendingSeconds = 0;
-      writeAttendancePendingSeconds(currentProfile.id, activeSession.id, 0);
       runtime.flushing = true;
-
       try {
-        await recordAttendanceHeartbeat(pendingSeconds);
-      } catch (heartbeatError) {
-        runtime.pendingSeconds += pendingSeconds;
-        writeAttendancePendingSeconds(
-          currentProfile.id,
-          activeSession.id,
-          runtime.pendingSeconds,
-        );
-        console.warn('Attendance heartbeat failed; local time remains queued:', heartbeatError);
+        // Earlier offline queues have only a scalar duration, with no reliable
+        // calendar date. Flush once as legacy/unattributed time.
+        const legacySeconds = runtime.pendingSeconds;
+        if (legacySeconds > 0) {
+          await recordAttendanceHeartbeat(legacySeconds);
+          runtime.pendingSeconds = Math.max(0, runtime.pendingSeconds - legacySeconds);
+          writeAttendancePendingSeconds(currentProfile.id, activeSession.id, runtime.pendingSeconds);
+        }
+
+        // Stable source keys make replay after a network error idempotent.
+        const batch = runtime.pendingDailySlices.slice(0, 120);
+        if (batch.length > 0) {
+          await recordAttendanceDailySlices(batch);
+          const acceptedKeys = new Set(batch.map((slice) => slice.source_key));
+          runtime.pendingDailySlices = runtime.pendingDailySlices.filter(
+            (slice) => !acceptedKeys.has(slice.source_key),
+          );
+          writePendingAttendanceDailySlices(currentProfile.id, activeSession.id, runtime.pendingDailySlices);
+        }
+      } catch (syncError) {
+        console.warn('Attendance daily sync failed; slices remain queued:', syncError);
       } finally {
         runtime.flushing = false;
       }
+      return runtime.pendingSeconds === 0 && runtime.pendingDailySlices.length === 0;
     };
 
     const startScreenLockDetection = async () => {
@@ -4819,8 +4883,39 @@ export function useTracker() {
 
     attendanceFlushRef.current = flushPresence;
 
+    let leadership: ReturnType<typeof startAttendanceTabLeadership> | null = null;
+    let ownershipGeneration = 0;
+
+    const claimSessionLeadership = () => {
+      const generation = ++ownershipGeneration;
+      leadership = startAttendanceTabLeadership(
+        currentProfile.id,
+        activeSession.id,
+        (ownsLock) => {
+          // The old pagehide lock may finish releasing AFTER pageshow has
+          // started a new request; ignore ownership changes from old requests.
+          if (cancelled || generation !== ownershipGeneration) return;
+          if (!ownsLock && runtime.isLeader) {
+            accrueLocalPresence();
+          }
+          runtime.isLeader = ownsLock;
+          resetRuntimeClock();
+          setAttendanceTabRole(ownsLock ? 'leader' : 'secondary');
+          if (ownsLock) {
+            runtime.pendingDailySlices = mergeAttendanceDailySlices(
+              runtime.pendingDailySlices,
+              readPendingAttendanceDailySlices(currentProfile.id, activeSession.id),
+            );
+            void flushPresence();
+          }
+        },
+      );
+      if (!leadership.supported) setAttendanceTabRole('unsupported');
+    };
+
+    claimSessionLeadership();
+
     void startScreenLockDetection();
-    void flushPresence();
 
     const localCheckpointId = window.setInterval(() => {
       accrueLocalPresence();
@@ -4831,6 +4926,7 @@ export function useTracker() {
     const onPageShow = () => {
       runtime.pageAway = false;
       resetRuntimeClock();
+      if (!leadership) claimSessionLeadership();
       markLocalPresenceNow();
       void flushPresence();
     };
@@ -4840,9 +4936,14 @@ export function useTracker() {
       if (document.visibilityState === 'visible') void flushPresence();
     };
     const onPageHide = () => {
-      // Navigating away / entering bfcache is not "app open" time.
+      // A page held in back-forward cache must not retain the attendance lock.
       accrueLocalPresence();
       runtime.pageAway = true;
+      runtime.isLeader = false;
+      ++ownershipGeneration;
+      leadership?.stop();
+      leadership = null;
+      setAttendanceTabRole('secondary');
       resetRuntimeClock();
     };
     const onResume = () => {
@@ -4860,6 +4961,10 @@ export function useTracker() {
     return () => {
       accrueLocalPresence();
       cancelled = true;
+      ++ownershipGeneration;
+      leadership?.stop();
+      leadership = null;
+      runtime.isLeader = false;
       idleController.abort();
       window.clearInterval(localCheckpointId);
       window.clearInterval(syncIntervalId);
@@ -4882,13 +4987,17 @@ export function useTracker() {
         attendanceBreak.user_id === currentProfile?.id && !attendanceBreak.ended_at,
     )?.id,
     recordAttendanceHeartbeat,
+    recordAttendanceDailySlices,
   ]);
 
   const startAttendanceBreak = useCallback(async () => {
     if (!currentProfile) throw new Error('Not logged in.');
 
     if (supabase && mode === 'supabase') {
-      await attendanceFlushRef.current?.();
+      const allCreditedTimeSynced = await attendanceFlushRef.current?.();
+      if (allCreditedTimeSynced === false) {
+        throw new Error('Unsynced attendance is still queued. Reconnect and sync before ending the shift or starting a break.');
+      }
       const { data: attendanceBreak, error: breakError } = await supabase.rpc('attendance_start_break');
       if (breakError) throw breakError;
       if (!attendanceBreak) throw new Error('Break start did not return a record.');
@@ -4952,7 +5061,10 @@ export function useTracker() {
     if (!currentProfile) throw new Error('Not logged in.');
 
     if (supabase && mode === 'supabase') {
-      await attendanceFlushRef.current?.();
+      const allCreditedTimeSynced = await attendanceFlushRef.current?.();
+      if (allCreditedTimeSynced === false) {
+        throw new Error('Unsynced attendance is still queued. Reconnect and sync before ending the shift or starting a break.');
+      }
       const { data: session, error: clockError } = await supabase.rpc('attendance_clock_out', { p_note: note || null });
       if (clockError) throw clockError;
       if (!session) throw new Error('Clock-out did not return an attendance session.');
@@ -5199,6 +5311,7 @@ export function useTracker() {
     refreshAttendance,
     recordAttendanceHeartbeat,
     desktopAttendanceCapable: isDesktopAttendanceClient(),
+    attendanceTabRole,
     clockInAttendance,
     clockOutAttendance,
     startAttendanceBreak,

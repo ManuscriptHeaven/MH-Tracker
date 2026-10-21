@@ -1,0 +1,64 @@
+name: Attendance Ledger PostgreSQL / RLS Integration
+
+on:
+  push:
+    branches: [feat/attendance-daily-ledger-foundation]
+    paths:
+      - 'supabase/migrations/*attendance*.sql'
+      - 'scripts/sql/attendance-*.sql'
+      - '.github/workflows/attendance-ledger-integration.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/*attendance_daily_credits.sql'
+      - 'supabase/migrations/*attendance_admin_reconciliation.sql'
+      - 'scripts/sql/attendance-ledger-ci-*.sql'
+      - 'scripts/sql/attendance-reconciliation-ci-tests.sql'
+      - '.github/workflows/attendance-ledger-integration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: attendance_ci_only
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: attendance_ci_only
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure psql is installed
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
+      - name: Apply test-only Supabase authorization fixtures
+        run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/attendance-ledger-ci-fixture.sql
+      - name: Execute PR migration on disposable PostgreSQL 17
+        run: psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261021080547_attendance_daily_credits_v2_20261019.sql
+      - name: Verify ledger authorization and runtime invariants
+        run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/attendance-ledger-ci-tests.sql
+      - name: Apply append-only admin reconciliation schema
+        run: psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261021080615_attendance_admin_reconciliation_v2_20261020.sql
+      - name: Verify admin-only corrections evidence and immutable audit
+        run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/attendance-reconciliation-ci-tests.sql

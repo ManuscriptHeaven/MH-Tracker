@@ -33,6 +33,7 @@ import { errorMessage, isClientRole } from './lib/utils';
 import type { Project, ProjectDraft, ProjectLifecycleStatus, ProjectMetadataUpdate } from './lib/types';
 
 import { RevisionRequestModal } from './components/RevisionRequestModal';
+import { AttendanceReconciliationAdmin } from './components/AttendanceReconciliationAdmin';
 import { Toast, type ToastData } from './components/Toast';
 import { OfflineBanner } from './components/OfflineBanner';
 
@@ -311,6 +312,7 @@ export default function App() {
     )}
     {activeView === 'calendar' && <CalendarPage projects={visibleProjects} onSelectProject={openClientProject} />}
     {activeView === 'attendance' && !isClient && (
+      <>
       <AttendancePage
         currentProfile={tracker.currentProfile}
         profiles={tracker.data.profiles}
@@ -318,12 +320,26 @@ export default function App() {
         breaks={tracker.data.attendanceBreaks || []}
         canManageAll={tracker.canManageAll}
         desktopAttendanceCapable={tracker.desktopAttendanceCapable}
+        attendanceTabRole={tracker.attendanceTabRole}
         onClockIn={tracker.clockInAttendance}
         onClockOut={tracker.clockOutAttendance}
         onStartBreak={tracker.startAttendanceBreak}
         onEndBreak={tracker.endAttendanceBreak}
-        onAdjustSession={tracker.adjustAttendanceSession}
+        onAdjustSession={async (sessionId, clockIn, clockOut, reason) => {
+          const result = await tracker.adjustAttendanceSession(sessionId, clockIn, clockOut, reason);
+          window.dispatchEvent(new Event('mh:attendance-reconciled'));
+          return result;
+        }}
       />
+      {tracker.currentProfile.role === 'admin' && (
+        <AttendanceReconciliationAdmin
+          currentProfile={tracker.currentProfile}
+          profiles={tracker.data.profiles}
+          sessions={tracker.data.attendanceSessions || []}
+          onReconciled={tracker.refreshAttendance}
+        />
+      )}
+      </>
     )}
     {activeView === 'team' && (
       <TeamPage
