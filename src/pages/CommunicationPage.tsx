@@ -202,8 +202,10 @@ function ConvRow({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={`group flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-all ${
+      aria-pressed={isSelected}
+      className={`group flex w-full items-start gap-3 rounded-xl px-3.5 py-3 text-left transition-all ${
         isSelected
           ? 'bg-gold/15 ring-1 ring-gold/25 shadow-xs'
           : 'hover:bg-black/[0.035]'
@@ -553,6 +555,16 @@ export function CommunicationPage({
   }, [data.conversations, isClient, projects]);
 
   const messages = useMemo(() => data.messages || [], [data.messages]);
+  const latestMessageByConversation = useMemo(() => {
+    const latest = new Map<string, ChatMessage>();
+    for (const message of messages) {
+      const previous = latest.get(message.conversation_id);
+      if (!previous || new Date(message.created_at).getTime() >= new Date(previous.created_at).getTime()) {
+        latest.set(message.conversation_id, message);
+      }
+    }
+    return latest;
+  }, [messages]);
   const conversationMembers: ConversationMember[] = useMemo(() => data.conversationMembers || [], [data.conversationMembers]);
   const messageReactions = useMemo(() => data.messageReactions || [], [data.messageReactions]);
   const messageMentions = useMemo(() => data.messageMentions || [], [data.messageMentions]);
@@ -632,6 +644,16 @@ export function CommunicationPage({
   const [activeConvTab, setActiveConvTab] = useState<ConvTab>('chat');
   const [contextPanelOpen, setContextPanelOpen] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('list');
+  const [desktopChatVisible, setDesktopChatVisible] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)');
+    const sync = () => setDesktopChatVisible(mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
   // sidebar collapse state
   const [dmsCollapsed, setDmsCollapsed] = useState(true);
   const [projectsCollapsed, setProjectsCollapsed] = useState(true);
@@ -652,7 +674,6 @@ export function CommunicationPage({
 
     rememberLastConversationId(currentProfile.id, conv.id);
     setShowNewMsg(false);
-    setMobilePanel('chat');
 
     if (conv.project_id) {
       setActiveProjectId(conv.project_id);
@@ -710,7 +731,7 @@ export function CommunicationPage({
   const displayedConv = useMemo(() => {
     if (!activeProjectId) return activeConv;
     const type = projectConvMode === 'internal' ? 'project_internal' : 'project_client';
-    return allConversations.find(c => c.project_id === activeProjectId && c.type === type) || activeConv;
+    return allConversations.find(c => c.project_id === activeProjectId && c.type === type) || null;
   }, [activeProjectId, projectConvMode, allConversations, activeConv]);
 
   const activeProject = useMemo(() => {
@@ -731,9 +752,9 @@ export function CommunicationPage({
   // Keep last_read_at current while the conversation is actually open.
   // This powers unread counters and sender-side Read indicators in real time.
   useEffect(() => {
-    if (!displayedConv || activeConvTab !== 'chat' || mobilePanel !== 'chat') return;
+    if (!displayedConv || activeConvTab !== 'chat' || (!desktopChatVisible && mobilePanel !== 'chat')) return;
     void onMarkRead(displayedConv.id).catch(() => {});
-  }, [activeConvTab, activeMessages.length, displayedConv?.id, mobilePanel, onMarkRead]);
+  }, [activeConvTab, activeMessages.length, desktopChatVisible, displayedConv?.id, mobilePanel, onMarkRead]);
 
   /* ── Attachments for current conversation ── */
   const convAttachments = useMemo(() => {
@@ -762,9 +783,7 @@ export function CommunicationPage({
 
   /* ── Last message helper ── */
   function lastMsgFor(convId: string) {
-    return messages
-      .filter(m => m.conversation_id === convId)
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0] || null;
+    return latestMessageByConversation.get(convId) || null;
   }
 
   /* ── Filter helpers ── */
@@ -841,14 +860,14 @@ export function CommunicationPage({
 
   async function selectProjectConv(projectId: string, mode: 'internal' | 'client') {
     setShowNewMsg(false);
-    setActiveProjectId(projectId);
-    setProjectConvMode(mode);
-    setActiveConvTab('chat');
-    setMobilePanel('chat');
     setCommunicationError(null);
     try {
       const conv = await onGetOrCreateProjectConversation(projectId, mode === 'internal');
+      setActiveProjectId(projectId);
+      setProjectConvMode(mode);
       setActiveConversationId(conv.id);
+      setActiveConvTab('chat');
+      setMobilePanel('chat');
       await onMarkRead(conv.id);
     } catch (err) {
       setCommunicationError(err instanceof Error ? err.message : 'Could not open the project conversation.');
@@ -886,12 +905,13 @@ export function CommunicationPage({
   }
 
   async function switchProjectConvMode(mode: 'internal' | 'client') {
-    if (!activeProjectId) return;
-    setProjectConvMode(mode);
+    if (!activeProjectId || mode === projectConvMode) return;
     setCommunicationError(null);
     try {
       const conv = await onGetOrCreateProjectConversation(activeProjectId, mode === 'internal');
+      setProjectConvMode(mode);
       setActiveConversationId(conv.id);
+      setActiveConvTab('chat');
       await onMarkRead(conv.id);
     } catch (err) {
       setCommunicationError(err instanceof Error ? err.message : 'Could not switch the project conversation.');
