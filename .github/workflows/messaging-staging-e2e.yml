@@ -1,0 +1,52 @@
+name: Messaging Staging E2E Certification
+
+# Manual-only: writes synthetic messages and one PDF to a dedicated isolated QA project.
+on:
+  workflow_dispatch:
+    inputs:
+      isolated_staging_ack:
+        description: Confirm a separate staging Supabase project (never production)
+        required: true
+        type: choice
+        options:
+          - NO
+          - I_CONFIRM_ISOLATED_STAGING
+
+permissions:
+  contents: read
+
+jobs:
+  messaging-three-role:
+    if: github.event.inputs.isolated_staging_ack == 'I_CONFIRM_ISOLATED_STAGING'
+    name: Real authentication, Realtime, RLS and Storage verification
+    runs-on: ubuntu-latest
+    environment: messaging-staging
+    timeout-minutes: 15
+    env:
+      MH_STAGE_WRITES_ACK: ${{ inputs.isolated_staging_ack }}
+      MH_STAGE_SUPABASE_REF: ${{ vars.MH_STAGE_SUPABASE_REF }}
+      MH_STAGE_QA_PROJECT_ID: ${{ vars.MH_STAGE_QA_PROJECT_ID }}
+      MH_STAGE_SUPABASE_URL: ${{ secrets.MH_STAGE_SUPABASE_URL }}
+      MH_STAGE_SUPABASE_ANON_KEY: ${{ secrets.MH_STAGE_SUPABASE_ANON_KEY }}
+      MH_STAGE_ADMIN_EMAIL: ${{ secrets.MH_STAGE_ADMIN_EMAIL }}
+      MH_STAGE_ADMIN_PASSWORD: ${{ secrets.MH_STAGE_ADMIN_PASSWORD }}
+      MH_STAGE_EMPLOYEE_EMAIL: ${{ secrets.MH_STAGE_EMPLOYEE_EMAIL }}
+      MH_STAGE_EMPLOYEE_PASSWORD: ${{ secrets.MH_STAGE_EMPLOYEE_PASSWORD }}
+      MH_STAGE_CLIENT_EMAIL: ${{ secrets.MH_STAGE_CLIENT_EMAIL }}
+      MH_STAGE_CLIENT_PASSWORD: ${{ secrets.MH_STAGE_CLIENT_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check runner syntax
+        run: node --check scripts/messaging-staging-e2e.mjs
+      - name: Execute authenticated staging messaging checks
+        run: node scripts/messaging-staging-e2e.mjs

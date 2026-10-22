@@ -37,6 +37,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Full regression suite
         run: pnpm test
+      - name: Parse staging messaging E2E runner without credentials
+        run: node --check scripts/messaging-staging-e2e.mjs
 
   build:
     runs-on: ubuntu-latest
