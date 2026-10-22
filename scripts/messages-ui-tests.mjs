@@ -76,7 +76,7 @@ assert(
 
 assert(
   messages.includes('>Inbox</h2>') &&
-    messages.includes('All caught up') &&
+    messages.includes('All messages up to date') &&
     messages.includes('unread message'),
   'messages workspace exposes a concise inbox/unread summary',
 );
@@ -96,11 +96,28 @@ assert(
 );
 
 assert(
-  messages.includes('for (const conversation of allConversations)') &&
-    messages.includes("filterMode === 'all' || Boolean(conv && convPassesFilter(conv.id))") &&
-    messages.includes('convMatchesSearch(c,') &&
-    messages.includes('const searchMatches = conv'),
-  'conversation unread filters and search behave consistently across client, DM, project, and channel lists',
+  messages.includes('visibleRecentConversations.map') &&
+    messages.includes('convPassesFilter(item.conv.id)') &&
+    messages.includes('matchesSearch(item.latest.body)') &&
+    messages.includes("label=\"Project Conversations\"") &&
+    messages.includes("clientUnread > 0 && internalUnread === 0 ? 'client'"),
+  'recent inbox filters across all chat types and project links prefer the unread client room',
+);
+
+assert(
+  messages.includes('desktopChatVisible') &&
+    messages.includes("(!desktopChatVisible && mobilePanel !== 'chat')") &&
+    messages.includes("allConversations.find(c => c.project_id === activeProjectId && c.type === type) || null") &&
+    messages.includes('setProjectConvMode(mode);'),
+  'desktop read receipts update and unsafe project-mode fallbacks are removed',
+);
+
+assert(
+  messages.includes('Your conversations') &&
+    messages.includes('Messages needing attention') &&
+    messages.includes('recentConversations') &&
+    messages.includes('No unread conversations'),
+  'inbox has real recent/unread content without hiding it behind collapsed sections',
 );
 
 assert(
