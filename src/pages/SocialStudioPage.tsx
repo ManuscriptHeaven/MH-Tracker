@@ -166,7 +166,7 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
               <span className="text-xs font-bold uppercase tracking-widest">Manuscript Heaven</span>
             </div>
             <h1 className="mt-2 font-display text-2xl font-bold text-ink sm:text-3xl">Social Media Studio</h1>
-            <p className="mt-2 max-w-2xl text-sm text-muted">Create captions, review changes and plan posts with an approval trail.</p>
+            <p className="mt-2 max-w-2xl text-sm text-muted">Create captions, review revisions, approve exact content and plan posts.</p>
           </div>
           <button onClick={() => void reload()} disabled={busy || loading}
             className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-ink hover:bg-linen disabled:opacity-50">
