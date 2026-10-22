@@ -9,6 +9,7 @@ import {
   Landmark,
   LogOut,
   MessageSquare,
+  Megaphone,
   PackageCheck,
   Settings,
   Sparkles,
@@ -84,6 +85,7 @@ export function MobileMoreMenu({
         { id: 'delivered', label: 'Delivered Projects', icon: PackageCheck, show: !isClient },
         { id: 'calendar', label: 'Calendar & Deadlines', icon: CalendarDays, show: !isClient },
         { id: 'ai_assistant', label: 'AI Assistant', icon: Sparkles, show: isManager },
+        { id: 'social_studio', label: 'Social Media Studio', icon: Megaphone, show: isAdmin },
       ],
     },
     {
