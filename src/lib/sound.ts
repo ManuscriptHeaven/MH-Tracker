@@ -40,7 +40,9 @@ export function setSoundEnabled(enabled: boolean): void {
 export function isVoiceEnabled(): boolean {
   if (typeof window === 'undefined') return true;
   const saved = localStorage.getItem(VOICE_STORAGE_KEY);
-  return saved === null ? true : saved === 'true';
+  // Audio-only alerts by default. Speaking sender/project names aloud
+  // unexpectedly can be disruptive in shared workspaces.
+  return saved === 'true';
 }
 
 export function setVoiceEnabled(enabled: boolean): void {
@@ -131,6 +133,38 @@ export function playMessageSound(): void {
   }
 }
 
+
+/**
+ * Task events have their own soft chime so they are distinguishable from chat.
+ * Assignment uses an ascending triad; status updates use a shorter two-tone.
+ */
+export function playTaskSound(kind: 'assigned' | 'status_changed'): void {
+  if (!isSoundEnabled()) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const notes = kind === 'assigned' ? [523.25, 659.25, 783.99] : [659.25, 523.25];
+
+  try {
+    const now = ctx.currentTime;
+    for (const [index, frequency] of notes.entries()) {
+      const at = now + index * 0.1;
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(frequency, at);
+      gain.gain.setValueAtTime(0.001, at);
+      gain.gain.exponentialRampToValueAtTime(0.12, at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, at + 0.23);
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.start(at);
+      oscillator.stop(at + 0.24);
+    }
+  } catch (err) {
+    console.warn('Could not play task sound:', err);
+  }
+}
+
 /**
  * Speaks text using SpeechSynthesis
  */
@@ -178,7 +212,7 @@ export function notifyWithSoundAndVoice(
 ): void {
   if (type === 'message') {
     playMessageSound();
-    if (isVoiceEnabled() && (title || body)) {
+    if (isSoundEnabled() && isVoiceEnabled() && (title || body)) {
       const voiceText = title ? `New message from ${title}` : 'New chat message received';
       setTimeout(() => {
         void speakVoice(voiceText);
@@ -186,7 +220,7 @@ export function notifyWithSoundAndVoice(
     }
   } else {
     playNotificationSound();
-    if (isVoiceEnabled() && (title || body)) {
+    if (isSoundEnabled() && isVoiceEnabled() && (title || body)) {
       const voiceText = title ? `Notification: ${title}` : body || 'New notification';
       setTimeout(() => {
         void speakVoice(voiceText);

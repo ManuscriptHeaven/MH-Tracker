@@ -527,7 +527,7 @@ export function Layout({
 
               <div className="flex items-center justify-between sm:justify-end gap-1.5 sm:gap-2">
                 <IconButton
-                  title={soundActive ? 'Sound & Voice Alerts: Enabled (Click to mute)' : 'Sound & Voice Alerts: Muted (Click to unmute)'}
+                  title={soundActive ? 'Message and task notification sounds: On (click to mute)' : 'Message and task notification sounds: Muted (click to enable)'}
                   onClick={() => {
                     const next = !soundActive;
                     setSoundActive(next);
