@@ -201,3 +201,43 @@ create policy social_targets_admin_update on public.social_post_targets for upda
 revoke execute on function public.social_revision_immutable() from public, anon, authenticated;
 revoke execute on function public.social_revision_invalidate() from public, anon, authenticated;
 revoke execute on function public.social_target_transition() from public, anon, authenticated;
+
+
+-- A single transaction creates the post, first revision, and planning target.
+create function public.social_create_draft(p_brand_id uuid, p_caption text, p_channel text)
+returns uuid language plpgsql security invoker set search_path = '' as $$
+declare v_id uuid;
+begin
+  if (select public.phase6_app_actor_class()) <> 'admin' then
+    raise exception 'Social Studio requires admin access';
+  end if;
+  insert into public.social_posts (owner_id, brand_id)
+    values (auth.uid(), p_brand_id) returning id into v_id;
+  insert into public.social_post_revisions (owner_id, post_id, revision_number, caption)
+    values (auth.uid(), v_id, 1, p_caption);
+  insert into public.social_post_targets (owner_id, post_id, channel)
+    values (auth.uid(), v_id, p_channel);
+  return v_id;
+end $$;
+
+-- Lock the post before numbering a new revision to avoid duplicate revision numbers.
+create function public.social_append_revision(p_post_id uuid, p_caption text)
+returns uuid language plpgsql security invoker set search_path = '' as $$
+declare v_revision_id uuid;
+begin
+  perform 1 from public.social_posts
+    where id = p_post_id and owner_id = auth.uid() for update;
+  if not found then raise exception 'Social draft not accessible'; end if;
+  insert into public.social_post_revisions (owner_id, post_id, revision_number, caption)
+  values (
+    auth.uid(), p_post_id,
+    (select coalesce(max(revision_number),0) + 1 from public.social_post_revisions
+      where post_id = p_post_id), p_caption
+  ) returning id into v_revision_id;
+  return v_revision_id;
+end $$;
+
+revoke all on function public.social_create_draft(uuid,text,text) from public, anon;
+revoke all on function public.social_append_revision(uuid,text) from public, anon;
+grant execute on function public.social_create_draft(uuid,text,text) to authenticated;
+grant execute on function public.social_append_revision(uuid,text) to authenticated;
