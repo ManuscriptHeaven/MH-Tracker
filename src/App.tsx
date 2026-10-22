@@ -452,6 +452,8 @@ export default function App() {
         onResolveClientReminder={tracker.resolveClientReminder}
         conversations={tracker.data.conversations}
         messages={tracker.data.messages}
+        messageAttachments={tracker.data.messageAttachments}
+        onGetMessageAttachmentUrl={tracker.getMessageAttachmentUrl}
         onSendMessage={tracker.sendMessage}
         onGetOrCreateProjectConversation={tracker.getOrCreateProjectConversation}
         onMarkRead={tracker.markConversationRead}
@@ -503,6 +505,8 @@ export default function App() {
         currentProfile={tracker.currentProfile}
         conversations={tracker.data.conversations}
         messages={tracker.data.messages}
+        messageAttachments={tracker.data.messageAttachments}
+        onGetMessageAttachmentUrl={tracker.getMessageAttachmentUrl}
         onSendMessage={tracker.sendMessage}
         onGetOrCreateProjectConversation={tracker.getOrCreateProjectConversation}
         onMarkRead={tracker.markConversationRead}

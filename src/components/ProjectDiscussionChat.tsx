@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FileText, Lock, MessageSquare, Paperclip, Send, User, X } from 'lucide-react';
-import type { ChatMessage, Conversation, Profile } from '../lib/types';
+import type { ChatMessage, Conversation, MessageAttachment, Profile } from '../lib/types';
 import { firstName, initials } from '../lib/utils';
 import { roleLabels } from '../lib/constants';
 import { Button } from './ui';
@@ -15,6 +15,8 @@ export function ProjectDiscussionChat({
   profiles,
   conversations,
   messages,
+  messageAttachments = [],
+  onGetAttachmentUrl,
   onSendMessage,
   onGetOrCreateProjectConversation,
   onMarkRead,
@@ -27,6 +29,8 @@ export function ProjectDiscussionChat({
   profiles: Profile[];
   conversations: Conversation[];
   messages: ChatMessage[];
+  messageAttachments?: MessageAttachment[];
+  onGetAttachmentUrl?: (attachment: MessageAttachment) => Promise<string>;
   onSendMessage: (
     conversationId: string,
     body: string,
@@ -41,6 +45,7 @@ export function ProjectDiscussionChat({
   const [isSending, setIsSending] = useState(false);
   const [isLoadingConv, setIsLoadingConv] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
+  const [openingFileId, setOpeningFileId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const type = isInternal ? 'project_internal' : 'project_client';
@@ -90,22 +95,65 @@ export function ProjectDiscussionChat({
     };
   }, [projectId, isInternal, matchedConv, onGetOrCreateProjectConversation]);
 
-  // Messages in this conversation
+  // A project/modal switch must never render or send through a stale room.
+  const visibleConv = activeConv?.project_id === projectId && activeConv.type === type
+    ? activeConv
+    : null;
+
   const projectMessages = useMemo(() => {
-    if (!activeConv) return [];
+    if (!visibleConv) return [];
     return (messages || [])
-      .filter((m) => m.conversation_id === activeConv.id)
+      .filter((m) => m.conversation_id === visibleConv.id)
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-  }, [messages, activeConv]);
+  }, [messages, visibleConv?.id]);
+
+  const messageAttachmentMap = useMemo(() => {
+    const byMessage = new Map<string, MessageAttachment[]>();
+    for (const attachment of messageAttachments) {
+      const list = byMessage.get(attachment.message_id) || [];
+      list.push(attachment);
+      byMessage.set(attachment.message_id, list);
+    }
+    return byMessage;
+  }, [messageAttachments]);
+
+  async function openFile(attachment: MessageAttachment) {
+    if (!onGetAttachmentUrl) {
+      setChatError('File downloads are not available in this view.');
+      return;
+    }
+    setOpeningFileId(attachment.id);
+    setChatError(null);
+    const popup = window.open('about:blank', '_blank');
+    if (popup) popup.opener = null;
+    try {
+      const url = await onGetAttachmentUrl(attachment);
+      if (popup) popup.location.href = url;
+      else {
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+    } catch (err) {
+      popup?.close();
+      setChatError(err instanceof Error ? err.message : 'Could not open this file.');
+    } finally {
+      setOpeningFileId(null);
+    }
+  }
 
   // Auto-mark conversation as read when viewing it or receiving new messages
   useEffect(() => {
-    if (activeConv && onMarkRead) {
-      Promise.resolve(onMarkRead(activeConv.id)).catch((err) => {
+    if (visibleConv && onMarkRead) {
+      Promise.resolve(onMarkRead(visibleConv.id)).catch((err) => {
         console.warn('Could not update project chat read receipt:', err);
       });
     }
-  }, [activeConv, projectMessages.length, onMarkRead]);
+  }, [visibleConv?.id, projectMessages.length, onMarkRead]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -117,40 +165,22 @@ export function ProjectDiscussionChat({
     if (!text || isSending) return;
 
     setChatError(null);
-    let targetConv = activeConv;
-
-    if (!targetConv) {
-      try {
-        setIsLoadingConv(true);
-        targetConv = await onGetOrCreateProjectConversation(projectId, isInternal);
-        setActiveConv(targetConv);
-      } catch (err) {
-        console.error('Failed to init conversation before send:', err);
-        setChatError(
-          err instanceof Error
-            ? err.message
-            : 'Could not open this project discussion. Your message has not been sent.',
-        );
-        return;
-      } finally {
-        setIsLoadingConv(false);
-      }
-    }
-
-    if (!targetConv) {
-      setChatError('Could not open this project discussion. Your message has not been sent.');
-      return;
-    }
-
+    setIsSending(true);
     try {
-      setIsSending(true);
+      // Re-validate role, project and active client recipient before *every*
+      // send. Cached client conversations must never bypass the RPC.
+      const targetConv = await onGetOrCreateProjectConversation(projectId, isInternal);
+      if (targetConv.project_id !== projectId || targetConv.type !== type) {
+        throw new Error('The project discussion changed. Please reopen this conversation.');
+      }
+      setActiveConv(targetConv);
       await onSendMessage(targetConv.id, text);
       setInputMsg('');
     } catch (err) {
       console.error('Failed to send project message:', err);
       setChatError(
         err instanceof Error
-          ? `Failed to send — ${err.message}`
+          ? `Failed to send — ${err.message}. Your draft is still here.`
           : 'Failed to send this message. Your draft is still here so you can retry.',
       );
     } finally {
@@ -286,26 +316,26 @@ export function ProjectDiscussionChat({
                   >
                     <p className="whitespace-pre-wrap">{msg.body}</p>
 
-                    {/* Attachments */}
-                    {msg.attachments && msg.attachments.length > 0 && (
-                      <div className="mt-2 space-y-1 border-t border-black/10 dark:border-white/10 pt-1.5">
-                        {msg.attachments.map((att) => (
+                    {/* Persisted attachments are loaded separately from messages. */}
+                    {(messageAttachmentMap.get(msg.id) || msg.attachments || []).length > 0 && (
+                      <div className="mt-2 space-y-1 border-t border-black/10 pt-1.5">
+                        {(messageAttachmentMap.get(msg.id) || msg.attachments || []).map((att) => (
                           <div
                             key={att.id}
-                            className="flex items-center justify-between rounded bg-white/20 p-1.5 text-[10px]"
+                            className="flex items-center justify-between gap-2 rounded bg-white/20 p-1.5 text-[10px]"
                           >
-                            <span className="flex items-center gap-1 truncate">
+                            <span className="flex min-w-0 items-center gap-1 truncate">
                               <FileText className="h-3.5 w-3.5 shrink-0" />
                               <span className="truncate">{att.file_name}</span>
                             </span>
-                            <a
-                              href={att.file_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="ml-2 font-bold underline text-gold"
+                            <button
+                              type="button"
+                              onClick={() => void openFile(att)}
+                              disabled={!onGetAttachmentUrl || openingFileId === att.id}
+                              className="ml-2 shrink-0 font-bold underline text-gold disabled:opacity-50"
                             >
-                              Download
-                            </a>
+                              {openingFileId === att.id ? 'Opening…' : 'Open file'}
+                            </button>
                           </div>
                         ))}
                       </div>

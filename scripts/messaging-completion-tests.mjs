@@ -10,6 +10,10 @@ function assert(condition, message) {
 }
 
 const tracker = fs.readFileSync('src/lib/useTracker.ts', 'utf8');
+const projectChat = fs.readFileSync('src/components/ProjectDiscussionChat.tsx', 'utf8');
+const projectDetail = fs.readFileSync('src/components/ProjectDetail.tsx', 'utf8');
+const clientDetail = fs.readFileSync('src/components/ClientProjectDetailModal.tsx', 'utf8');
+
 const messages = fs.readFileSync('src/pages/CommunicationPage.tsx', 'utf8');
 const app = fs.readFileSync('src/App.tsx', 'utf8');
 const migration = fs.readFileSync('supabase/migrations/20260920000300_messaging_completion.sql', 'utf8');
@@ -79,6 +83,27 @@ assert(
   messages.includes('messageAttachments.filter((attachment) => attachment.message_id === msg.id)') &&
     !messages.includes('href={att.file_url}'),
   'attachment rows remain visible after reload and no private attachment relies on a persisted browser URL',
+);
+
+
+assert(
+  projectChat.includes('messageAttachmentMap.get(msg.id)') &&
+  projectChat.includes('onGetAttachmentUrl(attachment)') &&
+  projectChat.includes('const popup = window.open') &&
+  !projectChat.includes('href={att.file_url}') &&
+  projectDetail.includes('onGetAttachmentUrl={onGetMessageAttachmentUrl}') &&
+  clientDetail.includes('onGetAttachmentUrl={onGetMessageAttachmentUrl}') &&
+  app.includes('onGetMessageAttachmentUrl={tracker.getMessageAttachmentUrl}') &&
+  app.includes('messageAttachments={tracker.data.messageAttachments}'),
+  'Admin and client project discussions display persisted files and open them with private signed URLs',
+);
+
+assert(
+  projectChat.includes('activeConv?.project_id === projectId && activeConv.type === type') &&
+  projectChat.includes('onGetOrCreateProjectConversation(projectId, isInternal)') &&
+  projectChat.includes("throw new Error('The project discussion changed.") &&
+  projectChat.includes('onMarkRead(visibleConv.id)'),
+  'Project chat does not show stale-room messages and revalidates room access before each send',
 );
 
 if (process.exitCode) {

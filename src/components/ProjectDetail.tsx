@@ -43,6 +43,7 @@ import { useCurrency } from '../lib/currency';
 import type {
   ActivityLog,
   ChatMessage,
+  MessageAttachment,
   Conversation,
   NoteType,
   Profile,
@@ -134,6 +135,8 @@ export function ProjectDetail({
   onGetProjectFileUrl,
   onResolveClientReminder,
   conversations = [],
+  messageAttachments = [],
+  onGetMessageAttachmentUrl,
   messages = [],
   onSendMessage,
   onGetOrCreateProjectConversation,
@@ -176,6 +179,8 @@ export function ProjectDetail({
   onResolveClientReminder?: (reminderId: string, status: 'sent' | 'dismissed') => Promise<void>;
   conversations?: Conversation[];
   messages?: ChatMessage[];
+  messageAttachments?: MessageAttachment[];
+  onGetMessageAttachmentUrl?: (attachment: MessageAttachment) => Promise<string>;
   onSendMessage?: (
     conversationId: string,
     body: string,
@@ -1349,6 +1354,8 @@ export function ProjectDetail({
                       profiles={profiles}
                       conversations={conversations}
                       messages={messages}
+                      messageAttachments={messageAttachments}
+                      onGetAttachmentUrl={onGetMessageAttachmentUrl}
                       onSendMessage={onSendMessage}
                       onGetOrCreateProjectConversation={onGetOrCreateProjectConversation}
                       onMarkRead={onMarkRead}
