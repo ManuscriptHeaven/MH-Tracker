@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import ts from 'typescript';
+import vm from 'node:vm';
+
+const source = readFileSync(new URL('../src/lib/social/socialStudioDomain.ts', import.meta.url), 'utf8');
+const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+const exports = {};
+vm.runInNewContext(js, { exports, Date, Error });
+const { isApprovalCurrent, canSchedule, invalidateApprovalOnEdit, canClaimForPublishing } = exports;
+const revision = { id: 'rev2', postId: 'post1', revision: 2, caption: 'Approved', assetIds: [], targetAccountIds: ['page1'], createdAt: new Date().toISOString() };
+const target = { id: 'target1', postId: 'post1', approvedRevisionId: 'rev2', status: 'approved', scheduledAt: null, publishedExternalId: null };
+assert.equal(isApprovalCurrent(target, revision), true);
+assert.equal(isApprovalCurrent({ ...target, approvedRevisionId: 'rev1' }, revision), false);
+assert.equal(canSchedule(target, revision, new Date(Date.now() + 60000).toISOString()), true);
+assert.equal(canSchedule(target, revision, new Date(Date.now() - 60000).toISOString()), false);
+assert.equal(canSchedule({ ...target, approvedRevisionId: 'rev1' }, revision, new Date(Date.now() + 60000).toISOString()), false);
+const invalidated = invalidateApprovalOnEdit({ ...target, status: 'scheduled', scheduledAt: new Date().toISOString() });
+assert.equal(invalidated.status, 'draft');
+assert.equal(invalidated.approvedRevisionId, null);
+assert.equal(invalidated.scheduledAt, null);
+assert.throws(() => invalidateApprovalOnEdit({ ...target, status: 'publishing' }));
+const due = { ...target, status: 'scheduled', scheduledAt: new Date(Date.now() - 60000).toISOString() };
+assert.equal(canClaimForPublishing(due, revision, new Date().toISOString()), true);
+assert.equal(canClaimForPublishing({ ...due, approvedRevisionId: 'rev1' }, revision, new Date().toISOString()), false);
+assert.equal(canClaimForPublishing({ ...due, publishedExternalId: 'external1' }, revision, new Date().toISOString()), false);
+console.log('Social Studio domain tests passed');
