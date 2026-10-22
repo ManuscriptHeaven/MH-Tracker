@@ -15,6 +15,8 @@ const tracker = fs.readFileSync('src/lib/useTracker.ts', 'utf8');
 const presencePolicy = fs.readFileSync('src/lib/attendancePresence.ts', 'utf8');
 const page = fs.readFileSync('src/pages/AttendancePage.tsx', 'utf8');
 const reminder = fs.readFileSync('src/components/AttendanceReminder.tsx', 'utf8');
+const indicator = fs.readFileSync('src/components/AttendanceStatusIndicator.tsx', 'utf8');
+const layout = fs.readFileSync('src/components/Layout.tsx', 'utf8');
 const types = fs.readFileSync('src/lib/types.ts', 'utf8');
 const app = fs.readFileSync('src/App.tsx', 'utf8');
 
@@ -144,11 +146,25 @@ assert(
 
 assert(
   app.includes('<AttendanceReminder') &&
-    reminder.includes('REMINDER_EVERY_SECONDS = 30 * 60') &&
+    reminder.includes('REMINDER_INTERVAL_MS = 30 * 60 * 1000') &&
+    reminder.includes("state === 'off'") &&
+    reminder.includes("state === 'break'") &&
+    reminder.includes('setInterval') &&
     reminder.includes("Notification.permission === 'granted'") &&
     reminder.includes("document.hidden") &&
     page.includes('Enable desktop time reminders'),
-  '30-minute credited-time reminders remain global with optional permission-based desktop notifications',
+  '30-minute app-open reminders report ON, OFF and break, with optional permission-based desktop notifications',
+);
+
+assert(
+  layout.includes('<AttendanceStatusIndicator') &&
+    layout.includes("onOpenAttendance={() => setActiveView('attendance')}") &&
+    indicator.includes("item.status === 'active'") &&
+    indicator.includes("label = state === 'off'") &&
+    indicator.includes('bg-emerald-500') &&
+    indicator.includes('bg-amber-500') &&
+    indicator.includes('bg-red-500'),
+  'desktop header shows a permanent session/break/off status and links to Attendance',
 );
 
 if (process.exitCode) {
