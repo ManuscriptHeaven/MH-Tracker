@@ -107,7 +107,16 @@ const modal = readFileSync('src/components/StageSubmissionModal.tsx','utf8');
 assert.ok(modal.includes('type="file"'));
 assert.ok(modal.includes('Attach File (optional)'));
 assert.ok(modal.includes('File link (optional)'));
-assert.ok(modal.includes('You can submit for approval without a file or link.'));
+assert.ok(modal.includes('Both the file and link are optional for every submission stage.'));
+assert.ok(modal.includes('Submitting will notify the client without a file or link.'));
+assert.ok(modal.includes('disabled={busy || Boolean(file)}'));
+const migration = readFileSync('supabase/migrations/20261023000100_optional_all_stage_submission_proofs.sql', 'utf8');
+assert.ok(migration.includes('drop trigger if exists workflow_submission_gate_trigger on public.projects;'),
+  'legacy required-proof trigger must be disabled in the database, not only hidden in the UI');
+assert.ok(migration.includes('drop function if exists public.workflow_submission_gate();'),
+  'obsolete database proof gate must be removed');
+assert.ok(migration.includes('workflow_submit_stage_for_approval(uuid,bigint,uuid,text)'),
+  'migration must require the canonical authorization-protected submission RPC');
 const serviceWorker = readFileSync('public/sw.js','utf8');
 assert.ok(serviceWorker.includes("mh-tracker-v1.0.1"), 'new release must rotate outdated PWA app-shell cache');
 assert.ok(!modal.includes('required='));

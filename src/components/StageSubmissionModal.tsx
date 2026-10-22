@@ -54,7 +54,15 @@ export function StageSubmissionModal({ title, initialUrl = '', onSubmit, onClose
         <Button type="button" variant="ghost" disabled={busy} onClick={() => setFile(undefined)}>Remove</Button>
       </div> : savedFile && !link ? <p className="break-all text-sm text-muted">Current attachment: {savedFile}</p> : null}
       <Field label="File link (optional)" value={link} disabled={busy || Boolean(file)} onChange={event => setLink(event.target.value)} />
-      <p className="text-xs leading-relaxed text-muted">Already shared the concept with your client? You can submit for approval without a file or link.</p>
+      <p className="text-xs leading-relaxed text-muted">
+        Both the file and link are optional for every submission stage. Attach a file, paste a link, or submit without either.
+        A file or link can also be shared with the client separately.
+      </p>
+      {!file && !link.trim() && !savedFile && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">
+          No proof attached. Submitting will notify the client without a file or link.
+        </p>
+      )}
       {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
       <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-3">
         <Button type="button" variant="secondary" disabled={busy} onClick={onClose}>Cancel</Button>
