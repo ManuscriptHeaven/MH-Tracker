@@ -1,11 +1,39 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, CheckCircle2, Edit3, Megaphone, Plus, RefreshCw, Send, ShieldCheck } from 'lucide-react';
+import { CalendarClock, CheckCircle2, Copy, Edit3, Megaphone, Plus, RefreshCw, Send, ShieldCheck, Sparkles } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import type { Profile } from '../lib/types';
 
 type Brand = { id: string; name: string; brief: string; owner_id: string };
 type Post = { id: string; brand_id: string; owner_id: string; created_at: string };
-type Revision = { id: string; post_id: string; revision_number: number; caption: string; created_at: string };
+type Revision = {
+  id: string; post_id: string; revision_number: number; caption: string;
+  image_brief: string; content_origin: 'manual' | 'ai_suggested'; created_at: string;
+};
+type Platform = 'facebook' | 'instagram' | 'linkedin';
+type Suggestion = {
+  caption: string; hashtags: string[]; imageBrief: string;
+  variants: Record<Platform, string>; reviewNotes: string; model: string;
+};
+const TOPIC_STARTERS = [
+  'Why running headers are omitted on chapter opening pages',
+  '300 DPI images versus low-resolution images in print',
+  'How to check a reflowable EPUB table of contents',
+  'Print PDF versus Kindle EPUB: what changes in book formatting',
+  'How to choose a professional font pairing for a memoir',
+  'Widows, orphans and consistent book typesetting',
+];
+const BRAND_BRIEF_TEMPLATE = [
+  'Business: Manuscript Heaven. Services: Adobe InDesign interior book formatting,',
+  'novels, memoirs and nonfiction layouts, KDP print-ready interior PDFs,',
+  'reflowable Kindle EPUBs with clickable TOC, print covers and print preflight.',
+  'Audience: indie authors, self-publishers and small publishing teams.',
+  'Tone: professional, clear, educational, helpful and confident without exaggeration.',
+  'Visual system: clean cream/ink/gold manuscript-inspired typography; 1080x1350 artwork;',
+  'accurate typographic comparisons and no invented photos or client logos.',
+  'Avoid: promises of guaranteed approval, invented client testimonials,',
+  'publication statistics, unverified platform rules, client private content or manuscripts.',
+  'CTA: invite authors to ask Manuscript Heaven about book formatting.',
+].join(' ');
 type Target = {
   id: string; post_id: string; channel: string; status: string;
   approved_revision_id: string | null; approved_by: string | null; approved_at: string | null;
@@ -39,9 +67,17 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
   const [selectedBrand, setSelectedBrand] = useState('');
   const [brandName, setBrandName] = useState('Manuscript Heaven');
   const [caption, setCaption] = useState('');
+  const [draftImageBrief, setDraftImageBrief] = useState('');
+  const [draftOrigin, setDraftOrigin] = useState<'manual' | 'ai_suggested'>('manual');
+  const [brandBrief, setBrandBrief] = useState('');
+  const [topic, setTopic] = useState(TOPIC_STARTERS[0]);
+  const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
+  const [suggestionPlatform, setSuggestionPlatform] = useState<Platform>('facebook');
+  const [generating, setGenerating] = useState(false);
   const [channel, setChannel] = useState('facebook');
   const [editing, setEditing] = useState<string | null>(null);
   const [editedCaption, setEditedCaption] = useState('');
+  const [editedImageBrief, setEditedImageBrief] = useState('');
   const [scheduledDates, setScheduledDates] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -58,7 +94,7 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
       const [b, p, r, t] = await Promise.all([
         supabase.from('social_brands').select('id,name,brief,owner_id').order('created_at', { ascending: true }),
         supabase.from('social_posts').select('id,brand_id,owner_id,created_at').order('created_at', { ascending: false }),
-        supabase.from('social_post_revisions').select('id,post_id,revision_number,caption,created_at'),
+        supabase.from('social_post_revisions').select('id,post_id,revision_number,caption,image_brief,content_origin,created_at'),
         supabase.from('social_post_targets').select('id,post_id,channel,status,approved_revision_id,approved_by,approved_at,scheduled_at'),
       ]);
       for (const result of [b, p, r, t]) if (result.error) throw result.error;
@@ -77,6 +113,11 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
   }
 
   useEffect(() => { void reload(); }, [currentProfile.id]);
+  useEffect(() => {
+    const currentBrand = brands.find(item => item.id === selectedBrand);
+    setBrandBrief(currentBrand?.brief || '');
+    setSuggestion(null);
+  }, [brands, selectedBrand]);
 
   async function run(action: () => Promise<void>, success: string) {
     setBusy(true);
@@ -123,23 +164,28 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
   async function createDraft() {
     if (!caption.trim() || !selectedBrand || !supabase) return;
     await run(async () => {
-      const { error: err } = await supabase!.rpc('social_create_draft', {
+      const { error: err } = await supabase!.rpc('social_create_rich_draft', {
         p_brand_id: selectedBrand, p_caption: caption.trim(), p_channel: channel,
+        p_image_brief: draftImageBrief.trim(), p_content_origin: draftOrigin,
       });
       if (err) throw err;
       setCaption('');
-    }, 'Post draft saved securely.');
+      setDraftImageBrief('');
+      setDraftOrigin('manual');
+    }, 'Post draft and creative brief saved securely.');
   }
 
   async function saveRevision(postId: string) {
     if (!editedCaption.trim() || !supabase) return;
     await run(async () => {
-      const { error: err } = await supabase!.rpc('social_append_revision', {
+      const { error: err } = await supabase!.rpc('social_append_rich_revision', {
         p_post_id: postId, p_caption: editedCaption.trim(),
+        p_image_brief: editedImageBrief.trim(), p_content_origin: 'manual',
       });
       if (err) throw err;
       setEditing(null);
       setEditedCaption('');
+      setEditedImageBrief('');
     }, 'New revision saved; previous approval and schedule cleared.');
   }
 
@@ -150,6 +196,75 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
         .update(updates).eq('id', target.id).eq('owner_id', currentProfile.id).select('id').single();
       if (err) throw err;
     }, success);
+  }
+
+  async function saveBrandBrief() {
+    if (!selectedBrand || !supabase) return;
+    await run(async () => {
+      const { error: err } = await supabase!.from('social_brands')
+        .update({ brief: brandBrief.trim() })
+        .eq('id', selectedBrand).eq('owner_id', currentProfile.id)
+        .select('id').single();
+      if (err) throw err;
+    }, 'Brand brief saved. AI will use only this approved marketing guidance.');
+  }
+
+  async function generateSuggestion() {
+    if (!supabase || !selectedBrand || !topic.trim() || !brandBrief.trim()) return;
+    setGenerating(true);
+    setSuggestion(null);
+    setError('');
+    setMessage('');
+    try {
+      const { data, error: err } = await supabase.functions.invoke('social-draft', {
+        body: { brandId: selectedBrand, topic: topic.trim(), platform: channel },
+      });
+      if (err) {
+        let reason = err.message;
+        try {
+          const context = (err as { context?: Response }).context;
+          if (context && 'json' in context) {
+            const payload: { error?: string } = await context.json();
+            if (payload?.error) reason = payload.error;
+          }
+        } catch { /* Keep generic error if the provider response is unavailable. */ }
+        throw new Error(reason);
+      }
+      const output = data as Suggestion | null;
+      if (!output || typeof output.caption !== 'string' || !output.variants
+        || !Array.isArray(output.hashtags) || typeof output.imageBrief !== 'string') {
+        throw new Error('AI returned an unexpected response. Please retry.');
+      }
+      setSuggestion(output);
+      setSuggestionPlatform(channel as Platform);
+      setMessage('AI generated an editable suggestion. Review all claims before saving.');
+    } catch (cause) {
+      setError(describeError(cause));
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  function useSuggestion() {
+    if (!suggestion) return;
+    const variant = suggestion.variants[suggestionPlatform] || suggestion.caption;
+    const hashtags = suggestion.hashtags.filter(tag => !variant.includes(tag)).join(' ');
+    const composed = [variant.trim(), hashtags].filter(Boolean).join('\n\n').slice(0, 8000);
+    setCaption(composed);
+    setDraftImageBrief(suggestion.imageBrief);
+    setDraftOrigin('ai_suggested');
+    setChannel(suggestionPlatform);
+    setMessage('Suggestion copied into the editable draft. Save it when ready.');
+    setSuggestion(null);
+  }
+
+  async function copyVisualBrief(brief: string) {
+    try {
+      await navigator.clipboard.writeText(brief);
+      setMessage('Visual design brief copied.');
+    } catch {
+      setError('Clipboard not available. Select and copy the visual brief manually.');
+    }
   }
 
   if (currentProfile.role !== 'admin') {
