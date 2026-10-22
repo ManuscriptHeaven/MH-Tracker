@@ -1934,27 +1934,70 @@ export function CommunicationPage({
           )}
         </>
       ) : (
-        <div className="flex flex-1 items-center justify-center p-8 text-center">
-          <div className="max-w-sm">
-            <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-gold/15 text-[#7a5518]">
-              <MessageSquare className="h-6 w-6" />
+        <div className="flex flex-1 overflow-y-auto p-5 sm:p-8 lg:p-10">
+          <div className="mx-auto w-full max-w-2xl self-start">
+            <div className="flex items-center gap-4 border-b border-border pb-6">
+              <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-gold/15 text-[#946a2f]">
+                <MessageSquare className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="font-display text-xl font-bold text-ink">Your conversations</h3>
+                <p className="mt-1 text-[13px] leading-relaxed text-muted">
+                  {totalUnread > 0
+                    ? totalUnread + ' unread messages across ' + unreadConversationCount + ' conversations.'
+                    : 'Open an existing conversation or start a new one.'}
+                </p>
+              </div>
             </div>
-            <h3 className="mt-4 font-display text-lg font-bold text-ink">Choose a conversation</h3>
-            <p className="mt-1 text-xs leading-relaxed text-muted">
-              {isClient
-                ? 'Choose one of your project conversations to continue.'
-                : 'Pick a previous chat from the left, or compose a new message.'}
-            </p>
-            {!isClient ? (
+            {recentConversations.length > 0 ? (
+              <div className="mt-6">
+                <p className="mb-3 text-[11px] font-bold uppercase tracking-widest text-muted">
+                  {unreadConversationCount ? 'Messages needing attention' : 'Continue a conversation'}
+                </p>
+                <div className="space-y-2">
+                  {recentConversations
+                    .filter(item => unreadConversationCount === 0 || item.unread > 0)
+                    .slice(0, 4)
+                    .map(item => (
+                      <button
+                        key={item.conv.id}
+                        type="button"
+                        onClick={() => void selectConversation(item.conv.id)}
+                        className="flex w-full items-center gap-3 rounded-xl border border-border bg-white px-4 py-3 text-left transition hover:border-gold/60 hover:bg-gold/5"
+                      >
+                        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-linen text-[#946a2f]">
+                          {item.conv.type === 'dm' ? <User className="h-4 w-4" /> :
+                            item.conv.type === 'team_channel' ? <Hash className="h-4 w-4" /> :
+                            <FolderKanban className="h-4 w-4" />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13px] font-semibold text-ink">{item.name}</p>
+                          <p className="mt-0.5 truncate text-[11px] text-muted">
+                            {item.subtitle + ' · ' + (item.latest.body.trim() || 'Shared a file')}
+                          </p>
+                        </div>
+                        {item.unread > 0 && (
+                          <span className="grid h-6 min-w-6 place-items-center rounded-full bg-gold px-1 text-xs font-bold text-ink">{item.unread}</span>
+                        )}
+                        <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
+                      </button>
+                    ))}
+                </div>
+              </div>
+            ) : (
+              <p className="mt-6 rounded-xl border border-dashed border-border bg-white px-5 py-6 text-sm text-muted">
+                No message history yet. You can find teammates, projects, and channels in the conversation list.
+              </p>
+            )}
+            {!isClient && (
               <button
                 type="button"
                 onClick={() => setShowNewMsg(true)}
-                className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-xl bg-gold px-4 text-xs font-bold text-ink transition hover:bg-gold/90"
+                className="mt-6 inline-flex min-h-10 items-center gap-2 rounded-lg bg-gold px-4 text-xs font-bold text-ink transition hover:bg-gold/90"
               >
-                <Plus className="h-4 w-4" />
-                Compose New Message
+                <Plus className="h-4 w-4" /> New Message
               </button>
-            ) : null}
+            )}
           </div>
         </div>
       )}
@@ -2110,7 +2153,9 @@ export function CommunicationPage({
             <div>
               <h2 className="font-display text-base font-bold text-ink">Inbox</h2>
               <p className="text-[11px] text-muted">
-                {totalUnread > 0 ? `${totalUnread} unread message${totalUnread === 1 ? '' : 's'}` : 'All caught up'}
+                {totalUnread > 0
+                  ? totalUnread + ' unread · ' + unreadConversationCount + ' conversations'
+                  : 'All messages up to date'}
               </p>
             </div>
           </div>
