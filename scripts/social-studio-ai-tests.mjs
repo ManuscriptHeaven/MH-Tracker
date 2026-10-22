@@ -6,7 +6,7 @@ import ts from 'typescript';
 const read = (path) => readFileSync(new URL('../' + path, import.meta.url), 'utf8');
 const edge = read('supabase/functions/social-draft/index.ts');
 const page = read('src/pages/SocialStudioPage.tsx');
-const migration = read('supabase/migrations/20261023003000_social_studio_ai_revision_briefs.sql');
+const migration = read('supabase/migrations/20261022204945_social_studio_ai_revision_briefs_20261023.sql');
 const layout = read('src/components/Layout.tsx');
 
 for (const value of ['social_create_rich_draft', 'social_append_rich_revision',
