@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const read = path => readFileSync(new URL('../' + path, import.meta.url), 'utf8');
-const sql = read('supabase/migrations/20261023000100_social_studio_admin_pilot.sql');
+const sql = read('supabase/migrations/20261022201131_social_studio_admin_pilot_20261023.sql');
 const page = read('src/pages/SocialStudioPage.tsx');
 const app = read('src/App.tsx');
 const layout = read('src/components/Layout.tsx');
