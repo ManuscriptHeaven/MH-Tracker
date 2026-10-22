@@ -17,7 +17,7 @@ do not merge its migrations over the deployed pilot tables.
 
 ## Deployment
 1. Verify this branch passes CI and npm run test:social-studio-ai on Node 22.
-2. Apply 20261023003000_social_studio_ai_revision_briefs.sql to the verified
+2. Apply 20261022204945_social_studio_ai_revision_briefs_20261023.sql to the verified
    MH Tracker database. Do not reapply PR #78 migration ledger entries.
 3. Verify social table RLS, client and staff denied, immutability and approval
    invalidation after edits.
