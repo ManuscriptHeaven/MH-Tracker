@@ -60,9 +60,10 @@ assert(
 
 assert(
   !messages.includes("Previous chats stay closed until you choose one.") &&
-    messages.includes('Pick a previous chat from the left, or compose a new message.') &&
-    messages.includes('Compose New Message'),
-  'empty Messages workspace prioritizes existing conversations while retaining manual compose',
+    messages.includes('Your conversations') &&
+    messages.includes('Messages needing attention') &&
+    messages.includes('visibleRecentConversations.map'),
+  'Messages workspace shows an actionable inbox overview and an always-visible recent list',
 );
 
 assert(
