@@ -35,6 +35,7 @@ import {
 import type {
   ActivityLog,
   ChatMessage,
+  MessageAttachment,
   Conversation,
   Profile,
   Project,
@@ -101,6 +102,8 @@ export function ClientProjectDetailModal({
   initialFiles = [],
   currentProfile,
   conversations = [],
+  messageAttachments = [],
+  onGetMessageAttachmentUrl,
   messages = [],
   onSendMessage,
   onGetOrCreateProjectConversation,
@@ -128,6 +131,8 @@ export function ClientProjectDetailModal({
   currentProfile?: Profile;
   conversations?: Conversation[];
   messages?: ChatMessage[];
+  messageAttachments?: MessageAttachment[];
+  onGetMessageAttachmentUrl?: (attachment: MessageAttachment) => Promise<string>;
   onSendMessage?: (
     conversationId: string,
     body: string,
@@ -823,6 +828,8 @@ export function ClientProjectDetailModal({
                   profiles={profiles}
                   conversations={conversations}
                   messages={messages}
+                  messageAttachments={messageAttachments}
+                  onGetAttachmentUrl={onGetMessageAttachmentUrl}
                   onSendMessage={onSendMessage}
                   onGetOrCreateProjectConversation={onGetOrCreateProjectConversation}
                   onMarkRead={onMarkRead}
