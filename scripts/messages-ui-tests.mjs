@@ -76,7 +76,7 @@ assert(
 
 assert(
   messages.includes('>Inbox</h2>') &&
-    messages.includes('All caught up') &&
+    messages.includes('All messages up to date') &&
     messages.includes('unread message'),
   'messages workspace exposes a concise inbox/unread summary',
 );
