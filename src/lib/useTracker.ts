@@ -21,7 +21,8 @@ import {
   markNotificationAsRead,
   subscribeToNotifications,
 } from './notifications';
-import { notifyWithSoundAndVoice } from './sound';
+import { isSoundEnabled, notifyWithSoundAndVoice, playMessageSound, playTaskSound } from './sound';
+import { claimRealtimeSound, classifyTaskAlert } from './realtimeSoundEvents';
 import {
   deriveProjectTimeline,
   getAutoSkippedStagesForServiceType,
@@ -963,6 +964,20 @@ export function useTracker() {
   const revisionSubmissionRetriesRef = useRef(new Map<string, RevisionSubmissionRetry>());
   const revisedProofRetriesRef = useRef(new Map<string, RevisedProofRetry>());
   const stageProofUploadsRef = useRef(new ProofUploadCache());
+  // These snapshots are seeded with live-loaded tasks. They are NEVER used to
+  // announce cached history on app startup, only actual Realtime mutations.
+  const liveTasksRef = useRef(new Map(initialData.tasks.map(task => [task.id, task])));
+  const liveTaskAssigneesRef = useRef(initialData.taskAssignees || []);
+  const localTaskEditsRef = useRef(new Map<string, {
+    status?: Task['status'];
+    assigned_to?: string | null;
+    until: number;
+  }>());
+
+  useEffect(() => {
+    liveTasksRef.current = new Map(data.tasks.map(task => [task.id, task]));
+    liveTaskAssigneesRef.current = data.taskAssignees || [];
+  }, [data.tasks, data.taskAssignees, currentProfile?.id]);
   const attendancePresenceRef = useRef<AttendancePresenceRuntime>({
     sessionId: null,
     lastSampleAtMs: 0,
@@ -1519,20 +1534,21 @@ export function useTracker() {
           const newMsg = payload.new as ChatMessage;
           if (!newMsg?.id) return;
 
+          // RLS limits delivery to conversations the signed-in recipient may
+          // read. Never sound for our own messages or repeat a delivered event.
+          // Audio must run OUTSIDE React state updater functions.
+          if (
+            newMsg.sender_id !== currentProfile.id &&
+            isSoundEnabled() &&
+            claimRealtimeSound(currentProfile.id, 'message:' + newMsg.id)
+          ) {
+            playMessageSound();
+          }
+
           setData((prev) => {
             const exists = (prev.messages || []).some((m) => m.id === newMsg.id);
             if (exists) return prev;
-
-            if (newMsg.sender_id !== currentProfile.id) {
-              const sender = (prev.profiles || []).find((p) => p.id === newMsg.sender_id);
-              const senderName = sender?.full_name || 'Team Member';
-              notifyWithSoundAndVoice('message', senderName, newMsg.body);
-            }
-
-            return {
-              ...prev,
-              messages: [...(prev.messages || []), newMsg],
-            };
+            return { ...prev, messages: [...(prev.messages || []), newMsg] };
           });
         },
       )
@@ -1658,24 +1674,77 @@ export function useTracker() {
       return undefined;
     }
 
-    // Keep task lists in sync across admin, manager, and team-member sessions.
-    // Realtime delivery is still filtered by the existing task RLS policies.
+    // Task sounds are caused by actual row events, never initial snapshots,
+    // list refreshes or rendering. Task RLS limits which rows are delivered.
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
     const scheduleTaskRefresh = () => {
-      if (refreshTimer) {
-        clearTimeout(refreshTimer);
-      }
-
+      if (refreshTimer) clearTimeout(refreshTimer);
       refreshTimer = setTimeout(() => {
         refreshTimer = null;
         void loadSupabaseData(currentProfile);
       }, 100);
     };
 
+    const soundForTaskRow = (payload: { eventType: string; new: unknown; old: unknown }) => {
+      if (payload.eventType === 'DELETE') {
+        const oldTask = payload.old as Partial<Task>;
+        if (oldTask?.id) liveTasksRef.current.delete(oldTask.id);
+        scheduleTaskRefresh();
+        return;
+      }
+      const task = payload.new as Task;
+      if (!task?.id) {
+        scheduleTaskRefresh();
+        return;
+      }
+      const previous = liveTasksRef.current.get(task.id);
+      const ownEdit = localTaskEditsRef.current.get(task.id);
+      const locallyChanged = Boolean(ownEdit && ownEdit.until >= Date.now() && (
+        (ownEdit.status !== undefined && ownEdit.status === task.status) ||
+        (ownEdit.assigned_to !== undefined && ownEdit.assigned_to === task.assigned_to)
+      ));
+      const isCollaborator = liveTaskAssigneesRef.current.some(
+        a => a.task_id === task.id && a.profile_id === currentProfile.id,
+      );
+      const alert = classifyTaskAlert(
+        previous, task, currentProfile.id, isManagerRole(currentProfile.role),
+        isCollaborator, locallyChanged,
+      );
+
+      // Update snapshot immediately so fast consecutive changes are compared
+      // to their immediately preceding status rather than to stale React data.
+      liveTasksRef.current.set(task.id, task);
+      if (alert && isSoundEnabled() && claimRealtimeSound(
+        currentProfile.id,
+        `task:${task.id}:${task.updated_at}:${task.status}:${task.assigned_to}:${alert}`,
+      )) {
+        playTaskSound(alert);
+      }
+      scheduleTaskRefresh();
+    };
+
+    const soundForTaskAssignee = (payload: { eventType: string; new: unknown; old: unknown }) => {
+      const assignment = payload.new as TaskAssignee;
+      // Primary assignees are covered by the task INSERT / UPDATE handler.
+      // Collaborator assignments have their own task_assignees INSERT.
+      if (
+        payload.eventType === 'INSERT' &&
+        assignment?.id &&
+        assignment.profile_id === currentProfile.id &&
+        assignment.assigned_by !== currentProfile.id &&
+        assignment.assignment_role !== 'primary' &&
+        isSoundEnabled() &&
+        claimRealtimeSound(currentProfile.id, 'task-assignee:' + assignment.id)
+      ) {
+        playTaskSound('assigned');
+      }
+      scheduleTaskRefresh();
+    };
+
     const subscription = supabaseClient
       .channel(`task-realtime-sync:${currentProfile.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, scheduleTaskRefresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'task_assignees' }, scheduleTaskRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, soundForTaskRow)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'task_assignees' }, soundForTaskAssignee)
       .subscribe();
 
     return () => {
@@ -2983,6 +3052,15 @@ export function useTracker() {
       });
 
       if (supabase && mode === 'supabase') {
+        // Suppress this device's own task updates even if Realtime delivers
+        // the UPDATE before the mutation response returns.
+        if (updates.status !== undefined || updates.assigned_to !== undefined) {
+          localTaskEditsRef.current.set(taskId, {
+            status: updates.status,
+            assigned_to: updates.assigned_to,
+            until: Date.now() + 12000,
+          });
+        }
         const isEmployeeActor = currentProfile.role === 'employee' || currentProfile.role === 'junior_assistant';
         const updatePayload = isEmployeeActor
           ? {
