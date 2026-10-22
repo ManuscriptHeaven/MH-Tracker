@@ -1051,6 +1051,60 @@ export function CommunicationPage({
     });
   }, [isClient, projects, allConversations, unreadCountMap]); // eslint-disable-line react-hooks/exhaustive-deps
 
+
+  /* Activity-first inbox: show actual conversations, not hidden group headers. */
+  const recentConversations = useMemo(() => {
+    return allConversations.flatMap(conv => {
+      const latest = latestMessageByConversation.get(conv.id);
+      if (!latest) return [];
+      if (conv.type === 'dm') {
+        const ids = conversationMembers
+          .filter(m => m.conversation_id === conv.id)
+          .map(m => m.user_id);
+        if (ids.length !== 2 || !ids.includes(currentProfile.id)) return [];
+      }
+      const proj = projects.find(p => p.id === conv.project_id);
+      const otherMember = conv.type === 'dm'
+        ? conversationMembers.find(m => m.conversation_id === conv.id && m.user_id !== currentProfile.id)
+        : null;
+      const other = profiles.find(p => p.id === otherMember?.user_id);
+      const task = allTasks.find(t => t.id === conv.task_id);
+      const name = conv.type === 'dm'
+        ? (other?.full_name || 'Direct message')
+        : conv.type === 'team_channel'
+          ? '#' + (conv.name || 'Team channel')
+          : conv.type === 'task'
+            ? (task?.title || 'Task discussion')
+            : (proj?.project_title || 'Project discussion');
+      const subtitle = conv.type === 'project_internal'
+        ? 'Internal · ' + (proj?.client_name || 'Project team')
+        : conv.type === 'project_client'
+          ? 'Client · ' + (proj?.client_name || 'Project')
+          : conv.type === 'dm'
+            ? 'Direct message'
+            : conv.type === 'team_channel' ? 'Team channel' : 'Task discussion';
+      return [{
+        conv, name, subtitle, latest,
+        unread: unreadCountMap[conv.id] || 0,
+      }];
+    }).sort((a, b) =>
+      (b.unread > 0 ? 1 : 0) - (a.unread > 0 ? 1 : 0) ||
+      new Date(b.latest.created_at).getTime() - new Date(a.latest.created_at).getTime(),
+    );
+  }, [
+    allConversations, latestMessageByConversation, conversationMembers,
+    currentProfile.id, projects, profiles, allTasks, unreadCountMap,
+  ]);
+
+  const visibleRecentConversations = recentConversations.filter(item =>
+    convPassesFilter(item.conv.id) &&
+    (!searchTerm.trim() ||
+      matchesSearch(item.name) ||
+      matchesSearch(item.subtitle) ||
+      matchesSearch(item.latest.body)),
+  );
+  const unreadConversationCount = recentConversations.filter(item => item.unread > 0).length;
+
   const sidebar = (
     <div className="flex flex-col h-full overflow-hidden bg-[#fcfbf8]">
       {/* Search */}
@@ -1082,135 +1136,133 @@ export function CommunicationPage({
         ))}
       </div>
 
-      {/* Lists */}
-      <div className="flex-1 overflow-y-auto px-2.5 py-3.5 space-y-5">
 
-        {/* CLIENT VIEW */}
-        {isClient && allConversations
-          .filter(c => c.type === 'project_client' && c.project_id)
-          .filter(c => {
-            const proj = projects.find(p => p.id === c.project_id);
-            return convMatchesSearch(c, `${proj?.project_title || 'Project'} ${proj?.client_name || ''}`);
-          })
-          .filter(c => convPassesFilter(c.id))
-          .map(c => {
-            const proj = projects.find(p => p.id === c.project_id);
-            const last = lastMsgFor(c.id);
-            return (
+      {/* Recent activity remains visible regardless of collapsed browse sections. */}
+      <div className="flex-1 overflow-y-auto px-2.5 py-3.5 space-y-4">
+        <div>
+          <div className="flex items-center justify-between px-3 pb-1.5">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted">
+              {filterMode === 'unread' ? 'Unread conversations' : filterMode === 'mentions' ? 'Mentions' : 'Recent conversations'}
+            </p>
+            <span className="rounded-full bg-linen px-2 py-0.5 text-[10px] font-semibold text-muted">
+              {visibleRecentConversations.length}
+            </span>
+          </div>
+          <div className="space-y-1">
+            {visibleRecentConversations.map(({ conv, name, subtitle, latest, unread }) => (
               <ConvRow
-                key={c.id}
-                icon={<div className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-gold/20"><FolderKanban className="h-3.5 w-3.5 text-gold" /></div>}
-                name={proj?.project_title || 'Project'}
-                subtitle={proj?.client_name}
-                lastMsg={last?.body}
-                lastTime={last ? relativeTime(last.created_at) : undefined}
-                unreadCount={unreadCountMap[c.id] || 0}
-                isSelected={activeConversationId === c.id}
-                onClick={() => selectConversation(c.id)}
+                key={conv.id}
+                icon={
+                  <div className={'grid h-9 w-9 shrink-0 place-items-center rounded-xl ' + (
+                    conv.type === 'project_client' ? 'bg-purple-50 text-purple-700'
+                      : conv.type === 'project_internal' ? 'bg-amber-50 text-amber-700'
+                      : conv.type === 'dm' ? 'bg-blue-50 text-blue-700'
+                      : 'bg-gold/15 text-[#946a2f]'
+                  )}>
+                    {conv.type === 'dm' ? <User className="h-4 w-4" /> :
+                      conv.type === 'team_channel' ? <Hash className="h-4 w-4" /> :
+                      <FolderKanban className="h-4 w-4" />}
+                  </div>
+                }
+                name={name}
+                subtitle={subtitle}
+                lastMsg={latest.body.trim() || 'Shared a file'}
+                lastTime={relativeTime(latest.created_at)}
+                unreadCount={unread}
+                isSelected={activeConversationId === conv.id}
+                onClick={() => void selectConversation(conv.id)}
               />
-            );
-          })}
+            ))}
+            {visibleRecentConversations.length === 0 && (
+              <div className="rounded-xl border border-dashed border-border bg-white px-4 py-6 text-center">
+                <p className="text-xs font-semibold text-ink">
+                  {filterMode === 'unread' ? 'No unread conversations' :
+                    filterMode === 'mentions' ? 'No unread mentions' : 'No conversations found'}
+                </p>
+                <p className="mt-1 text-[11px] leading-5 text-muted">
+                  {searchTerm ? 'Try a different search term.' :
+                    filterMode === 'all' ? 'Start a chat below to see it here.' : 'Your messages are up to date.'}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
 
-        {/* TEAM VIEW */}
-        {!isClient && (
-          <>
-            {/* DIRECT MESSAGES */}
+        {filterMode === 'all' && !isClient && (
+          <div className="border-t border-border pt-3">
+            <div className="px-3 pb-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted">Browse conversations</p>
+              <p className="mt-0.5 text-[11px] text-muted">Find teammates, projects or channels</p>
+            </div>
             <SidebarSection
               label="Direct Messages"
-              count={dmConvs.filter(({ conv }) => conv && (unreadCountMap[conv.id] || 0) > 0).length}
-              collapsed={dmsCollapsed}
+              collapsed={searchTerm.trim() ? false : dmsCollapsed}
               onToggle={() => setDmsCollapsed(v => !v)}
             >
               {dmConvs
-                .filter(({ member, conv }) =>
-                  conv ? convMatchesSearch(conv, member.full_name) : matchesSearch(member.full_name),
-                )
-                .filter(({ conv }) => filterMode === 'all' || Boolean(conv && convPassesFilter(conv.id)))
-                .map(({ member, conv }) => {
-                  const last = conv ? lastMsgFor(conv.id) : null;
+                .filter(({ member }) => matchesSearch(member.full_name))
+                .map(({ member, conv }) => (
+                  <ConvRow
+                    key={member.id}
+                    icon={<UserAvatar profile={member} size="xs" />}
+                    name={member.full_name}
+                    subtitle={roleLabels[member.role]}
+                    lastTime={conv && lastMsgFor(conv.id) ? relativeTime(lastMsgFor(conv.id)!.created_at) : undefined}
+                    isSelected={Boolean(conv && activeConversationId === conv.id)}
+                    onClick={() => void selectDM(member.id)}
+                  />
+                ))}
+            </SidebarSection>
+            <SidebarSection
+              label="Project Conversations"
+              collapsed={searchTerm.trim() ? false : projectsCollapsed}
+              onToggle={() => setProjectsCollapsed(v => !v)}
+            >
+              {projectConvItems
+                .filter(({ proj }) => matchesSearch(proj.project_title) || matchesSearch(proj.client_name))
+                .map(({ proj, internalConv, clientConv, effectiveLast, unread }) => {
+                  const internalUnread = internalConv ? unreadCountMap[internalConv.id] || 0 : 0;
+                  const clientUnread = clientConv ? unreadCountMap[clientConv.id] || 0 : 0;
+                  const preferredMode: 'internal' | 'client' =
+                    clientUnread > 0 && internalUnread === 0 ? 'client'
+                    : internalUnread > 0 ? 'internal'
+                    : effectiveLast && clientConv && effectiveLast.conversation_id === clientConv.id ? 'client'
+                    : 'internal';
                   return (
                     <ConvRow
-                      key={member.id}
-                      icon={<UserAvatar profile={member} size="xs" showStatusDot isOnline />}
-                      name={member.full_name}
-                      subtitle={roleLabels[member.role]}
-                      lastMsg={last?.body}
-                      lastTime={last ? relativeTime(last.created_at) : undefined}
-                      unreadCount={conv ? unreadCountMap[conv.id] || 0 : 0}
-                      isSelected={!activeProjectId && conv?.id === activeConversationId}
-                      onClick={() => selectDM(member.id)}
+                      key={proj.id}
+                      icon={<div className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-gold/15"><FolderKanban className="h-4 w-4 text-gold" /></div>}
+                      name={proj.project_title}
+                      subtitle={proj.client_name + ' · ' + (preferredMode === 'client' ? 'Client chat' : 'Internal chat')}
+                      lastMsg={effectiveLast?.body}
+                      lastTime={effectiveLast ? relativeTime(effectiveLast.created_at) : undefined}
+                      unreadCount={unread}
+                      isSelected={activeProjectId === proj.id}
+                      onClick={() => void selectProjectConv(proj.id, preferredMode)}
                     />
                   );
                 })}
             </SidebarSection>
-
-            {/* PROJECT CONVERSATIONS */}
-            <SidebarSection
-              label="Project Conversations"
-              count={projectConvItems.filter(p => p.unread > 0).length}
-              collapsed={projectsCollapsed}
-              onToggle={() => setProjectsCollapsed(v => !v)}
-            >
-              {projectConvItems
-                .filter(({ proj, internalConv, clientConv }) =>
-                  matchesSearch(proj.project_title) ||
-                  matchesSearch(proj.client_name) ||
-                  Boolean(internalConv && convMatchesSearch(internalConv, proj.project_title)) ||
-                  Boolean(clientConv && convMatchesSearch(clientConv, proj.project_title)),
-                )
-                .filter(({ internalConv, clientConv }) => {
-                  if (filterMode === 'all') return true;
-                  return [internalConv?.id, clientConv?.id].filter(Boolean).some(id => convPassesFilter(id!));
-                })
-                .map(({ proj, effectiveLast, unread }) => (
-                  <ConvRow
-                    key={proj.id}
-                    icon={
-                      <div className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-gold/15">
-                        <FolderKanban className="h-3.5 w-3.5 text-gold" />
-                      </div>
-                    }
-                    name={proj.project_title}
-                    subtitle={proj.client_name}
-                    lastMsg={effectiveLast?.body}
-                    lastTime={effectiveLast ? relativeTime(effectiveLast.created_at) : undefined}
-                    unreadCount={unread}
-                    isSelected={activeProjectId === proj.id}
-                    onClick={() => selectProjectConv(proj.id, 'internal')}
-                  />
-                ))}
-            </SidebarSection>
-
-            {/* CHANNELS */}
             <SidebarSection
               label="Channels"
-              collapsed={channelsCollapsed}
+              collapsed={searchTerm.trim() ? false : channelsCollapsed}
               onToggle={() => setChannelsCollapsed(v => !v)}
             >
-              {TEAM_CHANNELS.map(ch => {
+              {TEAM_CHANNELS.filter(ch => matchesSearch(ch.name)).map(ch => {
                 const conv = allConversations.find(c => c.type === 'team_channel' && c.name === ch.name);
-                const last = conv ? lastMsgFor(conv.id) : null;
-                const unread = conv ? unreadCountMap[conv.id] || 0 : 0;
-                const searchMatches = conv
-                  ? convMatchesSearch(conv, `#${ch.name}`)
-                  : matchesSearch(ch.name);
-                if (!searchMatches) return null;
-                if (filterMode !== 'all' && (!conv || !convPassesFilter(conv.id))) return null;
                 return (
                   <ConvRow
                     key={ch.name}
-                    icon={<div className="grid h-7 w-7 place-items-center rounded bg-linen border border-border"><Hash className="h-3.5 w-3.5 text-muted" /></div>}
-                    name={`#${ch.name}`}
-                    lastMsg={last?.body}
-                    lastTime={last ? relativeTime(last.created_at) : undefined}
-                    unreadCount={unread}
-                    isSelected={!activeProjectId && conv?.id === activeConversationId}
-                    onClick={() => selectChannel(ch.name)}
+                    icon={<div className="grid h-7 w-7 place-items-center rounded-lg bg-linen"><Hash className="h-4 w-4 text-muted" /></div>}
+                    name={'#' + ch.name}
+                    subtitle={ch.desc}
+                    isSelected={Boolean(conv && activeConversationId === conv.id)}
+                    onClick={() => void selectChannel(ch.name)}
                   />
                 );
               })}
             </SidebarSection>
-          </>
+          </div>
         )}
       </div>
     </div>
