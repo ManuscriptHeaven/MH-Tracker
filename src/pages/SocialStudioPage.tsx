@@ -209,8 +209,14 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
     }, 'Brand brief saved. AI will use only this approved marketing guidance.');
   }
 
+  const savedBrandBrief = brands.find(b => b.id === selectedBrand)?.brief || '';
+  const briefIsSaved = !!brandBrief.trim() && savedBrandBrief.trim() === brandBrief.trim();
+
   async function generateSuggestion() {
-    if (!supabase || !selectedBrand || !topic.trim() || !brandBrief.trim()) return;
+    if (!supabase || !selectedBrand || !topic.trim() || !briefIsSaved) {
+      setError('Save the approved brand brief before requesting AI content.');
+      return;
+    }
     setGenerating(true);
     setSuggestion(null);
     setError('');
@@ -344,7 +350,7 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
             <button type="button" onClick={() => setBrandBrief(BRAND_BRIEF_TEMPLATE)}
               className="text-xs font-semibold text-gold hover:underline">Use MH starter brief (edit before saving)</button>
             <button onClick={() => void saveBrandBrief()}
-              disabled={busy || !brandBrief.trim()}
+              disabled={busy || generating || !brandBrief.trim() || briefIsSaved}
               className="w-full rounded-lg bg-ink px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">
               Save approved brief
             </button>
@@ -401,13 +407,13 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
             placeholder="e.g., What is a running header in a nonfiction book?"
             className="mt-2 w-full rounded-lg border border-border p-3 text-sm" />
         </label>
-        <button disabled={busy || generating || !selectedBrand || !brandBrief.trim() || !topic.trim()}
+        <button disabled={busy || generating || !selectedBrand || !briefIsSaved || !topic.trim()}
           onClick={() => void generateSuggestion()}
           className="inline-flex items-center gap-2 rounded-lg bg-ink px-5 py-3 text-sm font-bold text-white disabled:opacity-40">
           <Sparkles className="h-4 w-4" /> {generating ? 'Generating suggestions...' : 'Generate AI Content'}
         </button>
-        {!brandBrief.trim() && selectedBrand &&
-          <p className="text-xs text-amber-800">Save your approved brand brief above before using AI generation.</p>}
+        {!briefIsSaved && selectedBrand &&
+          <p className="text-xs text-amber-800">Save or update your approved brand brief above before using AI generation.</p>}
         {suggestion && (
           <div className="space-y-4 rounded-xl border border-gold/30 bg-linen p-4">
             <div className="flex flex-wrap gap-2">
