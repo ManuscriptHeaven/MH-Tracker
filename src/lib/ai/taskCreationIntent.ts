@@ -13,8 +13,13 @@ export type TaskCreationResolution =
   | { kind: 'clarify'; field: 'employee' | 'project'; message: string; options: DisambiguationOption[] }
   | { kind: 'error'; code: string; message: string };
 
+// Accept explicit commands and strongly signalled spoken shorthand.
+// A bare "Task for Zain" might be a read query; require "to <work>" before
+// treating the shorthand as a write request.
 export function isCreateTaskRequest(text: string): boolean {
-  return /^(?:please\s+)?(?:create|add|make)\s+(?:(?:a|new)\s+)?task\b/i.test(text.trim());
+  const query = text.trim();
+  return /^(?:please\s+)?(?:create|add|make)\s+(?:(?:a|new)\s+)?task\b/i.test(query) ||
+    /^(?:please\s+)?(?:new\s+)?task\s+(?:for|assigned\s+to)\s+.+?\s+to\s+\S+/i.test(query);
 }
 
 export function isActiveTaskProject(project: Project): boolean {
@@ -116,7 +121,7 @@ export function resolveTaskCreation(
   overrides: TaskCreationOverrides = {},
 ): TaskCreationResolution {
   let instruction = rawQuery.trim().replace(
-    /^(?:please\s+)?(?:create|add|make)\s+(?:(?:a|new)\s+)?task\b\s*[:,-]?\s*/i,
+    /^(?:please\s+)?(?:(?:(?:create|add|make)\s+(?:(?:a|new)\s+)?)|(?:new\s+))?task\b\s*[:,-]?\s*/i,
     '',
   );
 
