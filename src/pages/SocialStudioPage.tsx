@@ -309,8 +309,8 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
           </button>
         </div>
         <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          <strong>Live pilot · planning only.</strong> Posts are saved in Supabase, but no social accounts are connected.
-          Scheduled items are reminders/plans, <strong>not automatically published</strong>. AI suggests content for human approval; image artwork and media upload are not enabled yet.
+          <strong>Live pilot · planning only.</strong> Posts are saved in Supabase. Facebook Page connection requires a separate Meta authorization.
+          Scheduled items create reviewable test jobs, <strong>not automatic Facebook posts</strong>. Real publishing is disabled; captions and artwork need human approval.
         </div>
         <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
           {[
@@ -657,7 +657,7 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
           })}
       </section>
       <footer className="flex items-center gap-2 text-xs text-muted">
-        <Send className="h-3.5 w-3.5" /> Private images and AI artwork are only draft assets. External posting, OAuth and analytics are excluded from this pilot.
+        <Send className="h-3.5 w-3.5" /> Private images and AI artwork require permission clearance. Facebook connection is optional, all delivery tests are fake; real publishing and analytics are not enabled.
       </footer>
     </div>
   );
