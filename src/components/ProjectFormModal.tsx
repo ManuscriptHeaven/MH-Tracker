@@ -323,12 +323,12 @@ export function ProjectFormModal({
               <fieldset className="flex flex-wrap items-center gap-4 rounded-md bg-ivory/40 px-3 py-2 text-sm">
                 <legend className="sr-only">Production formats</legend>
                 <label className="flex items-center gap-2">
-                  <input type="checkbox" checked={draft.requires_print}
+                  <input type="checkbox" checked={draft.requires_print === true}
                     onChange={(event) => update('requires_print', event.target.checked)} />
                   Print
                 </label>
                 <label className="flex items-center gap-2">
-                  <input type="checkbox" checked={draft.requires_ebook}
+                  <input type="checkbox" checked={draft.requires_ebook === true}
                     onChange={(event) => update('requires_ebook', event.target.checked)} />
                   eBook
                 </label>
