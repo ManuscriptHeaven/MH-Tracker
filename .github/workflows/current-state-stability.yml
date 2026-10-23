@@ -106,3 +106,65 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261021080615_attendance_admin_reconciliation_v2_20261020.sql
       - name: Verify admin-only corrections evidence and immutable audit
         run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/attendance-reconciliation-ci-tests.sql
+
+  deploy-cloudflare-production:
+    # Production releases only follow ALL successful tests on a main push.
+    # PRs never receive production credentials or deploy previews.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [regression, build, attendance-ledger-postgres]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      deployments: write
+    concurrency:
+      group: mh-tracker-cloudflare-production
+      cancel-in-progress: false
+    env:
+      VITE_SUPABASE_URL: https://emhvwdhdmajpakoscuyn.supabase.co
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || '46960ac6c9b58d562d6bc646f3b6b318' }}
+    steps:
+      - name: Check deployment credentials
+        shell: bash
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "::error::Missing GitHub Actions secret CLOUDFLARE_API_TOKEN. Create a Cloudflare API token with Cloudflare Pages:Edit permission and set it under repository Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          if [[ -z "$VITE_SUPABASE_ANON_KEY" ]]; then
+            echo "::error::Missing GitHub Actions secret VITE_SUPABASE_ANON_KEY. Set the public Supabase anon/publishable key under repository Actions secrets before deploying."
+            exit 1
+          fi
+      - name: Checkout certified main
+        uses: actions/checkout@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build production assets with real Supabase connection
+        run: pnpm run build
+      - name: Publish certified build to Cloudflare Pages
+        id: publish
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || '46960ac6c9b58d562d6bc646f3b6b318' }}
+          command: pages deploy dist --project-name=mh-tracker --branch=main --commit-hash=${{ github.sha }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+      - name: Record production deployment URL
+        env:
+          DEPLOYMENT_URL: ${{ steps.publish.outputs.deployment-url }}
+        run: |
+          echo "Cloudflare Pages deployment: $DEPLOYMENT_URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "Production site: https://mh-tracker.pages.dev/" >> "$GITHUB_STEP_SUMMARY"
+          echo "Commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
