@@ -851,6 +851,7 @@ export function CommunicationPage({
   /* ── Navigation handlers ── */
   async function selectConversation(convId: string) {
     setShowNewMsg(false);
+    setCommunicationError(null);
     setActiveConversationId(convId);
     setActiveProjectId(null);
     setActiveConvTab('chat');
@@ -868,7 +869,9 @@ export function CommunicationPage({
       setActiveConversationId(conv.id);
       setActiveConvTab('chat');
       setMobilePanel('chat');
-      await onMarkRead(conv.id);
+      void onMarkRead(conv.id).catch(() => {
+        setCommunicationError('Project conversation opened, but its read receipt could not be saved. Try again.');
+      });
     } catch (err) {
       setCommunicationError(err instanceof Error ? err.message : 'Could not open the project conversation.');
     }
@@ -912,7 +915,9 @@ export function CommunicationPage({
       setProjectConvMode(mode);
       setActiveConversationId(conv.id);
       setActiveConvTab('chat');
-      await onMarkRead(conv.id);
+      void onMarkRead(conv.id).catch(() => {
+        setCommunicationError('Conversation switched, but its read receipt could not be saved. Try again.');
+      });
     } catch (err) {
       setCommunicationError(err instanceof Error ? err.message : 'Could not switch the project conversation.');
     }
