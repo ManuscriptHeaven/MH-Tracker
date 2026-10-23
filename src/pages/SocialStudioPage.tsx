@@ -3,6 +3,7 @@ import { CalendarClock, CheckCircle2, Copy, Edit3, Megaphone, Plus, RefreshCw, S
 import { supabase } from '../lib/supabase';
 import { SocialEditorialCalendar } from '../components/social/SocialEditorialCalendar';
 import { SocialArtworkLibrary } from '../components/social/SocialArtworkLibrary';
+import { FacebookPublishingPanel } from '../components/social/FacebookPublishingPanel';
 import type { SocialArtwork } from '../components/social/SocialArtworkLibrary';
 import type { Profile } from '../lib/types';
 
@@ -499,6 +500,15 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
           </div>
         )}
       </section>
+
+      <FacebookPublishingPanel
+        brandId={selectedBrand}
+        adminId={currentProfile.id}
+        targets={visibleFeed.map(item=>({
+          id:item.target.id,brandId:item.post.brand_id,caption:item.revision?.caption||'',
+        }))}
+        onAfterRun={()=>{ void reload(); }}
+      />
 
       <SocialArtworkLibrary
         brandId={selectedBrand}
