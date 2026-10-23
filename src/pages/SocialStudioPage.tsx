@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarClock, CheckCircle2, Copy, Edit3, Megaphone, Plus, RefreshCw, Send, ShieldCheck, Sparkles } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { SocialEditorialCalendar } from '../components/social/SocialEditorialCalendar';
 import type { Profile } from '../lib/types';
 
 type Brand = { id: string; name: string; brief: string; owner_id: string };
@@ -389,7 +390,27 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
         </section>
       </div>
 
-      <section className="space-y-4 rounded-2xl border border-border bg-white p-5 shadow-sm sm:p-7">
+      <SocialEditorialCalendar
+        brandId={selectedBrand}
+        entries={feed.map(item => ({
+          id: item.target.id,
+          brandId: item.post.brand_id,
+          channel: item.target.channel,
+          status: item.target.status,
+          caption: item.revision?.caption || '',
+          scheduledAt: item.target.scheduled_at,
+        }))}
+        onChooseTopic={selectedTopic => {
+          setTopic(selectedTopic);
+          setSuggestion(null);
+          setMessage('Topic selected. Review the approved brand brief, then generate content.');
+          document.getElementById('social-ai-content-generator')?.scrollIntoView({
+            behavior: 'smooth', block: 'start',
+          });
+        }}
+      />
+
+      <section id="social-ai-content-generator" className="scroll-mt-24 space-y-4 rounded-2xl border border-border bg-white p-5 shadow-sm sm:p-7">
         <div className="flex flex-wrap items-center gap-2">
           <Sparkles className="h-5 w-5 text-gold" />
           <h2 className="text-lg font-bold text-ink">AI Content Generator</h2>
