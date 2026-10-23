@@ -141,7 +141,7 @@ export function resolveTaskCreation(
 
   // Due dates are optional. Do not inadvertently strip "update" or project names.
   let dueDate: string | undefined;
-  const dueMatch = instruction.match(/\s+(?:due\s+|by\s+|on\s+)(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s*$/i);
+  const dueMatch = instruction.match(/\s+(?:(?:due\s+|by\s+|on\s+))?(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s*$/i);
   if (dueMatch) {
     dueDate = parseNaturalDate(dueMatch[1]) || undefined;
     instruction = instruction.slice(0, dueMatch.index).trim();
