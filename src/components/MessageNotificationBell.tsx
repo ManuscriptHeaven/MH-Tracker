@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn, initials, isClientRole } from '../lib/utils';
 import type { ChatMessage, Conversation, Profile, TrackerData } from '../lib/types';
 import { Button, IconButton } from './ui';
+import { markUnreadConversationsRead } from '../lib/messageReadReceipts';
 
 function timeAgo(value: string) {
   const createdAt = new Date(value).getTime();
@@ -116,11 +117,13 @@ export function MessageNotificationBell({
 }: {
   currentProfile: Profile;
   data: TrackerData;
-  onMarkRead: (conversationId: string) => void;
+  onMarkRead: (conversationId: string) => Promise<void>;
   onOpenConversation: (conversationId: string) => void;
   onViewAllMessages: () => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [markingAll, setMarkingAll] = useState(false);
+  const [readError, setReadError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const { totalUnreadCount, unreadItems } = useMemo(
@@ -142,15 +145,36 @@ export function MessageNotificationBell({
   }, [isOpen]);
 
   const handleItemClick = (item: UnreadConversationItem) => {
-    onMarkRead(item.conversationId);
     onOpenConversation(item.conversationId);
     setIsOpen(false);
+    void onMarkRead(item.conversationId).catch((error: unknown) => {
+      console.warn('Could not mark opened message as read:', error);
+    });
   };
 
-  const handleMarkAllRead = () => {
-    unreadItems.forEach((item) => {
-      onMarkRead(item.conversationId);
-    });
+  const handleMarkAllRead = async () => {
+    if (markingAll || unreadItems.length === 0) return;
+    setMarkingAll(true);
+    setReadError(null);
+    try {
+      // A bad/stale conversation cannot block successful receipts in the
+      // other conversations. Unlike fire-and-forget, show partial failures.
+      const { failed } = await markUnreadConversationsRead(
+        unreadItems.map((item) => item.conversationId),
+        onMarkRead,
+      );
+      if (failed.length > 0) {
+        setReadError(
+          failed.length === unreadItems.length
+            ? 'Could not mark your messages as read. Please try again.'
+            : `${failed.length} conversation${failed.length === 1 ? '' : 's'} could not be marked as read. Please retry.`,
+        );
+      } else {
+        setIsOpen(false);
+      }
+    } finally {
+      setMarkingAll(false);
+    }
   };
 
   return (
@@ -178,15 +202,21 @@ export function MessageNotificationBell({
             {totalUnreadCount > 0 ? (
               <button
                 type="button"
-                onClick={handleMarkAllRead}
-                className="flex items-center gap-1 text-xs font-semibold text-gold hover:underline"
+                onClick={() => void handleMarkAllRead()}
+                disabled={markingAll}
+                className="flex items-center gap-1 text-xs font-semibold text-gold hover:underline disabled:cursor-wait disabled:opacity-60"
               >
                 <CheckCheck className="h-3.5 w-3.5" />
-                Mark all read
+                {markingAll ? 'Marking…' : 'Mark all read'}
               </button>
             ) : null}
           </div>
 
+          {readError && (
+            <p role="alert" className="border-b border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-800">
+              {readError}
+            </p>
+          )}
           <div className="max-h-80 overflow-y-auto divide-y divide-border/60">
             {unreadItems.length > 0 ? (
               unreadItems.map((item) => (

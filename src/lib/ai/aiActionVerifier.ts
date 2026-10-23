@@ -22,12 +22,37 @@ export async function verifyActionOutcome(
 
     if (action.toolName === 'create_task') {
       const taskId = (result.data as any)?.id;
-      if (!taskId) return null;
-      const { data, error } = await supabase.from('tasks').select('id,title,status').eq('id', taskId).maybeSingle();
+      if (!taskId) {
+        return { status: 'unverified', message: 'Task ID is missing; assignment and project link could not be verified.' };
+      }
+      const { data, error } = await supabase
+        .from('tasks')
+        .select('id,title,status,assigned_to,project_id,due_date')
+        .eq('id', taskId)
+        .maybeSingle();
       if (error) throw error;
-      return data
-        ? { status: 'verified', message: `Verified in Tracker: task "${data.title}" exists with status ${data.status}.` }
-        : { status: 'failed', message: 'The task mutation returned success, but the new task could not be found in Tracker.' };
+
+      const expectedAssignee = String(action.payload.assignedToId || '');
+      const expectedProject = action.payload.projectId || null;
+      const matching = data &&
+        data.title === action.payload.title &&
+        data.status === 'To Do' &&
+        data.assigned_to === expectedAssignee &&
+        (data.project_id || null) === expectedProject &&
+        (!action.payload.dueDate || sameDate(data.due_date, action.payload.dueDate));
+      return matching
+        ? {
+            status: 'verified',
+            message: `Verified in Tracker: task "${data.title}" belongs to the requested employee${expectedProject ? ' and active project' : ''}.`,
+          }
+        : {
+            status: 'failed',
+            message: 'Task was not verified with the requested title, assignee, project, status and due date. Check Tasks before retrying.',
+            details: {
+              taskId, actualAssignee: data?.assigned_to || null, expectedAssignee,
+              actualProject: data?.project_id || null, expectedProject,
+            },
+          };
     }
 
     if (action.toolName === 'create_project' || action.toolName === 'duplicate_project') {

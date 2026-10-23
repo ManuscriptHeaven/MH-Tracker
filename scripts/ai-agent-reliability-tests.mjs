@@ -28,6 +28,7 @@ const matcher = read('src/lib/ai/aiEntityMatcher.ts');
 const resolver = read('src/lib/ai/aiEntityResolver.ts');
 const verifier = read('src/lib/ai/aiActionVerifier.ts');
 const engine = read('src/lib/ai/voiceQueryEngine.ts');
+const taskIntent = read('src/lib/ai/taskCreationIntent.ts');
 const context = read('src/lib/ai/aiContext.tsx');
 const planner = read('src/lib/ai/aiPlannerService.ts');
 const edge = read('supabase/functions/ai-planner/index.ts');
@@ -98,7 +99,7 @@ assert(taskRanking[0]?.id === 't1', 'task matcher tolerates common shorthand/typ
 assert(
   engine.includes('pendingCommandCompletion') &&
     engine.includes('Using your follow-up to complete the earlier request') &&
-    engine.includes("error: 'task_details_required'") &&
+    taskIntent.includes("code: 'task_details_required'") &&
     engine.includes("error: 'client_email_required'"),
   'missing action fields continue naturally across the next user turn',
 );
