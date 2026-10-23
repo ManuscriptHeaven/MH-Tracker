@@ -153,6 +153,7 @@ Deno.serve(async (request: Request) => {
   const isWorker = safeEqual(request.headers.get('x-worker-secret') || '', workerSecret);
   const bearer = request.headers.get('Authorization');
   let manualFake = false;
+  let callerId: string | null = null;
 
   if (!isWorker) {
     if (!bearer?.startsWith('Bearer ')) return json({ error: 'Sign in required.' }, 401);
@@ -162,6 +163,7 @@ Deno.serve(async (request: Request) => {
     const { data: profile } = await caller.from('profiles').select('role').eq('id',user.id).single();
     if (profile?.role !== 'admin') return json({ error: 'Admin access required.' }, 403);
     manualFake = true; // Even if live publishing is enabled, UI test calls are always fake.
+    callerId = user.id;
   }
 
   let mode: string;
@@ -181,7 +183,7 @@ Deno.serve(async (request: Request) => {
     getEnv('SOCIAL_ENABLE_LIVE_PUBLISH') === 'true';
 
   const { data: jobs, error: claimError } = await service.rpc('social_server_claim_due',
-    { p_limit: 5 });
+    { p_limit: 5, p_owner: manualFake ? callerId : null });
   if (claimError) return json({ error: 'Worker could not claim due jobs.' }, 503);
 
   const summary = { claimed: Array.isArray(jobs) ? jobs.length : 0,
