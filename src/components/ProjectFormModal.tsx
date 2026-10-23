@@ -300,6 +300,86 @@ export function ProjectFormModal({
         <OptionList id="trim-size-options" values={suggestions.trimSizes} />
         <OptionList id="platform-options" values={suggestions.platforms} />
 
+        {!isEditing ? (
+          <>
+            <section className="grid gap-3 rounded-lg border border-border bg-white p-4">
+              <h3 className="font-display text-base font-semibold">Project Details</h3>
+              <div className="grid gap-3 md:grid-cols-2">
+                <Field label="Project Title" required list="project-title-options"
+                  value={draft.project_title}
+                  onChange={(event) => update('project_title', event.target.value)} />
+                <Field label="Client Name" required list="client-name-options"
+                  value={draft.client_name}
+                  onChange={(event) => update('client_name', event.target.value)} />
+                <Field label="Service Type" required list="service-type-options"
+                  value={draft.service_type}
+                  onChange={(event) => canonical
+                    ? setDraft((previous) => ({ ...previous, service_type: event.target.value, ...capabilitiesForServiceType(event.target.value) }))
+                    : updateNewProjectTimeline({ service_type: event.target.value, ...capabilitiesForServiceType(event.target.value) })} />
+                <Field label="Client Email (optional)" type="email" list="client-email-options"
+                  value={draft.client_email}
+                  onChange={(event) => update('client_email', event.target.value)} />
+              </div>
+              <fieldset className="flex flex-wrap items-center gap-4 rounded-md bg-ivory/40 px-3 py-2 text-sm">
+                <legend className="sr-only">Production formats</legend>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={draft.requires_print}
+                    onChange={(event) => update('requires_print', event.target.checked)} />
+                  Print
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={draft.requires_ebook}
+                    onChange={(event) => update('requires_ebook', event.target.checked)} />
+                  eBook
+                </label>
+              </fieldset>
+            </section>
+
+            <section className="grid gap-3 rounded-lg border border-border bg-white p-4">
+              <h3 className="font-display text-base font-semibold">Assignment & Schedule</h3>
+              <div className="grid gap-3 md:grid-cols-2">
+                <SelectField label="Assigned To" value={draft.assigned_to || ''}
+                  onChange={(event) => update('assigned_to', event.target.value || null)}>
+                  <option value="">Unassigned</option>
+                  {assignableProfiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>{firstName(profile.full_name)}</option>
+                  ))}
+                </SelectField>
+                <SelectField label="Priority" value={draft.priority}
+                  onChange={(event) => update('priority', event.target.value as ProjectDraft['priority'])}>
+                  {priorityOptions.map((priority) => <option key={priority}>{priority}</option>)}
+                </SelectField>
+                <Field label="Start Date" type="date" value={draft.start_date}
+                  onChange={(event) => canonical
+                    ? update('start_date', event.target.value)
+                    : updateNewProjectTimeline({ start_date: event.target.value })} />
+                <div className="grid gap-1 text-sm">
+                  <span className="font-medium text-ink">Expected Due Date</span>
+                  <div className="flex min-h-11 items-center rounded-md border border-border bg-ivory px-3 text-muted">
+                    {canonical ? 'Calculated when work begins' : formatDate(draft.due_date)}
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="grid gap-3 rounded-lg border border-border bg-white p-4">
+              <h3 className="font-display text-base font-semibold">Payment</h3>
+              <div className="grid gap-3 md:grid-cols-2">
+                <Field label="Project Price (USD)" type="number" min="0"
+                  value={draft.total_price} onChange={(event) => update('total_price', Number(event.target.value))} />
+                <Field label="Advance Received (USD)" type="number" min="0"
+                  value={draft.advance_paid} onChange={(event) => update('advance_paid', Number(event.target.value))} />
+              </div>
+              <p className="text-xs text-muted">Remaining balance: ${balance.toLocaleString()} · Payment history can be managed after creation.</p>
+            </section>
+
+            <section className="grid gap-2 rounded-lg border border-border bg-white p-4">
+              <h3 className="font-display text-base font-semibold">Attachments</h3>
+              <p className="text-sm text-muted">No delivery links are required to create a project. Add source files and briefs from the project's Files section after saving, where uploads are stored securely against the created project.</p>
+            </section>
+          </>
+        ) : (
+          <>
         <section className="grid gap-4 rounded-lg border border-border bg-white p-4">
           <h3 className="font-display text-lg font-semibold">Basic Information</h3>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -742,6 +822,9 @@ export function ProjectFormModal({
             onChange={(event) => update('payment_notes', event.target.value)}
           />
         </section>
+
+          </>
+        )}
 
         <div className="sticky bottom-0 flex flex-col gap-3 border-t border-border bg-linen py-4 sm:flex-row sm:justify-end">
           {formError ? (
