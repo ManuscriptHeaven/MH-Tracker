@@ -2,13 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { CalendarClock, CheckCircle2, Copy, Edit3, Megaphone, Plus, RefreshCw, Send, ShieldCheck, Sparkles } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { SocialEditorialCalendar } from '../components/social/SocialEditorialCalendar';
+import { SocialArtworkLibrary } from '../components/social/SocialArtworkLibrary';
+import type { SocialArtwork } from '../components/social/SocialArtworkLibrary';
 import type { Profile } from '../lib/types';
 
 type Brand = { id: string; name: string; brief: string; owner_id: string };
 type Post = { id: string; brand_id: string; owner_id: string; created_at: string };
 type Revision = {
   id: string; post_id: string; revision_number: number; caption: string;
-  image_brief: string; content_origin: 'manual' | 'ai_suggested'; created_at: string;
+  image_brief: string; content_origin: 'manual' | 'ai_suggested'; asset_id: string | null; created_at: string;
 };
 type Platform = 'facebook' | 'instagram' | 'linkedin';
 type Suggestion = {
@@ -69,6 +71,10 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
   const [brandName, setBrandName] = useState('Manuscript Heaven');
   const [caption, setCaption] = useState('');
   const [draftImageBrief, setDraftImageBrief] = useState('');
+  const [draftAssetId, setDraftAssetId] = useState<string | null>(null);
+  const [editedAssetId, setEditedAssetId] = useState<string | null>(null);
+  const [artwork, setArtwork] = useState<SocialArtwork[]>([]);
+  const [artworkPreviews, setArtworkPreviews] = useState<Record<string, string>>({});
   const [draftOrigin, setDraftOrigin] = useState<'manual' | 'ai_suggested'>('manual');
   const [brandBrief, setBrandBrief] = useState('');
   const [topic, setTopic] = useState(TOPIC_STARTERS[0]);
@@ -95,7 +101,7 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
       const [b, p, r, t] = await Promise.all([
         supabase.from('social_brands').select('id,name,brief,owner_id').order('created_at', { ascending: true }),
         supabase.from('social_posts').select('id,brand_id,owner_id,created_at').order('created_at', { ascending: false }),
-        supabase.from('social_post_revisions').select('id,post_id,revision_number,caption,image_brief,content_origin,created_at'),
+        supabase.from('social_post_revisions').select('id,post_id,revision_number,caption,image_brief,content_origin,asset_id,created_at'),
         supabase.from('social_post_targets').select('id,post_id,channel,status,approved_revision_id,approved_by,approved_at,scheduled_at'),
       ]);
       for (const result of [b, p, r, t]) if (result.error) throw result.error;
@@ -118,6 +124,8 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
     const currentBrand = brands.find(item => item.id === selectedBrand);
     setBrandBrief(currentBrand?.brief || '');
     setSuggestion(null);
+    setDraftAssetId(null);
+    setEditedAssetId(null);
   }, [brands, selectedBrand]);
 
   async function run(action: () => Promise<void>, success: string) {
@@ -146,6 +154,7 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
     });
   }, [posts, revisions, targets, brands]);
 
+  const visibleFeed = selectedBrand ? feed.filter(item => item.post.brand_id === selectedBrand) : feed;
   const counts = {
     drafts: feed.filter(item => item.target.status === 'draft').length,
     review: feed.filter(item => item.target.status === 'in_review').length,
@@ -165,29 +174,33 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
   async function createDraft() {
     if (!caption.trim() || !selectedBrand || !supabase) return;
     await run(async () => {
-      const { error: err } = await supabase!.rpc('social_create_rich_draft', {
+      const { error: err } = await supabase!.rpc('social_create_media_draft', {
         p_brand_id: selectedBrand, p_caption: caption.trim(), p_channel: channel,
         p_image_brief: draftImageBrief.trim(), p_content_origin: draftOrigin,
+        p_asset_id: draftAssetId,
       });
       if (err) throw err;
       setCaption('');
       setDraftImageBrief('');
       setDraftOrigin('manual');
-    }, 'Post draft and creative brief saved securely.');
+      setDraftAssetId(null);
+    }, 'Post draft, creative brief and selected image saved securely.');
   }
 
   async function saveRevision(postId: string) {
     if (!editedCaption.trim() || !supabase) return;
     await run(async () => {
-      const { error: err } = await supabase!.rpc('social_append_rich_revision', {
+      const { error: err } = await supabase!.rpc('social_append_media_revision', {
         p_post_id: postId, p_caption: editedCaption.trim(),
         p_image_brief: editedImageBrief.trim(), p_content_origin: 'manual',
+        p_asset_id: editedAssetId,
       });
       if (err) throw err;
       setEditing(null);
       setEditedCaption('');
       setEditedImageBrief('');
-    }, 'New revision saved; previous approval and schedule cleared.');
+      setEditedAssetId(null);
+    }, 'New revision including artwork saved; previous approval and schedule cleared.');
   }
 
   async function transition(target: Target, updates: Record<string, unknown>, success: string) {
@@ -380,6 +393,14 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
               maxLength={2400} rows={3} placeholder="Suggested layout, typography, colors, imagery and graphic comparisons..."
               className="mt-2 w-full rounded-lg border border-border bg-white p-3 text-sm" />
           </label>
+          {draftAssetId && <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-linen p-3">
+            {artworkPreviews[draftAssetId] &&
+              <img src={artworkPreviews[draftAssetId]} alt="Selected private unpublished artwork"
+                className="h-20 w-16 rounded object-contain" />}
+            <span className="text-xs font-semibold text-ink">Private artwork selected for this draft</span>
+            <button type="button" onClick={() => setDraftAssetId(null)}
+              className="text-xs font-semibold text-red-700 hover:underline">Remove from draft</button>
+          </div>}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span className="text-xs text-muted">{caption.length} / 8,000 characters</span>
             <button onClick={() => void createDraft()} disabled={busy || !caption.trim() || !selectedBrand}
@@ -480,17 +501,31 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
         )}
       </section>
 
+      <SocialArtworkLibrary
+        brandId={selectedBrand}
+        adminId={currentProfile.id}
+        proposedBrief={draftImageBrief || 'Create an original 4:5 educational book-formatting comparison about ' + topic}
+        savedBrandBrief={briefIsSaved ? savedBrandBrief : ''}
+        selectedAssetId={draftAssetId}
+        onChooseAsset={setDraftAssetId}
+        onLibraryChanged={(records, urls) => {
+          setArtwork(records);
+          setArtworkPreviews(urls);
+        }}
+        onRightsChanged={() => { void reload(); }}
+      />
+
       <section className="space-y-4">
         <div className="flex items-center justify-between gap-4">
           <h2 className="text-xl font-bold text-ink">Content Pipeline</h2>
-          <span className="text-sm text-muted">{feed.length} posts</span>
+          <span className="text-sm text-muted">{visibleFeed.length} posts</span>
         </div>
         {loading ? <div className="rounded-xl border border-border bg-white p-8 text-center text-sm text-muted">Loading your Studio...</div>
-          : feed.length === 0 ? (
+          : visibleFeed.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border bg-white p-10 text-center text-sm text-muted">
               No posts yet. Save your first draft above to start reviewing content.
             </div>
-          ) : feed.map(item => {
+          ) : visibleFeed.map(item => {
             const t = item.target;
             const r = item.revision;
             const isEditing = editing === item.post.id;
@@ -517,6 +552,19 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
                         onChange={e => setEditedImageBrief(e.target.value)}
                         className="mt-2 w-full rounded-lg border border-border p-3 text-sm" />
                     </label>
+                    <label className="block text-xs font-semibold text-muted">Artwork for this new revision
+                      <select value={editedAssetId || ''} onChange={e => setEditedAssetId(e.target.value || null)}
+                        className="mt-2 w-full rounded-lg border border-border bg-white p-2.5 text-sm">
+                        <option value="">No artwork</option>
+                        {artwork.filter(asset => asset.rights_status === 'cleared'
+                          || asset.id === editedAssetId).map(asset => (
+                          <option key={asset.id} value={asset.id}>
+                            {asset.source === 'ai_generated' ? 'AI image' : 'Uploaded image'} — {asset.id.slice(0, 8)}
+                            {asset.rights_status !== 'cleared' ? ' (permission missing)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     <div className="flex flex-wrap gap-2">
                       <button onClick={() => void saveRevision(item.post.id)} disabled={busy || !editedCaption.trim()}
                         className="rounded-lg bg-ink px-4 py-2 text-sm font-bold text-white disabled:opacity-40">Save new revision</button>
@@ -525,6 +573,10 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
                   </div>
                 ) : (
                   <div>
+                    {r?.asset_id && artworkPreviews[r.asset_id] &&
+                      <img src={artworkPreviews[r.asset_id]}
+                        alt="Private unpublished image attached to this draft"
+                        loading="lazy" className="mt-3 max-h-[280px] max-w-full rounded-xl border border-border object-contain" />}
                     <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-relaxed text-ink">{r?.caption || '(No caption)'}</p>
                     {r?.image_brief &&
                       <details className="mt-3 rounded-lg border border-border bg-linen p-3 text-sm">
@@ -543,6 +595,7 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
                           setEditing(item.post.id);
                           setEditedCaption(r?.caption || '');
                           setEditedImageBrief(r?.image_brief || '');
+                          setEditedAssetId(r?.asset_id || null);
                         }}
                         className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-2 text-xs font-semibold disabled:opacity-40">
                         <Edit3 className="h-3.5 w-3.5" /> Edit
@@ -551,7 +604,9 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
                       <button disabled={busy} onClick={() => void transition(t, { status: 'in_review' }, 'Draft sent for review.')}
                         className="rounded-lg bg-ink px-3 py-2 text-xs font-bold text-white disabled:opacity-40">Submit for review</button>}
                     {t.status === 'in_review' && !!r &&
-                      <button disabled={busy} onClick={() => void transition(t, {
+                      <button disabled={busy || !!(r.asset_id && artwork.find(asset =>
+                        asset.id === r.asset_id)?.rights_status !== 'cleared')}
+                        onClick={() => void transition(t, {
                         status: 'approved', approved_revision_id: r.id, approved_by: currentProfile.id,
                         approved_at: new Date().toISOString(),
                       }, 'This exact content revision is approved.')}
@@ -593,7 +648,7 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
           })}
       </section>
       <footer className="flex items-center gap-2 text-xs text-muted">
-        <Send className="h-3.5 w-3.5" /> AI creates draft text and visual instructions only. Image generation, external posting, OAuth and analytics are excluded from this pilot.
+        <Send className="h-3.5 w-3.5" /> Private images and AI artwork are only draft assets. External posting, OAuth and analytics are excluded from this pilot.
       </footer>
     </div>
   );
