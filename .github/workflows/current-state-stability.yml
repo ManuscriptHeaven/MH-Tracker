@@ -106,3 +106,40 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261021080615_attendance_admin_reconciliation_v2_20261020.sql
       - name: Verify admin-only corrections evidence and immutable audit
         run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/attendance-reconciliation-ci-tests.sql
+
+  project-attachment-rls-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: project_attachment_ci_only
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: project_attachment_ci_only
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install psql if unavailable
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y postgresql-client
+          fi
+      - name: Set up disposable Supabase authorization fixture
+        run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/project-attachment-ci-fixture.sql
+      - name: Apply exact staff attachment RLS migration
+        run: psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261023220000_staff_project_initial_attachments.sql
+      - name: Verify privileged and restricted user writes
+        run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/project-attachment-ci-tests.sql
