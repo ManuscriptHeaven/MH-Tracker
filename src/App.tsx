@@ -74,7 +74,7 @@ export default function App() {
     tracker.clearNotificationToast();
   }, [tracker.notificationToast, tracker.clearNotificationToast]);
 
-  async function handleSaveProject(draft: ProjectDraft) {
+  async function handleSaveProject(draft: ProjectDraft, attachments: File[] = []) {
     try {
       if (editingProject) {
         await tracker.updateProjectFromDraft(editingProject.id, draft);
@@ -82,8 +82,27 @@ export default function App() {
         setToast({ message: 'Project updated successfully.', tone: 'success' });
         return;
       }
-      await tracker.createProject(draft);
-      setToast({ message: 'Project created successfully.', tone: 'success' });
+      const created = await tracker.createProject(draft);
+      if (!created) throw new Error('Project creation could not be confirmed.');
+      if (attachments.length) {
+        try {
+          await tracker.uploadProjectAttachments(created.id, attachments);
+        } catch (uploadError) {
+          // Project exists already; do not retry project creation.
+          setSelectedProject(created);
+          setToast({
+            message: `Project created, but its attachments were not saved: ${errorMessage(uploadError, 'Upload failed.')}. Open Files & Deliverables to retry.`,
+            tone: 'error',
+          });
+          return;
+        }
+      }
+      setToast({
+        message: attachments.length
+          ? `Project created with ${attachments.length} attachment${attachments.length === 1 ? '' : 's'}.`
+          : 'Project created successfully.',
+        tone: 'success',
+      });
     } catch (error) {
       setToast({ message: errorMessage(error, 'Project could not be saved.'), tone: 'error' });
       throw error;
@@ -449,6 +468,7 @@ export default function App() {
         onUploadRevisedProof={tracker.uploadRevisedProof}
         onGetRevisionAttachmentUrl={tracker.getRevisionAttachmentUrl}
         onGetInitialFileUrl={tracker.getProjectInitialFileUrl}
+        onUploadProjectAttachments={tracker.mode === 'supabase' && tracker.canManageAll ? tracker.uploadProjectAttachments : undefined}
         onResolveClientReminder={tracker.resolveClientReminder}
         conversations={tracker.data.conversations}
         messages={tracker.data.messages}
