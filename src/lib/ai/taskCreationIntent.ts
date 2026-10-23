@@ -69,6 +69,13 @@ function resolveAssignee(name: string, people: Profile[]) {
 
 function resolveProject(name: string, projects: Project[]) {
   const normalized = normalizeEntityText(name);
+  // A real project title can itself contain commas. Exact full-title matches
+  // take precedence over interpreting fragments as speech corrections.
+  const fullExact = projects.filter((project) =>
+    normalizeEntityText(project.project_title) === normalized ||
+    normalizeEntityText(project.project_number) === normalized);
+  if (fullExact.length) return fullExact;
+
   // A comma after a partial title may be a speech correction:
   // "The Smart, The End of Smart" -> use the last exact, complete title.
   const fragments = name.split(/[,;]\s*/).map(normalizeEntityText).filter(Boolean);
