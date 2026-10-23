@@ -28,6 +28,7 @@ type Props = {
   selectedAssetId: string | null;
   onChooseAsset: (assetId: string | null) => void;
   onLibraryChanged?: (assets: SocialArtwork[], signedUrls: Record<string, string>) => void;
+  onRightsChanged?: () => void;
 };
 
 function friendlyError(value: unknown): string {
@@ -39,7 +40,7 @@ function friendlyError(value: unknown): string {
 
 export function SocialArtworkLibrary({
   brandId, adminId, proposedBrief, savedBrandBrief, selectedAssetId,
-  onChooseAsset, onLibraryChanged,
+  onChooseAsset, onLibraryChanged, onRightsChanged,
 }: Props) {
   const [assets, setAssets] = useState<SocialArtwork[]>([]);
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
@@ -186,6 +187,7 @@ export function SocialArtworkLibrary({
       setPermissionId(null); setAttested(false); setPermissionNote('');
       setNotice('Artwork permission recorded. This image may now be attached to a draft.');
       await reload();
+      onRightsChanged?.();
     } catch (caught) {
       setError(friendlyError(caught));
     } finally {
@@ -205,6 +207,7 @@ export function SocialArtworkLibrary({
       if (selectedAssetId === asset.id) onChooseAsset(null);
       setNotice('Permission withdrawn. Any approved posts using this image were returned to draft.');
       await reload();
+      onRightsChanged?.();
     } catch (caught) {
       setError(friendlyError(caught));
     } finally {
