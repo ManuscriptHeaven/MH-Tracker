@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 
 const read = path => readFileSync(new URL('../'+path,import.meta.url),'utf8');
-const migration = read('supabase/migrations/20261023204000_social_artwork_private_library.sql');
+const migration = read('supabase/migrations/20261023155218_social_artwork_private_library_20261023.sql');
 const edge = read('supabase/functions/social-artwork/index.ts');
 const library = read('src/components/social/SocialArtworkLibrary.tsx');
 const studio = read('src/pages/SocialStudioPage.tsx');
@@ -19,6 +19,9 @@ for(const name of [
 ]) assert.ok(migration.includes(name), 'Missing database security capability: '+name);
 assert.match(migration,/file_size_limit, allowed_mime_types/);
 assert.match(migration,/8388608/);
+const policyFix = read('supabase/migrations/20261023155526_social_artwork_storage_policy_fix_20261023.sql');
+assert.match(policyFix,/storage\.foldername\(storage\.objects\.name\)/);
+assert.doesNotMatch(policyFix,/storage\.foldername\(b\.name\)/);
 assert.equal((migration.match(/\$\$/g) || []).length, 18, 'All 9 PL/pgSQL functions need paired dollar delimiters');
 assert.doesNotMatch(migration,/as \$\n|end \$;/,'Single-dollar delimiters are invalid SQL');
 assert.match(migration,/old.rights_status='cleared' and new.rights_status <> 'cleared'/);
