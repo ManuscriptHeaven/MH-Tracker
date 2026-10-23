@@ -19,6 +19,8 @@ for(const name of [
 ]) assert.ok(migration.includes(name), 'Missing database security capability: '+name);
 assert.match(migration,/file_size_limit, allowed_mime_types/);
 assert.match(migration,/8388608/);
+assert.equal((migration.match(/\$\$/g) || []).length, 18, 'All 9 PL/pgSQL functions need paired dollar delimiters');
+assert.doesNotMatch(migration,/as \$\n|end \$;/,'Single-dollar delimiters are invalid SQL');
 assert.match(migration,/old.rights_status='cleared' and new.rights_status <> 'cleared'/);
 assert.match(migration,/t\.approved_revision_id=r\.id/);
 assert.match(migration,/a\.rights_status <> 'cleared'/);
