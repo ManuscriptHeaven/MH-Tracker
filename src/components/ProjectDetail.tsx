@@ -31,7 +31,8 @@ import {
   User,
   Users,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { validateProjectAttachments } from '../lib/projectAttachments';
 import { RevisionRequestsPage } from '../pages/RevisionRequestsPage';
 import { revisionStatuses, timelineStages } from '../lib/constants';
 import { deadlineClass, deadlineLabel, formatDate } from '../lib/date';
@@ -132,6 +133,7 @@ export function ProjectDetail({
   onUploadRevisedProof,
   onGetRevisionAttachmentUrl,
   onGetInitialFileUrl,
+  onUploadProjectAttachments,
   onGetProjectFileUrl,
   onResolveClientReminder,
   conversations = [],
@@ -175,6 +177,7 @@ export function ProjectDetail({
   onUploadRevisedProof: (requestId: string, file: File, teamResponse?: string) => Promise<void>;
   onGetRevisionAttachmentUrl: (attachmentId: string) => Promise<string>;
   onGetInitialFileUrl?: (file: ProjectInitialFile) => Promise<string>;
+  onUploadProjectAttachments?: (projectId: string, files: File[]) => Promise<ProjectInitialFile[]>;
   onGetProjectFileUrl?: ProjectFileResolver;
   onResolveClientReminder?: (reminderId: string, status: 'sent' | 'dismissed') => Promise<void>;
   conversations?: Conversation[];
@@ -216,6 +219,8 @@ export function ProjectDetail({
   const [quickMsg, setQuickMsg] = useState('');
   const [openingInitialFileId, setOpeningInitialFileId] = useState<string | null>(null);
   const [initialFileError, setInitialFileError] = useState<string | null>(null);
+  const [uploadingProjectFiles, setUploadingProjectFiles] = useState(false);
+  const attachmentInput = useRef<HTMLInputElement>(null);
   const [activityFilter, setActivityFilter] = useState<'all' | 'client' | 'team' | 'files' | 'status' | 'revisions' | 'system'>('all');
   const [taskFilter, setTaskFilter] = useState<'all' | 'open' | 'in_progress' | 'done'>('all');
 
@@ -247,6 +252,24 @@ export function ProjectDetail({
       setInitialFileError(error instanceof Error ? error.message : 'Could not open this client source file.');
     } finally {
       setOpeningInitialFileId(null);
+    }
+  }
+
+  async function uploadAdditionalFiles(files: FileList | null) {
+    if (!files || !onUploadProjectAttachments || uploadingProjectFiles) return;
+    const selected = Array.from(files);
+    if (attachmentInput.current) attachmentInput.current.value = '';
+    const error = validateProjectAttachments(selected);
+    if (error) { setInitialFileError(error); return; }
+    if (!selected.length) return;
+    setUploadingProjectFiles(true);
+    setInitialFileError(null);
+    try {
+      await onUploadProjectAttachments(project.id, selected);
+    } catch (cause) {
+      setInitialFileError(cause instanceof Error ? cause.message : 'Could not save the project attachments.');
+    } finally {
+      setUploadingProjectFiles(false);
     }
   }
 
@@ -998,15 +1021,30 @@ export function ProjectDetail({
                 ) : null}
               </div>
 
+              {canManageAll && onUploadProjectAttachments ? (
+                <div className="rounded-xl border border-dashed border-gold/40 bg-gold/[0.03] p-3">
+                  <input ref={attachmentInput} type="file" multiple className="sr-only"
+                    aria-label="Select project attachments" disabled={uploadingProjectFiles}
+                    onChange={(event) => { void uploadAdditionalFiles(event.target.files); }} />
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-muted">Attach manuscripts, briefs, images or other files (up to 10 files, 100 MB each).</p>
+                    <Button variant="secondary" disabled={uploadingProjectFiles} onClick={() => attachmentInput.current?.click()}>
+                      <Paperclip className="h-4 w-4" /> {uploadingProjectFiles ? 'Uploading…' : 'Add Attachments'}
+                    </Button>
+                  </div>
+                  {initialFileError ? <p role="alert" className="mt-2 text-xs text-danger">{initialFileError}</p> : null}
+                </div>
+              ) : null}
+
               {projectInitialFiles.length > 0 ? (
                 <div className="rounded-xl border border-gold/30 bg-gold/[0.04] p-4">
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div>
                       <h4 className="flex items-center gap-2 font-semibold text-ink">
                         <FolderOpen className="h-4 w-4 text-gold" />
-                        Client Source Files
+                        Project Source Attachments
                       </h4>
-                      <p className="mt-0.5 text-xs text-muted">Submitted through the client portal when production started.</p>
+                      <p className="mt-0.5 text-xs text-muted">Uploaded during project setup or submitted by the client.</p>
                     </div>
                     <span className="rounded-full bg-gold/15 px-2 py-1 text-[10px] font-bold text-[#7a5518]">
                       {projectInitialFiles.length} file{projectInitialFiles.length === 1 ? '' : 's'}
@@ -1082,8 +1120,8 @@ export function ProjectDetail({
                 <Card>
                   <div className="p-8 text-center text-muted">
                     <FolderOpen className="mx-auto h-8 w-8 text-border mb-2" />
-                    <p className="font-semibold">No files attached yet</p>
-                    <p className="text-xs mt-1">Add Google Drive, proof PDFs, or deliverable links to this project.</p>
+                    <p className="font-semibold">No attachments yet</p>
+                    <p className="text-xs mt-1">You can add manuscripts, images, and project briefs using the attachment card above.</p>
                     {canManageAll ? (
                       <Button variant="secondary" onClick={() => setIsEditingFiles(true)} className="mt-3 text-xs">
                         <Plus className="h-3.5 w-3.5" />
