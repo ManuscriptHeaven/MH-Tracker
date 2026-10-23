@@ -129,6 +129,9 @@ grant execute on function public.social_server_save_facebook_page(uuid,uuid,text
 grant execute on function public.social_server_facebook_token(uuid) to service_role;
 grant execute on function public.social_server_disconnect_facebook(uuid,uuid) to service_role;
 
+alter table public.social_post_targets
+  add constraint social_fb_target_owner_unique unique(id,owner_id);
+
 -- One durable job records exactly which revision and schedule were approved.
 -- Fake provider is the only default; actual Facebook requires a separately gated release.
 create table public.social_delivery_jobs (
