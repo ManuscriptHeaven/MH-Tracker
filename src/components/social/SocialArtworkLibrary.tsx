@@ -56,20 +56,21 @@ export function SocialArtworkLibrary({
   const [attested, setAttested] = useState(false);
 
   const reload = useCallback(async () => {
-    if (!supabase || !brandId) {
+    const client = supabase;
+    if (!client || !brandId) {
       setAssets([]); setSignedUrls({});
       onLibraryChanged?.([], {});
       return;
     }
     setLoading(true);
     try {
-      const { data, error: listError } = await supabase.from('social_assets')
+      const { data, error: listError } = await client.from('social_assets')
         .select('id,brand_id,owner_id,storage_path,mime_type,file_bytes,source,rights_status,permission_basis,permission_note,creative_brief,created_at')
         .eq('brand_id', brandId).order('created_at', { ascending: false });
       if (listError) throw listError;
       const records = (data || []) as SocialArtwork[];
       const pairs = await Promise.all(records.map(async asset => {
-        const { data: urlData, error: urlError } = await supabase.storage
+        const { data: urlData, error: urlError } = await client.storage
           .from(PRIVATE_SOCIAL_ARTWORK_BUCKET).createSignedUrl(asset.storage_path, 120);
         return [asset.id, !urlError ? urlData?.signedUrl || '' : ''] as const;
       }));
