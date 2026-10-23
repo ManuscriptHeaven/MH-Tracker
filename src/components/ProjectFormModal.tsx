@@ -21,6 +21,7 @@ import {
 import { errorMessage, firstName, isClientRole, isManagerRole } from '../lib/utils';
 import type { Profile, Project, ProjectDraft } from '../lib/types';
 import { Button, Field, Modal, SelectField, TextareaField } from './ui';
+import { CompactProjectCreateForm } from './CompactProjectCreateForm';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 
 function uniqueValues(values: Array<string | null | undefined>) {
@@ -174,7 +175,7 @@ export function ProjectFormModal({
   project?: Project | null;
   canonical: boolean;
   onClose: () => void;
-  onSubmit: (draft: ProjectDraft) => Promise<void>;
+  onSubmit: (draft: ProjectDraft, attachments?: File[]) => Promise<void>;
 }) {
   const [draft, setDraft] = useState<ProjectDraft>(() =>
     project ? draftFromProject(project) : defaultDraft(currentProfile, canonical),
@@ -287,6 +288,23 @@ export function ProjectFormModal({
     } finally {
       setIsSaving(false);
     }
+  }
+
+  // Create and edit have different needs. Keep the complete legacy editor for
+  // existing projects, but never require stage/link/payment-history metadata
+  // simply to create a project.
+  if (!isEditing) {
+    return (
+      <CompactProjectCreateForm
+        draft={draft}
+        setDraft={setDraft}
+        profiles={profiles}
+        canonical={canonical}
+        onTimelineChange={updateNewProjectTimeline}
+        onClose={onClose}
+        onSubmit={onSubmit}
+      />
+    );
   }
 
   return (
