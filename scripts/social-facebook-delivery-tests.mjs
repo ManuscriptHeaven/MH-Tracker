@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 
 const read = p => readFileSync(new URL('../'+p,import.meta.url),'utf8');
-const sql = read('supabase/migrations/20261023220000_social_facebook_delivery_foundation.sql');
+const sql = read('supabase/migrations/20261023162654_social_facebook_delivery_foundation_20261023.sql');
 const connectSource = read('supabase/functions/social-facebook-connect/index.ts');
 const workerSource = read('supabase/functions/social-delivery-worker/index.ts');
 const uiSource = read('src/components/social/FacebookPublishingPanel.tsx');
