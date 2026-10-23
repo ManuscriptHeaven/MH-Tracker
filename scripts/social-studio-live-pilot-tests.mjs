@@ -21,7 +21,7 @@ assert.match(sql, /security invoker/);
 assert.match(sql, /social_create_draft/);
 assert.match(sql, /social_append_revision/);
 assert.doesNotMatch(sql, /security definer/i);
-assert.match(page, /not automatically published/);
+assert.match(page, /not automatic Facebook posts/);
 assert.match(page, /social_create_media_draft/);
 assert.match(page, /social_append_media_revision/);
 assert.match(page, /status: 'in_review'/);
