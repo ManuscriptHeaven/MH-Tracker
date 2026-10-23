@@ -13,11 +13,23 @@ export type TaskCreationResolution =
   | { kind: 'clarify'; field: 'employee' | 'project'; message: string; options: DisambiguationOption[] }
   | { kind: 'error'; code: string; message: string };
 
-// Accept explicit commands and strongly signalled spoken shorthand.
-// A bare "Task for Zain" might be a read query; require "to <work>" before
-// treating the shorthand as a write request.
-export function isCreateTaskRequest(text: string): boolean {
+// Speech recognition often transcribes "task for Zen" as "task force Zen".
+// Only reinterpret "force" when the sentence includes a named recipient followed
+// by an action verb; genuine references to a task force remain read-only.
+export function normalizeTaskCreationQuery(text: string): string {
   const query = text.trim();
+  if (
+    /^(?:please\s+)?(?:new\s+)?task\s+force\s+.+?\s+to\s+(?:create|make|update|prepare|check|review|edit|fix|format|convert|design|recreate|upload|deliver|proofread|revise|generate|produce)\b/i.test(query)
+  ) {
+    return query.replace(/^((?:please\s+)?(?:new\s+)?task)\s+force\b/i, '$1 for');
+  }
+  return query;
+}
+
+// A task request is a write only with an explicit creation verb or with
+// enough "task for employee to do X" structure to avoid read-query confusion.
+export function isCreateTaskRequest(text: string): boolean {
+  const query = normalizeTaskCreationQuery(text);
   return /^(?:please\s+)?(?:create|add|make)\s+(?:(?:a|new)\s+)?task\b/i.test(query) ||
     /^(?:please\s+)?(?:new\s+)?task\s+(?:for|assigned\s+to)\s+.+?\s+to\s+\S+/i.test(query);
 }
@@ -120,7 +132,7 @@ export function resolveTaskCreation(
   ctx: Pick<AIToolContext, 'currentProfile' | 'data' | 'visibleProjects'>,
   overrides: TaskCreationOverrides = {},
 ): TaskCreationResolution {
-  let instruction = rawQuery.trim().replace(
+  let instruction = normalizeTaskCreationQuery(rawQuery).replace(
     /^(?:please\s+)?(?:(?:(?:create|add|make)\s+(?:(?:a|new)\s+)?)|(?:new\s+))?task\b\s*[:,-]?\s*/i,
     '',
   );
