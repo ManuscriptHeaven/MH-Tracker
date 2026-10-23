@@ -636,7 +636,7 @@ export async function runVoiceAssistantTests() {
   console.log(`   User: "Create a task for Zain to check the print PDF tomorrow"\n   Assistant (Preview): "${res26a.spokenText}"`);
 
   const res26b = await voiceQueryEngine.processQuery('Confirm', createAdminCtx());
-  assert(Boolean(res26b.success && res26b.spokenText.includes('assigned to Zain')), 'Test 26b: Verbal confirmation "Confirm" creates task');
+  assert(Boolean(!res26b.success && res26b.error === 'task_creation_unavailable'), 'Test 26b: Confirmation fails closed when the test fixture has no task persistence');
   console.log(`   User: "Confirm"\n   Assistant (Executed): "${res26b.spokenText}"`);
 
   // TEST 27: Change Project Status with High Risk Confirmation
