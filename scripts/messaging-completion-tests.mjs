@@ -72,8 +72,8 @@ assert(
 );
 
 assert(
-  tracker.includes(".upsert(") &&
-    tracker.includes("{ onConflict: 'conversation_id,user_id' }") &&
+  tracker.includes(".update({ last_read_at: now })") &&
+    tracker.includes("The read receipt was not saved. Please try again.") &&
     messages.includes('activeMessages.length') &&
     messages.includes('onMarkRead(displayedConv.id)'),
   'read receipts are created or updated for every authorized viewer and refreshed while chat is open',
