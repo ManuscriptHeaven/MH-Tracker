@@ -40,6 +40,45 @@ assert.equal(screenshotRouted.pendingAction?.payload.projectId, smart.id);
 assert.equal(screenshotRouted.pendingAction?.payload.title, 'update the ebook cover');
 voiceQueryEngine.clearMemory();
 
+// Screenshot #2: speech recognition turned "Task for Zen" into "Task Force Zen".
+// "Create ebook version OF THE PROJECT named X" must not trigger a new
+// project wizard or make the project name part of the task title.
+const voiceCommand = 'Task Force Zen to create ebook version of the project named End of Smart.';
+assert.equal(isCreateTaskRequest(voiceCommand), true, 'task force is a high-confidence speech transcription');
+assert.equal(isCreateTaskRequest('Task Force Zen meeting tomorrow'), false, 'literal task force query is not a write');
+assert.equal(isCreateTaskRequest('What is Task Force Zen doing?'), false, 'task force questions stay read-only');
+const voiceParsed = resolveTaskCreation(voiceCommand, ctx);
+assert.equal(voiceParsed.kind, 'ready');
+assert.equal(voiceParsed.title, 'create ebook version');
+assert.equal(voiceParsed.assignee.id, zain.id);
+assert.equal(voiceParsed.project.id, smart.id);
+const voicePreview = await voiceQueryEngine.processQuery(voiceCommand, ctx);
+assert.equal(voicePreview.toolName, 'create_task', 'voice transcript routes to task creation');
+assert.equal(voicePreview.pendingAction?.toolName, 'create_task', 'voice command requests confirmation, not a new project');
+assert.equal(voicePreview.pendingAction?.payload.title, 'create ebook version');
+assert.equal(voicePreview.pendingAction?.payload.projectId, smart.id);
+assert.equal(voicePreview.pendingAction?.payload.assignedToId, zain.id);
+voiceQueryEngine.clearMemory();
+
+// If a previous message left the project wizard open, a new task request
+// takes priority rather than silently becoming a wizard follow-up.
+const wizard = await voiceQueryEngine.processQuery('Create a project named Placeholder', ctx);
+assert.equal(wizard.toolName, 'create_project');
+assert.match(wizard.displayText, /Project Setup/);
+const switched = await voiceQueryEngine.processQuery(voiceCommand, ctx);
+assert.equal(switched.toolName, 'create_task', 'new explicit task command overrides pending project wizard');
+assert.equal(switched.pendingAction?.toolName, 'create_task');
+assert.equal(switched.pendingAction?.payload.projectId, smart.id);
+voiceQueryEngine.clearMemory();
+
+const liveTitleProject = mkProject('live-1039', 'The End  of Smart', 'active', { project_number: 'MH-1039', status: 'Active' });
+const liveTitleContext = { ...ctx, visibleProjects: [liveTitleProject] };
+const liveTitle = resolveTaskCreation(voiceCommand, liveTitleContext);
+assert.equal(liveTitle.kind, 'ready', 'matches active project with double spaces and omitted leading The');
+assert.equal(liveTitle.project.id, liveTitleProject.id);
+
+voiceQueryEngine.clearMemory();
+
 const parsed = resolveTaskCreation(command, ctx);
 assert.equal(parsed.kind, 'ready', 'spoken instruction produces a complete task');
 assert.equal(parsed.title, 'update the e-book cover', 'task title excludes assignee and project');

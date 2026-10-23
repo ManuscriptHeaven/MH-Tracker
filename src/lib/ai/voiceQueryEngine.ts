@@ -168,6 +168,17 @@ export class VoiceQueryEngine {
       }
     }
 
+    // A fresh, clearly expressed task assignment must not be consumed as an
+    // answer to an unrelated project-creation wizard. This also protects the
+    // speech-to-text variant "Task Force Zen to create ... the project named X".
+    // Confirmation is still mandatory; no task is created at this point.
+    if (this.memory.pendingProjectCreation && isCreateTaskRequest(q)) {
+      this.memory.pendingProjectCreation = null;
+      this.memory.pendingDisambiguation = null;
+      this.memory.pendingDisambiguationContext = null;
+      this.cancelPendingPlan();
+    }
+
     // ==========================================
     // 0C. HANDLE PROJECT CREATION WIZARD
     // ==========================================
@@ -227,7 +238,7 @@ export class VoiceQueryEngine {
       // project or amount of an unrelated incomplete request.
       const pendingCompletion = this.memory.pendingCommandCompletion;
       this.memory.pendingCommandCompletion = null;
-      if (!startsIndependentRequest(q)) {
+      if (!startsIndependentRequest(q) && !isCreateTaskRequest(q)) {
         const combined = `${pendingCompletion.originalQuery} ${q}`.trim();
         const completed = await this.processQuery(combined, ctx);
         if (completed.success || completed.pendingAction || completed.disambiguation) {
