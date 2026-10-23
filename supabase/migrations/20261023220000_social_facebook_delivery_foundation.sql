@@ -165,7 +165,7 @@ create policy social_jobs_admin_read on public.social_delivery_jobs for select t
 -- Scheduling is currently initiated by the existing, protected exact-revision approval transition.
 -- Cancel queued deliveries when approval is withdrawn; processing attempts are quarantined.
 create function public.social_enqueue_on_schedule()
-returns trigger language plpgsql security definer set search_path='' as $
+returns trigger language plpgsql security definer set search_path='' as $$
 begin
   if new.channel <> 'facebook' then return new; end if;
   if new.status='scheduled' and (
