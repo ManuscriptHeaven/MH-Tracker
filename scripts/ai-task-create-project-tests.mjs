@@ -40,6 +40,14 @@ const closedProject = resolveTaskCreation(
 assert.equal(closedProject.kind, 'error');
 assert.equal(closedProject.code, 'project_not_found', 'archived project must not be linked');
 
+// Genuine titles containing commas must be preferred over a shorter title
+// that happens to match the final comma-separated fragment.
+const commaTitle = mkProject('p-comma', 'The Smart, The End of Smart');
+const commaCtx = { ...ctx, visibleProjects: [...ctx.visibleProjects, commaTitle] };
+const exactComma = resolveTaskCreation(command, commaCtx);
+assert.equal(exactComma.kind, 'ready');
+assert.equal(exactComma.project.id, commaTitle.id, 'exact full project title outranks an apparent voice correction');
+
 const multiple = {
   ...ctx,
   data: { ...data, profiles: [...data.profiles, mkProfile('zain-2', 'Zain Raza')] },
