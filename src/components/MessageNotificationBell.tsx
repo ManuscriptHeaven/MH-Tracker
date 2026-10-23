@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn, initials, isClientRole } from '../lib/utils';
 import type { ChatMessage, Conversation, Profile, TrackerData } from '../lib/types';
 import { Button, IconButton } from './ui';
+import { markUnreadConversationsRead } from '../lib/messageReadReceipts';
 
 function timeAgo(value: string) {
   const createdAt = new Date(value).getTime();
@@ -158,15 +159,15 @@ export function MessageNotificationBell({
     try {
       // A bad/stale conversation cannot block successful receipts in the
       // other conversations. Unlike fire-and-forget, show partial failures.
-      const results = await Promise.allSettled(
-        unreadItems.map((item) => onMarkRead(item.conversationId)),
+      const { failed } = await markUnreadConversationsRead(
+        unreadItems.map((item) => item.conversationId),
+        onMarkRead,
       );
-      const failed = results.filter((result) => result.status === 'rejected').length;
-      if (failed > 0) {
+      if (failed.length > 0) {
         setReadError(
-          failed === results.length
+          failed.length === unreadItems.length
             ? 'Could not mark your messages as read. Please try again.'
-            : `${failed} conversation${failed === 1 ? '' : 's'} could not be marked as read. Please retry.`,
+            : `${failed.length} conversation${failed.length === 1 ? '' : 's'} could not be marked as read. Please retry.`,
         );
       } else {
         setIsOpen(false);
