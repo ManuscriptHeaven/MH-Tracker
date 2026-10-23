@@ -30,7 +30,8 @@ create table public.social_assets (
      and (permission_basis <> 'licensed' or char_length(btrim(permission_note)) >= 12))
  ),
  constraint social_asset_ai_origin check (
-   source <> 'ai_generated' or permission_basis in ('unverified','ai_generated')
+   (source='ai_generated' and permission_basis in ('unverified','ai_generated'))
+   or (source='uploaded' and permission_basis <> 'ai_generated')
  )
 );
 
@@ -78,6 +79,20 @@ for delete to authenticated using (
    select 1 from public.social_assets a where a.storage_path=name
  )
 );
+
+-- Metadata registration must refer to a real, private object.
+create function public.social_asset_storage_check()
+returns trigger language plpgsql set search_path='' as $
+begin
+ if not exists (
+   select 1 from storage.objects o
+   where o.bucket_id='social-artwork-private' and o.name=new.storage_path
+ ) then raise exception 'Artwork object must be uploaded before registration'; end if;
+ return new;
+end $;
+create trigger social_asset_storage_check before insert on public.social_assets
+for each row execute function public.social_asset_storage_check();
+revoke execute on function public.social_asset_storage_check() from public,anon,authenticated;
 
 create function public.social_asset_metadata_guard()
 returns trigger language plpgsql set search_path='' as $$
@@ -130,7 +145,7 @@ begin
      set status='draft',approved_revision_id=null,approved_by=null,
          approved_at=null,scheduled_at=null
    from public.social_post_revisions r
-   where r.asset_id=new.id and r.post_id=t.post_id
+   where r.asset_id=new.id and r.post_id=t.post_id and t.approved_revision_id=r.id
      and t.owner_id=new.owner_id and t.status in ('approved','scheduled');
  end if;
  return new;
@@ -138,6 +153,21 @@ end $$;
 create trigger social_asset_permission_revoked after update of rights_status on public.social_assets
 for each row execute function public.social_asset_permission_revoked();
 revoke execute on function public.social_asset_permission_revoked() from public,anon,authenticated;
+
+-- An immutable cancelled post must never be revived by older revision RPCs.
+create or replace function public.social_revision_invalidate()
+returns trigger language plpgsql set search_path='' as $
+begin
+ if exists (select 1 from public.social_post_targets
+   where post_id=new.post_id and owner_id=new.owner_id and status='cancelled') then
+   raise exception 'Cancelled social posts are immutable';
+ end if;
+ update public.social_post_targets
+ set status='draft',approved_revision_id=null,approved_by=null,
+     approved_at=null,scheduled_at=null
+ where post_id=new.post_id and owner_id=new.owner_id;
+ return new;
+end $;
 
 -- Enforce current image permission at approval and again at schedule.
 create or replace function public.social_target_transition()
