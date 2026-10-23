@@ -14,6 +14,7 @@ import {
   LogOut,
   Menu,
   MessageSquare,
+  Megaphone,
   MoreHorizontal,
   PackageCheck,
   PanelLeftClose,
@@ -44,6 +45,7 @@ import { isSoundEnabled, setSoundEnabled, playNotificationSound } from '../lib/s
 export type ViewKey =
   | 'dashboard'
   | 'ai_assistant'
+  | 'social_studio'
   | 'projects'
   | 'my_tasks'
   | 'team_tasks'
@@ -61,6 +63,7 @@ export type ViewKey =
 const viewHeaderTitles: Record<ViewKey, string> = {
   dashboard: 'Dashboard',
   ai_assistant: 'AI Assistant',
+  social_studio: 'Social Media Studio',
   projects: 'Projects Overview',
   delivered: 'Delivered Projects',
   calendar: 'Calendar & Deadlines',
@@ -108,6 +111,7 @@ type NavEntry = NavSingleItem | NavGroupItem;
 const navStructure: NavEntry[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Home, type: 'single' },
   { id: 'ai_assistant', label: 'AI Assistant', icon: Sparkles, type: 'single', managersOnly: true },
+  { id: 'social_studio', label: 'Social Media Studio', icon: Megaphone, type: 'single', adminOnly: true },
   {
     id: 'projects_group',
     label: 'Projects',
