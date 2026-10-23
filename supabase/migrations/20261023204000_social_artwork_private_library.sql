@@ -82,14 +82,14 @@ for delete to authenticated using (
 
 -- Metadata registration must refer to a real, private object.
 create function public.social_asset_storage_check()
-returns trigger language plpgsql set search_path='' as $
+returns trigger language plpgsql set search_path='' as $$
 begin
  if not exists (
    select 1 from storage.objects o
    where o.bucket_id='social-artwork-private' and o.name=new.storage_path
  ) then raise exception 'Artwork object must be uploaded before registration'; end if;
  return new;
-end $;
+end $$;
 create trigger social_asset_storage_check before insert on public.social_assets
 for each row execute function public.social_asset_storage_check();
 revoke execute on function public.social_asset_storage_check() from public,anon,authenticated;
@@ -156,7 +156,7 @@ revoke execute on function public.social_asset_permission_revoked() from public,
 
 -- An immutable cancelled post must never be revived by older revision RPCs.
 create or replace function public.social_revision_invalidate()
-returns trigger language plpgsql set search_path='' as $
+returns trigger language plpgsql set search_path='' as $$
 begin
  if exists (select 1 from public.social_post_targets
    where post_id=new.post_id and owner_id=new.owner_id and status='cancelled') then
@@ -167,7 +167,7 @@ begin
      approved_at=null,scheduled_at=null
  where post_id=new.post_id and owner_id=new.owner_id;
  return new;
-end $;
+end $$;
 
 -- Enforce current image permission at approval and again at schedule.
 create or replace function public.social_target_transition()
