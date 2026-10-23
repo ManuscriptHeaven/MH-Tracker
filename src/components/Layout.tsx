@@ -186,7 +186,7 @@ export function Layout({
   onAddProject: () => void;
   onMarkNotificationRead: (notificationId: string) => void;
   onMarkAllNotificationsRead: () => void;
-  onMarkConversationRead: (conversationId: string) => void;
+  onMarkConversationRead: (conversationId: string) => Promise<void>;
   onViewNotifications: () => void;
   onOpenNotificationProject: (projectId: string) => void;
   onSignOut: () => void;
