@@ -22,6 +22,8 @@ import {
   looksLikeCompoundAction,
 } from './aiPlannerService';
 import { rankEntityCandidates, resolveUniqueEntityMatch } from './aiEntityMatcher';
+import { isCreateTaskRequest, resolveTaskCreation } from './taskCreationIntent';
+import type { TaskCreationOverrides } from './taskCreationIntent';
 import { verifyActionOutcome } from './aiActionVerifier';
 
 function startsIndependentRequest(query: string): boolean {
@@ -273,6 +275,7 @@ export class VoiceQueryEngine {
     // only when we have a concrete ambiguity or an assign-task request that
     // genuinely needs a missing assignee.
     const shouldClarifyBeforeLegacyParser =
+      !isCreateTaskRequest(q) &&
       understanding.needsClarification &&
       Boolean(understanding.clarificationQuestion) &&
       (understanding.ambiguities.length > 0 || understanding.intent.name === 'assign_task');
@@ -844,109 +847,10 @@ export class VoiceQueryEngine {
     }
 
     // ----------------------------------------------------
-    // B. CREATE TASK
-    // e.g. "Create a task for Zain to check the revised print PDF tomorrow"
+    // B. CREATE TASK (assignee + active project + title in one instruction)
     // ----------------------------------------------------
-    if (lower.startsWith('create a task') || lower.startsWith('create task') || lower.startsWith('add a task') || lower.startsWith('add task')) {
-      if (isClientRole(ctx.currentProfile.role)) {
-        return {
-          success: false,
-          toolName: 'create_task',
-          error: 'permission_denied',
-          spokenText: "I can't create tasks with client permissions.",
-          displayText: "🔒 Task creation is restricted for client accounts.",
-        };
-      }
-
-      // Extract Assignee
-      const targetEmp = this.extractEmployeeFromQuery(lower, ctx);
-      const targetEmpProfile = targetEmp ? ctx.data.profiles.find((p) => p.full_name === targetEmp) : ctx.currentProfile;
-      const targetEmpName = targetEmpProfile ? firstName(targetEmpProfile.full_name) : 'you';
-
-      // Extract Project (if mentioned or in memory)
-      const matchedProject = this.findProjectInQueryOrMemory(lower, ctx);
-
-      // Extract Date (e.g. tomorrow, Friday, Aug 30)
-      const dateMatch = lower.match(/(?:due\s+|by\s+|on\s+)?(tomorrow|today|friday|monday|tuesday|wednesday|thursday|saturday|sunday|\b\w+\s+\d{1,2}\b)/i);
-      const dueDate = dateMatch ? parseNaturalDate(dateMatch[1]) : null;
-
-      // Extract Task Title without treating the assignee name as the task.
-      let taskTitle = q
-        .replace(/^(?:create|add)\s+(?:a\s+)?task\s*/i, '')
-        .replace(/^to\s+/i, '')
-        .trim();
-
-      if (targetEmpProfile) {
-        const assigneeNames = [
-          targetEmpProfile.full_name,
-          targetEmpProfile.full_name.split(' ')[0],
-        ].sort((a, b) => b.length - a.length);
-
-        for (const assigneeName of assigneeNames) {
-          const prefix = 'for ' + assigneeName.toLowerCase();
-          if (taskTitle.toLowerCase().startsWith(prefix)) {
-            taskTitle = taskTitle
-              .slice(prefix.length)
-              .replace(/^\s*(?:to\s+|:\s*)/i, '')
-              .trim();
-            break;
-          }
-        }
-      }
-
-      taskTitle = taskTitle
-        .replace(/\s+(tomorrow|today|by\s+[a-zA-Z0-9\s]+|due\s+[a-zA-Z0-9\s]+)\s*$/i, '')
-        .trim();
-
-      if (!taskTitle || taskTitle.length < 3) {
-        return {
-          success: false,
-          toolName: 'create_task',
-          error: 'task_details_required',
-          spokenText: 'What should the task for ' + targetEmpName + ' be called?',
-          displayText:
-            '### Task Details Needed\n\n' +
-            'I know **who** to assign it to, but I still need the task title or instruction.\n\n' +
-            'For example: **"Check the revised print PDF."**',
-        };
-      }
-
-      const preview: AIActionPreview = {
-        actionId: `act-${Date.now()}`,
-        toolName: 'create_task',
-        category: 'safe_write',
-        title: 'Create Task',
-        description: `Create new task assigned to ${targetEmpProfile?.full_name}`,
-        targetType: 'task',
-        targetTitle: taskTitle,
-        assignedToName: targetEmpProfile?.full_name,
-        changes: [
-          { field: 'title', label: 'Task Title', newValue: taskTitle },
-          { field: 'assigned_to', label: 'Assigned To', newValue: targetEmpProfile?.full_name || 'Self' },
-          ...(matchedProject ? [{ field: 'project', label: 'Project', newValue: matchedProject.project_title }] : []),
-          ...(dueDate ? [{ field: 'due_date', label: 'Due Date', newValue: formatDate(dueDate) }] : []),
-        ],
-        payload: {
-          title: taskTitle,
-          assignedToId: targetEmpProfile?.id || ctx.currentProfile.id,
-          projectId: matchedProject?.id,
-          dueDate: dueDate || undefined,
-          priority: 'Normal',
-        },
-        confirmButtonText: 'Create Task',
-        cancelButtonText: 'Cancel',
-        spokenPrompt: `I'll create this task for ${targetEmpName}${matchedProject ? ` under ${matchedProject.project_title}` : ''}${dueDate ? `, due ${formatDate(dueDate)}` : ''}. Confirm?`,
-      };
-
-      this.memory.pendingAction = preview;
-
-      return {
-        success: true,
-        toolName: 'create_task',
-        spokenText: preview.spokenPrompt,
-        displayText: `I'll create the task **"${taskTitle}"** for **${targetEmpProfile?.full_name}**${matchedProject ? ` under *${matchedProject.project_title}*` : ''}${dueDate ? ` (Due: **${formatDate(dueDate)}**)` : ''}.`,
-        pendingAction: preview,
-      };
+    if (isCreateTaskRequest(q)) {
+      return this.prepareTaskCreation(q, ctx);
     }
 
     // ----------------------------------------------------
@@ -2115,6 +2019,90 @@ export class VoiceQueryEngine {
     return null;
   }
 
+  private prepareTaskCreation(
+    originalQuery: string,
+    ctx: AIToolContext,
+    overrides: TaskCreationOverrides = {},
+  ): AIToolResult {
+    if (isClientRole(ctx.currentProfile.role)) {
+      return {
+        success: false, toolName: 'create_task', error: 'permission_denied',
+        spokenText: 'Client accounts cannot create team tasks.',
+        displayText: '🔒 Task creation is restricted to team members.',
+      };
+    }
+
+    const resolved = resolveTaskCreation(originalQuery, ctx, overrides);
+    if (resolved.kind === 'clarify') {
+      this.memory.pendingDisambiguation = resolved.options;
+      this.memory.pendingDisambiguationContext = {
+        originalQuery,
+        intentType: 'create_task',
+        targetPayload: overrides,
+      };
+      return {
+        success: true, toolName: 'create_task',
+        spokenText: resolved.message, displayText: resolved.message,
+        disambiguation: resolved.options,
+      };
+    }
+    if (resolved.kind === 'error') {
+      return {
+        success: false, toolName: 'create_task', error: resolved.code,
+        spokenText: resolved.message, displayText: resolved.message,
+      };
+    }
+
+    if (resolved.assignee.id !== ctx.currentProfile.id && !isManagerRole(ctx.currentProfile.role)) {
+      return {
+        success: false, toolName: 'create_task', error: 'permission_denied',
+        spokenText: 'Only managers or admins can assign tasks to other team members.',
+        displayText: '🔒 Only managers or admins can assign tasks to another employee.',
+      };
+    }
+
+    const { title, assignee, project, dueDate } = resolved;
+    const preview: AIActionPreview = {
+      actionId: `act-${Date.now()}`,
+      toolName: 'create_task',
+      category: 'safe_write',
+      title: 'Create and Assign Task',
+      description: `Create "${title}" for ${assignee.full_name}`,
+      targetType: 'task',
+      targetTitle: title,
+      assignedToName: assignee.full_name,
+      changes: [
+        { field: 'title', label: 'Task', newValue: title },
+        { field: 'assigned_to', label: 'Assigned To', newValue: assignee.full_name },
+        { field: 'project', label: 'Active Project', newValue: project ? `${project.project_title} (${project.project_number})` : 'No project linked' },
+        ...(dueDate ? [{ field: 'due_date', label: 'Due Date', newValue: formatDate(dueDate) }] : []),
+      ],
+      payload: {
+        title,
+        assignedToId: assignee.id,
+        projectId: project?.id,
+        dueDate,
+        priority: 'Normal',
+      },
+      confirmButtonText: 'Create and Assign Task',
+      cancelButtonText: 'Cancel',
+      spokenPrompt: `Create "${title}" for ${assignee.full_name}${project ? ` in ${project.project_title}` : ''}? Confirm?`,
+    };
+    this.memory.pendingAction = preview;
+
+    return {
+      success: true, toolName: 'create_task', pendingAction: preview,
+      spokenText: preview.spokenPrompt,
+      displayText:
+        '### Review Task Before Creating\\n\\n' +
+        `• **Task:** ${title}\\n` +
+        `• **Assigned To:** ${assignee.full_name}\\n` +
+        `• **Project:** ${project ? `${project.project_title} (${project.project_number})` : 'Not linked'}\\n` +
+        (dueDate ? `• **Due:** ${formatDate(dueDate)}\\n` : '') +
+        '\\n**Confirm** to create and assign this task.',
+    };
+  }
+
   private rememberRecoverableCompletion(result: AIToolResult, originalQuery: string): void {
     if (result.success || !result.error) return;
 
@@ -2422,6 +2410,13 @@ export class VoiceQueryEngine {
     context: any,
     ctx: AIToolContext,
   ): Promise<AIToolResult | null> {
+    if (context?.intentType === 'create_task' && (selected.type === 'employee' || selected.type === 'project')) {
+      const overrides: TaskCreationOverrides = { ...(context.targetPayload || {}) };
+      if (selected.type === 'employee') overrides.employeeId = selected.id;
+      if (selected.type === 'project') overrides.projectId = selected.id;
+      return this.prepareTaskCreation(context.originalQuery, ctx, overrides);
+    }
+
     if (selected.type === 'task' && context?.intentType === 'update_task_status') {
       const task = ctx.data.tasks.find((t) => t.id === selected.id);
       if (task) {

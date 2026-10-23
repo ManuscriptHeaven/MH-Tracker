@@ -8,6 +8,7 @@ import type {
 import type { Project, ProjectStatus } from '../types';
 import { isManagerRole, isClientRole, firstName } from '../utils';
 import { formatDate, todayInput, addDays } from '../date';
+import { isActiveTaskProject, isAssignableTeamMember } from './taskCreationIntent';
 import { createBulkInvoice, getEligibleProjectsForClient } from '../invoiceUtils';
 
 function createAuditLog(
@@ -48,58 +49,85 @@ export async function execute_create_task(
   payload: { title: string; assignedToId?: string; projectId?: string; dueDate?: string; priority?: string; description?: string },
   ctx: AIToolContext,
 ): Promise<AIToolResult> {
+  const reject = (error: string, message: string): AIToolResult => ({
+    success: false,
+    toolName: 'create_task',
+    error,
+    spokenText: message,
+    displayText: `❌ ${message}`,
+  });
+
   if (isClientRole(ctx.currentProfile.role)) {
-    return {
-      success: false,
-      toolName: 'create_task',
-      error: 'permission_denied',
-      spokenText: "I can't create tasks with client permissions.",
-      displayText: "🔒 Task creation is restricted for client accounts.",
-    };
+    return reject('permission_denied', 'Client accounts cannot create tasks.');
   }
 
-  const assignedToId = payload.assignedToId || ctx.currentProfile.id;
-  const assignedProfile = ctx.data.profiles.find((p) => p.id === assignedToId);
-  const assignedName = assignedProfile ? firstName(assignedProfile.full_name) : 'the team';
+  const title = String(payload.title || '').trim();
+  if (title.length < 3) return reject('task_details_required', 'A meaningful task title is required.');
 
-  const project = payload.projectId ? ctx.data.projects.find((p) => p.id === payload.projectId) : null;
-  const projectTitle = project ? project.project_title : '';
+  const assignedToId = payload.assignedToId || ctx.currentProfile.id;
+  const assignedProfile = ctx.data.profiles.find(
+    (profile) => profile.id === assignedToId && isAssignableTeamMember(profile),
+  );
+  if (!assignedProfile) return reject('employee_not_found', 'The selected employee is no longer available.');
+  if (assignedToId !== ctx.currentProfile.id && !isManagerRole(ctx.currentProfile.role)) {
+    return reject('permission_denied', 'Only managers and admins can assign tasks to another employee.');
+  }
+
+  // Re-check the project immediately before writing. A preview can become stale
+  // if a project is closed or becomes inaccessible while awaiting confirmation.
+  const project = payload.projectId
+    ? ctx.visibleProjects.find((item) => item.id === payload.projectId && isActiveTaskProject(item))
+    : undefined;
+  if (payload.projectId && !project) {
+    return reject('project_not_found', 'The linked project is no longer active or accessible. No task was created.');
+  }
+
+  if (!ctx.trackerMutations?.createTask) {
+    return reject('task_creation_unavailable', 'Task creation is not available in this workspace.');
+  }
 
   try {
-    let createdTask: any = null;
-    if (ctx.trackerMutations?.createTask) {
-      createdTask = await ctx.trackerMutations.createTask({
-        title: payload.title,
-        description: payload.description || '',
-        project_id: payload.projectId || null,
-        assigned_to: assignedToId,
-        due_date: payload.dueDate || null,
-        priority: (payload.priority as any) || 'Normal',
-        status: 'To Do',
-      });
+    const createdTask = await ctx.trackerMutations.createTask({
+      title,
+      description: payload.description || '',
+      project_id: project?.id || null,
+      assigned_to: assignedToId,
+      due_date: payload.dueDate || null,
+      priority: (payload.priority as any) || 'Normal',
+      status: 'To Do',
+    });
+
+    if (!createdTask?.id ||
+        createdTask.assigned_to !== assignedToId ||
+        (createdTask.project_id || null) !== (project?.id || null)) {
+      return reject(
+        'task_creation_unverified',
+        'Tracker did not confirm the new task assignment and project link. Please check Tasks before retrying.',
+      );
     }
 
     const audit = createAuditLog(
       ctx,
-      `Created task: "${payload.title}"`,
+      `Created task: "${title}"`,
       'task',
-      undefined,
-      payload.title,
+      createdTask.id,
+      title,
       null,
-      `Assigned to ${assignedName}`,
+      `Assigned to ${assignedProfile.full_name}${project ? ` for ${project.project_title}` : ''}`,
       'success',
     );
-
-    const spoken = `Done. The task "${payload.title}" has been assigned to ${assignedName}.`;
-    const display = `### ✅ Task Created Successfully\n\n• **Task:** ${payload.title}\n• **Assigned To:** ${assignedProfile?.full_name || assignedName}\n${projectTitle ? `• **Project:** ${projectTitle}\n` : ''}${payload.dueDate ? `• **Due Date:** ${formatDate(payload.dueDate)}\n` : ''}• **Status:** To Do`;
 
     return {
       success: true,
       toolName: 'create_task',
-      spokenText: spoken,
-      displayText: display,
+      spokenText: `Task "${title}" was created for ${firstName(assignedProfile.full_name)}${project ? ` in ${project.project_title}` : ''}.`,
+      displayText:
+        `### ✅ Task Created\\n\\n• **Task:** ${title}\\n• **Assigned To:** ${assignedProfile.full_name}\\n` +
+        (project ? `• **Project:** ${project.project_title} (${project.project_number})\\n` : '') +
+        (payload.dueDate ? `• **Due:** ${formatDate(payload.dueDate)}\\n` : '') +
+        '• **Status:** To Do',
       auditLog: audit,
-      data: createdTask || undefined,
+      data: createdTask,
     };
   } catch (err: any) {
     const errorMsg = err?.message || 'Failed to create task.';
@@ -109,7 +137,7 @@ export async function execute_create_task(
       error: errorMsg,
       spokenText: `I couldn't create the task. ${errorMsg}`,
       displayText: `❌ Failed to create task: ${errorMsg}`,
-      auditLog: createAuditLog(ctx, `Create task failed: "${payload.title}"`, 'task', undefined, payload.title, null, null, 'failed', errorMsg),
+      auditLog: createAuditLog(ctx, `Create task failed: "${title}"`, 'task', undefined, title, null, null, 'failed', errorMsg),
     };
   }
 }
