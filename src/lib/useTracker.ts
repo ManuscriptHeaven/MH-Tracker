@@ -11,6 +11,7 @@ import {
 } from './attendanceDailyLedger';
 import { evaluateAttendancePresenceSample } from './attendancePresence';
 import { canConfirmReceivedFiles, canSubmitClientFiles, receivedFilesNote, validateClientFileSubmission, type ReceivedFileSource } from './clientFileSubmission';
+import { validateProjectAttachments } from './projectAttachments';
 import { sampleData, sampleProfiles } from './sampleData';
 import { errorMessage, firstName, isClientRole, isManagerRole } from './utils';
 import { formatWorkflowErrorMessage } from './workflowErrors';
@@ -2734,6 +2735,68 @@ export function useTracker() {
     },
     [currentProfile, data.projects, loadSupabaseData, mode, workflowClient],
   );
+
+  // Add source attachments independently of the Files Received workflow.
+  // Uploading a file must NOT automatically start production or change a stage.
+  // The file metadata is stored alongside client-submitted source files so
+  // existing Project Files & Deliverables viewers can open it securely.
+  const uploadProjectAttachments = useCallback(async (projectId: string, files: File[]) => {
+    if (!currentProfile || !canManageEverything(currentProfile)) {
+      throw new Error('Only managers can attach files during project setup.');
+    }
+    if (!supabase || mode !== 'supabase') {
+      throw new Error('Project attachments require the live workspace.');
+    }
+    const validation = validateProjectAttachments(files);
+    if (validation) throw new Error(validation);
+    if (!files.length) return [];
+    const { data: target, error: targetError } = await supabase
+      .from('projects').select('id').eq('id', projectId).maybeSingle();
+    if (targetError) throw targetError;
+    if (!target) throw new Error('Project was not found or is not accessible.');
+
+    const paths: string[] = [];
+    let metadataInserted = false;
+    try {
+      const metadata: Array<Omit<ProjectInitialFile, 'created_at'>> = [];
+      for (const file of files) {
+        const id = createUuid();
+        const storagePath = `${projectId}/${currentProfile.id}/${id}-${sanitizeProjectSourceFileName(file.name)}`;
+        const { error: uploadError } = await supabase.storage
+          .from('project-source-files')
+          .upload(storagePath, file, {
+            cacheControl: '3600',
+            contentType: file.type || 'application/octet-stream',
+            upsert: false,
+          });
+        if (uploadError) throw uploadError;
+        paths.push(storagePath);
+        metadata.push({
+          id, project_id: projectId, uploaded_by: currentProfile.id,
+          file_name: file.name, file_type: file.type || 'application/octet-stream',
+          file_size: file.size, storage_path: storagePath,
+        });
+      }
+      const { data: rows, error: insertError } = await supabase
+        .from('project_initial_files').insert(metadata).select('*');
+      if (insertError) throw insertError;
+      metadataInserted = true;
+      const saved = (rows || []) as ProjectInitialFile[];
+      if (saved.length !== metadata.length) {
+        throw new Error('Attachment metadata was not confirmed for all files. Check Project Files.');
+      }
+      setData((previous) => ({ ...previous, projectInitialFiles: [...(previous.projectInitialFiles || []), ...saved] }));
+      return saved;
+    } catch (error) {
+      // Never delete the physical files if their metadata may already exist.
+      if (!metadataInserted && paths.length) {
+        const { error: cleanupError } = await supabase.storage
+          .from('project-source-files').remove(paths);
+        if (cleanupError) console.warn('Failed to clean orphaned project attachments:', cleanupError);
+      }
+      throw error;
+    }
+  }, [currentProfile, mode]);
 
   const getProjectInitialFileUrl = useCallback(
     async (file: ProjectInitialFile) => {
@@ -5479,6 +5542,7 @@ export function useTracker() {
     getRevisionAttachmentUrl,
     respondToRevisionRequest,
     submitInitialProjectFiles,
+    uploadProjectAttachments,
     confirmReceivedProjectFiles,
     getProjectInitialFileUrl,
     resolveClientReminder,
