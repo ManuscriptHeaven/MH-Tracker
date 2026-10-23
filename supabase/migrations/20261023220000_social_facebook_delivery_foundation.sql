@@ -190,7 +190,7 @@ revoke execute on function public.social_enqueue_on_schedule()
   from public,anon,authenticated;
 
 -- Worker RPCs are accessible only to service_role. No browser mutation policy.
-create function public.social_server_claim_due(p_limit integer default 5)
+create function public.social_server_claim_due(p_limit integer default 5,p_owner uuid default null)
 returns setof public.social_delivery_jobs
 language plpgsql security definer set search_path='' as $$
 begin
@@ -211,6 +211,7 @@ begin
     join public.social_post_targets t on t.id=j.target_id
     join public.social_post_revisions r on r.id=j.revision_id and r.post_id=t.post_id
     where j.status='queued' and j.scheduled_at<=now()
+      and (p_owner is null or j.owner_id=p_owner)
       and t.status='scheduled'
       and t.channel='facebook'
       and t.approved_revision_id=j.revision_id
@@ -247,9 +248,9 @@ begin
   get diagnostics v_affected=row_count;
   return v_affected=1;
 end $$;
-revoke all on function public.social_server_claim_due(integer) from public,anon,authenticated;
+revoke all on function public.social_server_claim_due(integer,uuid) from public,anon,authenticated;
 revoke all on function public.social_server_complete_delivery(uuid,uuid,text,text,text)
   from public,anon,authenticated;
-grant execute on function public.social_server_claim_due(integer) to service_role;
+grant execute on function public.social_server_claim_due(integer,uuid) to service_role;
 grant execute on function public.social_server_complete_delivery(uuid,uuid,text,text,text)
   to service_role;
