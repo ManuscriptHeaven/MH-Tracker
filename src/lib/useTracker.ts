@@ -2785,7 +2785,7 @@ export function useTracker() {
       if (saved.length !== metadata.length) {
         throw new Error('Attachment metadata was not confirmed for all files. Check Project Files.');
       }
-      setData((previous) => ({ ...previous, projectInitialFiles: [...previous.projectInitialFiles, ...saved] }));
+      setData((previous) => ({ ...previous, projectInitialFiles: [...(previous.projectInitialFiles || []), ...saved] }));
       return saved;
     } catch (error) {
       // Never delete the physical files if their metadata may already exist.
