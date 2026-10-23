@@ -4335,21 +4335,49 @@ export function useTracker() {
       const now = new Date().toISOString();
 
       if (supabase && mode === 'supabase') {
-        const { data: membership, error } = await supabase
+        // First update an existing self-membership. Using UPSERT for every
+        // read receipt can re-run INSERT authorization on an existing row.
+        // Insert only if this user does not yet have a membership.
+        const existing = await supabase
           .from('conversation_members')
-          .upsert(
-            {
+          .update({ last_read_at: now })
+          .eq('conversation_id', conversationId)
+          .eq('user_id', currentProfile.id)
+          .select()
+          .maybeSingle();
+        if (existing.error) throw existing.error;
+
+        let membership = existing.data;
+        if (!membership) {
+          const inserted = await supabase
+            .from('conversation_members')
+            .insert({
               conversation_id: conversationId,
               user_id: currentProfile.id,
               last_read_at: now,
-            },
-            { onConflict: 'conversation_id,user_id' },
-          )
-          .select()
-          .single();
+            })
+            .select()
+            .maybeSingle();
 
-        if (error) throw error;
-        if (!membership) throw new Error('Conversation read receipt returned no membership row.');
+          if (inserted.error) {
+            // A parallel conversation-open action can create the same
+            // membership. Verify exactly this user's row rather than
+            // treating a unique-constraint conflict as successful.
+            if (inserted.error.code !== '23505') throw inserted.error;
+            const retry = await supabase
+              .from('conversation_members')
+              .update({ last_read_at: now })
+              .eq('conversation_id', conversationId)
+              .eq('user_id', currentProfile.id)
+              .select()
+              .maybeSingle();
+            if (retry.error) throw retry.error;
+            membership = retry.data;
+          } else {
+            membership = inserted.data;
+          }
+        }
+        if (!membership) throw new Error('The read receipt was not saved. Please try again.');
 
         const confirmed = membership as ConversationMember;
         setData((prev) => {
@@ -4357,11 +4385,18 @@ export function useTracker() {
           const index = members.findIndex(
             (member) => member.conversation_id === conversationId && member.user_id === currentProfile.id,
           );
+          // Never let an older overlapping read response make a conversation
+          // unread again after a newer read has already been confirmed.
+          const previousRead = index >= 0 ? members[index].last_read_at : null;
+          const newestRead = previousRead && confirmed.last_read_at &&
+            new Date(previousRead).getTime() > new Date(confirmed.last_read_at).getTime()
+            ? previousRead : confirmed.last_read_at;
+          const receipt = { ...confirmed, last_read_at: newestRead };
           return {
             ...prev,
             conversationMembers: index >= 0
-              ? members.map((member, memberIndex) => memberIndex === index ? confirmed : member)
-              : [...members, confirmed],
+              ? members.map((member, memberIndex) => memberIndex === index ? receipt : member)
+              : [...members, receipt],
           };
         });
         return;
