@@ -116,11 +116,13 @@ export function MessageNotificationBell({
 }: {
   currentProfile: Profile;
   data: TrackerData;
-  onMarkRead: (conversationId: string) => void;
+  onMarkRead: (conversationId: string) => Promise<void>;
   onOpenConversation: (conversationId: string) => void;
   onViewAllMessages: () => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [markingAll, setMarkingAll] = useState(false);
+  const [readError, setReadError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const { totalUnreadCount, unreadItems } = useMemo(
@@ -142,15 +144,36 @@ export function MessageNotificationBell({
   }, [isOpen]);
 
   const handleItemClick = (item: UnreadConversationItem) => {
-    onMarkRead(item.conversationId);
     onOpenConversation(item.conversationId);
     setIsOpen(false);
+    void onMarkRead(item.conversationId).catch((error: unknown) => {
+      console.warn('Could not mark opened message as read:', error);
+    });
   };
 
-  const handleMarkAllRead = () => {
-    unreadItems.forEach((item) => {
-      onMarkRead(item.conversationId);
-    });
+  const handleMarkAllRead = async () => {
+    if (markingAll || unreadItems.length === 0) return;
+    setMarkingAll(true);
+    setReadError(null);
+    try {
+      // A bad/stale conversation cannot block successful receipts in the
+      // other conversations. Unlike fire-and-forget, show partial failures.
+      const results = await Promise.allSettled(
+        unreadItems.map((item) => onMarkRead(item.conversationId)),
+      );
+      const failed = results.filter((result) => result.status === 'rejected').length;
+      if (failed > 0) {
+        setReadError(
+          failed === results.length
+            ? 'Could not mark your messages as read. Please try again.'
+            : `${failed} conversation${failed === 1 ? '' : 's'} could not be marked as read. Please retry.`,
+        );
+      } else {
+        setIsOpen(false);
+      }
+    } finally {
+      setMarkingAll(false);
+    }
   };
 
   return (
@@ -178,15 +201,21 @@ export function MessageNotificationBell({
             {totalUnreadCount > 0 ? (
               <button
                 type="button"
-                onClick={handleMarkAllRead}
-                className="flex items-center gap-1 text-xs font-semibold text-gold hover:underline"
+                onClick={() => void handleMarkAllRead()}
+                disabled={markingAll}
+                className="flex items-center gap-1 text-xs font-semibold text-gold hover:underline disabled:cursor-wait disabled:opacity-60"
               >
                 <CheckCheck className="h-3.5 w-3.5" />
-                Mark all read
+                {markingAll ? 'Marking…' : 'Mark all read'}
               </button>
             ) : null}
           </div>
 
+          {readError && (
+            <p role="alert" className="border-b border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-800">
+              {readError}
+            </p>
+          )}
           <div className="max-h-80 overflow-y-auto divide-y divide-border/60">
             {unreadItems.length > 0 ? (
               unreadItems.map((item) => (
