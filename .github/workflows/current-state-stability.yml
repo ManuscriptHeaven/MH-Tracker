@@ -151,8 +151,19 @@ jobs:
           cache: 'pnpm'
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Prevent stale builds overwriting newer releases
+        shell: bash
+        run: |
+          git fetch --quiet origin main
+          if [[ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]]; then
+            echo "::error::A newer main commit exists; refusing to deploy stale build $GITHUB_SHA."
+            exit 1
+          fi
       - name: Build production assets with real Supabase connection
         run: pnpm run build
+      - name: Embed deployed commit marker for public verification
+        shell: bash
+        run: printf '%s\\n' "$GITHUB_SHA" > dist/build-commit.txt
       - name: Publish certified build to Cloudflare Pages
         id: publish
         uses: cloudflare/wrangler-action@v4
@@ -161,6 +172,20 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || '46960ac6c9b58d562d6bc646f3b6b318' }}
           command: pages deploy dist --project-name=mh-tracker --branch=main --commit-hash=${{ github.sha }}
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify production CDN serves exact commit
+        shell: bash
+        run: |
+          for attempt in {1..12}; do
+            actual=$(curl --fail --silent --show-error --max-time 10 "https://mh-tracker.pages.dev/build-commit.txt?verify=$GITHUB_SHA" || true)
+            if [[ "$actual" == "$GITHUB_SHA" ]]; then
+              echo "Verified Cloudflare production serves commit $GITHUB_SHA"
+              exit 0
+            fi
+            echo "Production is still propagating (attempt $attempt/12)."
+            sleep 5
+          done
+          echo "::error::Cloudflare Pages did not verify the intended production commit within the verification window."
+          exit 1
       - name: Record production deployment URL
         env:
           DEPLOYMENT_URL: ${{ steps.publish.outputs.deployment-url }}
