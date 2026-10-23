@@ -31,6 +31,7 @@ import { initials, cn, firstName, isClientRole, isManagerRole } from '../lib/uti
 import type { NotificationItem, Profile, TrackerData } from '../lib/types';
 import { Button, IconButton } from './ui';
 import { NotificationBell } from './NotificationBell';
+import { AttendanceStatusIndicator } from './AttendanceStatusIndicator';
 import { MessageNotificationBell, getUnreadMessagesInfo } from './MessageNotificationBell';
 import { CurrencySelector } from './CurrencySelector';
 import { MobileMoreMenu } from './MobileMoreMenu';
@@ -174,6 +175,7 @@ export function Layout({
   onSignOut,
   onUpdateProfile,
   onOpenConversation,
+  desktopAttendanceCapable,
 }: {
   children: React.ReactNode;
   activeView: ViewKey;
@@ -195,6 +197,7 @@ export function Layout({
     updates: { full_name?: string; avatar_url?: string | null; phone?: string | null }
   ) => Promise<string | void>;
   onOpenConversation?: (conversationId: string) => void;
+  desktopAttendanceCapable: boolean;
 }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [desktopSidebarMinimized, setDesktopSidebarMinimized] = useState<boolean>(() => {
@@ -525,7 +528,10 @@ export function Layout({
                 />
               </label>
 
-              <div className="flex items-center justify-between sm:justify-end gap-1.5 sm:gap-2">
+              <div className="flex flex-wrap items-center justify-between sm:justify-end gap-1.5 sm:gap-2">
+                {!isClient && desktopAttendanceCapable && (
+                  <AttendanceStatusIndicator userId={currentProfile.id} sessions={data.attendanceSessions || []} breaks={data.attendanceBreaks || []} onOpenAttendance={() => setActiveView('attendance')} />
+                )}
                 <IconButton
                   title={soundActive ? 'Message and task notification sounds: On (click to mute)' : 'Message and task notification sounds: Muted (click to enable)'}
                   onClick={() => {
