@@ -154,12 +154,12 @@ export function resolveTaskCreation(
 
   let requestedProject: string | undefined;
   const projectMatch = instruction.match(
-    /\s+(?:for|under|in|linked\s+to|associated\s+with)\s+(?:the\s+)?project(?:\s+(?:named|called|titled))?\s*[:\-]?\s+(.+)$/i,
+    /\s+(?:for|under|in|of|linked\s+to|associated\s+with)\s+(?:the\s+)?project(?:\s+(?:named|called|titled))?\s*[:\-]?\s+(.+)$/i,
   );
   if (projectMatch) {
     requestedProject = projectMatch[1].replace(/[.!?]+$/, '').trim();
     instruction = instruction.slice(0, projectMatch.index).trim();
-  } else if (/\b(?:for|under|in)\s+(?:the\s+)?project\b/i.test(instruction)) {
+  } else if (/\b(?:for|under|in|of)\s+(?:the\s+)?project\b/i.test(instruction)) {
     return { kind: 'error', code: 'project_required', message: 'Please tell me which active project this task belongs to.' };
   }
 
