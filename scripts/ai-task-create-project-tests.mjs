@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { resolveTaskCreation } from '../src/lib/ai/taskCreationIntent.ts';
+import { isCreateTaskRequest, resolveTaskCreation } from '../src/lib/ai/taskCreationIntent.ts';
 import { voiceQueryEngine } from '../src/lib/ai/voiceQueryEngine.ts';
 import { execute_create_task } from '../src/lib/ai/safeActionTools.ts';
 
@@ -18,6 +18,27 @@ const archived = mkProject('p2', 'The Future of Books', 'archived');
 const data = { profiles: [admin, zain], projects: [smart, archived], tasks: [], revisionRequests: [] };
 const ctx = { currentProfile: admin, data, visibleProjects: [smart, archived], visibleTasks: [] };
 const command = 'Create a task for Zen to update the e-book cover for the project named The Smart, The End of Smart';
+
+// Regression for the REAL user screenshot. Earlier tests only covered
+// "Create a task" and missed "Task for Zen ..." falling through to Active Tasks.
+const screenshotCommand = 'Task for Zen to update the ebook cover for the project named The End of Smart.';
+assert.equal(isCreateTaskRequest(screenshotCommand), true, 'spoken task shorthand is a creation intent');
+assert.equal(isCreateTaskRequest('New task for Zen to update the ebook cover for project named The End of Smart'), true);
+assert.equal(isCreateTaskRequest('Task for Zain'), false, 'incomplete task shorthand is not an automatic write');
+assert.equal(isCreateTaskRequest('What tasks are assigned to Zain?'), false, 'read queries remain read-only');
+const screenshotParsed = resolveTaskCreation(screenshotCommand, ctx);
+assert.equal(screenshotParsed.kind, 'ready');
+assert.equal(screenshotParsed.title, 'update the ebook cover');
+assert.equal(screenshotParsed.assignee.id, zain.id);
+assert.equal(screenshotParsed.project.id, smart.id);
+voiceQueryEngine.clearMemory();
+const screenshotRouted = await voiceQueryEngine.processQuery(screenshotCommand, ctx);
+assert.equal(screenshotRouted.toolName, 'create_task', 'full message pipeline must not return Active Tasks');
+assert.equal(screenshotRouted.pendingAction?.toolName, 'create_task', 'shorthand prepares confirmation');
+assert.equal(screenshotRouted.pendingAction?.payload.assignedToId, zain.id);
+assert.equal(screenshotRouted.pendingAction?.payload.projectId, smart.id);
+assert.equal(screenshotRouted.pendingAction?.payload.title, 'update the ebook cover');
+voiceQueryEngine.clearMemory();
 
 const parsed = resolveTaskCreation(command, ctx);
 assert.equal(parsed.kind, 'ready', 'spoken instruction produces a complete task');
