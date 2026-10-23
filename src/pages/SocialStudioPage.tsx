@@ -124,9 +124,8 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
     const currentBrand = brands.find(item => item.id === selectedBrand);
     setBrandBrief(currentBrand?.brief || '');
     setSuggestion(null);
-    setDraftAssetId(null);
-    setEditedAssetId(null);
   }, [brands, selectedBrand]);
+  useEffect(() => { setDraftAssetId(null); setEditedAssetId(null); }, [selectedBrand]);
 
   async function run(action: () => Promise<void>, success: string) {
     setBusy(true);
@@ -156,10 +155,10 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
 
   const visibleFeed = selectedBrand ? feed.filter(item => item.post.brand_id === selectedBrand) : feed;
   const counts = {
-    drafts: feed.filter(item => item.target.status === 'draft').length,
-    review: feed.filter(item => item.target.status === 'in_review').length,
-    approved: feed.filter(item => item.target.status === 'approved').length,
-    scheduled: feed.filter(item => item.target.status === 'scheduled').length,
+    drafts: visibleFeed.filter(item => item.target.status === 'draft').length,
+    review: visibleFeed.filter(item => item.target.status === 'in_review').length,
+    approved: visibleFeed.filter(item => item.target.status === 'approved').length,
+    scheduled: visibleFeed.filter(item => item.target.status === 'scheduled').length,
   };
 
   async function createBrand() {
