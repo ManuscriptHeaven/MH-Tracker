@@ -14,6 +14,10 @@ with check (
   uploaded_by = (select auth.uid())
   and public.phase6_app_actor_class() in ('admin', 'project_manager')
   and public.phase6_team_can_access_project(project_id)
+  and split_part(storage_path, '/', 1) = project_id::text
+  and split_part(storage_path, '/', 2) = (select auth.uid())::text
+  and file_size > 0
+  and file_size <= 104857600
 );
 
 -- Existing select policy grants only members of the linked project access.
