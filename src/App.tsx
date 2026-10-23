@@ -35,6 +35,7 @@ import type { Project, ProjectDraft, ProjectLifecycleStatus, ProjectMetadataUpda
 import { RevisionRequestModal } from './components/RevisionRequestModal';
 import { AttendanceReconciliationAdmin } from './components/AttendanceReconciliationAdmin';
 import { Toast, type ToastData } from './components/Toast';
+import { AttendanceReminder } from './components/AttendanceReminder';
 import { OfflineBanner } from './components/OfflineBanner';
 
 export default function App() {
@@ -256,7 +257,7 @@ export default function App() {
     <CurrencyProvider>
       <AIProvider tracker={tracker} activeView={activeView} selectedProject={selectedProjectFresh}>
         <OfflineBanner />
-        <Layout activeView={activeView} setActiveView={setActiveView} currentProfile={tracker.currentProfile} data={tracker.data} notifications={tracker.visibleNotifications} searchTerm={searchTerm} setSearchTerm={setSearchTerm} onAddProject={openAddProject} onMarkNotificationRead={tracker.markNotificationRead} onMarkAllNotificationsRead={tracker.markAllNotificationsRead} onMarkConversationRead={tracker.markConversationRead} onViewNotifications={() => setActiveView('notifications')} onOpenNotificationProject={openProjectById} onSignOut={tracker.signOut} onUpdateProfile={tracker.updateProfile} onOpenConversation={(conversationId) => { setJumpToConversationId(conversationId); setActiveView('communication'); }}>
+        <Layout activeView={activeView} setActiveView={setActiveView} currentProfile={tracker.currentProfile} data={tracker.data} notifications={tracker.visibleNotifications} searchTerm={searchTerm} setSearchTerm={setSearchTerm} onAddProject={openAddProject} onMarkNotificationRead={tracker.markNotificationRead} onMarkAllNotificationsRead={tracker.markAllNotificationsRead} onMarkConversationRead={tracker.markConversationRead} onViewNotifications={() => setActiveView('notifications')} onOpenNotificationProject={openProjectById} onSignOut={tracker.signOut} onUpdateProfile={tracker.updateProfile} onOpenConversation={(conversationId) => { setJumpToConversationId(conversationId); setActiveView('communication'); }} desktopAttendanceCapable={tracker.desktopAttendanceCapable}>
     {activeView === 'dashboard' && isClient && (
       <ClientPortalPage
         projects={visibleProjects}
@@ -634,6 +635,9 @@ export default function App() {
       </Modal>
     )}
     <Toast toast={toast} onClose={() => setToast(null)} onOpenProject={openProjectById} />
+    {!isClient && tracker.currentProfile && (
+      <AttendanceReminder userId={tracker.currentProfile.id} sessions={tracker.data.attendanceSessions || []} breaks={tracker.data.attendanceBreaks || []} enabled={tracker.desktopAttendanceCapable} />
+    )}
   </Layout>
   {activeView !== 'ai_assistant' && tracker.canManageAll && (
     <>
