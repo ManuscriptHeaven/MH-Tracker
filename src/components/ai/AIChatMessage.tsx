@@ -11,6 +11,7 @@ import { AIInvoiceCard } from './AIInvoiceCard';
 interface AIChatMessageProps {
   message: AIMessage;
   isProcessing?: boolean;
+  dark?: boolean;
   onViewInvoice?: (invoice: Invoice) => void;
 }
 
@@ -41,7 +42,7 @@ function renderInlineMarkdown(text: string) {
   });
 }
 
-function SafeMessageContent({ content }: { content: string }) {
+function SafeMessageContent({ content, dark = false }: { content: string; dark?: boolean }) {
   const lines = (content || '').split('\n');
 
   return (
@@ -55,7 +56,7 @@ function SafeMessageContent({ content }: { content: string }) {
 
         if (trimmed.startsWith('### ')) {
           return (
-            <h4 key={index} className="pt-1 font-display text-sm font-semibold text-[#7a5518]">
+            <h4 key={index} className={cn('pt-1 font-display text-sm font-semibold', dark ? 'text-amber-300' : 'text-[#7a5518]')}>
               {renderInlineMarkdown(trimmed.slice(4))}
             </h4>
           );
@@ -81,7 +82,7 @@ function SafeMessageContent({ content }: { content: string }) {
   );
 }
 
-export function AIChatMessage({ message, isProcessing, onViewInvoice }: AIChatMessageProps) {
+export function AIChatMessage({ message, isProcessing, onViewInvoice, dark = false }: AIChatMessageProps) {
   const { isSpeaking, speakText, stopSpeaking, sendMessage } = useAIContext();
   const isUser = message.role === 'user';
 
@@ -111,14 +112,14 @@ export function AIChatMessage({ message, isProcessing, onViewInvoice }: AIChatMe
           className={cn(
             'rounded-2xl px-4 py-3 text-[13px] leading-6 shadow-xs sm:text-sm',
             isUser
-              ? 'rounded-tr-md bg-ink text-white'
-              : 'rounded-tl-md border border-border bg-white text-ink',
+              ? dark ? 'rounded-tr-md bg-[#29415f] text-white' : 'rounded-tr-md bg-ink text-white'
+              : dark ? 'rounded-tl-md border border-white/10 bg-white/[0.07] text-slate-100' : 'rounded-tl-md border border-border bg-white text-ink',
           )}
         >
           {message.content ? (
-            <SafeMessageContent content={message.content} />
+            <SafeMessageContent content={message.content} dark={dark} />
           ) : isProcessing && !isUser ? (
-            <div className="flex items-center gap-2 py-1 text-xs text-muted">
+            <div className={cn("flex items-center gap-2 py-1 text-xs", dark ? "text-slate-400" : "text-muted")}>
               <div className="flex gap-1">
                 <span className="h-1.5 w-1.5 rounded-full bg-gold animate-bounce" />
                 <span className="h-1.5 w-1.5 rounded-full bg-gold animate-bounce [animation-delay:0.15s]" />
@@ -151,7 +152,7 @@ export function AIChatMessage({ message, isProcessing, onViewInvoice }: AIChatMe
                 key={followUp}
                 type="button"
                 onClick={() => sendMessage(followUp)}
-                className="rounded-full border border-border bg-white px-2.5 py-1 text-[10px] font-semibold text-muted transition hover:border-gold/60 hover:text-ink"
+                className={cn('rounded-full border px-2.5 py-1 text-[10px] font-semibold transition', dark ? 'border-white/15 bg-white/5 text-slate-300 hover:border-gold/50 hover:text-white' : 'border-border bg-white text-muted hover:border-gold/60 hover:text-ink')}
               >
                 {followUp}
               </button>
@@ -161,7 +162,8 @@ export function AIChatMessage({ message, isProcessing, onViewInvoice }: AIChatMe
 
         <div
           className={cn(
-            'mt-1.5 flex items-center gap-2 px-1 text-[10px] text-muted',
+            'mt-1.5 flex items-center gap-2 px-1 text-[10px]',
+            dark ? 'text-slate-400' : 'text-muted',
             isUser ? 'justify-end' : 'justify-between',
           )}
         >
@@ -188,7 +190,7 @@ export function AIChatMessage({ message, isProcessing, onViewInvoice }: AIChatMe
               title={isSpeaking ? 'Stop audio' : 'Play audio'}
               className={cn(
                 'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-semibold transition',
-                isSpeaking ? 'text-danger hover:bg-danger/10' : 'text-[#7a5518] hover:bg-gold/10',
+                isSpeaking ? 'text-danger hover:bg-danger/10' : dark ? 'text-gold hover:bg-white/10' : 'text-[#7a5518] hover:bg-gold/10',
               )}
             >
               {isSpeaking ? <Square className="h-3 w-3 fill-current" /> : <Volume2 className="h-3 w-3" />}
@@ -199,7 +201,7 @@ export function AIChatMessage({ message, isProcessing, onViewInvoice }: AIChatMe
       </div>
 
       {isUser ? (
-        <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gold/25 text-ink shadow-xs">
+        <div className={cn('mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gold/25 shadow-xs', dark ? 'text-gold' : 'text-ink')}>
           <User className="h-4 w-4" />
         </div>
       ) : null}
