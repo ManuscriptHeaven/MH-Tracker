@@ -94,6 +94,9 @@ export function TasksPage({
   currentProfile,
   mode,
   searchTerm,
+  initialTaskId,
+  initialCreate,
+  initialEmployeeId,
   onCreateTask,
   onUpdateTask,
   onArchiveTask,
@@ -120,6 +123,9 @@ export function TasksPage({
   currentProfile: Profile;
   mode: 'personal' | 'team';
   searchTerm: string;
+  initialTaskId?: string;
+  initialCreate?: boolean;
+  initialEmployeeId?: string;
   onCreateTask: (draft: TaskDraft) => Promise<void>;
   onUpdateTask: (taskId: string, updates: Partial<Task>) => Promise<void>;
   onArchiveTask: (taskId: string) => Promise<void>;
@@ -136,17 +142,19 @@ export function TasksPage({
   onCreateSubtask: (parentTaskId: string, draft: TaskDraft) => Promise<void>;
   onSelectProject?: (project: Project) => void;
 }) {
-  const [showAddModal, setShowAddModal] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(Boolean(initialCreate && mode === 'team'));
   const [draft, setDraft] = useState<TaskDraft>(() => defaultDraft(currentProfile));
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() =>
+    mode === 'team' && initialTaskId && tasks.some((task) => task.id === initialTaskId) ? initialTaskId : null,
+  );
   const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   
   const [quickFilter, setQuickFilter] = useState<TaskQuickFilter>('active');
   const [sortBy, setSortBy] = useState<TaskSort>('attention');
-  const [employeeFilter, setEmployeeFilter] = useState<string>('all');
+  const [employeeFilter, setEmployeeFilter] = useState<string>(mode === 'team' && initialEmployeeId ? initialEmployeeId : 'all');
   const [projectFilter, setProjectFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
 

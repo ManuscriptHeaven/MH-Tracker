@@ -68,7 +68,7 @@ assert(
 assert(
   dashboard.includes('Needs Attention') &&
     dashboard.includes('Team Workload'),
-  'secondary dashboard information is organized into a focused right rail',
+  'projects keep a Needs Attention section, while team work moves to a dedicated dashboard view',
 );
 
 assert(
