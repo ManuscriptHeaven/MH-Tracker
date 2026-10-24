@@ -11,14 +11,14 @@ import {
 } from 'lucide-react';
 import { ProjectTimelineCompact } from '../components/ProjectTimeline';
 import { Button, Card } from '../components/ui';
-import { UserAvatar } from '../components/UserAvatar';
+import { OperationsOverview } from '../components/OperationsOverview';
 import { closedStatuses } from '../lib/constants';
 import { formatDate } from '../lib/date';
 import { getTimelineSummary } from '../lib/timeline';
 import { canConfirmReceivedFiles } from '../lib/clientFileSubmission';
-import { firstName, isClientRole } from '../lib/utils';
+import { firstName } from '../lib/utils';
 import { useCurrency } from '../lib/currency';
-import type { Profile, Project } from '../lib/types';
+import type { AttendanceBreak, AttendanceSession, Profile, Project, Task } from '../lib/types';
 
 type QuickFilter =
   | 'all'
@@ -159,21 +159,35 @@ function SummaryCard({
 export function DashboardPage({
   projects,
   profiles,
+  tasks,
+  attendanceSessions,
+  attendanceBreaks,
   canViewPayments,
   canManageProjects,
   currentProfileId,
   onAddProject,
   onSelectProject,
   onConfirmReceivedFiles,
+  onOpenTask,
+  onAssignTask,
+  onViewTeamTasks,
+  onViewMemberTasks,
 }: {
   projects: Project[];
   profiles: Profile[];
+  tasks: Task[];
+  attendanceSessions: AttendanceSession[];
+  attendanceBreaks: AttendanceBreak[];
   canViewPayments: boolean;
   canManageProjects: boolean;
   currentProfileId: string;
   onAddProject: () => void;
   onSelectProject: (project: Project) => void;
   onConfirmReceivedFiles?: (project: Project) => void;
+  onOpenTask: (taskId: string) => void;
+  onAssignTask: () => void;
+  onViewTeamTasks: () => void;
+  onViewMemberTasks: (profileId: string) => void;
 }) {
   const { formatMoney } = useCurrency();
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
@@ -263,21 +277,6 @@ export function DashboardPage({
     })
     .slice(0, 5);
 
-  const workload = profiles
-    .filter((profile) => !isClientRole(profile.role))
-    .map((profile) => {
-      const assigned = filteredActiveProjects.filter(
-        (project) => project.assigned_to === profile.id,
-      );
-      return {
-        profile,
-        active: assigned.length,
-        overdue: assigned.filter(isStageOverdue).length,
-      };
-    })
-    .filter(({ active, overdue }) => active > 0 || overdue > 0)
-    .sort((a, b) => b.active - a.active);
-
   const quickFilters: Array<{ id: QuickFilter; label: string; count: number }> = [
     { id: 'all', label: 'Active', count: filteredActiveProjects.length },
     { id: 'in_progress', label: 'In Progress', count: inProgressProjects.length },
@@ -341,6 +340,21 @@ export function DashboardPage({
           />
         )}
       </section>
+
+      {/* Team Workload and priority tasks are part of the shared Operations dashboard. */}
+      {canManageProjects ? (
+        <OperationsOverview
+          projects={projects}
+          profiles={profiles}
+          tasks={tasks}
+          attendanceSessions={attendanceSessions}
+          attendanceBreaks={attendanceBreaks}
+          onOpenTask={onOpenTask}
+          onAssignTask={onAssignTask}
+          onViewTeamTasks={onViewTeamTasks}
+          onViewMemberTasks={onViewMemberTasks}
+        />
+      ) : null}
 
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.7fr)]">
         {/* Active Projects */}
@@ -589,34 +603,7 @@ export function DashboardPage({
             </div>
           </Card>
 
-          {canManageProjects ? (
-            <Card className="rounded-2xl p-4 sm:p-5">
-              <div>
-                <h2 className="font-display text-lg font-semibold text-ink sm:text-xl">Team Workload</h2>
-                <p className="mt-0.5 text-xs text-muted">Active projects currently assigned.</p>
-              </div>
 
-              <div className="mt-4 space-y-3.5">
-                {workload.length ? (
-                  workload.slice(0, 6).map(({ profile, active, overdue }) => (
-                    <div key={profile.id} className="flex items-center gap-3">
-                      <UserAvatar profile={profile} size="sm" showRoleRing />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="truncate text-xs font-semibold text-ink">{profile.full_name}</p>
-                          <span className="shrink-0 text-[10px] font-semibold text-muted">{active} active</span>
-                        </div>
-                        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-linen">
-                          <div
-                            className="h-full rounded-full bg-gold"
-                            style={{ width: `${Math.min(Math.max(active, 1) * 16, 100)}%` }}
-                          />
-                        </div>
-                        {overdue > 0 ? (
-                          <p className="mt-1 text-[10px] font-semibold text-rose-600">
-                            {overdue} overdue
-                          </p>
-                        ) : null}
                       </div>
                     </div>
                   ))
