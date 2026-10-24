@@ -74,7 +74,17 @@ const dashboard = fs.readFileSync('src/pages/DashboardPage.tsx', 'utf8');
 const overview = fs.readFileSync('src/components/OperationsOverview.tsx', 'utf8');
 const app = fs.readFileSync('src/App.tsx', 'utf8');
 const tasksPage = fs.readFileSync('src/pages/TasksPage.tsx', 'utf8');
-assert.ok(dashboard.includes('<OperationsOverview'), 'operations are embedded in the existing dashboard');
+assert.ok(dashboard.includes("useState<'projects' | 'operations'>('projects')"), 'projects view is the default');
+assert.ok(dashboard.includes('role="group" aria-label="Dashboard views"'), 'there is a labelled switch for dashboards');
+assert.ok(dashboard.includes("aria-pressed={dashboardView === 'projects'}") &&
+  dashboard.includes("aria-pressed={dashboardView === 'operations'}"), 'view switch exposes active selection');
+assert.ok(dashboard.includes("{dashboardView === 'projects' || !canManageProjects ? (") &&
+  dashboard.includes('<OperationsOverview'), 'operations occupy a mutually exclusive full-width view');
+assert.ok(dashboard.includes('operationsSnapshot.attentionTasks.length') &&
+  dashboard.includes('setDashboardView(\'operations\')'), 'projects view links to team task alerts');
+assert.ok(dashboard.includes('setQuickFilter(\'overdue\'); setDashboardView(\'projects\')'), 'operations links to overdue projects');
+assert.ok(dashboard.includes('bg-[#fffdf9]') && dashboard.includes('bg-[#f4f7fc]'), 'projects and operations are visually distinct');
+assert.ok(!dashboard.includes('xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.7fr)]'), 'projects are not squeezed beside a competing operations rail');
 assert.ok(overview.includes('Tasks Requiring Action') && overview.includes('Team Workload'), 'both work views are visible');
 assert.ok(app.includes('onAssignTask={() => navigateToTeamTasks({ create: true })}'), 'assign task links to existing workflow');
 assert.ok(app.includes('initialTaskId={dashboardTaskIntent?.taskId}'), 'priority tasks deep-link to task detail');
