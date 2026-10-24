@@ -42,6 +42,7 @@ import { OfflineBanner } from './components/OfflineBanner';
 export default function App() {
   const tracker = useTracker();
   const [activeView, setActiveView] = useState<ViewKey>('dashboard');
+  const [dashboardTaskIntent, setDashboardTaskIntent] = useState<{ taskId?: string; assigneeId?: string; create?: boolean } | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [receivedFilesProjectId, setReceivedFilesProjectId] = useState<string | null>(null);
@@ -64,6 +65,10 @@ export default function App() {
     ? visibleProjects.find((project) => project.id === selectedProject.id) || null
     : null, [selectedProject, visibleProjects]);
   const deliveredProjects = visibleProjects.filter((project) => project.status === 'Delivered' || project.status === 'Completed');
+
+  useEffect(() => {
+    if (activeView !== 'team_tasks') setDashboardTaskIntent(null);
+  }, [activeView]);
 
   useEffect(() => {
     if (!tracker.notificationToast) return;
@@ -109,6 +114,11 @@ export default function App() {
       setToast({ message: errorMessage(error, 'Project could not be saved.'), tone: 'error' });
       throw error;
     }
+  }
+
+  function navigateToTeamTasks(intent: { taskId?: string; assigneeId?: string; create?: boolean } | null = null) {
+    setDashboardTaskIntent(intent);
+    setActiveView('team_tasks');
   }
 
   function openAddProject() { setEditingProject(null); setShowProjectForm(true); }
@@ -301,7 +311,25 @@ export default function App() {
         onSubmitFiles={(project) => openClientProject(project, 'files')}
       />
     )}
-    {activeView === 'dashboard' && !isClient && <DashboardPage projects={visibleProjects} profiles={tracker.data.profiles} canViewPayments={tracker.canManageAll} canManageProjects={tracker.canManageAll} currentProfileId={tracker.currentProfile.id} onAddProject={openAddProject} onSelectProject={setSelectedProject} onConfirmReceivedFiles={tracker.mode === 'supabase' ? (project) => setReceivedFilesProjectId(project.id) : undefined} />}
+    {activeView === 'dashboard' && !isClient && (
+      <DashboardPage
+        projects={visibleProjects}
+        profiles={tracker.data.profiles}
+        tasks={tracker.canManageAll ? tracker.teamTasks : tracker.visibleTasks}
+        attendanceSessions={tracker.data.attendanceSessions || []}
+        attendanceBreaks={tracker.data.attendanceBreaks || []}
+        canViewPayments={tracker.canManageAll}
+        canManageProjects={tracker.canManageAll}
+        currentProfileId={tracker.currentProfile.id}
+        onAddProject={openAddProject}
+        onSelectProject={setSelectedProject}
+        onConfirmReceivedFiles={tracker.mode === 'supabase' ? (project) => setReceivedFilesProjectId(project.id) : undefined}
+        onOpenTask={(taskId) => navigateToTeamTasks({ taskId })}
+        onAssignTask={() => navigateToTeamTasks({ create: true })}
+        onViewTeamTasks={() => navigateToTeamTasks()}
+        onViewMemberTasks={(assigneeId) => navigateToTeamTasks({ assigneeId })}
+      />
+    )}
     {activeView === 'ai_assistant' && tracker.canManageAll && (
       <ErrorBoundary>
         <AIAssistantPage projects={visibleProjects} currentProfile={tracker.currentProfile} />
@@ -313,7 +341,7 @@ export default function App() {
     {activeView === 'projects' && isClient && <ClientProjectsPage projects={visibleProjects} searchTerm={searchTerm} onSelectProject={openClientProject} onSubmitFiles={(project) => openClientProject(project, 'files')} onGetProjectFileUrl={tracker.getProjectFileUrl} />}
     {activeView === 'projects' && !isClient && <ProjectsPage {...pageProps} />}
     {activeView === 'my_tasks' && <TasksPage {...taskPageProps} mode="personal" tasks={tracker.visibleTasks} />}
-    {activeView === 'team_tasks' && tracker.canManageAll && <TasksPage {...taskPageProps} mode="team" tasks={tracker.teamTasks} />}
+    {activeView === 'team_tasks' && tracker.canManageAll && <TasksPage {...taskPageProps} mode="team" tasks={tracker.teamTasks} initialTaskId={dashboardTaskIntent?.taskId} initialCreate={dashboardTaskIntent?.create} initialEmployeeId={dashboardTaskIntent?.assigneeId} />}
     {activeView === 'communication' && (
       <CommunicationPage
         currentProfile={tracker.currentProfile}
