@@ -70,7 +70,7 @@ function defaultDraft(currentProfile: Profile, canonical: boolean): ProjectDraft
     platform: 'Amazon KDP',
     assigned_to: null,
     project_manager:
-      currentProfile.role === 'project_manager' || currentProfile.role === 'manager' ? currentProfile.id : null,
+      currentProfile.role === 'admin' || currentProfile.role === 'project_manager' || currentProfile.role === 'manager' ? currentProfile.id : null,
     priority: 'Normal',
     start_date: startDate,
     due_date: estimatedDueDate,
