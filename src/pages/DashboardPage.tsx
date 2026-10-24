@@ -602,19 +602,6 @@ export function DashboardPage({
               )}
             </div>
           </Card>
-
-
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="rounded-xl border border-dashed border-border p-4 text-center text-xs text-muted">
-                    No active assignments right now.
-                  </p>
-                )}
-              </div>
-            </Card>
-          ) : null}
         </div>
       </section>
     </div>
