@@ -88,7 +88,10 @@ export function AIAssistantPage({
   const [input, setInput] = useState('');
   const [viewingInvoice, setViewingInvoice] = useState<Invoice | null>(null);
   const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [commandsOpen, setCommandsOpen] = useState(false);
+  const [commandSearch, setCommandSearch] = useState('');
+  const [recentCommands, setRecentCommands] = useState<string[]>([]);
+  const messageScrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
 
   const canManage = isManagerRole(currentProfile.role);
@@ -248,7 +251,10 @@ export function AIAssistantPage({
 
   useEffect(() => {
     if (activeTab === 'chat') {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      const scrollContainer = messageScrollRef.current;
+      if (scrollContainer) {
+        scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior: 'smooth' });
+      }
     }
   }, [messages, isProcessing, liveTranscript, activeTab]);
 
@@ -286,73 +292,472 @@ export function AIAssistantPage({
     startNewConversation();
     setActiveTab('chat');
     setMobileHistoryOpen(false);
+    setCommandsOpen(false);
     requestAnimationFrame(() => composerRef.current?.focus());
   }
 
-  const assistantState = isListening
-    ? 'Listening'
-    : isSpeaking
-      ? 'Speaking'
-      : isProcessing
-        ? 'Working'
-        : 'Ready';
+  function runQuickCommand(query: string) {
+    setRecentCommands((current) => [query, ...current.filter((item) => item !== query)].slice(0, 4));
+    setActiveTab('chat');
+    setCommandsOpen(false);
+    void sendMessage(query);
+  }
+
+  const visibleCommands = quickCommands.filter((command) =>
+    (command.label + ' ' + command.description).toLowerCase().includes(commandSearch.trim().toLowerCase()),
+  );
+
+  const assistantState = voiceError
+    ? 'Error'
+    : isListening
+      ? 'Listening'
+      : isSpeaking
+        ? 'Speaking'
+        : isProcessing
+          ? 'Thinking'
+          : 'Ready';
+
+  const voiceIsActive = isListening || isSpeaking || isProcessing;
+  const voiceStateColor = voiceError
+    ? 'text-rose-300 bg-rose-400/10 border-rose-400/30'
+    : isListening
+      ? 'text-cyan-300 bg-cyan-400/10 border-cyan-400/30'
+      : isSpeaking
+        ? 'text-emerald-300 bg-emerald-400/10 border-emerald-400/30'
+        : isProcessing
+          ? 'text-amber-300 bg-amber-400/10 border-amber-400/30'
+          : 'text-slate-300 bg-white/5 border-white/15';
 
   return (
-    <div className="mx-auto w-full max-w-[1500px] space-y-5 p-0 sm:space-y-6">
-      {/* Page heading */}
-      <section className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#8b6f38]">
-            <Sparkles className="h-3.5 w-3.5" />
-            Live Workspace Intelligence
+    <div className="mx-auto w-full max-w-[1660px] space-y-4 pb-8">
+      {/* AI Assistant Dashboard V2: keep the existing AI context, permissions, and action confirmations. */}
+      <header className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#0d1524] px-5 py-5 text-white shadow-xl shadow-black/10 sm:px-7">
+        <div className="pointer-events-none absolute -right-12 -top-20 h-56 w-56 rounded-full bg-cyan-500/10 blur-3xl" aria-hidden="true" />
+        <div className="relative flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-gold">
+              <Sparkles className="h-3.5 w-3.5" />
+              Live Workspace Intelligence
+            </div>
+            <h1 className="mt-1 font-display text-2xl font-bold sm:text-3xl">AI Command Center <span className="text-gold">V2</span></h1>
+            <p className="mt-1 text-xs text-slate-400 sm:text-sm">
+              {userName}, speak, chat, or launch a safe workflow from one workspace.
+            </p>
           </div>
-          <h1 className="mt-1 font-display text-2xl font-bold text-ink sm:text-3xl">
-            AI Command Center
-          </h1>
-          <p className="mt-1 text-sm text-muted">
-            {userName}, ask about live Tracker data or preview safe actions before anything changes.
-          </p>
+          <div className="flex items-center gap-2">
+            <span className={cn('inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold', voiceStateColor)} aria-live="polite">
+              <span className={cn('h-2 w-2 rounded-full', isListening ? 'animate-pulse bg-cyan-300' : isSpeaking ? 'animate-pulse bg-emerald-300' : isProcessing ? 'animate-pulse bg-amber-300' : voiceError ? 'bg-rose-400' : 'bg-slate-400')} />
+              {assistantState}
+            </span>
+            <button type="button" onClick={() => setCommandsOpen(true)} className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 text-xs font-semibold text-white xl:hidden">
+              <FolderKanban className="h-4 w-4 text-gold" /> Commands
+            </button>
+            <button
+              type="button"
+              onClick={toggleMute}
+              title={isMuted ? 'Unmute assistant voice' : 'Mute assistant voice'}
+              className="grid h-10 w-10 place-items-center rounded-xl border border-white/15 bg-white/5 text-slate-200 hover:bg-white/10"
+            >
+              {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+            </button>
+          </div>
         </div>
+      </header>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setMobileHistoryOpen((value) => !value)}
-            className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-border bg-white px-3 text-xs font-semibold text-ink shadow-xs lg:hidden"
-          >
-            <History className="h-4 w-4 text-gold" />
-            Chats
-            {conversations.length > 0 ? (
-              <span className="rounded-full bg-linen px-1.5 py-0.5 text-[10px] text-muted">
-                {conversations.length}
-              </span>
+      {commandsOpen ? (
+        <button type="button" aria-label="Close commands" onClick={() => setCommandsOpen(false)}
+          className="fixed inset-0 z-[80] bg-black/70 xl:hidden" />
+      ) : null}
+
+      <section aria-label="AI Assistant V2 workspace" className="grid min-w-0 gap-4 lg:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)] xl:grid-cols-[250px_minmax(290px,0.82fr)_minmax(360px,1.18fr)]">
+        {/* Left: role-aware commands and saved conversations */}
+        <aside className={cn(
+          'min-w-0 flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#111c2b] text-slate-100 shadow-2xl shadow-black/10',
+          commandsOpen ? 'fixed inset-x-3 bottom-3 top-16 z-[81] flex' : 'hidden',
+          'xl:relative xl:inset-auto xl:flex xl:max-h-[820px]',
+        )}>
+          <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
+            <div>
+              <h2 className="text-sm font-bold">Quick Commands</h2>
+              <p className="mt-0.5 text-[10px] text-slate-400">Your frequent MH workflows</p>
+            </div>
+            <button type="button" onClick={() => setCommandsOpen(false)} className="rounded-lg p-2 text-slate-400 hover:bg-white/10 xl:hidden" aria-label="Close commands">
+              <MicOff className="h-4 w-4" />
+            </button>
+            <ShieldCheck className="hidden h-4 w-4 text-gold xl:block" aria-label="Confirmation protected" />
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-3">
+            <label htmlFor="ai-v2-command-search" className="sr-only">Search quick commands</label>
+            <input
+              id="ai-v2-command-search"
+              type="search"
+              value={commandSearch}
+              onChange={(event) => setCommandSearch(event.target.value)}
+              placeholder="Search commands..."
+              className="h-10 w-full rounded-xl border border-white/10 bg-white/5 px-3 text-xs text-white outline-none placeholder:text-slate-500 focus:border-cyan-400/50"
+            />
+            <p className="mb-2 mt-4 px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Pinned commands</p>
+            <div className="space-y-1.5">
+              {visibleCommands.length ? visibleCommands.map((command) => {
+                const Icon = command.icon;
+                return (
+                  <button key={command.label + command.query} type="button" onClick={() => runQuickCommand(command.query)}
+                    className="group flex w-full items-start gap-2.5 rounded-xl border border-transparent bg-white/[0.035] px-3 py-2.5 text-left transition hover:border-gold/30 hover:bg-white/10">
+                    <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-gold/10 text-gold"><Icon className="h-3.5 w-3.5" /></span>
+                    <span className="min-w-0">
+                      <span className="block text-xs font-semibold text-slate-100">{command.label}</span>
+                      <span className="mt-0.5 block text-[10px] leading-relaxed text-slate-400">{command.description}</span>
+                    </span>
+                  </button>
+                );
+              }) : <p className="px-3 py-4 text-xs text-slate-400">No commands match your search.</p>}
+            </div>
+            {recentCommands.length ? (
+              <div className="mt-4 border-t border-white/10 pt-3">
+                <p className="mb-2 px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Recent commands</p>
+                {recentCommands.map((query) => (
+                  <button type="button" key={query} onClick={() => runQuickCommand(query)}
+                    className="mb-1 block w-full truncate rounded-lg px-2.5 py-2 text-left text-[11px] text-slate-300 hover:bg-white/10">
+                    {query}
+                  </button>
+                ))}
+              </div>
             ) : null}
-          </button>
+            <div className="mt-4 border-t border-white/10 pt-3">
+              <button type="button" onClick={() => setMobileHistoryOpen((value) => !value)}
+                aria-expanded={mobileHistoryOpen}
+                className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-xs font-bold text-slate-200 hover:bg-white/10">
+                <span className="flex items-center gap-2"><History className="h-3.5 w-3.5 text-gold" /> Conversation History</span>
+                <span className="text-[10px] font-normal text-slate-400">{conversations.length}</span>
+              </button>
+              {mobileHistoryOpen ? (
+                <div className="mt-1 max-h-52 space-y-1 overflow-y-auto">
+                  <button type="button" onClick={handleNewConversation} className="flex w-full items-center gap-2 rounded-lg border border-gold/20 px-3 py-2 text-xs text-gold hover:bg-white/10">
+                    <Plus className="h-3.5 w-3.5" /> New Conversation
+                  </button>
+                  {conversations.map((conversation) => (
+                    <button key={conversation.id} type="button"
+                      onClick={() => { void switchConversation(conversation.id); setActiveTab('chat'); setCommandsOpen(false); }}
+                      className={cn('w-full rounded-lg px-3 py-2 text-left transition',
+                        conversation.id === activeConversationId ? 'bg-gold/15 text-white' : 'text-slate-300 hover:bg-white/10')}>
+                      <span className="block truncate text-[11px] font-semibold">{conversation.title || 'New Conversation'}</span>
+                      <span className="block text-[10px] text-slate-500">{conversationDate(conversation.updatedAt)}</span>
+                    </button>
+                  ))}
+                  {conversations.length === 0 ? <p className="px-3 py-2 text-[11px] text-slate-500">No saved conversations yet.</p> : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
+          <div className="border-t border-white/10 px-4 py-3 text-[10px] text-slate-400">Live data · write actions require confirmation</div>
+        </aside>
 
-          <span
-            className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-border bg-white px-3 text-xs font-semibold text-muted"
-            title="The microphone is off until you press Speak."
-          >
-            <MicOff className="h-4 w-4" />
-            Click to Speak
-          </span>
+        {/* Center: manual, state-driven voice experience */}
+        <section aria-label="Voice control" className="relative flex min-h-[540px] min-w-0 flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0c1727] px-5 py-5 text-white shadow-2xl shadow-black/10">
+          <div className="pointer-events-none absolute left-1/2 top-1/3 h-80 w-80 -translate-x-1/2 rounded-full bg-cyan-500/[0.065] blur-3xl" aria-hidden="true" />
+          <div className="relative flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-gold">MH Voice Intelligence</p>
+              <h2 className="mt-1 text-base font-semibold">Voice Command Center</h2>
+            </div>
+            <span className={cn('rounded-full border px-2.5 py-1 text-[10px] font-bold', voiceStateColor)}>{assistantState}</span>
+          </div>
 
-          <button
-            type="button"
-            onClick={toggleMute}
-            className={cn(
-              'grid h-10 w-10 place-items-center rounded-xl border bg-white transition',
-              isMuted
-                ? 'border-rose-200 text-rose-600'
-                : 'border-border text-muted hover:border-gold/50 hover:text-ink',
-            )}
-            title={isMuted ? 'Unmute assistant voice' : 'Mute assistant voice'}
-          >
-            {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-          </button>
+          <div className="relative flex flex-1 flex-col items-center justify-center py-8 text-center">
+            <div className="relative grid h-60 w-60 place-items-center" aria-hidden="true">
+              <div className={cn('absolute inset-0 rounded-full border transition-all duration-500',
+                voiceError ? 'border-rose-500/30' : isListening ? 'border-cyan-400/40 motion-safe:animate-pulse' : isSpeaking ? 'border-emerald-400/40 motion-safe:animate-pulse' : isProcessing ? 'border-amber-400/30 motion-safe:animate-pulse' : 'border-white/10')} />
+              <div className={cn('absolute inset-5 rounded-full border shadow-[0_0_65px_rgba(34,211,238,0.09)] transition-all duration-500',
+                voiceError ? 'border-rose-400/50 bg-rose-500/10' : isListening ? 'border-cyan-300/60 bg-cyan-500/10 motion-safe:animate-pulse' : isSpeaking ? 'border-emerald-300/60 bg-emerald-500/10 motion-safe:animate-pulse' : isProcessing ? 'border-amber-300/50 bg-amber-500/10 motion-safe:animate-pulse' : 'border-cyan-300/20 bg-cyan-500/5')} />
+              <div className="absolute inset-11 rounded-full border border-white/10 bg-gradient-to-br from-[#1d3a4e] via-[#14253b] to-[#0b1626] shadow-inner" />
+              <div className={cn('relative grid h-24 w-24 place-items-center rounded-full border border-white/10 bg-white/5',
+                voiceIsActive && !voiceError ? 'motion-safe:animate-pulse' : '')}>
+                {isListening ? <Mic className="h-11 w-11 text-cyan-200" /> :
+                  isSpeaking ? <Volume2 className="h-11 w-11 text-emerald-200" /> :
+                  isProcessing ? <Sparkles className="h-11 w-11 text-amber-200" /> :
+                  voiceError ? <AlertTriangle className="h-11 w-11 text-rose-300" /> :
+                  <Bot className="h-11 w-11 text-gold" />}
+              </div>
+            </div>
+            <div className="mt-1 flex h-8 items-center justify-center gap-1.5" aria-hidden="true">
+              {[3, 6, 4, 8, 5, 7, 3, 6, 4].map((height, index) => (
+                <span key={index} className={cn('w-1.5 rounded-full transition-all duration-300',
+                  isListening ? 'bg-cyan-400 motion-safe:animate-pulse' : isSpeaking ? 'bg-emerald-400 motion-safe:animate-pulse' : isProcessing ? 'bg-amber-400 motion-safe:animate-pulse' : 'bg-slate-600')}
+                  style={{ height: voiceIsActive ? height * 3 : 6, animationDelay: index * 90 + 'ms' }} />
+              ))}
+            </div>
+            <h3 aria-live="polite" className="mt-3 text-lg font-semibold">
+              {voiceError ? 'Microphone needs attention' : isListening ? 'Listening…' : isSpeaking ? 'Speaking…' : isProcessing ? 'Thinking…' : 'Click to Speak'}
+            </h3>
+            <p className="mt-1 max-w-xs text-xs leading-relaxed text-slate-400">
+              {isListening ? 'Speak your request clearly. Your transcript will appear below.' :
+                isSpeaking ? 'The assistant is reading its response. Stop audio at any time.' :
+                isProcessing ? 'Reviewing your request and current workspace data.' :
+                'The microphone stays off until you click Speak.'}
+            </p>
+          </div>
+
+          <div className="relative space-y-3">
+            <div className="min-h-16 rounded-2xl border border-white/10 bg-white/5 p-3" aria-live="polite">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Live transcript</p>
+              <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-slate-200">{liveTranscript || (isListening ? 'Listening for your request…' : 'Your words will appear here when you speak.')}</p>
+            </div>
+            {voiceError ? (
+              <div className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200" role="alert">
+                {voiceError}
+                <button type="button" onClick={clearVoiceError} className="ml-2 font-bold underline">Dismiss</button>
+              </div>
+            ) : null}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button type="button" onClick={handleVoiceToggle} disabled={isProcessing}
+                className={cn('inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50',
+                  isListening ? 'bg-rose-500 text-white hover:bg-rose-400' : 'bg-gold text-[#102035] hover:bg-amber-300')}>
+                {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                {isListening ? 'Stop Listening' : 'Click to Speak'}
+              </button>
+              <button type="button" onClick={() => { stopVoice(); stopSpeaking(); }} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 text-sm font-semibold text-slate-200 hover:bg-white/10">
+                <MicOff className="h-4 w-4" /> {isSpeaking ? 'Stop Speaking' : 'Sleep / Stop'}
+              </button>
+            </div>
+            <div className="flex flex-wrap justify-center gap-1.5 pb-1">
+              {quickCommands.slice(0, 3).map((command) => (
+                <button key={command.label} type="button" onClick={() => runQuickCommand(command.query)} className="rounded-full border border-white/10 px-2.5 py-1.5 text-[10px] text-slate-300 hover:border-gold/40 hover:text-gold">
+                  {command.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Right: persistent conversation, action previews, and activity */}
+        {/* Chat / Activity workspace */}
+        <div className="flex h-[min(76vh,820px)] min-h-[590px] min-w-0 flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#101927] shadow-2xl shadow-black/20">
+          <div className="flex flex-col gap-3 border-b border-white/10 bg-[#172234] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="grid h-10 w-10 place-items-center rounded-xl bg-ink text-gold shadow-xs">
+                <Bot className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="font-display text-base font-bold text-slate-100">MH AI Assistant</h2>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-400/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-300">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    {assistantState}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-[11px] text-slate-400">
+                  Live data · write actions require confirmation
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 rounded-xl bg-white/5 p-1">
+              <button
+                type="button"
+                onClick={() => setActiveTab('chat')}
+                className={cn(
+                  'inline-flex min-h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition',
+                  activeTab === 'chat'
+                    ? 'bg-white/15 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-white',
+                )}
+              >
+                <MessageSquare className="h-3.5 w-3.5" />
+                Assistant
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('activity')}
+                className={cn(
+                  'inline-flex min-h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition',
+                  activeTab === 'activity'
+                    ? 'bg-white/15 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-white',
+                )}
+              >
+                <History className="h-3.5 w-3.5" />
+                Activity
+                {auditLogs.length > 0 ? (
+                  <span className="rounded-full bg-gold/15 px-1.5 py-0.5 text-[9px] text-[#7a5518]">
+                    {auditLogs.length}
+                  </span>
+                ) : null}
+              </button>
+            </div>
+          </div>
+
+          {activeTab === 'activity' ? (
+            <div className="min-h-0 flex-1 overflow-hidden bg-[#101927]">
+              <AIActivityHistory />
+            </div>
+          ) : (
+            <>
+              <div ref={messageScrollRef} className="min-h-0 flex-1 overflow-y-auto bg-[#101927] px-3 py-5 sm:px-4">
+                <div className="mx-auto w-full max-w-4xl space-y-5">
+                  {messages.length === 0 ? (
+                    <div className="flex min-h-[380px] flex-col items-center justify-center text-center">
+                      <div className="grid h-14 w-14 place-items-center rounded-2xl bg-gold/15 text-[#7a5518]">
+                        <Sparkles className="h-6 w-6" />
+                      </div>
+                      <h3 className="mt-4 font-display text-lg font-bold text-white">
+                        What should we work on?
+                      </h3>
+                      <p className="mt-1 max-w-md text-xs leading-relaxed text-slate-400 sm:text-sm">
+                        Ask about projects, deadlines, team workload, finance, invoices, or preview a
+                        safe action. Nothing is changed until a write action is confirmed.
+                      </p>
+
+                      <div className="mt-5 grid w-full max-w-2xl gap-2 sm:grid-cols-2">
+                        {quickCommands.slice(0, 4).map((command) => {
+                          const Icon = command.icon;
+                          return (
+                            <button
+                              key={command.label}
+                              type="button"
+                              onClick={() => void sendMessage(command.query)}
+                              className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-3 text-left text-slate-200 transition hover:border-gold/50 hover:bg-white/10"
+                            >
+                              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gold/15 text-gold">
+                                <Icon className="h-4 w-4" />
+                              </span>
+                              <span className="min-w-0">
+                                <span className="block text-xs font-bold text-white">{command.label}</span>
+                                <span className="mt-0.5 block text-[10px] leading-relaxed text-slate-400">
+                                  {command.description}
+                                </span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    messages.map((message) => (
+                      <AIChatMessage
+                       dark
+                        key={message.id}
+                        message={message}
+                        onViewInvoice={setViewingInvoice}
+                      />
+                    ))
+                  )}
+
+                  {isProcessing ? (
+                    <AIChatMessage
+                       dark
+                      message={{
+                        id: 'ai-processing',
+                        conversationId: activeConversationId || '',
+                        role: 'assistant',
+                        content: '',
+                        createdAt: new Date().toISOString(),
+                      }}
+                      isProcessing
+                    />
+                  ) : null}
+
+                  {isListening && liveTranscript ? (
+                    <div className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
+                      <span className="font-bold text-cyan-300">Hearing:</span>{' '}
+                      “{liveTranscript}”
+                    </div>
+                  ) : null}
+
+                  {voiceError ? (
+                    <div className="flex items-start justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>{voiceError}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={clearVoiceError}
+                        className="font-bold hover:underline"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  ) : null}
+
+                  <div />
+                </div>
+              </div>
+
+              <div className="border-t border-white/10 bg-[#172234] p-3 sm:p-4">
+                <div className="mx-auto w-full max-w-4xl">
+                  <div className="rounded-2xl border border-white/15 bg-white/5 transition focus-within:border-cyan-400/50 focus-within:ring-2 focus-within:ring-cyan-400/10">
+                    <div className="flex items-end gap-2 p-2">
+                      <button
+                        type="button"
+                        onClick={handleVoiceToggle}
+                        className={cn(
+                          'grid h-10 w-10 shrink-0 place-items-center rounded-xl transition',
+                          isListening
+                            ? 'bg-rose-600 text-white shadow-rose-200 animate-pulse'
+                            : 'bg-white/10 text-gold hover:bg-gold/20',
+                        )}
+                        title={isListening ? 'Stop listening' : 'Speak to assistant'}
+                      >
+                        {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                      </button>
+
+                      <textarea
+                        ref={composerRef}
+                        rows={1}
+                        value={input}
+                        disabled={isProcessing}
+                        onChange={(event) => {
+                          setInput(event.target.value);
+                          event.currentTarget.style.height = 'auto';
+                          event.currentTarget.style.height =
+                            Math.min(event.currentTarget.scrollHeight, 140) + 'px';
+                        }}
+                        onKeyDown={handleComposerKeyDown}
+                        placeholder={
+                          isListening
+                            ? 'Listening…'
+                            : 'Ask about projects, finance, team workload, or preview an action…'
+                        }
+                        className="min-h-10 max-h-[140px] flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-5 text-slate-100 outline-none placeholder:text-slate-500"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={handleSubmit}
+                        disabled={!input.trim() || isProcessing}
+                        className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gold text-[#111827] transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-35"
+                        title="Send"
+                      >
+                        <SendHorizontal className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-1.5 flex items-center justify-between gap-3 px-1 text-[10px] text-slate-400">
+                    <span>Enter to send · Shift+Enter for a new line</span>
+                    <button
+                      type="button"
+                      onClick={clearConversation}
+                      className="font-semibold text-gold hover:underline"
+                    >
+                      Start fresh chat
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
+
       </section>
 
+      {/* Existing intelligence, briefing and finance signals remain accessible without crowding voice/chat. */}
+      <details className="group rounded-2xl border border-border bg-white shadow-xs">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-bold text-ink">
+          <span className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-gold" /> Workspace Intelligence &amp; Briefing</span>
+          <span className="text-xs font-normal text-muted">Expand for alerts, metrics and recommendations</span>
+        </summary>
+        <div className="space-y-4 border-t border-border p-4 sm:p-5">
       <AIOperatorIntelligencePanel />
 
       {dailySummary ? (
@@ -528,345 +933,9 @@ export function AIAssistantPage({
         })}
       </section>
 
-      {/* Workspace */}
-      <section className="grid min-h-[650px] gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
-        {/* Saved conversation rail */}
-        <aside
-          className={cn(
-            'overflow-hidden rounded-2xl border border-border bg-white shadow-xs',
-            mobileHistoryOpen ? 'block' : 'hidden',
-            'lg:block',
-          )}
-        >
-          <div className="border-b border-border p-3.5">
-            <button
-              type="button"
-              onClick={handleNewConversation}
-              className="flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-ink px-3 text-xs font-bold text-white transition hover:bg-ink/90"
-            >
-              <Plus className="h-4 w-4 text-gold" />
-              New Conversation
-            </button>
-          </div>
 
-          <div className="px-3 pb-2 pt-3">
-            <div className="flex items-center justify-between gap-2 px-1">
-              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
-                Conversation History
-              </p>
-              <span className="text-[10px] text-muted">{conversations.length}</span>
-            </div>
-          </div>
-
-          <div className="max-h-[565px] space-y-1.5 overflow-y-auto px-2.5 pb-3">
-            {conversations.length ? (
-              conversations.map((conversation) => {
-                const active = conversation.id === activeConversationId;
-                return (
-                  <button
-                    key={conversation.id}
-                    type="button"
-                    onClick={() => {
-                      void switchConversation(conversation.id);
-                      setActiveTab('chat');
-                      setMobileHistoryOpen(false);
-                    }}
-                    className={cn(
-                      'w-full rounded-xl px-3 py-2.5 text-left transition',
-                      active
-                        ? 'bg-gold/15 ring-1 ring-gold/30'
-                        : 'hover:bg-black/[0.035]',
-                    )}
-                  >
-                    <div className="flex items-start gap-2.5">
-                      <MessageSquare
-                        className={cn(
-                          'mt-0.5 h-3.5 w-3.5 shrink-0',
-                          active ? 'text-[#7a5518]' : 'text-muted',
-                        )}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-xs font-semibold text-ink">
-                          {conversation.title || 'New Conversation'}
-                        </p>
-                        <p className="mt-0.5 text-[10px] text-muted">
-                          {conversationDate(conversation.updatedAt)}
-                        </p>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })
-            ) : (
-              <div className="rounded-xl border border-dashed border-border bg-[#faf9f6] p-5 text-center">
-                <History className="mx-auto h-5 w-5 text-muted/40" />
-                <p className="mt-2 text-xs font-semibold text-ink">No saved chats yet</p>
-                <p className="mt-1 text-[10px] leading-relaxed text-muted">
-                  Your AI conversations will appear here automatically.
-                </p>
-              </div>
-            )}
-          </div>
-        </aside>
-
-        {/* Chat / Activity workspace */}
-        <div className="flex min-h-[650px] min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-[#fcfbf8] shadow-xs">
-          <div className="flex flex-col gap-3 border-b border-border bg-white px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-            <div className="flex items-center gap-3">
-              <div className="grid h-10 w-10 place-items-center rounded-xl bg-ink text-gold shadow-xs">
-                <Bot className="h-5 w-5" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="font-display text-base font-bold text-ink">MH AI Assistant</h2>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-700">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    {assistantState}
-                  </span>
-                </div>
-                <p className="mt-0.5 text-[11px] text-muted">
-                  Live data · write actions require confirmation
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1 rounded-xl bg-linen p-1">
-              <button
-                type="button"
-                onClick={() => setActiveTab('chat')}
-                className={cn(
-                  'inline-flex min-h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition',
-                  activeTab === 'chat'
-                    ? 'bg-white text-ink shadow-xs'
-                    : 'text-muted hover:text-ink',
-                )}
-              >
-                <MessageSquare className="h-3.5 w-3.5" />
-                Assistant
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('activity')}
-                className={cn(
-                  'inline-flex min-h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition',
-                  activeTab === 'activity'
-                    ? 'bg-white text-ink shadow-xs'
-                    : 'text-muted hover:text-ink',
-                )}
-              >
-                <History className="h-3.5 w-3.5" />
-                Activity
-                {auditLogs.length > 0 ? (
-                  <span className="rounded-full bg-gold/15 px-1.5 py-0.5 text-[9px] text-[#7a5518]">
-                    {auditLogs.length}
-                  </span>
-                ) : null}
-              </button>
-            </div>
-          </div>
-
-          {activeTab === 'activity' ? (
-            <div className="min-h-0 flex-1 overflow-hidden bg-white">
-              <AIActivityHistory />
-            </div>
-          ) : (
-            <>
-              <div className="min-h-0 flex-1 overflow-y-auto px-3 py-5 sm:px-5 lg:px-7">
-                <div className="mx-auto w-full max-w-4xl space-y-5">
-                  {messages.length === 0 ? (
-                    <div className="flex min-h-[380px] flex-col items-center justify-center text-center">
-                      <div className="grid h-14 w-14 place-items-center rounded-2xl bg-gold/15 text-[#7a5518]">
-                        <Sparkles className="h-6 w-6" />
-                      </div>
-                      <h3 className="mt-4 font-display text-lg font-bold text-ink">
-                        What should we work on?
-                      </h3>
-                      <p className="mt-1 max-w-md text-xs leading-relaxed text-muted sm:text-sm">
-                        Ask about projects, deadlines, team workload, finance, invoices, or preview a
-                        safe action. Nothing is changed until a write action is confirmed.
-                      </p>
-
-                      <div className="mt-5 grid w-full max-w-2xl gap-2 sm:grid-cols-2">
-                        {quickCommands.slice(0, 4).map((command) => {
-                          const Icon = command.icon;
-                          return (
-                            <button
-                              key={command.label}
-                              type="button"
-                              onClick={() => void sendMessage(command.query)}
-                              className="flex items-start gap-3 rounded-xl border border-border bg-white p-3 text-left transition hover:border-gold/60 hover:bg-gold/[0.04]"
-                            >
-                              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-linen text-[#7a5518]">
-                                <Icon className="h-4 w-4" />
-                              </span>
-                              <span className="min-w-0">
-                                <span className="block text-xs font-bold text-ink">{command.label}</span>
-                                <span className="mt-0.5 block text-[10px] leading-relaxed text-muted">
-                                  {command.description}
-                                </span>
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : (
-                    messages.map((message) => (
-                      <AIChatMessage
-                        key={message.id}
-                        message={message}
-                        onViewInvoice={setViewingInvoice}
-                      />
-                    ))
-                  )}
-
-                  {isProcessing ? (
-                    <AIChatMessage
-                      message={{
-                        id: 'ai-processing',
-                        conversationId: activeConversationId || '',
-                        role: 'assistant',
-                        content: '',
-                        createdAt: new Date().toISOString(),
-                      }}
-                      isProcessing
-                    />
-                  ) : null}
-
-                  {isListening && liveTranscript ? (
-                    <div className="rounded-xl border border-gold/30 bg-gold/10 px-3 py-2 text-xs text-ink">
-                      <span className="font-bold text-[#7a5518]">Hearing:</span>{' '}
-                      “{liveTranscript}”
-                    </div>
-                  ) : null}
-
-                  {voiceError ? (
-                    <div className="flex items-start justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
-                      <div className="flex items-start gap-2">
-                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                        <span>{voiceError}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={clearVoiceError}
-                        className="font-bold hover:underline"
-                      >
-                        Dismiss
-                      </button>
-                    </div>
-                  ) : null}
-
-                  <div ref={messagesEndRef} />
-                </div>
-              </div>
-
-              <div className="border-t border-border bg-white p-3 sm:p-4">
-                <div className="mx-auto w-full max-w-4xl">
-                  <div className="rounded-2xl border border-border bg-white shadow-xs transition focus-within:border-gold focus-within:ring-2 focus-within:ring-gold/10">
-                    <div className="flex items-end gap-2 p-2">
-                      <button
-                        type="button"
-                        onClick={handleVoiceToggle}
-                        className={cn(
-                          'grid h-10 w-10 shrink-0 place-items-center rounded-xl transition',
-                          isListening
-                            ? 'bg-rose-600 text-white shadow-rose-200 animate-pulse'
-                            : 'bg-gold/20 text-[#7a5518] hover:bg-gold/30',
-                        )}
-                        title={isListening ? 'Stop listening' : 'Speak to assistant'}
-                      >
-                        {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                      </button>
-
-                      <textarea
-                        ref={composerRef}
-                        rows={1}
-                        value={input}
-                        disabled={isProcessing}
-                        onChange={(event) => {
-                          setInput(event.target.value);
-                          event.currentTarget.style.height = 'auto';
-                          event.currentTarget.style.height =
-                            Math.min(event.currentTarget.scrollHeight, 140) + 'px';
-                        }}
-                        onKeyDown={handleComposerKeyDown}
-                        placeholder={
-                          isListening
-                            ? 'Listening…'
-                            : 'Ask about projects, finance, team workload, or preview an action…'
-                        }
-                        className="min-h-10 max-h-[140px] flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-5 text-ink outline-none placeholder:text-muted/60"
-                      />
-
-                      <button
-                        type="button"
-                        onClick={handleSubmit}
-                        disabled={!input.trim() || isProcessing}
-                        className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-ink text-white transition hover:bg-ink/90 disabled:cursor-not-allowed disabled:opacity-35"
-                        title="Send"
-                      >
-                        <SendHorizontal className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-1.5 flex items-center justify-between gap-3 px-1 text-[10px] text-muted">
-                    <span>Enter to send · Shift+Enter for a new line</span>
-                    <button
-                      type="button"
-                      onClick={clearConversation}
-                      className="font-semibold text-[#7a5518] hover:underline"
-                    >
-                      Start fresh chat
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
         </div>
-      </section>
-
-      {/* Quick command library */}
-      <section className="rounded-2xl border border-border bg-white p-4 shadow-xs sm:p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="font-display text-lg font-semibold text-ink">Quick Commands</h2>
-            <p className="mt-0.5 text-xs text-muted">
-              Common live-data questions and safe actions for your current role.
-            </p>
-          </div>
-          <div className="hidden items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 sm:flex">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            Confirmation protected
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
-          {quickCommands.map((command) => {
-            const Icon = command.icon;
-            return (
-              <button
-                key={command.label + command.query}
-                type="button"
-                onClick={() => void sendMessage(command.query)}
-                className="group flex items-start gap-3 rounded-xl border border-border bg-[#fcfbf8] p-3.5 text-left transition hover:border-gold/60 hover:bg-gold/[0.045]"
-              >
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white text-[#7a5518] shadow-xs transition group-hover:bg-gold/15">
-                  <Icon className="h-4 w-4" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-xs font-bold text-ink">{command.label}</span>
-                  <span className="mt-0.5 block text-[10px] leading-relaxed text-muted">
-                    {command.description}
-                  </span>
-                </span>
-                <ChevronRight className="mt-1 h-3.5 w-3.5 shrink-0 text-muted/50 group-hover:text-[#7a5518]" />
-              </button>
-            );
-          })}
-        </div>
-      </section>
+      </details>
 
       {viewingInvoice ? (
         <InvoiceModal invoice={viewingInvoice} onClose={() => setViewingInvoice(null)} />
