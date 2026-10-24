@@ -7,17 +7,19 @@ import {
   Clock3,
   FolderOpen,
   Plus,
+  Users,
   Sparkles,
 } from 'lucide-react';
 import { ProjectTimelineCompact } from '../components/ProjectTimeline';
 import { Button, Card } from '../components/ui';
 import { OperationsOverview } from '../components/OperationsOverview';
 import { closedStatuses } from '../lib/constants';
-import { formatDate } from '../lib/date';
+import { formatDate, todayInput } from '../lib/date';
 import { getTimelineSummary } from '../lib/timeline';
 import { canConfirmReceivedFiles } from '../lib/clientFileSubmission';
 import { firstName } from '../lib/utils';
 import { useCurrency } from '../lib/currency';
+import { buildOperationsSnapshot } from '../lib/operationsInsights';
 import type { AttendanceBreak, AttendanceSession, Profile, Project, Task } from '../lib/types';
 
 type QuickFilter =
@@ -191,8 +193,15 @@ export function DashboardPage({
 }) {
   const { formatMoney } = useCurrency();
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
+  const [dashboardView, setDashboardView] = useState<'projects' | 'operations'>('projects');
   const currentProfile = profiles.find((profile) => profile.id === currentProfileId);
   const canConfirmFiles = (project: Project) => Boolean(onConfirmReceivedFiles && currentProfile && canConfirmReceivedFiles(project, currentProfile));
+
+  // Reuse the same task visibility and urgency rules as the Operations Dashboard.
+  const today = todayInput();
+  const operationsSnapshot = useMemo(() => buildOperationsSnapshot({
+    tasks, profiles, projects, attendanceSessions, attendanceBreaks, today,
+  }), [tasks, profiles, projects, attendanceSessions, attendanceBreaks, today]);
 
   const isRevision = (project: Project) =>
     project.status === 'In Revision' || project.stage_status === 'REVISION_ACTIVE';
@@ -275,7 +284,7 @@ export function DashboardPage({
       const bDue = getTimelineSummary(b).dueDate || getTimelineSummary(b).finalDueDate || '9999-12-31';
       return new Date(aDue).getTime() - new Date(bDue).getTime();
     })
-    .slice(0, 5);
+    .slice(0, 4);
 
   const quickFilters: Array<{ id: QuickFilter; label: string; count: number }> = [
     { id: 'all', label: 'Active', count: filteredActiveProjects.length },
@@ -295,7 +304,61 @@ export function DashboardPage({
 
   return (
     <div className="space-y-5 sm:space-y-6">
-      {/* Compact dashboard summary */}
+      {canManageProjects ? (
+        <div className="flex flex-col gap-3 rounded-2xl border border-border bg-white p-2 shadow-xs sm:flex-row sm:items-center sm:justify-between">
+          <div role="group" aria-label="Dashboard views" className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1 sm:inline-flex">
+            <button
+              type="button"
+              aria-pressed={dashboardView === 'projects'}
+              onClick={() => setDashboardView('projects')}
+              className={`flex min-h-10 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 ${
+                dashboardView === 'projects'
+                  ? 'bg-[#fff9ed] text-[#775016] shadow-sm ring-1 ring-amber-200'
+                  : 'text-muted hover:bg-white/70 hover:text-ink'
+              }`}
+            >
+              <FolderOpen className="h-4 w-4" /> Projects
+            </button>
+            <button
+              type="button"
+              aria-pressed={dashboardView === 'operations'}
+              onClick={() => setDashboardView('operations')}
+              className={`flex min-h-10 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
+                dashboardView === 'operations'
+                  ? 'bg-[#edf4ff] text-blue-800 shadow-sm ring-1 ring-blue-200'
+                  : 'text-muted hover:bg-white/70 hover:text-ink'
+              }`}
+            >
+              <Users className="h-4 w-4" /> Operations
+            </button>
+          </div>
+          {dashboardView === 'projects' && operationsSnapshot.attentionTasks.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setDashboardView('operations')}
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-amber-800 transition hover:bg-amber-50 sm:justify-start"
+            >
+              <AlertTriangle className="h-3.5 w-3.5" />
+              {operationsSnapshot.attentionTasks.length} team task{operationsSnapshot.attentionTasks.length === 1 ? '' : 's'} need action
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          ) : dashboardView === 'operations' && overdueProjects.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => { setQuickFilter('overdue'); setDashboardView('projects'); }}
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 sm:justify-start"
+            >
+              <AlertTriangle className="h-3.5 w-3.5" />
+              {overdueProjects.length} overdue project{overdueProjects.length === 1 ? '' : 's'}
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {dashboardView === 'projects' || !canManageProjects ? (
+        <div className="space-y-5 sm:space-y-6">
+          {/* Compact dashboard summary */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <SummaryCard
           label="Active Projects"
@@ -341,24 +404,9 @@ export function DashboardPage({
         )}
       </section>
 
-      {/* Team Workload and priority tasks are part of the shared Operations dashboard. */}
-      {canManageProjects ? (
-        <OperationsOverview
-          projects={projects}
-          profiles={profiles}
-          tasks={tasks}
-          attendanceSessions={attendanceSessions}
-          attendanceBreaks={attendanceBreaks}
-          onOpenTask={onOpenTask}
-          onAssignTask={onAssignTask}
-          onViewTeamTasks={onViewTeamTasks}
-          onViewMemberTasks={onViewMemberTasks}
-        />
-      ) : null}
-
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.7fr)]">
+      <section className="space-y-5">
         {/* Active Projects */}
-        <Card className="overflow-hidden rounded-2xl p-0">
+        <Card className="overflow-hidden rounded-2xl border-amber-200/70 bg-[#fffdf9] p-0">
           <div className="border-b border-border px-4 py-4 sm:px-5 lg:px-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -410,7 +458,7 @@ export function DashboardPage({
           {/* Desktop project table */}
           <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[820px] table-fixed border-separate border-spacing-0 text-left text-sm">
-              <thead className="bg-[#fcfbf8]">
+              <thead className="bg-[#fdf7eb]">
                 <tr className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
                   <th className="w-[31%] border-b border-border px-5 py-3">Project</th>
                   <th className="w-[13%] border-b border-border px-3 py-3">Status</th>
@@ -492,7 +540,7 @@ export function DashboardPage({
           </div>
 
           {/* Mobile project cards */}
-          <div className="space-y-3 bg-[#faf9f6]/60 p-3 md:hidden">
+          <div className="space-y-3 bg-[#fffaf0]/60 p-3 md:hidden">
             {visibleProjects.length ? (
               visibleProjects.map((project) => (
                 <div key={project.id}>
@@ -549,7 +597,7 @@ export function DashboardPage({
           </div>
         </Card>
 
-        {/* Secondary dashboard rail */}
+        {/* Project Needs Attention remains in the Projects Dashboard; Team Workload has its own full-width Operations Dashboard. */}
         <div className="space-y-5">
           <Card className="rounded-2xl p-4 sm:p-5">
             <div className="flex items-center justify-between gap-3">
@@ -562,7 +610,7 @@ export function DashboardPage({
               </div>
             </div>
 
-            <div className="mt-4 space-y-2.5">
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {urgentProjects.length ? (
                 urgentProjects.map((project) => (
                   <button
@@ -588,9 +636,6 @@ export function DashboardPage({
                                 : finalDueText(project)}
                       </span>
                     </div>
-                    <div className="mt-3">
-                      <ProjectTimelineCompact project={project} />
-                    </div>
                   </button>
                 ))
               ) : (
@@ -604,6 +649,22 @@ export function DashboardPage({
           </Card>
         </div>
       </section>
+        </div>
+      ) : (
+        <div className="rounded-2xl bg-[#f4f7fc] p-3 sm:p-5">
+          <OperationsOverview
+            projects={projects}
+            profiles={profiles}
+            tasks={tasks}
+            attendanceSessions={attendanceSessions}
+            attendanceBreaks={attendanceBreaks}
+            onOpenTask={onOpenTask}
+            onAssignTask={onAssignTask}
+            onViewTeamTasks={onViewTeamTasks}
+            onViewMemberTasks={onViewMemberTasks}
+          />
+        </div>
+      )}
     </div>
   );
 }
