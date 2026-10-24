@@ -53,7 +53,7 @@ export function OperationsOverview({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-display text-xl font-semibold text-ink sm:text-2xl">Operations Overview</h2>
-          <p className="text-xs text-muted sm:text-sm">Live assignments, team presence and tasks that need action—on your existing dashboard.</p>
+          <p className="text-xs text-muted sm:text-sm">Live assignments, team presence, and priority work in one dedicated view.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={onViewTeamTasks}>
