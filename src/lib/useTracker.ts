@@ -3378,13 +3378,13 @@ export function useTracker() {
     const previous = (data.taskIncentives || []).find((item) => item.task_id === taskId);
     if (previous?.status === 'approved') throw new Error('This bonus is approved and cannot be edited.');
     if (!supabase || mode !== 'supabase') throw new Error('Task incentive requires a certified Supabase database.');
-    const payload = previous
-      ? { employee_id: employeeId, amount }
-      : { task_id: taskId, employee_id: employeeId, amount, currency: 'USD', status: 'draft', created_by: currentProfile.id };
-    const query = previous
-      ? supabase.from('task_incentives').update(payload).eq('task_id', taskId)
-      : supabase.from('task_incentives').insert(payload);
-    const { data: saved, error } = await query.select('*').single();
+    const { data: saved, error } = previous
+      ? await supabase.from('task_incentives').update({ employee_id: employeeId, amount })
+          .eq('task_id', taskId).select('*').single()
+      : await supabase.from('task_incentives').insert({
+          task_id: taskId, employee_id: employeeId, amount, currency: 'USD',
+          status: 'draft', created_by: currentProfile.id,
+        }).select('*').single();
     if (error) throw error;
     setData((old) => ({
       ...old,
