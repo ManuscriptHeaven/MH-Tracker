@@ -49,6 +49,9 @@ as $$
  from public.profiles p where p.id=auth.uid() limit 1
 $$;
 
+alter table public.profiles enable row level security;
+create policy ci_profiles_select on public.profiles for select to authenticated
+ using (id=auth.uid() or public.phase6_app_actor_class()='admin');
 alter table public.tasks enable row level security;
 alter table public.employee_ledger enable row level security;
 create policy ci_tasks_select on public.tasks for select to authenticated
@@ -69,6 +72,7 @@ create policy ci_ledger_admin_delete on public.employee_ledger for delete to aut
 grant usage on schema public,auth to authenticated,anon;
 grant execute on function auth.uid() to authenticated,anon;
 grant execute on function public.phase6_app_actor_class() to authenticated,anon;
+grant select on public.profiles to authenticated;
 grant select,update on public.tasks to authenticated;
 grant select,insert,delete on public.employee_ledger to authenticated;
 
