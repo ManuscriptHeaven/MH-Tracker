@@ -71,6 +71,7 @@ export function AddPayrollEntryModal({
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [payrollMonth, setPayrollMonth] = useState(initialMonth.slice(0, 7));
   const [paymentMethod, setPaymentMethod] = useState<string>('Bank Transfer');
+  const [advancePurpose, setAdvancePurpose] = useState<'salary' | 'loan'>('salary');
   const [projectId, setProjectId] = useState('');
   const [description, setDescription] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -107,6 +108,7 @@ export function AddPayrollEntryModal({
         project_id: projectId || null,
         description: description.trim() || undefined,
         status: entryType === 'Payment' ? 'Paid' : 'Pending',
+        reference: entryType === 'Advance' ? (advancePurpose === 'salary' ? 'SALARY_ADVANCE' : 'EMPLOYEE_LOAN') : null,
         notes: description.trim() || `${selectedTypeInfo.label} recorded for ${formatMonthLabel(payrollMonth)}`,
         paid_at: date,
       });
@@ -244,6 +246,14 @@ export function AddPayrollEntryModal({
             </SelectField>
           ) : null}
         </div>
+
+        {entryType === 'Advance' && (
+          <SelectField label="Advance type" value={advancePurpose}
+            onChange={(event) => setAdvancePurpose(event.target.value as 'salary' | 'loan')}>
+            <option value="salary">Salary prepayment — reduce this month's outstanding</option>
+            <option value="loan">Employee loan — repay through separate deductions</option>
+          </SelectField>
+        )}
 
         {/* 5. Description / Note */}
         <Field
