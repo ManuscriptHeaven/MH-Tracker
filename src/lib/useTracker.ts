@@ -72,6 +72,7 @@ import type {
   TaskComment,
   TaskDependency,
   TaskDraft,
+  TaskIncentive,
   TrackerData,
   FinanceBudget,
   FinanceTransaction,
@@ -1060,6 +1061,10 @@ export function useTracker() {
             .order('due_date', { ascending: true, nullsFirst: false })
             .order('created_at', { ascending: false }),
         );
+    // Prices are never fetched with tasks or by Manager/Employee roles.
+    const taskIncentivesPromise = profile.role === 'admin'
+      ? optionalV2Select<TaskIncentive>(supabase.from('task_incentives').select('*'))
+      : emptyResult;
     const taskAssigneesPromise = profileIsClient
       ? emptyResult
       : optionalV2Select<TaskAssignee>(supabase.from('task_assignees').select('*').order('assigned_at'));
@@ -1160,6 +1165,7 @@ export function useTracker() {
       projectClientRemindersRes,
       projectDelayMetricsRes,
       tasksRes,
+      taskIncentivesRes,
       taskAssigneesRes,
       taskCommentsRes,
       taskChecklistRes,
@@ -1195,6 +1201,7 @@ export function useTracker() {
       projectClientRemindersPromise,
       projectDelayMetricsPromise,
       tasksPromise,
+      taskIncentivesPromise,
       taskAssigneesPromise,
       taskCommentsPromise,
       taskChecklistPromise,
@@ -1261,6 +1268,7 @@ export function useTracker() {
         internal_overdue_seconds: Number(item.internal_overdue_seconds || 0),
       })),
       tasks: (tasksRes.data as Partial<Task>[]).map(normalizeTask),
+      taskIncentives: taskIncentivesRes.data as TaskIncentive[],
       taskAssignees: taskAssigneesRes.data as TaskAssignee[],
       taskComments: taskCommentsRes.data as TaskComment[],
       taskChecklistItems: taskChecklistRes.data as TaskChecklistItem[],
@@ -3357,6 +3365,48 @@ export function useTracker() {
       ...previous, taskDependencies: previous.taskDependencies.filter((item) => item.id !== dependencyId),
     }));
   }, [mode]);
+
+  const saveTaskIncentive = useCallback(async (taskId: string, employeeId: string, amount: number) => {
+    if (currentProfile?.role !== 'admin') throw new Error('Only Admin can set task bonus amounts.');
+    if (!Number.isFinite(amount) || amount <= 0 || Math.round(amount * 100) !== amount * 100) {
+      throw new Error('Enter a positive USD amount with no more than two decimal places.');
+    }
+    const existingTask = data.tasks.find((task) => task.id === taskId);
+    if (!existingTask?.project_id || existingTask.assigned_to !== employeeId) {
+      throw new Error('Assign the task to a production employee and link it to a project first.');
+    }
+    const previous = (data.taskIncentives || []).find((item) => item.task_id === taskId);
+    if (previous?.status === 'approved') throw new Error('This bonus is approved and cannot be edited.');
+    if (!supabase || mode !== 'supabase') throw new Error('Task incentive requires a certified Supabase database.');
+    const payload = previous
+      ? { employee_id: employeeId, amount }
+      : { task_id: taskId, employee_id: employeeId, amount, currency: 'USD', status: 'draft', created_by: currentProfile.id };
+    const query = previous
+      ? supabase.from('task_incentives').update(payload).eq('task_id', taskId)
+      : supabase.from('task_incentives').insert(payload);
+    const { data: saved, error } = await query.select('*').single();
+    if (error) throw error;
+    setData((old) => ({
+      ...old,
+      taskIncentives: [...(old.taskIncentives || []).filter((item) => item.task_id !== taskId), saved as TaskIncentive],
+    }));
+  }, [currentProfile, data.tasks, data.taskIncentives, mode]);
+
+  const approveTaskIncentive = useCallback(async (taskId: string) => {
+    if (currentProfile?.role !== 'admin') throw new Error('Only Admin can approve task earnings.');
+    const task = data.tasks.find((item) => item.id === taskId);
+    const incentive = (data.taskIncentives || []).find((item) => item.task_id === taskId);
+    if (!task || task.status !== 'Done' || !incentive || incentive.status !== 'draft') {
+      throw new Error('Complete and review the task, then save a proposed bonus before approval.');
+    }
+    if (task.assigned_to !== incentive.employee_id) throw new Error('Assignee changed. Update the bonus recipient before approval.');
+    if (!supabase || mode !== 'supabase') throw new Error('Task bonus approval requires Supabase.');
+    // The database trigger validates the task and inserts the immutable ledger row atomically.
+    const { error } = await supabase.from('task_incentives').update({ status: 'approved' })
+      .eq('task_id', taskId).eq('status', 'draft').select('task_id').single();
+    if (error) throw error;
+    await loadSupabaseData(currentProfile);
+  }, [currentProfile, data.tasks, data.taskIncentives, loadSupabaseData, mode]);
 
   const createSubtask = useCallback(async (parentTaskId: string, draft: TaskDraft) => {
     const parent = data.tasks.find((item) => item.id === parentTaskId);
@@ -5571,6 +5621,8 @@ export function useTracker() {
     addTaskDependency,
     removeTaskDependency,
     createSubtask,
+    saveTaskIncentive,
+    approveTaskIncentive,
     inviteClient,
     provisionClient,
     provisionTeamMember,
