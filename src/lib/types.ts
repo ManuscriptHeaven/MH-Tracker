@@ -562,6 +562,21 @@ export interface Task {
   updated_at: string;
 }
 
+// Financially sensitive: loaded only for authenticated Admin users. Never merge into Task API payloads.
+export interface TaskIncentive {
+  task_id: string;
+  employee_id: string;
+  amount: number;
+  currency: 'USD';
+  status: 'draft' | 'approved';
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  approved_by: string | null;
+  approved_at: string | null;
+  ledger_entry_id: string | null;
+}
+
 export type TaskDraft = Pick<Task,
   'title' | 'description' | 'project_id' | 'assigned_to' | 'status' | 'priority' | 'due_date'
 > & Partial<Pick<Task,
@@ -702,6 +717,7 @@ export interface TrackerData {
   taskComments: TaskComment[];
   taskChecklistItems: TaskChecklistItem[];
   taskDependencies: TaskDependency[];
+  taskIncentives?: TaskIncentive[];
   revisionRequests: RevisionRequest[];
   revisionItems: RevisionItem[];
   revisionAttachments: RevisionAttachment[];
