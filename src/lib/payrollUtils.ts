@@ -152,6 +152,7 @@ export function calculateEmployeePayroll(
   let advances = 0;
   let deductions = 0;
   let totalPaid = 0;
+  let salaryAdvanceCredits = 0; // Only explicitly classified prepayments offset payroll; legacy advances remain loans.
 
   for (const entry of monthEntries) {
     const entryCurr: CurrencyCode = entry.currency || 'USD';
@@ -170,6 +171,7 @@ export function calculateEmployeePayroll(
         break;
       case 'Advance':
         advances += convertedAmount;
+        if (entry.reference === 'SALARY_ADVANCE') salaryAdvanceCredits += convertedAmount;
         break;
       case 'Deduction':
         deductions += convertedAmount;
@@ -194,16 +196,18 @@ export function calculateEmployeePayroll(
   const effectiveBase = salaryType === 'Per Project' || afterDepartureBeforeReturn ? 0 : baseSalary;
   const totalPayable = Math.max(0, effectiveBase + projectEarnings + bonuses + otherEarnings - deductions);
 
-  // OUTSTANDING = TOTAL PAYABLE - TOTAL PAID
-  const outstanding = Math.max(0, totalPayable - totalPaid);
+  // Salary prepayments already disbursed count toward settlement, not extra earnings.
+  // Historical unclassified advances are NOT retroactively reinterpreted as salary.
+  const cashSettled = totalPaid + salaryAdvanceCredits;
+  const outstanding = Math.max(0, totalPayable - cashSettled);
 
   // Determine Status
   let status: PayrollStatus = 'Pending';
   if (totalPayable > 0 && outstanding === 0) {
     status = 'Paid';
-  } else if (totalPaid > 0 && outstanding > 0) {
+  } else if (cashSettled > 0 && outstanding > 0) {
     status = 'Partially Paid';
-  } else if (totalPayable === 0 && totalPaid === 0) {
+  } else if (totalPayable === 0 && cashSettled === 0) {
     status = 'Paid';
   } else if (outstanding > 0 && isPastMonth(normMonth)) {
     status = 'Overdue';
@@ -316,7 +320,7 @@ export function getEmployeeAdvances(
   targetCurrency: CurrencyCode = 'USD',
 ): AdvanceItem[] {
   const advanceEntries = ledger
-    .filter((entry) => entry.employee_id === employeeId && entry.entry_type === 'Advance')
+    .filter((entry) => entry.employee_id === employeeId && entry.entry_type === 'Advance' && entry.reference !== 'SALARY_ADVANCE')
     .sort((a, b) => new Date(b.paid_at).getTime() - new Date(a.paid_at).getTime());
 
   // Check deduction entries for advance repayments

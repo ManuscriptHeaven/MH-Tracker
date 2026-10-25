@@ -11,12 +11,14 @@ import type {
   TaskComment,
   TaskDependency,
   TaskDraft,
+  TaskIncentive,
   TaskStatus,
   TaskVisibility,
 } from '../../lib/types';
 import { firstName, isClientRole, isManagerRole } from '../../lib/utils';
 import { Button, Card, Field, Modal, SelectField, TextareaField } from '../ui';
 import { ActiveProjectPicker } from './ActiveProjectPicker';
+import { TaskIncentiveCard } from './TaskIncentiveCard';
 
 type Props = {
   task: Task;
@@ -28,6 +30,9 @@ type Props = {
   comments: TaskComment[];
   checklistItems: TaskChecklistItem[];
   dependencies: TaskDependency[];
+  taskIncentive: TaskIncentive | null;
+  onSaveTaskIncentive: (taskId: string, employeeId: string, amount: number) => Promise<void>;
+  onApproveTaskIncentive: (taskId: string) => Promise<void>;
   onClose: () => void;
   onUpdateTask: (taskId: string, updates: Partial<Task>) => Promise<void>;
   onArchiveTask: (taskId: string) => Promise<void>;
@@ -168,6 +173,10 @@ export function TaskDetailModal(props: Props) {
             </form>
           </Card>
 
+          {currentProfile.role === 'admin' ? (
+            <TaskIncentiveCard task={task} incentive={props.taskIncentive}
+              onSave={props.onSaveTaskIncentive} onApprove={props.onApproveTaskIncentive} />
+          ) : null}
           <Card>
             <div className="flex items-center justify-between gap-3">
               <div><h3 className="font-display text-lg font-semibold text-ink">Checklist</h3><p className="text-xs text-muted">{checklistProgress.done} of {checklistProgress.total} complete</p></div>

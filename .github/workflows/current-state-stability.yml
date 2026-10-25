@@ -107,6 +107,43 @@ jobs:
       - name: Verify admin-only corrections evidence and immutable audit
         run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/attendance-reconciliation-ci-tests.sql
 
+  task-incentive-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: task_incentive_ci_only
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: task_incentive_ci_only
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure psql exists
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y postgresql-client
+          fi
+      - name: Create disposable authorization and payroll fixtures
+        run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/task-incentive-ci-fixture.sql
+      - name: Apply exact task incentive migration on disposable PostgreSQL
+        run: psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261025114000_task_incentive_payroll.sql
+      - name: Verify all five roles and payroll idempotency
+        run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/task-incentive-ci-tests.sql
+
   project-attachment-rls-postgres:
     runs-on: ubuntu-latest
     timeout-minutes: 15

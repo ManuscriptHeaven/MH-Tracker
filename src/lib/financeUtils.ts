@@ -318,17 +318,19 @@ export function calculateTeamPayments(
     const salaryBonus = sumType('Salary');
     const projectEarnings = sumType('Project Payment') + sumType('Bonus');
     const advances = sumType('Advance');
+    const salaryAdvancesPaid = monthEntries.filter((e) => e.entry_type === 'Advance' && e.reference === 'SALARY_ADVANCE')
+      .reduce((sum, e) => sum + Number(e.amount || 0), 0);
     const deductions = sumType('Deduction');
     const paid = sumType('Payment');
     const other = sumType('Other');
 
     const totalEarnings = monthlySalary + salaryBonus + projectEarnings + other;
     const netPayable = Math.max(0, totalEarnings - deductions);
-    const outstanding = Math.max(0, netPayable - paid);
+    const outstanding = Math.max(0, netPayable - paid - salaryAdvancesPaid);
 
     let status: 'Paid' | 'Partial' | 'Pending' = 'Pending';
     if (netPayable > 0 && outstanding === 0) status = 'Paid';
-    else if (paid > 0 && outstanding > 0) status = 'Partial';
+    else if (paid + salaryAdvancesPaid > 0 && outstanding > 0) status = 'Partial';
     else if (netPayable === 0 && outstanding === 0) status = 'Paid';
 
     const latestPayment = monthEntries

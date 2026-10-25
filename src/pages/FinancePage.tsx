@@ -2142,6 +2142,7 @@ function PayrollLedgerEntryModal({
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [method, setMethod] = useState('Bank Transfer');
+  const [advancePurpose, setAdvancePurpose] = useState<'salary' | 'loan'>('salary');
   const [projectId, setProjectId] = useState('');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -2166,6 +2167,7 @@ function PayrollLedgerEntryModal({
               salary_month: `${month}-01`,
               payment_method: method,
               project_id: projectId || null,
+              reference: type === 'Advance' ? (advancePurpose === 'salary' ? 'SALARY_ADVANCE' : 'EMPLOYEE_LOAN') : null,
               notes: notes.trim(),
               paid_at: date,
             });
@@ -2190,6 +2192,14 @@ function PayrollLedgerEntryModal({
           <option value="Bonus">Bonus</option>
           <option value="Other">Other</option>
         </SelectField>
+
+        {type === 'Advance' ? (
+          <SelectField label="Advance type" value={advancePurpose}
+            onChange={(event) => setAdvancePurpose(event.target.value as 'salary' | 'loan')}>
+            <option value="salary">Salary prepayment — offsets this month's payroll</option>
+            <option value="loan">Employee loan — repay separately by deduction</option>
+          </SelectField>
+        ) : null}
 
         <Field
           label={`Amount (${displayCurrency}) *`}

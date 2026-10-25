@@ -8,7 +8,7 @@ import { priorityOptions, taskStatuses } from '../lib/constants';
 import { deadlineClass, formatDate, todayInput } from '../lib/date';
 import { compareTaskAttention, compareTaskCompletion, isOpenTask, isTaskOverdue, matchesTaskQuickFilter, type TaskQuickFilter, type TaskSort } from '../lib/taskView';
 import { firstName, isClientRole } from '../lib/utils';
-import type { Profile, Project, Task, TaskAssignee, TaskChecklistItem, TaskComment, TaskDependency, TaskDraft, TaskStatus } from '../lib/types';
+import type { Profile, Project, Task, TaskAssignee, TaskChecklistItem, TaskComment, TaskDependency, TaskDraft, TaskIncentive, TaskStatus } from '../lib/types';
 
 function defaultDraft(currentProfile: Profile): TaskDraft {
   return {
@@ -89,6 +89,9 @@ export function TasksPage({
   taskComments,
   taskChecklistItems,
   taskDependencies,
+  taskIncentives,
+  onSaveTaskIncentive,
+  onApproveTaskIncentive,
   projects,
   profiles,
   currentProfile,
@@ -118,6 +121,9 @@ export function TasksPage({
   taskComments: TaskComment[];
   taskChecklistItems: TaskChecklistItem[];
   taskDependencies: TaskDependency[];
+  taskIncentives: TaskIncentive[];
+  onSaveTaskIncentive: (taskId: string, employeeId: string, amount: number) => Promise<void>;
+  onApproveTaskIncentive: (taskId: string) => Promise<void>;
   projects: Project[];
   profiles: Profile[];
   currentProfile: Profile;
@@ -126,7 +132,7 @@ export function TasksPage({
   initialTaskId?: string;
   initialCreate?: boolean;
   initialEmployeeId?: string;
-  onCreateTask: (draft: TaskDraft) => Promise<void>;
+  onCreateTask: (draft: TaskDraft) => Promise<Task>;
   onUpdateTask: (taskId: string, updates: Partial<Task>) => Promise<void>;
   onArchiveTask: (taskId: string) => Promise<void>;
   onAssignCollaborator: (taskId: string, profileId: string) => Promise<void>;
@@ -146,6 +152,7 @@ export function TasksPage({
   const [draft, setDraft] = useState<TaskDraft>(() => defaultDraft(currentProfile));
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [taskBonus, setTaskBonus] = useState('');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() =>
     mode === 'team' && initialTaskId && tasks.some((task) => task.id === initialTaskId) ? initialTaskId : null,
   );
@@ -238,18 +245,43 @@ export function TasksPage({
       return;
     }
 
+    if (taskBonus.trim() && (
+      mode !== 'team' || currentProfile.role !== 'admin' ||
+      !draft.project_id || !draft.assigned_to ||
+      !profiles.some((profile) => profile.id === draft.assigned_to && ['employee','junior_assistant'].includes(profile.role))
+    )) {
+      setFormError('A task bonus needs a project and a production employee as the primary assignee.');
+      return;
+    }
+    const proposedAmount = Number(taskBonus);
+    if (taskBonus.trim() && (!Number.isFinite(proposedAmount) || proposedAmount <= 0 ||
+      Math.abs(proposedAmount * 100 - Math.round(proposedAmount * 100)) > 0.000001)) {
+      setFormError('Enter a positive USD bonus with no more than 2 decimal places.');
+      return;
+    }
     setIsSaving(true);
+    let taskCreated = false;
     try {
-      await onCreateTask({
+      const created = await onCreateTask({
         ...draft,
         assigned_to: mode === 'personal' ? currentProfile.id : (draft.assigned_to || currentProfile.id),
         title: draft.title.trim(),
         description: draft.description.trim(),
       });
+      taskCreated = true;
+      if (taskBonus.trim()) await onSaveTaskIncentive(created.id, created.assigned_to!, proposedAmount);
+      setTaskBonus('');
       setDraft(defaultDraft(currentProfile));
       setShowAddModal(false);
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : 'Task could not be saved.');
+      const message = error instanceof Error ? error.message : 'Task could not be saved.';
+      if (taskCreated) {
+        setShowAddModal(false);
+        setTaskBonus('');
+        setListError('The task was created, but its bonus was not saved. Open Task Details to set it. ' + message);
+      } else {
+        setFormError(message);
+      }
     } finally {
       setIsSaving(false);
     }
@@ -300,6 +332,7 @@ export function TasksPage({
           type="button"
           onClick={() => {
             setDraft(defaultDraft(currentProfile));
+            setTaskBonus('');
             setFormError(null);
             setShowAddModal(true);
           }}
@@ -602,6 +635,15 @@ export function TasksPage({
                 </SelectField>
               </div>
 
+              {mode === 'team' && currentProfile.role === 'admin' ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3">
+                  <Field label="Private task bonus (USD) — optional" type="number" min="0.01" step="0.01"
+                    value={taskBonus} onChange={(event) => setTaskBonus(event.target.value)}
+                    placeholder="Set this task's bonus amount" />
+                  <p className="mt-1 text-xs text-muted">Visible only to Admin. Completion does not trigger payment until you approve the work.</p>
+                </div>
+              ) : null}
+
               {draft.status === 'Blocked' ? (
                 <TextareaField label="Blocked Reason" value={draft.blocked_reason || ''} onChange={(e) => update('blocked_reason', e.target.value || null)} placeholder="What is preventing progress?" />
               ) : null}
@@ -640,6 +682,9 @@ export function TasksPage({
           comments={taskComments}
           checklistItems={taskChecklistItems}
           dependencies={taskDependencies}
+          taskIncentive={taskIncentives.find((item) => item.task_id === selectedTaskId) || null}
+          onSaveTaskIncentive={onSaveTaskIncentive}
+          onApproveTaskIncentive={onApproveTaskIncentive}
           onClose={() => setSelectedTaskId(null)}
           onUpdateTask={onUpdateTask}
           onArchiveTask={onArchiveTask}
