@@ -3368,11 +3368,11 @@ export function useTracker() {
 
   const saveTaskIncentive = useCallback(async (taskId: string, employeeId: string, amount: number) => {
     if (currentProfile?.role !== 'admin') throw new Error('Only Admin can set task bonus amounts.');
-    if (!Number.isFinite(amount) || amount <= 0 || Math.round(amount * 100) !== amount * 100) {
+    if (!Number.isFinite(amount) || amount <= 0 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001) {
       throw new Error('Enter a positive USD amount with no more than two decimal places.');
     }
     const existingTask = data.tasks.find((task) => task.id === taskId);
-    if (!existingTask?.project_id || existingTask.assigned_to !== employeeId) {
+    if (existingTask && (!existingTask.project_id || existingTask.assigned_to !== employeeId)) {
       throw new Error('Assign the task to a production employee and link it to a project first.');
     }
     const previous = (data.taskIncentives || []).find((item) => item.task_id === taskId);
