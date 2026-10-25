@@ -3402,10 +3402,20 @@ export function useTracker() {
     if (task.assigned_to !== incentive.employee_id) throw new Error('Assignee changed. Update the bonus recipient before approval.');
     if (!supabase || mode !== 'supabase') throw new Error('Task bonus approval requires Supabase.');
     // The database trigger validates the task and inserts the immutable ledger row atomically.
-    const { error } = await supabase.from('task_incentives').update({ status: 'approved' })
-      .eq('task_id', taskId).eq('status', 'draft').select('task_id').single();
+    const { data: approved, error } = await supabase.from('task_incentives').update({ status: 'approved' })
+      .eq('task_id', taskId).eq('status', 'draft').select('*').single();
     if (error) throw error;
-    await loadSupabaseData(currentProfile);
+    // Reflect the committed approval immediately; a subsequent refresh failure
+    // must not be reported as a failed financial transaction.
+    setData((previous) => ({
+      ...previous,
+      taskIncentives: [...(previous.taskIncentives || []).filter((item) => item.task_id !== taskId), approved as TaskIncentive],
+    }));
+    try {
+      await loadSupabaseData(currentProfile);
+    } catch {
+      throw new Error('Bonus was approved and credited, but payroll could not refresh. Reload to see updated totals.');
+    }
   }, [currentProfile, data.tasks, data.taskIncentives, loadSupabaseData, mode]);
 
   const createSubtask = useCallback(async (parentTaskId: string, draft: TaskDraft) => {
