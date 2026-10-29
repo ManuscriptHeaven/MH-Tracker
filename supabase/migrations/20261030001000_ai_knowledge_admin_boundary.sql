@@ -3,7 +3,7 @@
 -- The current knowledge tables have no workspace/tenant ownership columns.
 -- Do not expose internal SOP/pricing/chunks to every signed-in user.
 --
--- RELEASE GATE: verify role-based Postgres integration tests and staging parity before any production cutover.
+-- RELEASE GATE: verify role-based PostgreSQL tests and inspect actual production\n-- schema/policies/grants/migration history before applying. Staging may require\n-- paid restoration, so never promote an unverified Edge Function as a substitute.
 
 DO $$
 BEGIN
@@ -15,6 +15,11 @@ $$;
 
 ALTER TABLE public.knowledge_base_documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.knowledge_base_chunks ENABLE ROW LEVEL SECURITY;
+
+-- Old bootstrap granted anonymous users table privileges. RLS still blocked
+-- them, but remove that unnecessary Data API capability as defense in depth.
+-- Keep authenticated/service_role privileges intact for the audited policy.
+REVOKE ALL ON TABLE public.knowledge_base_documents, public.knowledge_base_chunks FROM anon, PUBLIC;
 
 DROP POLICY IF EXISTS "All authenticated users can read knowledge_base_documents"
   ON public.knowledge_base_documents;
