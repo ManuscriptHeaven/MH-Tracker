@@ -13,6 +13,13 @@ function presenceTone(label: MemberWorkload['presence']) {
   return 'bg-slate-100 text-slate-600';
 }
 
+function taskStatusTone(status: Task['status']) {
+  if (status === 'Done') return 'bg-emerald-50 text-emerald-700';
+  if (status === 'Blocked') return 'bg-rose-50 text-rose-700';
+  if (status === 'In Progress') return 'bg-blue-50 text-blue-700';
+  return 'bg-amber-50 text-amber-800';
+}
+
 function attentionLabel(task: Task, today: string) {
   if (!task.assigned_to) return { text: 'Unassigned', color: 'bg-rose-50 text-rose-700' };
   if (task.status === 'Blocked') return { text: 'Blocked', color: 'bg-amber-50 text-amber-800' };
@@ -65,7 +72,11 @@ export function OperationsOverview({
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+        <div className="rounded-xl border border-border bg-white p-3 shadow-xs">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-muted">Open Tasks</p>
+          <p className="mt-1 font-display text-2xl font-bold text-ink">{snapshot.openTasks.length}</p>
+        </div>
         <div className="rounded-xl border border-border bg-white p-3 shadow-xs">
           <p className="text-[10px] font-bold uppercase tracking-wide text-muted">In Progress</p>
           <p className="mt-1 font-display text-2xl font-bold text-ink">{snapshot.inProgressCount}</p>
@@ -179,6 +190,53 @@ export function OperationsOverview({
           ) : null}
         </Card>
       </div>
+
+      <Card className="min-w-0 rounded-2xl p-4 sm:p-5" >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="flex items-center gap-2 font-display text-lg font-semibold text-ink">
+              <CheckSquare2 className="h-4 w-4 text-gold" /> Recent Team Tasks
+            </h3>
+            <p className="mt-0.5 text-[11px] text-muted">
+              Newly created assignments, including regular tasks that do not need urgent attention.
+            </p>
+          </div>
+          <Button variant="secondary" onClick={onViewTeamTasks}>
+            All Team Tasks <ArrowRight className="h-4 w-4" />
+          </Button>
+        </div>
+        {snapshot.recentTasks.length ? (
+          <div className="mt-3 grid gap-2 lg:grid-cols-2">
+            {snapshot.recentTasks.map((task) => (
+              <button
+                key={task.id}
+                type="button"
+                onClick={() => onOpenTask(task.id)}
+                className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border bg-white p-3 text-left transition hover:border-gold/60 hover:shadow-xs"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-ink" title={task.title}>{task.title}</p>
+                  <p className="mt-1 truncate text-[11px] text-muted">
+                    {task.assigned_to
+                      ? profiles.find((profile) => profile.id === task.assigned_to)?.full_name || 'Assigned team member'
+                      : 'Unassigned'}
+                    {' · '}
+                    {task.project_id ? projectNames.get(task.project_id) || 'Project task' : 'General task'}
+                    {task.created_at ? ' · Added ' + formatDate(task.created_at) : ''}
+                  </p>
+                </div>
+                <span className={'shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ' + taskStatusTone(task.status)}>
+                  {task.status}
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 rounded-xl border border-dashed border-border p-5 text-center text-xs text-muted">
+            No recent team tasks found. Create one through Assign Task.
+          </p>
+        )}
+      </Card>
     </section>
   );
 }

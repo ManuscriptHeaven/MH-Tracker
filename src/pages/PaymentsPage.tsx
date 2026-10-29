@@ -6,7 +6,7 @@ import { InvoiceRevisionModal } from '../components/InvoiceRevisionModal';
 import { Button, Card, EmptyState, Field, SelectField } from '../components/ui';
 import { paymentStatuses, statusOptions } from '../lib/constants';
 import { daysUntil, formatDate, todayInput } from '../lib/date';
-import { calculateDueAmount, createBulkInvoice, getEligibleProjectsForClient } from '../lib/invoiceUtils';
+import { calculateDueAmount, createBulkInvoice, getEligibleProjectsForClient, isProjectArchived } from '../lib/invoiceUtils';
 import { downloadTextFile, errorMessage } from '../lib/utils';
 import { useCurrency } from '../lib/currency';
 import type { Invoice, PaymentStatus, Profile, Project, ProjectStatus } from '../lib/types';
@@ -292,6 +292,10 @@ export function PaymentsPage({
     const existing = latestInvoiceForProject(project.id);
     if (existing) {
       setSelectedBulkInvoice(existing);
+      return;
+    }
+    if (isProjectArchived(project)) {
+      setActionError('Archived projects cannot be added to new invoices. Existing invoice history is still available.');
       return;
     }
 
@@ -873,9 +877,9 @@ export function PaymentsPage({
                       </td>
                       <td className="border-t border-border px-4 py-3">
                         <div className="flex justify-end gap-2">
-                          <Button type="button" variant="secondary" onClick={() => handleProjectInvoice(project)} disabled={busy}>
+                          <Button type="button" variant="secondary" onClick={() => handleProjectInvoice(project)} disabled={busy || (!projectInvoice && isProjectArchived(project))}>
                             <FileText className="h-4 w-4" />
-                            {projectInvoice ? `Invoice v${projectInvoice.version_number || 1}` : 'Generate Invoice'}
+                            {projectInvoice ? `Invoice v${projectInvoice.version_number || 1}` : isProjectArchived(project) ? 'Archived' : 'Generate Invoice'}
                           </Button>
                           <Button type="button" variant="secondary" onClick={() => onEditProject(project)}>
                             <Edit className="h-4 w-4" />
@@ -931,9 +935,9 @@ export function PaymentsPage({
                   </div>
                   <p className="mt-3 text-sm text-muted">{project.payment_notes || 'No notes'}</p>
                   <div className="mt-4 flex flex-wrap gap-2">
-                    <Button type="button" variant="secondary" onClick={() => handleProjectInvoice(project)} disabled={busy}>
+                    <Button type="button" variant="secondary" onClick={() => handleProjectInvoice(project)} disabled={busy || (!projectInvoice && isProjectArchived(project))}>
                       <FileText className="h-4 w-4" />
-                      {projectInvoice ? `Invoice v${projectInvoice.version_number || 1}` : 'Generate Invoice'}
+                      {projectInvoice ? `Invoice v${projectInvoice.version_number || 1}` : isProjectArchived(project) ? 'Archived' : 'Generate Invoice'}
                     </Button>
                     <Button type="button" variant="secondary" onClick={() => onEditProject(project)}>
                       <Edit className="h-4 w-4" />
