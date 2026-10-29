@@ -49,4 +49,4 @@ grant execute on function public.phase6_auth_uid() to authenticated,anon;
 grant execute on function public.phase6_app_actor_class() to authenticated,anon;
 grant select on public.profiles to authenticated;
 grant select,insert,update,delete on public.knowledge_base_documents,public.knowledge_base_chunks to authenticated;
-revoke all on public.knowledge_base_documents,public.knowledge_base_chunks from anon;
+-- Mirror the overly broad pre-migration production grants to anon,\n-- so CI proves the migration explicitly revokes them.\ngrant select,insert,update,delete on public.knowledge_base_documents,public.knowledge_base_chunks to anon;
