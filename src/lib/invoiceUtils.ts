@@ -21,6 +21,12 @@ export function calculateDueAmount(project: Project): number {
   return Math.max(total - paid, 0);
 }
 
+/** Archived projects stay in payment history but cannot generate new invoices. */
+export function isProjectArchived(project: Project): boolean {
+  return String(project.status || '').trim().toLowerCase() === 'archived' ||
+    String(project.project_status || '').trim().toLowerCase() === 'archived';
+}
+
 export function isProjectCompleted(project: Project): boolean {
   const status = (project.status || '').toLowerCase();
   return (
@@ -58,6 +64,10 @@ export function getEligibleProjectsForClient(
   }
 
   return projects.filter((project) => {
+    // Archived projects are never candidates, even if previously invoiced
+    // projects have been explicitly included.
+    if (isProjectArchived(project)) return false;
+
     // Must belong to client
     if (project.client_name !== clientName) {
       return false;
@@ -135,6 +145,10 @@ export function createBulkInvoice(
   month: number | 'all',
   year: number | 'all',
 ): Invoice {
+  // Final fail-closed guard: a caller must not bypass the eligibility filter.
+  if (!eligibleProjects.length || eligibleProjects.some(isProjectArchived)) {
+    throw new Error('Archived projects cannot be included in a new invoice.');
+  }
   const currentYear = year !== 'all' && Number(year) > 0 ? Number(year) : new Date().getFullYear();
   const currentMonth = month !== 'all' && Number(month) > 0 ? Number(month) : new Date().getMonth() + 1;
   const monthLabelText = `${monthNames[currentMonth - 1] || 'Current'} ${currentYear}`;
@@ -196,7 +210,7 @@ export function getAllClientsWithEligibleProjects(
   const grouped = new Map<string, { clientName: string; clientEmail: string; projects: Project[] }>();
 
   projects.forEach((project) => {
-    if (project.invoiced || project.invoice_id) {
+    if (isProjectArchived(project) || project.invoiced || project.invoice_id) {
       return;
     }
 
