@@ -119,8 +119,12 @@ export class VoiceQueryEngine {
         }
       }
 
-      const isAffirmative = /\b(yes|yes do it|confirm|go ahead|do that|do it|okay|ok|sure|proceed|yep|yeah)\b/i.test(lower);
-      const isNegative = /\b(no|cancel|don't do it|dont do it|stop|never mind|nevermind|abort)\b/i.test(lower);
+      // Never treat unrelated sentences containing "yes" or "okay" as
+      // authorization to write. Only a standalone, unambiguous approval
+      // counts. Mixed/conflicting speech must request clarification.
+      const decision = lower.replace(/[.!?]+$/g, '').trim();
+      const isAffirmative = /^(?:yes|yes please|yes do it|confirm|confirm action|go ahead|do that|do it|okay|ok|sure|proceed|yep|yeah|create it|create task|create the task)$/i.test(decision);
+      const isNegative = /^(?:no|no thanks|cancel|stop|never mind|nevermind|abort|don't do it|dont do it|do not do it|not now|actually cancel)$/i.test(decision);
 
       if (isAffirmative) {
         const action = pending;
@@ -2281,6 +2285,12 @@ export class VoiceQueryEngine {
       }
 
       if (verification?.status === 'failed') {
+        // A database write may already have happened. Do NOT claim success or
+        // encourage blind retry: duplicate tasks/invoices could be created.
+        result.success = false;
+        result.error = 'post_action_verification_failed';
+        result.spokenText = 'The action may have been saved, but I could not verify the final details. Please check Tracker before trying again.';
+        result.displayText += '\n\n**Check Tracker before retrying.** The mutation may have succeeded but the saved state did not match the confirmed preview.';
         if (this.memory.pendingActionPlan) {
           const plan = this.memory.pendingActionPlan;
           if (plan.steps[plan.currentIndex]) plan.steps[plan.currentIndex].status = 'failed';
