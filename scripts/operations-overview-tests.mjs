@@ -50,6 +50,32 @@ assert.equal(result.attentionTasks[0].id, 'assign', 'unassigned work is prioriti
 assert.equal(result.attentionTasks[1].id, 'blocker', 'blocked work follows unassigned work');
 assert.equal(result.projectTaskCounts.p1.open, 4);
 assert.equal(result.projectTaskCounts.finished, undefined, 'completed projects do not inflate workload');
+assert.ok(result.recentTasks.every((item) => !['archived','personal','finished-project'].includes(item.id)),
+  'recent tasks respect archived, private and completed-project boundaries');
+
+const freshNormal = task('new-ordinary-task', {
+  status: 'To Do', priority: 'Normal', due_date: '2026-12-31',
+  created_at: '2026-10-30T08:00:00Z',
+});
+const olderAlert = task('old-urgent-task', {
+  priority: 'Urgent', due_date: '2026-10-20',
+  created_at: '2026-10-12T08:00:00Z',
+});
+const privateFresh = task('hidden-personal', {
+  visibility: 'private', created_at: '2026-10-30T09:00:00Z',
+});
+const recentSnapshot = buildOperationsSnapshot({
+  ...args,
+  tasks: [olderAlert, freshNormal, privateFresh],
+});
+assert.equal(recentSnapshot.recentTasks[0].id, 'new-ordinary-task',
+  'new ordinary task is the first recent entry even when not urgent');
+assert.equal(recentSnapshot.attentionTasks[0].id, 'old-urgent-task',
+  'urgent list remains separate from recent list');
+assert.ok(recentSnapshot.openTasks.some((item) => item.id === 'new-ordinary-task'),
+  'new ordinary task is counted in workload');
+assert.ok(!recentSnapshot.recentTasks.some((item) => item.id === 'hidden-personal'),
+  'private tasks must not leak into recent team view');
 
 const zain = result.members.find((member) => member.profile.id === 'zain');
 const hamza = result.members.find((member) => member.profile.id === 'hamza');
@@ -86,6 +112,10 @@ assert.ok(dashboard.includes('setQuickFilter(\'overdue\'); setDashboardView(\'pr
 assert.ok(dashboard.includes('bg-[#fffdf9]') && dashboard.includes('bg-[#f4f7fc]'), 'projects and operations are visually distinct');
 assert.ok(!dashboard.includes('xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.7fr)]'), 'projects are not squeezed beside a competing operations rail');
 assert.ok(overview.includes('Tasks Requiring Action') && overview.includes('Team Workload'), 'both work views are visible');
+assert.ok(overview.includes('Recent Team Tasks') && overview.includes('snapshot.recentTasks.map'),
+  'Operations has a visible list of recent tasks independent of urgency');
+assert.ok(overview.includes('Open Tasks') && overview.includes('snapshot.openTasks.length'),
+  'Operations shows all open tasks not only the in-progress subset');
 assert.ok(app.includes('onAssignTask={() => navigateToTeamTasks({ create: true })}'), 'assign task links to existing workflow');
 assert.ok(app.includes('initialTaskId={dashboardTaskIntent?.taskId}'), 'priority tasks deep-link to task detail');
 assert.ok(tasksPage.includes('initialEmployeeId'), 'team member links filter the task workspace');
