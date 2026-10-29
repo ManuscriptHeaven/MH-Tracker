@@ -376,6 +376,7 @@ export default function App() {
         canManageAll={tracker.canManageAll}
         desktopAttendanceCapable={tracker.desktopAttendanceCapable}
         attendanceTabRole={tracker.attendanceTabRole}
+        onRequestAttendanceTakeover={tracker.requestAttendanceTakeover}
         onClockIn={tracker.clockInAttendance}
         onClockOut={tracker.clockOutAttendance}
         onStartBreak={tracker.startAttendanceBreak}
