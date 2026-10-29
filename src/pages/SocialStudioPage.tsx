@@ -3,6 +3,7 @@ import { CalendarClock, CheckCircle2, Copy, Edit3, Megaphone, Plus, RefreshCw, S
 import { supabase } from '../lib/supabase';
 import { SocialEditorialCalendar } from '../components/social/SocialEditorialCalendar';
 import { SocialArtworkLibrary } from '../components/social/SocialArtworkLibrary';
+import { FacebookPublishingPanel } from '../components/social/FacebookPublishingPanel';
 import type { SocialArtwork } from '../components/social/SocialArtworkLibrary';
 import type { Profile } from '../lib/types';
 
@@ -308,8 +309,8 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
           </button>
         </div>
         <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          <strong>Live pilot · planning only.</strong> Posts are saved in Supabase, but no social accounts are connected.
-          Scheduled items are reminders/plans, <strong>not automatically published</strong>. AI suggests content for human approval; image artwork and media upload are not enabled yet.
+          <strong>Live pilot · planning only.</strong> Private artwork, AI-assisted drafts and the Facebook connection flow are available to admins.
+          Scheduled items create reviewable test jobs, <strong>not automatic Facebook posts</strong>. All real publishing remains disabled pending separate certification.
         </div>
         <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
           {[
@@ -500,6 +501,17 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
         )}
       </section>
 
+      <FacebookPublishingPanel
+        brandId={selectedBrand}
+        adminId={currentProfile.id}
+        targets={visibleFeed.map(item => ({
+          id: item.target.id,
+          brandId: item.post.brand_id,
+          caption: item.revision?.caption || '',
+        }))}
+        onAfterRun={() => { void reload(); }}
+      />
+
       <SocialArtworkLibrary
         brandId={selectedBrand}
         adminId={currentProfile.id}
@@ -647,7 +659,7 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
           })}
       </section>
       <footer className="flex items-center gap-2 text-xs text-muted">
-        <Send className="h-3.5 w-3.5" /> Private images and AI artwork are only draft assets. External posting, OAuth and analytics are excluded from this pilot.
+        <Send className="h-3.5 w-3.5" /> Private images and AI artwork require permission clearance. Facebook Page connection is optional; delivery tests never publish. Live posting and analytics are still disabled.
       </footer>
     </div>
   );
