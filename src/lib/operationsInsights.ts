@@ -24,6 +24,7 @@ export interface MemberWorkload {
 
 export interface OperationsSnapshot {
   openTasks: Task[];
+  recentTasks: Task[];
   attentionTasks: Task[];
   inProgressCount: number;
   blockedCount: number;
@@ -101,12 +102,20 @@ export function buildOperationsSnapshot({
   const activeProjectIds = new Set(
     projects.filter((project) => !closedProjectStatuses.has(project.status)).map((project) => project.id),
   );
-  const openTasks = tasks.filter((task) =>
+  // "Recent tasks" is independent of urgency: a new ordinary To Do task must
+  // appear in Operations even when it is not overdue, blocked or high priority.
+  // Reuse existing visibility/active-project restrictions; do not leak private work.
+  const dashboardTasks = tasks.filter((task) =>
     !task.archived_at &&
-    task.status !== 'Done' &&
     task.visibility !== 'private' &&
     (!task.project_id || activeProjectIds.has(task.project_id)),
   );
+  const openTasks = dashboardTasks.filter((task) => task.status !== 'Done');
+  const recentTasks = [...dashboardTasks]
+    .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '') ||
+      (b.updated_at || '').localeCompare(a.updated_at || '') ||
+      a.title.localeCompare(b.title))
+    .slice(0, 8);
   const attentionTasks = openTasks
     .filter((task) =>
       !task.assigned_to ||
@@ -162,6 +171,7 @@ export function buildOperationsSnapshot({
 
   return {
     openTasks,
+    recentTasks,
     attentionTasks,
     inProgressCount: openTasks.filter((task) => task.status === 'In Progress').length,
     blockedCount: openTasks.filter((task) => task.status === 'Blocked').length,
