@@ -994,8 +994,12 @@ export function useTracker() {
     pageAway: false,
   });
   const attendanceFlushRef = useRef<(() => Promise<boolean>) | null>(null);
+  const attendanceRequestTakeoverRef = useRef<(() => boolean) | null>(null);
   const attendanceSyncErrorRef = useRef<string | null>(null);
   const [attendanceTabRole, setAttendanceTabRole] = useState<'leader' | 'secondary' | 'unsupported'>('secondary');
+  const requestAttendanceTakeover = useCallback(
+    () => attendanceRequestTakeoverRef.current?.() ?? false, [],
+  );
   const attendanceIdlePermissionRef = useRef<'unknown' | 'granted' | 'denied' | 'unsupported'>('unknown');
 
   const loadSupabaseData = useCallback(async (profile: Profile) => {
@@ -5006,6 +5010,7 @@ export function useTracker() {
   useEffect(() => {
     if (!currentProfile || isClientRole(currentProfile.role) || !isDesktopAttendanceClient()) {
       attendanceFlushRef.current = null;
+      attendanceRequestTakeoverRef.current = null;
       return undefined;
     }
 
@@ -5015,6 +5020,7 @@ export function useTracker() {
 
     if (!activeSession) {
       attendanceFlushRef.current = null;
+      attendanceRequestTakeoverRef.current = null;
       attendancePresenceRef.current.sessionId = null;
       attendancePresenceRef.current.lastSampleAtMs = 0;
       attendancePresenceRef.current.lastMonotonicAtMs = 0;
@@ -5293,7 +5299,14 @@ export function useTracker() {
             void flushPresence();
           }
         },
+        undefined,
+        { onTransferRequested: async () => {
+          // The old leader is the only tab allowed to accrue and upload.
+          // Synchronize its locally saved queue before releasing the lock.
+          await flushPresence();
+        } },
       );
+      attendanceRequestTakeoverRef.current = () => leadership?.requestTakeover() ?? false;
       if (!leadership.supported) setAttendanceTabRole('unsupported');
     };
 
@@ -5360,6 +5373,7 @@ export function useTracker() {
       if (attendanceFlushRef.current === flushPresence) {
         attendanceFlushRef.current = null;
       }
+      attendanceRequestTakeoverRef.current = null;
     };
   }, [
     currentProfile,
@@ -5378,6 +5392,9 @@ export function useTracker() {
     if (!currentProfile) throw new Error('Not logged in.');
 
     if (supabase && mode === 'supabase') {
+      if (isDesktopAttendanceClient() && !attendancePresenceRef.current.isLeader) {
+        throw new Error('Another MH Tracker tab owns attendance tracking. Select Use This Tab or close the other Tracker tab before continuing.');
+      }
       const allCreditedTimeSynced = await attendanceFlushRef.current?.();
       if (allCreditedTimeSynced === false) {
         throw new Error(attendanceSyncErrorRef.current
@@ -5447,6 +5464,9 @@ export function useTracker() {
     if (!currentProfile) throw new Error('Not logged in.');
 
     if (supabase && mode === 'supabase') {
+      if (isDesktopAttendanceClient() && !attendancePresenceRef.current.isLeader) {
+        throw new Error('Another MH Tracker tab owns attendance tracking. Select Use This Tab or close the other Tracker tab before continuing.');
+      }
       const allCreditedTimeSynced = await attendanceFlushRef.current?.();
       if (allCreditedTimeSynced === false) {
         throw new Error(attendanceSyncErrorRef.current
@@ -5704,6 +5724,7 @@ export function useTracker() {
     recordAttendanceHeartbeat,
     desktopAttendanceCapable: isDesktopAttendanceClient(),
     attendanceTabRole,
+    requestAttendanceTakeover,
     clockInAttendance,
     clockOutAttendance,
     startAttendanceBreak,
