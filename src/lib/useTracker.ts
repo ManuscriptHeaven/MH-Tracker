@@ -5,6 +5,7 @@ import {
   splitAttendanceIntervalByLocalDate,
   mergeAttendanceDailySlices,
   reconcilePendingAttendanceDailySlices,
+  repairPendingAttendanceDailySliceDates,
   readPendingAttendanceDailySlices,
   writePendingAttendanceDailySlices,
   type AttendanceDailySlice,
@@ -993,6 +994,7 @@ export function useTracker() {
     pageAway: false,
   });
   const attendanceFlushRef = useRef<(() => Promise<boolean>) | null>(null);
+  const attendanceSyncErrorRef = useRef<string | null>(null);
   const [attendanceTabRole, setAttendanceTabRole] = useState<'leader' | 'secondary' | 'unsupported'>('secondary');
   const attendanceIdlePermissionRef = useRef<'unknown' | 'granted' | 'denied' | 'unsupported'>('unknown');
 
@@ -5125,65 +5127,99 @@ export function useTracker() {
       return elapsedSeconds;
     };
 
-    const flushPresence = async (): Promise<boolean> => {
-      if (cancelled) return false;
+    // Share an active flush with a manual Clock Out / Start Break action.
+    // Previously a concurrent 30-second sync returned false immediately,
+    // incorrectly reporting an unsynced queue even when that sync succeeded.
+    let inFlightAttendanceFlush: Promise<boolean> | null = null;
+    const flushPresence = (): Promise<boolean> => {
+      if (inFlightAttendanceFlush) return inFlightAttendanceFlush;
 
-      accrueLocalPresence();
-      if (!runtime.isLeader || !navigator.onLine || runtime.flushing) return false;
-      if (runtime.pendingSeconds === 0 && runtime.pendingDailySlices.length === 0) return true;
-
-      runtime.flushing = true;
-      try {
-        // Earlier offline queues have only a scalar duration, with no reliable
-        // calendar date. Flush once as legacy/unattributed time.
-        const legacySeconds = runtime.pendingSeconds;
-        if (legacySeconds > 0) {
-          await recordAttendanceHeartbeat(legacySeconds);
-          runtime.pendingSeconds = Math.max(0, runtime.pendingSeconds - legacySeconds);
-          writeAttendancePendingSeconds(currentProfile.id, activeSession.id, runtime.pendingSeconds);
+      const run = async (): Promise<boolean> => {
+        if (cancelled) return false;
+        accrueLocalPresence();
+        if (!runtime.isLeader || !navigator.onLine) return false;
+        if (runtime.pendingSeconds === 0 && runtime.pendingDailySlices.length === 0) {
+          attendanceSyncErrorRef.current = null;
+          return true;
         }
 
-        // Stable source keys make replay after a network error idempotent.
-        // One previously accepted slice can overlap a stale queued interval
-        // (e.g. two tabs or an old local checkpoint). Resolve only genuine
-        // overlap errors by subtracting the server's already credited ranges.
-        // The server remains authoritative and still rejects duplicate credit.
-        let batch = runtime.pendingDailySlices.slice(0, 120);
-        if (batch.length > 0) {
-          try {
-            await recordAttendanceDailySlices(batch);
-          } catch (syncError) {
-            const code = typeof syncError === 'object' && syncError !== null && 'code' in syncError
-              ? String((syncError as { code?: unknown }).code || '') : '';
-            if (code !== '23P01' || !supabase || mode !== 'supabase') throw syncError;
-            const { data: accepted, error: readError } = await supabase
-              .from('attendance_daily_credits')
-              .select('started_at,ended_at')
-              .eq('session_id', activeSession.id);
-            if (readError) throw readError;
-            const repaired = reconcilePendingAttendanceDailySlices(
-              runtime.pendingDailySlices, accepted || [], createUuid,
-            );
-            if (JSON.stringify(repaired) === JSON.stringify(runtime.pendingDailySlices)) throw syncError;
-            // Persist the repaired queue BEFORE retrying: new keys must remain
-            // identical if a network interruption follows the RPC commit.
-            runtime.pendingDailySlices = repaired;
-            writePendingAttendanceDailySlices(currentProfile.id, activeSession.id, repaired);
-            batch = repaired.slice(0, 120);
-            if (batch.length > 0) await recordAttendanceDailySlices(batch);
+        runtime.flushing = true;
+        try {
+          const legacySeconds = runtime.pendingSeconds;
+          if (legacySeconds > 0) {
+            await recordAttendanceHeartbeat(legacySeconds);
+            runtime.pendingSeconds = Math.max(0, runtime.pendingSeconds - legacySeconds);
+            writeAttendancePendingSeconds(currentProfile.id, activeSession.id, runtime.pendingSeconds);
           }
-          const acceptedKeys = new Set(batch.map((slice) => slice.source_key));
-          runtime.pendingDailySlices = runtime.pendingDailySlices.filter(
-            (slice) => !acceptedKeys.has(slice.source_key),
-          );
-          writePendingAttendanceDailySlices(currentProfile.id, activeSession.id, runtime.pendingDailySlices);
+
+          // A backlog may contain more than the RPC's 120-slice limit. Drain
+          // multiple batches in one manual action rather than forcing a user
+          // to wait for many automatic 30-second intervals to clock out.
+          let rounds = 0;
+          while (runtime.pendingDailySlices.length > 0 && rounds < 20 && !cancelled) {
+            let batch = runtime.pendingDailySlices.slice(0, 120);
+            try {
+              await recordAttendanceDailySlices(batch);
+            } catch (syncError) {
+              const code = typeof syncError === 'object' && syncError !== null && 'code' in syncError
+                ? String((syncError as { code?: unknown }).code || '') : '';
+              const message = errorMessage(syncError, '');
+              const overlap = code === '23P01';
+              const badDay = code === '22023' && message.includes('attendance_slice_outside_session_or_day');
+              if ((!overlap && !badDay) || !supabase || mode !== 'supabase') throw syncError;
+
+              // Read already accepted credit. Server RLS restricts this to
+              // attendance sessions visible to the authenticated actor.
+              const { data: accepted, error: readError } = await supabase
+                .from('attendance_daily_credits')
+                .select('started_at,ended_at')
+                .eq('session_id', activeSession.id);
+              if (readError) throw readError;
+
+              const withoutOverlaps = reconcilePendingAttendanceDailySlices(
+                runtime.pendingDailySlices, accepted || [], createUuid,
+              );
+              const repaired = badDay
+                ? repairPendingAttendanceDailySliceDates(withoutOverlaps, createUuid)
+                : withoutOverlaps;
+              if (JSON.stringify(repaired) === JSON.stringify(runtime.pendingDailySlices)) throw syncError;
+
+              // Persist replacement source keys BEFORE replay. Failed/retried
+              // requests must never count the same seconds more than once.
+              runtime.pendingDailySlices = repaired;
+              writePendingAttendanceDailySlices(currentProfile.id, activeSession.id, repaired);
+              batch = repaired.slice(0, 120);
+              if (batch.length > 0) await recordAttendanceDailySlices(batch);
+            }
+
+            const acceptedKeys = new Set(batch.map((slice) => slice.source_key));
+            runtime.pendingDailySlices = runtime.pendingDailySlices.filter(
+              (slice) => !acceptedKeys.has(slice.source_key),
+            );
+            writePendingAttendanceDailySlices(currentProfile.id, activeSession.id, runtime.pendingDailySlices);
+            rounds += 1;
+          }
+          if (runtime.pendingSeconds === 0 && runtime.pendingDailySlices.length === 0) {
+            attendanceSyncErrorRef.current = null;
+          }
+        } catch (syncError) {
+          // Never discard an unacknowledged queue. Surface the actual server
+          // reason on manual actions so a permanently invalid interval is not
+          // misrepresented as an internet outage.
+          attendanceSyncErrorRef.current = errorMessage(syncError, 'Attendance sync failed');
+          console.warn('Attendance daily sync failed; slices remain queued:', syncError);
+        } finally {
+          runtime.flushing = false;
         }
-      } catch (syncError) {
-        console.warn('Attendance daily sync failed; slices remain queued:', syncError);
-      } finally {
-        runtime.flushing = false;
-      }
-      return runtime.pendingSeconds === 0 && runtime.pendingDailySlices.length === 0;
+        return runtime.pendingSeconds === 0 && runtime.pendingDailySlices.length === 0;
+      };
+
+      const running = run();
+      inFlightAttendanceFlush = running;
+      void running.finally(() => {
+        if (inFlightAttendanceFlush === running) inFlightAttendanceFlush = null;
+      });
+      return running;
     };
 
     const startScreenLockDetection = async () => {
@@ -5344,7 +5380,9 @@ export function useTracker() {
     if (supabase && mode === 'supabase') {
       const allCreditedTimeSynced = await attendanceFlushRef.current?.();
       if (allCreditedTimeSynced === false) {
-        throw new Error('Unsynced attendance is still queued. Reconnect and sync before ending the shift or starting a break.');
+        throw new Error(attendanceSyncErrorRef.current
+          ? `Unsynced attendance is still queued: ${attendanceSyncErrorRef.current}. Your saved local records have been kept; contact the administrator if this persists.`
+          : 'Unsynced attendance is still queued. Reconnect and sync before ending the shift or starting a break.');
       }
       const { data: attendanceBreak, error: breakError } = await supabase.rpc('attendance_start_break');
       if (breakError) throw breakError;
@@ -5411,7 +5449,9 @@ export function useTracker() {
     if (supabase && mode === 'supabase') {
       const allCreditedTimeSynced = await attendanceFlushRef.current?.();
       if (allCreditedTimeSynced === false) {
-        throw new Error('Unsynced attendance is still queued. Reconnect and sync before ending the shift or starting a break.');
+        throw new Error(attendanceSyncErrorRef.current
+          ? `Unsynced attendance is still queued: ${attendanceSyncErrorRef.current}. Your saved local records have been kept; contact the administrator if this persists.`
+          : 'Unsynced attendance is still queued. Reconnect and sync before ending the shift or starting a break.');
       }
       const { data: session, error: clockError } = await supabase.rpc('attendance_clock_out', { p_note: note || null });
       if (clockError) throw clockError;
