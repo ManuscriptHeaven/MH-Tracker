@@ -310,7 +310,7 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
         </div>
         <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
           <strong>Live pilot · planning only.</strong> Private artwork, AI-assisted drafts and the Facebook connection flow are available to admins.
-          Scheduled items create reviewable test jobs, <strong>not automatic Facebook posts</strong>. All real publishing remains disabled pending separate certification.
+          Scheduled items create reviewable test jobs and are <strong>not automatically published</strong>. All real Facebook publishing remains disabled pending separate certification.
         </div>
         <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
           {[
