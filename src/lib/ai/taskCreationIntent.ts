@@ -17,11 +17,36 @@ export type TaskCreationResolution =
 // Only reinterpret "force" when the sentence includes a named recipient followed
 // by an action verb; genuine references to a task force remain read-only.
 export function normalizeTaskCreationQuery(text: string): string {
-  const query = text.trim();
-  if (
-    /^(?:please\s+)?(?:new\s+)?task\s+force\s+.+?\s+to\s+(?:create|make|update|prepare|check|review|edit|fix|format|convert|design|recreate|upload|deliver|proofread|revise|generate|produce)\b/i.test(query)
-  ) {
-    return query.replace(/^((?:please\s+)?(?:new\s+)?task)\s+force\b/i, '$1 for');
+  let query = text.trim().replace(/\s+/g, ' ');
+
+  // Strip only common polite or speech-to-text introductions. This is
+  // normalization for task intent, not permission to execute a write.
+  query = query
+    .replace(/^(?:hey(?:\s+there)?[,!]?\s+)?(?:can|could|would)\s+you\s+(?:please\s+)?/i, '')
+    .replace(/^(?:(?:i\s+want\s+you\s+to|i\s+would\s+like\s+you\s+to|we\s+are\s+going\s+to|go\s+ahead\s+and)\s+)/i, '')
+    .replace(/^(?:please|kindly)\s+/i, '');
+
+  // Named-field dictation: "create a task for employee named Zen for the
+  // project named The End of Smart and title of the task is Create ebook".
+  // Produce the same canonical form as a simple imperative.
+  const structured = query.match(
+    /^(?:(?:create|add|make)\s+(?:(?:a|new)\s+)?)?task\s+for\s+(?:employee\s+(?:named|called)\s+)?(.+?)\s+(?:for|under)\s+(?:the\s+)?project(?:\s+(?:named|called|titled))?\s+(.+?)\s+(?:and\s+)?(?:the\s+)?title\s+(?:of\s+(?:the\s+)?task\s+)?(?:is|as|:)\s+(.+?)[.!?]?$/i,
+  );
+  if (structured) {
+    query = `create a task for ${structured[1]} to ${structured[3]} for the project named ${structured[2]}`;
+  }
+
+  // Common commands that should use the same confirm-first task flow.
+  query = query
+    .replace(/^assign\s+(?:a|new)\s+task\s+to\s+(.+?)\s+to\s+/i, 'create a task for $1 to ')
+    .replace(/^assign\s+(.+?)\s+a\s+task\s+to\s+/i, 'create a task for $1 to ')
+    .replace(/^create\s+(?:a\s+)?task\s+for\s+(?:employee|team\s+member)\s+(?:named|called)\s+/i, 'create a task for ')
+    .replace(/^task\s+for\s+(?:employee|team\s+member)\s+(?:named|called)\s+/i, 'task for ');
+
+  // "Task Force Zen" is a common microphone mistranscription of "Task for
+  // Zen". Do not reinterpret a real team/task-force query as a write.
+  if (/^(?:new\s+)?task\s+force\s+.+?\s+to\s+(?:create|make|update|prepare|check|review|edit|fix|format|convert|design|recreate|upload|deliver|proofread|revise|generate|produce)\b/i.test(query)) {
+    query = query.replace(/^((?:new\s+)?task)\s+force\b/i, '$1 for');
   }
   return query;
 }
@@ -152,6 +177,16 @@ export function resolveTaskCreation(
     };
   }
 
+  // Deadlines can be dictated after the project title, or before it:
+  // "... for the project named The End of Smart due tomorrow".
+  // Strip a date only when it is a complete trailing date expression.
+  let dueDate: string | undefined;
+  const trailingDue = instruction.match(/\s+(?:due(?:\s+date)?(?:\s+is)?|by|on)\s+(day after tomorrow|today|tomorrow|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s*[.!?]*$/i);
+  if (trailingDue) {
+    dueDate = parseNaturalDate(trailingDue[1]) || undefined;
+    instruction = instruction.slice(0, trailingDue.index).trim();
+  }
+
   let requestedProject: string | undefined;
   const projectMatch = instruction.match(
     /\s+(?:for|under|in|of|linked\s+to|associated\s+with)\s+(?:the\s+)?project(?:\s+(?:named|called|titled))?\s*[:\-]?\s+(.+)$/i,
@@ -164,8 +199,7 @@ export function resolveTaskCreation(
   }
 
   // Due dates are optional. Do not inadvertently strip "update" or project names.
-  let dueDate: string | undefined;
-  const dueMatch = instruction.match(/\s+(?:(?:due\s+|by\s+|on\s+))?(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s*$/i);
+  const dueMatch = instruction.match(/\s+(?:due(?:\s+date)?(?:\s+is)?\s+|by\s+|on\s+)?(day after tomorrow|today|tomorrow|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s*$/i);
   if (dueMatch) {
     dueDate = parseNaturalDate(dueMatch[1]) || undefined;
     instruction = instruction.slice(0, dueMatch.index).trim();
