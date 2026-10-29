@@ -51,6 +51,7 @@ type Props = {
   canManageAll: boolean;
   desktopAttendanceCapable: boolean;
   attendanceTabRole: 'leader' | 'secondary' | 'unsupported';
+  onRequestAttendanceTakeover: () => boolean;
   onClockIn: (note?: string) => Promise<AttendanceSession>;
   onClockOut: (note?: string) => Promise<AttendanceSession>;
   onStartBreak: () => Promise<AttendanceBreak>;
@@ -138,6 +139,7 @@ export function AttendancePage({
   canManageAll,
   desktopAttendanceCapable,
   attendanceTabRole,
+  onRequestAttendanceTakeover,
   onClockIn,
   onClockOut,
   onStartBreak,
@@ -148,6 +150,7 @@ export function AttendancePage({
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [handoffNotice, setHandoffNotice] = useState<string | null>(null);
   const [editing, setEditing] = useState<AttendanceSession | null>(null);
   const [editClockIn, setEditClockIn] = useState('');
   const [editClockOut, setEditClockOut] = useState('');
@@ -162,6 +165,10 @@ export function AttendancePage({
     const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (attendanceTabRole === 'leader') setHandoffNotice(null);
+  }, [attendanceTabRole]);
 
   useEffect(() => {
     if (!supabase) {
@@ -321,7 +328,7 @@ export function AttendancePage({
       ? attendanceTabRole === 'unsupported'
         ? 'Browser cannot verify single-tab attendance'
         : attendanceTabRole === 'secondary'
-          ? 'Another Tracker tab is recording'
+          ? 'Another tab owns attendance'
       : activeBreak
         ? 'On break'
         : appConnected
@@ -404,7 +411,28 @@ export function AttendancePage({
             <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
               {attendanceTabRole === 'unsupported'
                 ? 'This browser does not support the Web Locks API required to prevent duplicate attendance across tabs. Use an updated desktop browser to earn verified time.'
-                : 'Another open MH Tracker tab owns this attendance session. This tab displays data but does not add or upload duplicate seconds. Close the other tab to transfer tracking.'}
+                : 'Another MH Tracker tab currently holds the exclusive attendance lock. This tab displays the saved time but cannot add or sync time until ownership transfers. You can request a safe handoff below, or close the other tab.'}
+            </div>
+          ) : null}
+
+          {activeSession && attendanceTabRole === 'secondary' && desktopAttendanceCapable ? (
+            <div className="mt-3 space-y-2">
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => {
+                  setError(null);
+                  setHandoffNotice(onRequestAttendanceTakeover()
+                    ? 'Transfer requested. The other tab will sync its saved time and release attendance tracking. This tab will become active once the browser grants it the lock.'
+                    : 'This browser cannot contact the owning tab. Close other MH Tracker tabs and keep this tab open to take over safely.');
+                }}
+              >
+                Use This Tab · Transfer Tracking
+              </Button>
+              {handoffNotice ? (
+                <p className="text-xs text-muted" role="status">{handoffNotice}</p>
+              ) : null}
             </div>
           ) : null}
 
@@ -471,7 +499,9 @@ export function AttendancePage({
               <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
                 <p className="font-semibold">App presence is paused.</p>
-                <p className="mt-0.5 text-xs leading-5">No running MH Tracker page has reported local presence. Reopen the app to resume without counting the closed gap.</p>
+                <p className="mt-0.5 text-xs leading-5">{attendanceTabRole === 'secondary'
+                  ? 'This tab is waiting for the attendance lock. The most recent verified heartbeat is stale; it does not prove another tab is currently recording.'
+                  : 'No recent verified app heartbeat was received. Reopen or reactivate the tracking tab to resume, without crediting a closed gap.'}</p>
               </div>
             </div>
           ) : null}
