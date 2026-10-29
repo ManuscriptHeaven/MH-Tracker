@@ -27,7 +27,7 @@ Set these Supabase Edge Function secrets:
 - META_APP_SECRET — server-only application secret
 - META_OAUTH_REDIRECT_URI — the exact URI above
 - SOCIAL_FB_RETURN_URL — trusted MH Tracker preview return URL (see latest PR
-  deployment; for this branch initially https://feature-social-facebook-publ.mh-tracker.pages.dev)
+  deployment; for this branch https://feature-social-fb-connection.mh-tracker.pages.dev)
 - SOCIAL_WORKER_SECRET — random 32+ byte secret for future server-to-server cron
 
 Supabase automatically provides SUPABASE_URL, SUPABASE_ANON_KEY and
@@ -93,6 +93,10 @@ a trusted server configuration value and is never taken from URL parameters.
 7. Run an explicitly approved single test Page post with known artwork and
    capture its post URL; confirm no duplicate result; get stakeholder approval.
 8. Only then evaluate live feature flag and merge the release.
+
+The Supabase migrations 20261023162654 and 20261023162936 were already applied to the
+connected database in the previous pilot; files are restored here for source parity.
+Do not apply these migrations twice to the same database.
 
 No automatic real publishing, analytics, or cross-platform posting is
 enabled by this PR.
