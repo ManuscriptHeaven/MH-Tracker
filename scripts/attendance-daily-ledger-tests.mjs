@@ -1,4 +1,4 @@
-import { splitAttendanceIntervalByLocalDate, sumAttendanceDailySliceSeconds, mergeAttendanceDailySlices, reconcilePendingAttendanceDailySlices, readPendingAttendanceDailySlices, writePendingAttendanceDailySlices } from '../src/lib/attendanceDailyLedger.ts';
+import { splitAttendanceIntervalByLocalDate, sumAttendanceDailySliceSeconds, mergeAttendanceDailySlices, reconcilePendingAttendanceDailySlices, repairPendingAttendanceDailySliceDates, readPendingAttendanceDailySlices, writePendingAttendanceDailySlices } from '../src/lib/attendanceDailyLedger.ts';
 import fs from 'node:fs';
 
 function assert(condition, message) {
@@ -87,6 +87,38 @@ assert(allAccepted.length === 0, 'fully acknowledged intervals are removed from 
 assert(staleQueue[0].ended_at.endsWith(':30.000Z'), 'recovery never mutates a caller-owned queued slice');
 
 
+// A stale local date must not trap users in a permanent unsynced state.
+// Rebuilding source keys changes only attribution and never the earned seconds.
+const incorrectlyDated = [{
+  source_key: key(),
+  started_at: '2026-10-28T18:59:50.000Z',
+  ended_at: '2026-10-28T19:00:10.000Z',
+  local_work_date: '2026-10-28',
+  time_zone: 'Asia/Karachi',
+}];
+const reDated = repairPendingAttendanceDailySliceDates(incorrectlyDated, key);
+assert(reDated.length === 2 &&
+  reDated[0].local_work_date === '2026-10-28' &&
+  reDated[1].local_work_date === '2026-10-29',
+  'queued interval crossing Karachi midnight is repaired into two correct dates');
+assert(sumAttendanceDailySliceSeconds(reDated) === sumAttendanceDailySliceSeconds(incorrectlyDated) &&
+  reDated[0].ended_at === reDated[1].started_at,
+  'date repair conserves every second, without gaps or overlaps');
+assert(reDated.every(x => x.source_key !== incorrectlyDated[0].source_key),
+  'repaired date slices get new stable source keys');
+assert(JSON.stringify(repairPendingAttendanceDailySliceDates(reDated,key)) === JSON.stringify(reDated),
+  'a repaired queue is stable on replay and does not regenerate source keys');
+const alreadyCorrect = [{
+  ...incorrectlyDated[0],
+  started_at: '2026-10-28T18:00:00.000Z',
+  ended_at: '2026-10-28T18:01:00.000Z',
+}];
+assert(repairPendingAttendanceDailySliceDates(alreadyCorrect, key)[0] === alreadyCorrect[0],
+  'valid queued records and their idempotency keys are left unchanged');
+const invalidTimezone = [{...alreadyCorrect[0], time_zone:'Not/A_Timezone'}];
+assert(repairPendingAttendanceDailySliceDates(invalidTimezone,key)[0] === invalidTimezone[0],
+  'invalid timezones remain queued for explicit review rather than being dropped');
+
 const tracker = fs.readFileSync('src/lib/useTracker.ts','utf8');
 assert(tracker.includes("supabase.rpc('attendance_sync_daily_slices'") &&
   tracker.includes('pendingDailySlices: AttendanceDailySlice[]') &&
@@ -100,12 +132,18 @@ assert(tracker.includes('allCreditedTimeSynced === false') &&
   tracker.includes('Unsynced attendance is still queued'),
   'manual break/clock-out cannot silently discard failed offline daily syncs');
 
-assert(tracker.includes("code !== '23P01'") &&
+assert(tracker.includes("code === '23P01'") &&
+  tracker.includes("code === '22023'") &&
+  tracker.includes('repairPendingAttendanceDailySliceDates(withoutOverlaps, createUuid)') &&
   tracker.includes(".from('attendance_daily_credits')") &&
   tracker.includes("reconcilePendingAttendanceDailySlices(") &&
   tracker.includes("writePendingAttendanceDailySlices(currentProfile.id, activeSession.id, repaired)") &&
   tracker.includes("if (batch.length > 0) await recordAttendanceDailySlices(batch)"),
-  'live overlap recovery only repairs duplicate queued slices and preserves retry IDs');
+  'live overlap and date-boundary recovery preserves idempotent retry keys');
+assert(tracker.includes('inFlightAttendanceFlush') &&
+  tracker.includes('while (runtime.pendingDailySlices.length > 0 && rounds < 20') &&
+  tracker.includes('attendanceSyncErrorRef.current = errorMessage'),
+  'manual attendance actions await concurrent sync, drain bounded backlogs and surface server errors');
 
 const hotfix = fs.readFileSync('supabase/migrations/20261021084024_attendance_daily_legacy_credit_compat.sql','utf8');
 assert(hotfix.includes('v_dated_total + v_credit > v_max_verified') &&

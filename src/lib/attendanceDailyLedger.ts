@@ -189,3 +189,74 @@ export function reconcilePendingAttendanceDailySlices(
   }
   return unique;
 }
+
+/**
+ * Rebuild queued slices that carry a stale local day, for example after a
+ * desktop timezone change. Never change the credited duration or invent time.
+ * All repaired pieces receive new stable source keys before an RPC retry.
+ *
+ * This is deliberately NOT a workaround for time outside a session, in the
+ * future, or during a break: those intervals require explicit review.
+ */
+export function repairPendingAttendanceDailySliceDates(
+  pending: AttendanceDailySlice[],
+  createSourceKey: () => string,
+): AttendanceDailySlice[] {
+  const formatters = new Map<string, Intl.DateTimeFormat>();
+  const localDate = (timestampMs: number, zone: string) => {
+    let formatter = formatters.get(zone);
+    if (!formatter) {
+      formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit',
+      });
+      formatters.set(zone, formatter);
+    }
+    const parts = formatter.formatToParts(new Date(timestampMs));
+    const field = (name: string) => parts.find((part) => part.type === name)?.value || '';
+    return `${field('year')}-${field('month')}-${field('day')}`;
+  };
+
+  return pending.flatMap((slice) => {
+    const originalStart = Date.parse(slice.started_at);
+    const originalEnd = Date.parse(slice.ended_at);
+    if (!Number.isFinite(originalStart) || !Number.isFinite(originalEnd) ||
+        originalEnd - originalStart < 1000) return [slice];
+
+    try {
+      const pieces: AttendanceDailySlice[] = [];
+      let cursor = originalStart;
+      while (cursor < originalEnd) {
+        const date = localDate(cursor, slice.time_zone);
+        let end = Math.min(originalEnd, cursor + MAX_ATTENDANCE_SLICE_MS);
+        if (localDate(end - 1, slice.time_zone) !== date) {
+          // Find the first whole second belonging to the following local day.
+          // Both endpoints are second-granular in the persisted attendance queue.
+          let lo = cursor;
+          let hi = end;
+          while (hi - lo > 1000) {
+            const mid = Math.floor((lo + hi) / 2000) * 1000;
+            if (localDate(mid, slice.time_zone) === date) lo = mid;
+            else hi = mid;
+          }
+          end = hi;
+        }
+        if (end <= cursor) return [slice];
+        const unchanged = cursor === originalStart && end === originalEnd &&
+          date === slice.local_work_date;
+        pieces.push(unchanged ? slice : {
+          ...slice,
+          source_key: createSourceKey(),
+          started_at: new Date(cursor).toISOString(),
+          ended_at: new Date(end).toISOString(),
+          local_work_date: date,
+        });
+        cursor = end;
+      }
+      return pieces;
+    } catch {
+      // Leave invalid timezone/payload untouched so the server can reject it
+      // with an actionable error instead of silently discarding attendance.
+      return [slice];
+    }
+  });
+}
