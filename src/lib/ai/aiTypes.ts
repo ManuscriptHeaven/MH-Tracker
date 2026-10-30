@@ -44,6 +44,8 @@ export type AIToolName =
   | 'get_project_activity'
   | 'get_messages'
   | 'search_messages'
+  | 'draft_message_reply'
+  | 'send_message_reply'
   | 'get_calendar_events'
   | 'get_upcoming_events'
   | 'run_cross_module_query'
@@ -176,7 +178,8 @@ export interface AIToolContext {
     saveInvoiceVersion?: (draft: Invoice, existingInvoiceId?: string | null, changeNote?: string) => Promise<Invoice>;
     addEmployeeLedgerEntry?: (entry: any) => Promise<void>;
     deleteEmployeeLedgerEntry?: (id: string) => Promise<void>;
-    sendMessage?: (conversationId: string, body: string) => Promise<any>;
+    sendMessage?: (conversationId: string, body: string, attachments?: any[], parentMessageId?: string | null) => Promise<any>;
+    getLatestConversationMessage?: (conversationId: string) => Promise<{id: string; sender_id: string} | null>;
     getOrCreateDM?: (otherUserId: string) => Promise<any>;
     getOrCreateProjectConversation?: (projectId: string, isInternal?: boolean) => Promise<any>;
     getOrCreateTaskConversation?: (taskId: string) => Promise<any>;

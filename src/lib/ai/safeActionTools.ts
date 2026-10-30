@@ -10,6 +10,7 @@ import { isManagerRole, isClientRole, firstName } from '../utils';
 import { formatDate, todayInput, addDays } from '../date';
 import { isActiveTaskProject, isAssignableTeamMember } from './taskCreationIntent';
 import { createBulkInvoice, getEligibleProjectsForClient } from '../invoiceUtils';
+import { accessibleThreads } from './conversationInsights';
 
 function createAuditLog(
   ctx: AIToolContext,
@@ -1999,6 +2000,82 @@ export async function execute_add_payroll_deduction(
 // ==========================================
 // 6. COMMUNICATION ACTIONS
 // ==========================================
+
+// An approved response is ALWAYS posted in the exact original thread. The
+// caller's Supabase user JWT and phase6_send_message RPC independently enforce
+// membership; the client-side check below prevents stale/wrong-thread sends.
+export async function execute_send_message_reply(
+  payload: { conversationId: string; sourceMessageId: string; sourceSenderId: string; body: string },
+  ctx: AIToolContext,
+): Promise<AIToolResult> {
+  const denied = (error: string, message: string): AIToolResult => ({
+    success:false,toolName:'send_message_reply',error,spokenText:message,
+    displayText:'**Reply not sent.** '+message,
+    auditLog:createAuditLog(ctx,'AI reply blocked','message',payload.conversationId,
+      undefined,null,null,'failed',error),
+  });
+  if (!payload.conversationId || !payload.sourceMessageId || !payload.body?.trim()) {
+    return denied('invalid_reply','The conversation, source message and non-empty body are required.');
+  }
+  const target = accessibleThreads(ctx).find((t)=>t.conversation.id===payload.conversationId);
+  if (!target) return denied('permission_denied','This conversation is no longer accessible.');
+  if (target.conversation.type==='project_client' && !isManagerRole(ctx.currentProfile.role)) {
+    return denied('permission_denied','Only Admin or Manager can send client-facing AI replies.');
+  }
+  const source=target.messages.find((m)=>m.id===payload.sourceMessageId);
+  if(!source || source.sender_id!==payload.sourceSenderId || source.sender_id===ctx.currentProfile.id) {
+    return denied('source_changed','The source message no longer matches the approved reply.');
+  }
+  if(target.messages[target.messages.length-1]?.id!==source.id) {
+    return denied('conversation_changed','New conversation activity appeared. Review the latest message and prepare a fresh reply.');
+  }
+  if(!ctx.trackerMutations?.sendMessage) {
+    return denied('messaging_unavailable','Messaging is unavailable; nothing was sent.');
+  }
+  const latestReader=ctx.trackerMutations.getLatestConversationMessage;
+  if(!latestReader) {
+    return denied('message_freshness_unavailable',
+      'The signed-in message freshness check is unavailable. Nothing was sent.');
+  }
+  let latestMessage: {id:string;sender_id:string}|null=null;
+  try {
+    latestMessage=await latestReader(payload.conversationId);
+  }catch{
+    return denied('message_freshness_unverified',
+      'I could not verify the latest message from Tracker. Nothing was sent.');
+  }
+  if(!latestMessage || latestMessage.id!==payload.sourceMessageId
+      || latestMessage.sender_id!==payload.sourceSenderId) {
+    return denied('conversation_changed',
+      'A newer message or conversation change was detected. Review the latest message and prepare a fresh draft.');
+  }
+  try {
+    const sent=await ctx.trackerMutations.sendMessage(
+      payload.conversationId,payload.body.trim(),undefined,payload.sourceMessageId);
+    if(!sent?.id || sent.conversation_id!==payload.conversationId
+        || sent.parent_message_id!==payload.sourceMessageId
+        || sent.body!==payload.body.trim() || sent.sender_id!==ctx.currentProfile.id) {
+      return denied('message_send_unverified',
+        'A send may have occurred but the returned message does not match the approved reply. Check Tracker before retrying.');
+    }
+    return {
+      success:true,toolName:'send_message_reply',
+      spokenText:'Your reviewed reply was sent to the original conversation.',
+      displayText:'### Reply sent\n\nMessage ID: '+sent.id
+        +'\nSource message ID: '+payload.sourceMessageId
+        +'\n\nThe reply was attached to the original message. Tracker will verify it against the database.',
+      data:sent,
+      auditLog:createAuditLog(ctx,'Sent confirmed AI threaded reply','message',
+        payload.conversationId,'Source message '+payload.sourceMessageId,
+        null,'New message '+sent.id,'success'),
+    };
+  }catch(e:any) {
+    const detail=e?.message || 'Unable to confirm delivery';
+    return denied('message_send_uncertain',
+      'I could not confirm the send ('+detail+'). Check the original conversation before retrying to avoid a duplicate.');
+  }
+}
+
 
 export async function execute_send_internal_message(
   payload: { recipientId: string; body: string },

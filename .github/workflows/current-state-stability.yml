@@ -254,3 +254,38 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261030201500_task_assignment_notification_certification.sql
       - name: Verify end-to-end inserts, notifications, audit, and role restrictions
         run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/ai-task-workflow-ci-tests.sql
+
+  ai-messaging-v2-rls-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: messaging_v2_ci_only
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: messaging_v2_ci_only
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y postgresql-client
+          fi
+      - name: Seed disposable production-shaped messaging schema and policies
+        run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/ai-messaging-v2-rls-fixture.sql
+      - name: Enforce conversation membership, role permissions and safe linked replies
+        run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/ai-messaging-v2-rls-tests.sql

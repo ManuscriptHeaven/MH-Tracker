@@ -348,6 +348,7 @@ export function AIProvider({
         addEmployeeLedgerEntry: t.addEmployeeLedgerEntry,
         deleteEmployeeLedgerEntry: t.deleteEmployeeLedgerEntry,
         sendMessage: t.sendMessage,
+        getLatestConversationMessage: t.getLatestConversationMessage,
         getOrCreateDM: t.getOrCreateDM,
         getOrCreateProjectConversation: t.getOrCreateProjectConversation,
         getOrCreateTaskConversation: t.getOrCreateTaskConversation,

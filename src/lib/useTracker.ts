@@ -4254,6 +4254,25 @@ export function useTracker() {
     [currentProfile, mode],
   );
 
+  const getLatestConversationMessage = useCallback(
+    async (conversationId: string): Promise<{id:string;sender_id:string}|null> => {
+      if (!currentProfile || !supabase || mode !== 'supabase') {
+        throw new Error('Signed-in Supabase messaging is required for AI replies.');
+      }
+      // The signed-in JWT/RLS must authorize this conversation. Never use a
+      // service-role credential or cached browser list to certify freshness.
+      const { data:latest, error } = await supabase.from('messages')
+        .select('id,sender_id')
+        .eq('conversation_id',conversationId)
+        .order('created_at',{ascending:false})
+        .limit(1)
+        .maybeSingle();
+      if(error) throw error;
+      return latest;
+    },
+    [currentProfile,mode],
+  );
+
   const sendMessage = useCallback(
     async (
       conversationId: string,
@@ -5717,6 +5736,7 @@ export function useTracker() {
     restoreFinanceTransaction,
     saveFinanceBudget,
     sendMessage,
+    getLatestConversationMessage,
     getMessageAttachmentUrl,
     toggleReaction,
     markConversationRead,
