@@ -217,3 +217,40 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261030001000_ai_knowledge_admin_boundary.sql
       - name: Assert role-based SELECT INSERT UPDATE DELETE isolation
         run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/ai-knowledge-rls-tests.sql
+
+  ai-task-workflow-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ai_workflow_ci_only
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: ai_workflow_ci_only
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client if needed
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y postgresql-client
+          fi
+      - name: Create disposable roles and task security fixture
+        run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/ai-task-workflow-ci-fixture.sql
+      - name: Apply exact assignment notification migration
+        run: psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261030201500_task_assignment_notification_certification.sql
+      - name: Verify end-to-end inserts, notifications, audit, and role restrictions
+        run: psql -X -v ON_ERROR_STOP=1 -f scripts/sql/ai-task-workflow-ci-tests.sql

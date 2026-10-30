@@ -5,6 +5,43 @@ function sameDate(actual: unknown, expected: unknown): boolean {
   return String(actual).slice(0, 10) === String(expected).slice(0, 10);
 }
 
+/** Confirm that the persisted task still matches the exact approved preview.
+ * Pure helper so the same predicate is exercised in CI without a privileged
+ * production connection. The production verifier fetches by task ID under RLS.
+ */
+export function verifyTaskCreationSnapshot(
+  action: AIActionPreview,
+  data: {
+    id?: string; title?: string; status?: string;
+    assigned_to?: string | null; project_id?: string | null; due_date?: string | null;
+  } | null,
+): AIActionVerification {
+  const expectedAssignee = String(action.payload.assignedToId || '');
+  const expectedProject = action.payload.projectId || null;
+  const matching = Boolean(data &&
+    data.title === action.payload.title &&
+    data.status === 'To Do' &&
+    data.assigned_to === expectedAssignee &&
+    (data.project_id || null) === expectedProject &&
+    (!action.payload.dueDate || sameDate(data.due_date, action.payload.dueDate)));
+  return matching
+    ? {
+        status: 'verified',
+        message: `Verified in Tracker: task "${data!.title}" belongs to the requested employee${expectedProject ? ' and active project' : ''}.`,
+      }
+    : {
+        status: 'failed',
+        message: 'Task was not verified with the requested title, assignee, project, status and due date. Check Tasks before retrying.',
+        details: {
+          taskId: data?.id || null,
+          actualAssignee: data?.assigned_to || null,
+          expectedAssignee,
+          actualProject: data?.project_id || null,
+          expectedProject,
+        },
+      };
+}
+
 export async function verifyActionOutcome(
   action: AIActionPreview,
   result: AIToolResult,
@@ -32,27 +69,7 @@ export async function verifyActionOutcome(
         .maybeSingle();
       if (error) throw error;
 
-      const expectedAssignee = String(action.payload.assignedToId || '');
-      const expectedProject = action.payload.projectId || null;
-      const matching = data &&
-        data.title === action.payload.title &&
-        data.status === 'To Do' &&
-        data.assigned_to === expectedAssignee &&
-        (data.project_id || null) === expectedProject &&
-        (!action.payload.dueDate || sameDate(data.due_date, action.payload.dueDate));
-      return matching
-        ? {
-            status: 'verified',
-            message: `Verified in Tracker: task "${data.title}" belongs to the requested employee${expectedProject ? ' and active project' : ''}.`,
-          }
-        : {
-            status: 'failed',
-            message: 'Task was not verified with the requested title, assignee, project, status and due date. Check Tasks before retrying.',
-            details: {
-              taskId, actualAssignee: data?.assigned_to || null, expectedAssignee,
-              actualProject: data?.project_id || null, expectedProject,
-            },
-          };
+      return verifyTaskCreationSnapshot(action, data);
     }
 
     if (action.toolName === 'create_project' || action.toolName === 'duplicate_project') {
