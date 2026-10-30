@@ -179,6 +179,7 @@ export interface AIToolContext {
     addEmployeeLedgerEntry?: (entry: any) => Promise<void>;
     deleteEmployeeLedgerEntry?: (id: string) => Promise<void>;
     sendMessage?: (conversationId: string, body: string, attachments?: any[], parentMessageId?: string | null) => Promise<any>;
+    getLatestConversationMessage?: (conversationId: string) => Promise<{id: string; sender_id: string} | null>;
     getOrCreateDM?: (otherUserId: string) => Promise<any>;
     getOrCreateProjectConversation?: (projectId: string, isInternal?: boolean) => Promise<any>;
     getOrCreateTaskConversation?: (taskId: string) => Promise<any>;
