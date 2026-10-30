@@ -73,7 +73,7 @@ assert.doesNotMatch(all.displayText,/staff salary negotiation/,'Admin must not s
 assert.doesNotMatch(all.displayText,/Secret beta/,'Non-visible project data cannot leak');
 
 const unread = readTrackerMessages('Summarize unread messages',ctx);
-assert.equal(unread.count,4,'Unread uses member.last_read_at and excludes user's own sent messages');
+assert.equal(unread.count,4,"Unread uses member.last_read_at and excludes the user's own sent messages");
 assert.doesNotMatch(unread.displayText,/Old message/);
 const clientMessages = readTrackerMessages('Show client messages',ctx);
 assert.equal(clientMessages.count,1);
