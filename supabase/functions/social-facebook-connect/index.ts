@@ -100,13 +100,17 @@ Deno.serve(async (request: Request) => {
     const pageData=await pagesResponse.json() as {
       data?: {id?:string;name?:string;access_token?:string;tasks?:string[]}[];
     };
+    // Static failure categories only: never expose Graph responses or tokens.
+    if (!Array.isArray(pageData.data) || pageData.data.length===0)
+      return redirect(returnUrl,'no_pages_returned');
     const pages=(pageData.data||[]).filter(p=>validPage(p.id) &&
       typeof p.name==='string' && typeof p.access_token==='string' &&
       (!p.tasks || p.tasks.includes('CREATE_CONTENT')));
+    if (!pages.length) return redirect(returnUrl,'page_content_access_missing');
     const chosen=flow.expected_page_id
       ? pages.find(p=>p.id===flow.expected_page_id)
       : pages.length===1 ? pages[0] : null;
-    if (!chosen) return redirect(returnUrl,pages.length>1?'page_id_required':'no_page_access');
+    if (!chosen) return redirect(returnUrl,flow.expected_page_id?'selected_page_not_returned':'page_id_required');
 
     const {data:connection,error:connectError}=await service.rpc('social_server_save_facebook_page',{
       p_owner:flow.owner_id,p_brand:flow.brand_id,p_page_id:chosen.id,
@@ -170,3 +174,4 @@ Deno.serve(async (request: Request) => {
   oauth.searchParams.set('state',state);
   return answer({authorizationUrl:oauth.toString(),note:'Publishing stays disabled after connection until release certification.'});
 });
+
