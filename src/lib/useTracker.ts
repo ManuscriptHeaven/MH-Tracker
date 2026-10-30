@@ -1496,7 +1496,11 @@ export function useTracker() {
           };
         });
         setNotificationToast(notification);
-        notifyWithSoundAndVoice('notification', notification.title, notification.message);
+        // The task realtime listener already plays the assignment sound.
+        // A durable notification is still shown in the inbox/toast for offline catch-up.
+        if (notification.type !== 'task_assigned') {
+          notifyWithSoundAndVoice('notification', notification.title, notification.message);
+        }
         if (notification.type === 'client_reminder_due' || notification.type === 'client_wait_escalation') {
           void loadSupabaseData(currentProfile);
         }
