@@ -90,7 +90,7 @@ function matchRequestedProject(query: string, ctx: AIToolContext): { id?: string
 function matchRequestedSender(query: string, ctx: AIToolContext): { id?: string; ambiguous?: boolean } {
   const match = query.match(/\b(?:from|to|with|what did)\s+(?:the\s+)?([a-z][a-z .-]{1,45})(?=\s+(?:say|write|send|about|for|on|in|message|conversation|chat|reply|latest|today)\b|[?.!]|$)/i);
   const name = (match?.[1] || '').trim().toLowerCase();
-  if (!name || /^(?:latest|last|recent|my|our|the|team|client|employee|author|staff|this)\b/i.test(name)) return {};
+  if (!name || /^(?:latest|last|recent|my|our|the|team|client|employee|author|staff|this|project|book)\b/i.test(name)) return {};
   const matches = ctx.data.profiles.filter((p) =>
     p.full_name.toLowerCase() === name || p.full_name.toLowerCase().startsWith(name+' '));
   if (!matches.length) return { missing: true } as any;
