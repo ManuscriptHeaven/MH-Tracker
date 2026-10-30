@@ -26,6 +26,7 @@ import { isCreateTaskRequest, resolveTaskCreation } from './taskCreationIntent';
 import type { TaskCreationOverrides } from './taskCreationIntent';
 import { verifyActionOutcome } from './aiActionVerifier';
 import { isMessageReadingIntent, readTrackerMessages } from './messageIntelligence';
+import { isConversationInsightIntent, isMessageReplyIntent, summarizeMessageThreads, prepareMessageReply } from './conversationInsights';
 
 function startsIndependentRequest(query: string): boolean {
   return /^(?:(?:can|could|would|will)\s+you\s+)?(?:how|what|which|who|when|where|why|show|give|provide|list|summarize|send|create|generate|make|record|add|update|change|delete|archive)\b|^please\s+(?:show|give|provide|list|summarize|send|create|generate|make|record|add|update|change|delete|archive)\b/i.test(query.trim());
@@ -408,7 +409,9 @@ export class VoiceQueryEngine {
     // --- MESSAGES (read-only, under signed-in user's conversation RLS) ---
     // Route before tasks, invoices or projects so "messages about a task"
     // cannot be mistaken for a task list. Sends remain confirmation-only.
-    if (isMessageReadingIntent(q)) {
+    if (isConversationInsightIntent(q)) {
+      result = summarizeMessageThreads(q, ctx);
+    } else if (isMessageReadingIntent(q)) {
       result = readTrackerMessages(q, ctx);
     }
     // --- INVOICES (read-only; do not route an invoice question to a write planner) ---
@@ -602,6 +605,13 @@ export class VoiceQueryEngine {
   // ==========================================
 
   private async detectWriteIntent(lower: string, q: string, ctx: AIToolContext): Promise<AIToolResult | null> {
+    // Message replies always stay in the existing conversation. A draft has
+    // no pending action; explicit send/reply requests require separate approval.
+    if (isMessageReplyIntent(q)) {
+      const draft = prepareMessageReply(q, ctx);
+      if (draft?.pendingAction) this.memory.pendingAction = draft.pendingAction;
+      if (draft) return draft;
+    }
     // ----------------------------------------------------
     // 00. INVOICE GENERATION INTENT
     // e.g. "Generate invoice for BCH for all pending payments", "Create invoice for BCH", "Invoice BCH"
@@ -2402,6 +2412,8 @@ export class VoiceQueryEngine {
         return safeActions.execute_add_payroll_deduction(action.payload as any, ctx);
       case 'send_internal_message':
         return safeActions.execute_send_internal_message(action.payload as any, ctx);
+      case 'send_message_reply':
+        return safeActions.execute_send_message_reply(action.payload as any, ctx);
       case 'send_client_message':
         return safeActions.execute_send_client_message(action.payload as any, ctx);
       case 'generate_client_invoice':
