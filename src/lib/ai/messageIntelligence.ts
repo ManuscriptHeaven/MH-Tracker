@@ -12,7 +12,7 @@ export function isMessageReadingIntent(query: string): boolean {
     && /\b(?:read|show|find|search|list|check|summari[sz]e|recap|latest|recent|unread|new|today|yesterday|what|which|who|any|pending|questions|containing|mentioning|keyword|catch\s+up)\b/i.test(q);
 }
 
-function safeText(value: string, limit = 220): string {
+export function safeText(value: string, limit = 220): string {
   return sanitizeUntrustedData(value || '')
     .replace(/\s+/g, ' ').trim().replace(/[<>]/g, '')
     .replace(/([\\*_[\]])/g, '\\$1').slice(0, limit);
@@ -23,7 +23,7 @@ function activeStaff(profile?: Profile): boolean {
     && ['admin','manager','project_manager','employee','junior_assistant'].includes(profile.role));
 }
 
-function allowedConversation(conversation: Conversation, ctx: AIToolContext): boolean {
+export function allowedConversation(conversation: Conversation, ctx: AIToolContext): boolean {
   if (!activeStaff(ctx.currentProfile)) return false;
   const members = (ctx.data.conversationMembers || []).filter((m) => m.conversation_id === conversation.id);
   if (conversation.type === 'dm') {
@@ -144,7 +144,7 @@ export function readTrackerMessages(query: string, ctx: AIToolContext): AIToolRe
     const senderName = ctx.data.profiles.find((p) => p.id === m.sender_id)?.full_name || 'Team member';
     return '- **' + safeText(conversationLabel(conversation, ctx), 80) + '** — '
       + safeText(senderName, 40) + ' (' + new Date(m.created_at).toLocaleString() + '): '
-      + safeText(m.body, 240);
+      + safeText(m.body, 240) + ' (Source message: ' + safeText(m.id, 48) + ')';
   });
   return {
     success: true, toolName, count: messages.length,
