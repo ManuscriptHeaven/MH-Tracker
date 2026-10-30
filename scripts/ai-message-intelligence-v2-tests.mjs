@@ -44,7 +44,13 @@ const data={profiles:[admin,manager,zain,hamza,client,inactive],projects:[alpha,
  conversationMembers,messages,tasks:[],revisionRequests:[]};
 let writes=0;
 const ctx={currentProfile:admin,data,visibleProjects:[alpha],visibleTasks:[],formatMoney:()=>'',convertMoney:()=>0,
- trackerMutations:{sendMessage:async (conversationId,body,attachments,parentMessageId)=>{
+ trackerMutations:{
+  getLatestConversationMessage:async (conversationId)=>{
+    const found=messages.filter((m)=>m.conversation_id===conversationId)
+      .sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+    return found[0] ? {id:found[0].id,sender_id:found[0].sender_id} : null;
+  },
+  sendMessage:async (conversationId,body,attachments,parentMessageId)=>{
   writes++;
   return {id:'reply-'+writes,conversation_id:conversationId,sender_id:admin.id,
    body,parent_message_id:parentMessageId,created_at:new Date().toISOString()};
@@ -102,6 +108,17 @@ assert.equal(writes,0);
 const staleCtx={...ctx,data:{...data,messages:[...messages,msg('new-client','project-client','client','Newer client note')]}};
 const stale=await execute_send_message_reply(preview.pendingAction.payload,staleCtx);
 assert.equal(stale.error,'conversation_changed','New incoming message invalidates old draft');
+assert.equal(writes,0);
+const remoteStale=await execute_send_message_reply(preview.pendingAction.payload,{
+ ...ctx,trackerMutations:{...ctx.trackerMutations,
+  getLatestConversationMessage:async()=>({id:'brand-new',sender_id:client.id})}
+});
+assert.equal(remoteStale.error,'conversation_changed','Signed-in DB readback must defeat stale cached preview');
+assert.equal(writes,0);
+const noFreshness=await execute_send_message_reply(preview.pendingAction.payload,{
+ ...ctx,trackerMutations:{sendMessage:ctx.trackerMutations.sendMessage}
+});
+assert.equal(noFreshness.error,'message_freshness_unavailable','Missing live JWT readback must fail closed');
 assert.equal(writes,0);
 const noAdapter=await execute_send_message_reply(preview.pendingAction.payload,{...ctx,trackerMutations:{}});
 assert.equal(noAdapter.error,'messaging_unavailable');
