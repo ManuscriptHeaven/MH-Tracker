@@ -166,7 +166,7 @@ export function summarizeMessageThreads(query: string, ctx: AIToolContext): AITo
     const unaddressed=last.sender_id!==ctx.currentProfile.id && latestIncoming?.id===last.id;
     const signal=unaddressed ? classifyRequest(last.body) : null;
     if(signal)actions++;
-    sections.push('**'+safeText(threadLabel(t,ctx),110)+'** — '+t.messages.length
+    sections.push('**'+safeText(threadLabel(t,ctx),110)+'** (Conversation ID: '+safeText(t.conversation.id,56)+') — '+t.messages.length
       +' matching messages\n'+bullets.join('\n')
       +(signal?'\n- **Potential follow-up:** '+signal.label+' ('+untrustedSource(last)+')':''));
   }
@@ -219,7 +219,7 @@ export function prepareMessageReply(query: string,ctx: AIToolContext): AIToolRes
       ? 'Thank you for your message. I will review the details and follow up shortly.'
       : 'Thanks for the update. I will review this and get back to you with the next steps.');
   const location=safeText(threadLabel(thread,ctx),110);
-  const preview='### Professional reply draft\n\n**Conversation:** '+location
+  const preview='### Professional reply draft\n\n**Conversation:** '+location+'\n\n**Conversation ID:** '+safeText(thread.conversation.id,56)
     +'\n\n**In response to:** '+safeText(source.body,180)
     +'\n\n'+untrustedSource(source)
     +'\n\n**Draft:**\n\n'+body
