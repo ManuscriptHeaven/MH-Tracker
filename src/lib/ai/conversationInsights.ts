@@ -31,7 +31,7 @@ export function isConversationInsightIntent(query: string): boolean {
 export function isMessageReplyIntent(query: string): boolean {
   const q = query.trim();
   return /^(?:(?:please|can you|could you|would you)\s+)?(?:draft|prepare|write|compose|reply|respond|send)\b/i.test(q)
-    && /\b(?:reply|respond|message|conversation|chat)\b/i.test(q)
+    && /\b(?:reply|respond|response)\b/i.test(q)
     && (/\b(?:to|about|for|in|from|latest|last|recent|this)\b/i.test(q) || /\breply\b/i.test(q));
 }
 
@@ -83,6 +83,8 @@ function senderName(message: ChatMessage, ctx: AIToolContext): string {
 function matchRequestedProject(query: string, ctx: AIToolContext): { id?: string; ambiguous?: boolean } {
   const matches = ctx.visibleProjects.filter((p) =>
     p.project_title.length >= 3 && query.toLowerCase().includes(p.project_title.toLowerCase()));
+  const explicitProject = /\b(?:project|book)\s+(?:named\s+)?[a-z0-9]/i.test(query);
+  if (explicitProject && !matches.length) return { missing: true } as any;
   return matches.length > 1 ? { ambiguous: true } : { id: matches[0]?.id };
 }
 function matchRequestedSender(query: string, ctx: AIToolContext): { id?: string; ambiguous?: boolean } {
@@ -91,6 +93,7 @@ function matchRequestedSender(query: string, ctx: AIToolContext): { id?: string;
   if (!name || /^(?:latest|last|recent|my|our|the|team|client|employee|author|staff|this)\b/i.test(name)) return {};
   const matches = ctx.data.profiles.filter((p) =>
     p.full_name.toLowerCase() === name || p.full_name.toLowerCase().startsWith(name+' '));
+  if (!matches.length) return { missing: true } as any;
   return matches.length > 1 ? { ambiguous: true } : { id: matches[0]?.id };
 }
 
@@ -99,6 +102,7 @@ function selectedThreads(query: string, ctx: AIToolContext):
   const project = matchRequestedProject(query,ctx);
   const sender = matchRequestedSender(query,ctx);
   if (project.ambiguous || sender.ambiguous) return { threads: [], error: 'ambiguous_target' };
+  if ((project as any).missing || (sender as any).missing) return { threads: [], error: 'target_not_found' };
   let threads = accessibleThreads(ctx).filter((t) => t.messages.length > 0);
   if (project.id) threads = threads.filter((t) => t.conversation.project_id === project.id);
   if (sender.id) threads = threads.filter((t) => t.messages.some((m) => m.sender_id === sender.id));
