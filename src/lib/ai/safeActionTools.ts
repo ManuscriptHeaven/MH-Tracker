@@ -2033,6 +2033,26 @@ export async function execute_send_message_reply(
     return denied('messaging_unavailable','Messaging is unavailable; nothing was sent.');
   }
   try {
+    // The browser's tracker snapshot can be stale after the preview. Before
+    // any send, fetch the current last message with this user's JWT/RLS.
+    // Fail closed on query errors; do not use service-role credentials.
+    const {supabase,isSupabaseConfigured}=await import('../supabase');
+    if (isSupabaseConfigured && supabase) {
+      const {data:latestRows,error:latestError}=await supabase.from('messages')
+        .select('id,sender_id,conversation_id')
+        .eq('conversation_id',payload.conversationId)
+        .order('created_at',{ascending:false})
+        .limit(1);
+      if(latestError || !latestRows?.length) {
+        return denied('message_freshness_unverified',
+          'I could not verify the latest message from Tracker. Nothing was sent.');
+      }
+      const latest=latestRows[0];
+      if(latest.id!==payload.sourceMessageId || latest.sender_id!==payload.sourceSenderId) {
+        return denied('conversation_changed',
+          'A newer message or conversation change was detected. Review the latest message and prepare a fresh draft.');
+      }
+    }
     const sent=await ctx.trackerMutations.sendMessage(
       payload.conversationId,payload.body.trim(),undefined,payload.sourceMessageId);
     if(!sent?.id || sent.conversation_id!==payload.conversationId
