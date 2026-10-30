@@ -9,7 +9,7 @@ export function isMessageReadingIntent(query: string): boolean {
   if (/^(?:send|draft|write|reply|respond|forward|delete|remove|mark)\b/i.test(q)) return false;
   if (/^(?:what did|what has|what was)\s+.{2,65}?\s+(?:say|write|send)\b/i.test(q)) return true;
   return (/\b(?:messages?|chats?|conversations?|inbox|dms?)\b/i.test(q) || /(?:پیغامات|پیغام)/u.test(q))
-    && /\b(?:read|show|find|search|list|check|summari[sz]e|recap|latest|recent|unread|new|today|yesterday|what|which|who|any|pending|questions|catch\s+up)\b/i.test(q);
+    && /\b(?:read|show|find|search|list|check|summari[sz]e|recap|latest|recent|unread|new|today|yesterday|what|which|who|any|pending|questions|containing|mentioning|keyword|catch\s+up)\b/i.test(q);
 }
 
 function safeText(value: string, limit = 220): string {
