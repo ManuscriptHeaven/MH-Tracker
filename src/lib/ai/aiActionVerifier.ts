@@ -57,6 +57,24 @@ export async function verifyActionOutcome(
       };
     }
 
+    if (action.toolName === 'send_message_reply') {
+      const sentId = (result.data as any)?.id;
+      if (!sentId) return {status:'failed',message:'Reply result has no message ID. Check the original conversation before retrying.'};
+      const {data,error} = await supabase.from('messages')
+        .select('id,conversation_id,sender_id,parent_message_id,body')
+        .eq('id',sentId).maybeSingle();
+      if(error) throw error;
+      const valid = data
+        && data.conversation_id===action.payload.conversationId
+        && data.sender_id===((result.data as any)?.sender_id)
+        && data.parent_message_id===action.payload.sourceMessageId
+        && data.body===String(action.payload.body||'').trim();
+      return valid
+        ? {status:'verified',message:'Verified in Tracker: your reply was saved in the approved conversation, linked to the source message.'}
+        : {status:'failed',message:'The saved reply could not be verified against the approved conversation and source message. Check Tracker before retrying.',
+          details:{messageId:sentId,conversationId:action.payload.conversationId,sourceMessageId:action.payload.sourceMessageId}};
+    }
+
     if (action.toolName === 'create_task') {
       const taskId = (result.data as any)?.id;
       if (!taskId) {
