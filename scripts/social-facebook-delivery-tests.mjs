@@ -139,7 +139,7 @@ assert.equal((await emptyResponse.json()).claimed,0);
 
 // Server-only Graph paths are present, but live publishing cannot be activated from the UI.
 // OAuth callback mocks demonstrate one-time state, server-side Page token, and safe redirects.
-function oauthHarness({role='admin',metaConfigured=true}={}) {
+function oauthHarness({role='admin',metaConfigured=true,pageRows=null}={}) {
   let serve, savedHash=null, used=false, savedToken=null, graphCalls=0;
   const service={
     from(table){
@@ -182,7 +182,7 @@ function oauthHarness({role='admin',metaConfigured=true}={}) {
     fetch:async(url,opts)=>{
       graphCalls++;
       if(String(url).includes('/me/accounts')){
-        return new Response(JSON.stringify({data:[{
+        return new Response(JSON.stringify({data:pageRows ?? [{
           id:'123456789',name:'Manuscript Heaven',
           tasks:['CREATE_CONTENT'],access_token:'page-token-'+'x'.repeat(45),
         }]}),{status:200});
@@ -227,4 +227,23 @@ assert.ok(!destination.toString().includes('token'));
 assert.ok(oauthAdmin.stats().savedToken.startsWith('page-token-'));
 const replay=await oauthAdmin.callback(state);
 assert.equal(new URL(replay.headers.get('Location')).searchParams.get('social_fb'),'expired_state');
+// Failure categories must identify empty, ineligible and mismatched Page responses
+// without saving a token or putting provider data in the callback URL.
+for (const [pageRows,expected] of [
+  [[], 'no_pages_returned'],
+  [[{id:'123456789',name:'Test',tasks:['ANALYZE'],access_token:'test-token'}], 'page_content_access_missing'],
+  [[{id:'123456789',name:'Test',tasks:['CREATE_CONTENT']}], 'page_content_access_missing'],
+  [[{id:'987654321',name:'Other',tasks:['CREATE_CONTENT'],access_token:'test-token'}], 'selected_page_not_returned'],
+]) {
+  const harness=oauthHarness({pageRows});
+  const start=await harness.post({action:'start',brandId:BRAND,pageId:'123456789'});
+  const callbackState=new URL((await start.json()).authorizationUrl).searchParams.get('state');
+  const response=await harness.callback(callbackState);
+  const location=new URL(response.headers.get('Location'));
+  assert.equal(location.searchParams.get('social_fb'),expected);
+  assert.equal(harness.stats().savedToken,null);
+  assert.equal([...location.searchParams.keys()].join(','),'social_fb');
+  assert.ok(!location.href.includes('test-token'));
+}
 console.log('Facebook OAuth state, fake-worker, admin isolation and no-publishing tests passed.');
+
