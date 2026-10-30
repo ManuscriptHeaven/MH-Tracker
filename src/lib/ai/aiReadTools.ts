@@ -1,7 +1,8 @@
 import type { AIToolContext, AIToolResult, ReadQueryPlan } from './aiTypes';
 import { formatDate, isOverdue, daysUntil, isClosed, todayInput } from '../date';
-import { isClientRole, isManagerRole } from '../utils';
-import { checkReadPermission, sanitizeUntrustedData } from './aiSecurityBoundary';
+import { isManagerRole } from '../utils';
+import { checkReadPermission } from './aiSecurityBoundary';
+import { readTrackerMessages } from './messageIntelligence';
 
 /**
  * 1. Messages Read Tools
@@ -12,82 +13,14 @@ export async function get_messages(
   unreadOnly: boolean,
   ctx: AIToolContext,
 ): Promise<AIToolResult> {
-  const perm = checkReadPermission(ctx.currentProfile, 'messages');
-  if (!perm.allowed) {
-    return {
-      success: false,
-      toolName: 'get_messages',
-      error: 'permission_denied',
-      spokenText: "I can't access messages with your current permissions.",
-      displayText: `🔒 ${perm.reason}`,
-    };
-  }
-
-  const allMessages = ctx.data.messages || [];
-  const currentUserId = ctx.currentProfile.id;
-
-  // Filter messages accessible to current user (as sender or member of conversation or client)
-  let accessible = allMessages;
-  if (isClientRole(ctx.currentProfile.role)) {
-    accessible = allMessages.filter(
-      (m: any) => m.sender_id === currentUserId || m.recipient_id === currentUserId,
-    );
-  }
-
-  if (senderQuery) {
-    const q = senderQuery.toLowerCase();
-    const sender = ctx.data.profiles.find(
-      (p) => p.full_name.toLowerCase().includes(q) || p.email.toLowerCase().includes(q),
-    );
-    if (sender) {
-      accessible = accessible.filter((m: any) => m.sender_id === sender.id || m.recipient_id === sender.id);
-    }
-  }
-
-  if (keywordQuery) {
-    const kw = keywordQuery.toLowerCase();
-    accessible = accessible.filter((m: any) => ((m.body || m.message || '') as string).toLowerCase().includes(kw));
-  }
-
-  if (unreadOnly) {
-    accessible = accessible.filter((m: any) => m.is_read === false && m.recipient_id === currentUserId);
-  }
-
-  if (accessible.length === 0) {
-    const text = senderQuery
-      ? `I couldn't find any messages from or to "${senderQuery}".`
-      : keywordQuery
-      ? `No messages found containing "${keywordQuery}".`
-      : 'You have no new or matching messages.';
-    return {
-      success: true,
-      toolName: 'get_messages',
-      spokenText: text,
-      displayText: text,
-      count: 0,
-      data: [],
-    };
-  }
-
-  const latest = accessible.slice(0, 5);
-  const latestBody = (latest[0] as any).body || (latest[0] as any).message || '';
-  const spoken = `Found ${accessible.length} matching message${accessible.length === 1 ? '' : 's'}. Latest from ${ctx.data.profiles.find((p) => p.id === latest[0].sender_id)?.full_name || 'Team'}: "${sanitizeUntrustedData(latestBody).slice(0, 80)}".`;
-
-  let display = `### Messages (${accessible.length})\n\n`;
-  latest.forEach((m: any) => {
-    const senderName = ctx.data.profiles.find((p) => p.id === m.sender_id)?.full_name || 'Team Member';
-    const bodyStr = m.body || m.message || '';
-    display += `• **${senderName}:** "${sanitizeUntrustedData(bodyStr)}" — *${formatDate(m.created_at)}*\n`;
-  });
-
-  return {
-    success: true,
-    toolName: 'get_messages',
-    spokenText: spoken,
-    displayText: display.trim(),
-    count: accessible.length,
-    data: accessible,
-  };
+  // Backward-compatible entrypoint. Must share the same RLS/membership
+  // filtering as the live AI command path; never read legacy recipient_id.
+  const request = [
+    unreadOnly ? 'Show unread messages' : 'Show messages',
+    senderQuery ? 'from ' + senderQuery : '',
+    keywordQuery ? 'containing "' + keywordQuery + '"' : '',
+  ].filter(Boolean).join(' ');
+  return readTrackerMessages(request, ctx);
 }
 
 /**
