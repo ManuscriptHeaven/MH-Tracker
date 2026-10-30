@@ -1,6 +1,6 @@
 import type { AIToolContext, AIToolResult, ReadQueryPlan } from './aiTypes';
 import { formatDate, isOverdue, daysUntil, isClosed, todayInput } from '../date';
-import { isClientRole, isManagerRole } from '../utils';
+import { isManagerRole } from '../utils';
 import { checkReadPermission } from './aiSecurityBoundary';
 import { readTrackerMessages } from './messageIntelligence';
 
