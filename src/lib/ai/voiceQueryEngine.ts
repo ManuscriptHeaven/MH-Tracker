@@ -25,6 +25,7 @@ import { rankEntityCandidates, resolveUniqueEntityMatch } from './aiEntityMatche
 import { isCreateTaskRequest, resolveTaskCreation } from './taskCreationIntent';
 import type { TaskCreationOverrides } from './taskCreationIntent';
 import { verifyActionOutcome } from './aiActionVerifier';
+import { isMessageReadingIntent, readTrackerMessages } from './messageIntelligence';
 
 function startsIndependentRequest(query: string): boolean {
   return /^(?:(?:can|could|would|will)\s+you\s+)?(?:how|what|which|who|when|where|why|show|give|provide|list|summarize|send|create|generate|make|record|add|update|change|delete|archive)\b|^please\s+(?:show|give|provide|list|summarize|send|create|generate|make|record|add|update|change|delete|archive)\b/i.test(query.trim());
@@ -404,8 +405,14 @@ export class VoiceQueryEngine {
     // ==========================================
     let result: AIToolResult;
 
+    // --- MESSAGES (read-only, under signed-in user's conversation RLS) ---
+    // Route before tasks, invoices or projects so "messages about a task"
+    // cannot be mistaken for a task list. Sends remain confirmation-only.
+    if (isMessageReadingIntent(q)) {
+      result = readTrackerMessages(q, ctx);
+    }
     // --- INVOICES (read-only; do not route an invoice question to a write planner) ---
-    if (lower.includes('invoice') || /\bbills?\b/.test(lower)) {
+    else if (lower.includes('invoice') || /\bbills?\b/.test(lower)) {
       result = await tools.get_invoices_summary(lower, ctx);
     }
     // --- TASKS ---
