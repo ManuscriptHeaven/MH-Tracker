@@ -525,24 +525,16 @@ export function AttendancePage({
           ) : null}
         </Card>
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-2">
-          {([
-            { label: 'Today · Session records', value: formatDuration(todaySeconds), detail: 'Recorded session time', icon: CalendarDays },
-            { label: 'Week · Session records', value: formatDuration(weekSeconds), detail: 'Recorded session time', icon: History },
-            { label: 'Month · 8h-day equivalent', value: formatEightHourDayEquivalent(monthSeconds), detail: `${formatDuration(monthSeconds)} recorded · provisional`, icon: TimerReset },
-            { label: 'Clock-in dates · provisional', value: String(daysWorked), detail: 'Distinct clock-in dates, not approved shifts', icon: CheckCircle2 },
-          ] as const).map(({ label, value, detail, icon: Icon }) => (
-            <Card key={label} className="min-w-0 p-4">
-              <Icon className="h-4 w-4 text-gold" />
-              <p className="mt-3 text-[10px] font-bold uppercase tracking-wider text-muted">{label}</p>
-              <p className="mt-1 text-xl font-extrabold tabular-nums text-ink">{value}</p>
-              <p className="mt-1 text-[10px] leading-relaxed text-muted">{detail}</p>
-            </Card>
-          ))}
-          <p className="col-span-2 text-xs text-muted sm:col-span-4 lg:col-span-2">
-            Session totals are provisional. The verified daily ledger below is the source for accepted work time; 8-hour equivalents are not approved shifts.
-          </p>
-        </div>
+        <Card className="p-4 sm:p-5">
+          <p className="text-xs font-bold uppercase tracking-wider text-muted">Session records · Provisional</p>
+          <p className="mt-1 text-xs text-muted">For reference only. Accepted work time is shown in the verified ledger below.</p>
+          <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+            <p><span className="text-muted">Today</span><span className="ml-2 font-semibold tabular-nums">{formatDuration(todaySeconds)}</span></p>
+            <p><span className="text-muted">This week</span><span className="ml-2 font-semibold tabular-nums">{formatDuration(weekSeconds)}</span></p>
+            <p><span className="text-muted">This month</span><span className="ml-2 font-semibold tabular-nums">{formatDuration(monthSeconds)}</span></p>
+            <p><span className="text-muted">Clock-in dates</span><span className="ml-2 font-semibold tabular-nums">{daysWorked}</span></p>
+          </div>
+        </Card>
       </section>
 
       <Card className="p-4 sm:p-5">
@@ -588,12 +580,11 @@ export function AttendancePage({
           </p>
         ) : (
           <>
-            <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-3">
               {([
                 { label: 'Month · Verified actual', value: formatDuration(ledgerMonthSeconds), detail: 'Accepted dated credits only' },
                 { label: 'Days with verified time', value: String(ledgerDaysWorked), detail: 'At least 1 minute credited per date' },
                 { label: 'Target · 8h/day', value: formatDuration(ledgerTargetSeconds), detail: 'For verified attendance dates' },
-                { label: 'Earlier time · 8h-day equivalent', value: formatEightHourDayEquivalent(legacyUnattributedSeconds), detail: `${formatDuration(legacyUnattributedSeconds)} without verified dates` },
               ] as const).map(({ label, value, detail }) => (
                 <div key={label} className="rounded-xl border border-border p-3">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-muted">{label}</p>
@@ -605,7 +596,7 @@ export function AttendancePage({
             <p className="mt-3 rounded-lg bg-ivory p-3 text-xs leading-relaxed text-muted">
               Dated actual vs 8-hour target: {ledgerMonthSeconds >= ledgerTargetSeconds ? '+' : '−'}
               {formatDuration(Math.abs(ledgerMonthSeconds - ledgerTargetSeconds))}.
-              No daily cap or automatic overtime approval. Earlier time is displayed in 8-hour equivalents only and is excluded from verified daily totals.
+              No daily cap or automatic overtime approval. Earlier unattributed time: {formatDuration(legacyUnattributedSeconds)} ({formatEightHourDayEquivalent(legacyUnattributedSeconds)} eight-hour equivalents), excluded from verified daily totals.
               {ledgerReviewCount > 0 ? ` ${ledgerReviewCount} multi-day/discrepant sessions require audit.` : ''}
             </p>
             <div className="mt-4 divide-y divide-border rounded-xl border border-border">
