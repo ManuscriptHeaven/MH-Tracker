@@ -379,7 +379,36 @@ export function AttendancePage({
   const dailyOvertimeSeconds = Math.max(0, todayVerifiedSeconds - 8 * 3600);
 
   return (
-    <div className="mx-auto max-w-[1480px] space-y-4 pb-8 sm:space-y-6">
+    <div className="mx-auto max-w-[1480px] space-y-5 pb-8 sm:space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-gold">Office attendance · V3</p>
+          <h2 className="font-display text-2xl font-semibold text-ink sm:text-3xl">Time & Attendance</h2>
+          <p className="mt-1 text-sm text-muted">See your workday clearly without confusing recorded sessions with accepted verified hours.</p>
+        </div>
+        {canManageAll && (
+          <div className="flex rounded-xl border border-border bg-white p-1" role="group" aria-label="Attendance workspace">
+            <button type="button" onClick={() => setWorkspace('mine')} aria-pressed={workspace === 'mine'} className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${workspace === 'mine' ? 'bg-ink text-white' : 'text-muted hover:bg-ivory'}`}>My attendance</button>
+            <button type="button" onClick={() => setWorkspace('team')} aria-pressed={workspace === 'team'} className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${workspace === 'team' ? 'bg-ink text-white' : 'text-muted hover:bg-ivory'}`}>Team overview</button>
+          </div>
+        )}
+      </div>
+      {workspace === 'mine' && (
+        <>
+          <nav className="flex flex-wrap gap-2 border-b border-border pb-3" aria-label="Personal attendance views">
+            {([
+              { id: 'overview', label: 'Overview' },
+              { id: 'ledger', label: 'Verified ledger' },
+              { id: 'history', label: 'My history' },
+            ] as const).map((item) => (
+              <button key={item.id} type="button" onClick={() => setPersonalTab(item.id)} aria-current={personalTab === item.id ? 'page' : undefined} className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${personalTab === item.id ? 'bg-gold text-ink' : 'bg-white text-muted hover:bg-ivory'}`}>
+                {item.label}
+              </button>
+            ))}
+          </nav>
+          {personalTab === 'overview' && (
+            <>
+
       <section className="overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-ink via-[#282923] to-[#313027] p-5 text-white shadow-lg sm:p-7">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -588,6 +617,9 @@ export function AttendancePage({
         </Card>
       </section>
 
+            </>
+          )}
+          {personalTab === 'ledger' && (
       <Card className="p-4 sm:p-5">
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
           <div>
@@ -684,6 +716,8 @@ export function AttendancePage({
         )}
       </Card>
 
+          )}
+          {personalTab === 'history' && (
       <Card className="overflow-hidden p-0">
         <div className="border-b border-border px-4 py-4 sm:px-5">
           <div className="flex items-center gap-2">
@@ -696,6 +730,11 @@ export function AttendancePage({
         </div>
         <div className="px-3 pt-3 sm:px-4">
           <label htmlFor="attendance-history-filter" className="block text-xs font-semibold text-muted">Find date (YYYY-MM-DD)</label>
+          <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="History date range">
+            {(['7d', '30d', 'all'] as const).map((range) => (
+              <button key={range} type="button" onClick={() => { setHistoryRange(range); setShowOlderHistory(false); }} aria-pressed={historyRange === range} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${historyRange === range ? 'bg-ink text-white' : 'bg-ivory text-muted'}`}>{range === '7d' ? 'Last 7 days' : range === '30d' ? 'Last 30 days' : 'All dates'}</button>
+            ))}
+          </div>
           <input id="attendance-history-filter" type="search" value={historyQuery} onChange={(event) => { setHistoryQuery(event.target.value); setShowOlderHistory(true); }} placeholder="e.g. 2026-10-23" className="mt-1 w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-ink focus:border-gold sm:max-w-xs" />
         </div>
         <div className="space-y-2 p-3 sm:p-4">
@@ -811,18 +850,59 @@ export function AttendancePage({
           {!historyDays.length ? (
             <div className="px-3 py-8 text-center text-sm text-muted">No attendance records yet.</div>
           ) : null}
-          {historyDays.length > 12 ? (
+          {filteredHistoryDays.length > 5 ? (
             <div className="pt-2 text-center">
               <Button type="button" variant="secondary" onClick={() => setShowOlderHistory((previous) => !previous)}>
-                {showOlderHistory ? 'Show recent dates' : `Show all ${historyDays.length} dates`}
+                {showOlderHistory ? 'Show recent dates' : `Show all ${filteredHistoryDays.length} dates`}
               </Button>
             </div>
           ) : null}
         </div>
       </Card>
 
-      {canManageAll ? (
+          )}
+        </>
+      )}
+      {canManageAll && workspace === 'team' && (
         <>
+          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Team live attendance summary">
+            {([
+              { label: 'Connected sessions', value: workingCount, tone: 'text-emerald-700' },
+              { label: 'On break', value: breakCount, tone: 'text-amber-700' },
+              { label: 'Presence stale', value: pausedCount, tone: 'text-rose-700' },
+              { label: 'Clocked out', value: offCount, tone: 'text-slate-700' },
+            ] as const).map((item) => (
+              <Card key={item.label} className="p-4">
+                <p className="text-xs font-semibold text-muted">{item.label}</p>
+                <p className={`mt-2 text-3xl font-bold tabular-nums ${item.tone}`}>{item.value}</p>
+              </Card>
+            ))}
+          </section>
+          <Card className="p-4 sm:p-5">
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex min-w-[180px] flex-1 flex-col gap-1 text-xs font-semibold text-muted">
+                Team member
+                <select value={teamMemberFilter} onChange={(event) => setTeamMemberFilter(event.target.value)} className="min-h-10 rounded-lg border border-border bg-white px-3 text-sm text-ink">
+                  <option value="all">All team members</option>
+                  {teamProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.full_name}</option>)}
+                </select>
+              </label>
+              <label className="flex min-w-[170px] flex-1 flex-col gap-1 text-xs font-semibold text-muted">
+                Live status
+                <select value={teamStatusFilter} onChange={(event) => setTeamStatusFilter(event.target.value as typeof teamStatusFilter)} className="min-h-10 rounded-lg border border-border bg-white px-3 text-sm text-ink">
+                  <option value="all">All statuses</option>
+                  <option value="working">Connected session</option>
+                  <option value="break">On break</option>
+                  <option value="paused">Presence stale</option>
+                  <option value="off">Clocked out</option>
+                </select>
+              </label>
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+                {ledgerReviewCount} dated reconciliation exceptions need audit
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-muted">Connected means a recent app heartbeat, not proof of continuous active work.</p>
+          </Card>
           <Card className="p-4 sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -835,7 +915,7 @@ export function AttendancePage({
             </div>
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {teamProfiles.map((profile) => {
+              {filteredTeamProfiles.map((profile) => {
                 const personSessions = sessions.filter((session) => session.user_id === profile.id);
                 const personBreaks = breaks.filter((item) => item.user_id === profile.id);
                 const personActive = personSessions.find((session) => session.status === 'active') || null;
@@ -925,6 +1005,7 @@ export function AttendancePage({
             <div className="divide-y divide-border">
               {sessions
                 .filter((session) => {
+                  if (!filteredTeamProfiles.some((profile) => profile.id === session.user_id)) return false;
                   const ts = new Date(session.clock_in).getTime();
                   if (teamWindow === 'today') return localDayKey(session.clock_in) === todayKey;
                   return ts >= nowMs - (teamWindow === '7d' ? 7 : 30) * 24 * 60 * 60 * 1000;
@@ -962,7 +1043,7 @@ export function AttendancePage({
             </div>
           </Card>
         </>
-      ) : null}
+      )}
 
       {editing ? (
         <div className="fixed inset-0 z-50 grid place-items-stretch bg-ink/50 p-0 sm:place-items-center sm:p-4">
