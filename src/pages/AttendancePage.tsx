@@ -261,6 +261,8 @@ export function AttendancePage({
   const ledgerMonthSeconds = myLedgerDays.reduce((total, day) => total + Number(day.actual_seconds || 0), 0);
   const ledgerDaysWorked = myLedgerDays.filter((day) => Number(day.actual_seconds || 0) >= 60).length;
   const ledgerTargetSeconds = ledgerDaysWorked * 8 * 3600;
+  const todayVerifiedSeconds = Math.max(0, Number(dailyTotals.find((day) => day.user_id === currentProfile.id && day.local_work_date === todayKey)?.actual_seconds || 0));
+  const todayTargetPercent = Math.min(100, todayVerifiedSeconds / (8 * 3600) * 100);
   const legacyUnattributedSeconds = sessionReconciliation
     .filter((row) => row.user_id === currentProfile.id && localDayKey(row.clock_in).startsWith(monthKey))
     .reduce((total, row) => total + Number(row.unattributed_seconds || 0), 0);
@@ -599,10 +601,10 @@ export function AttendancePage({
             <div className="mt-4 rounded-xl border border-border p-3">
               <div className="flex items-center justify-between gap-2 text-xs">
                 <span className="font-semibold text-ink">Today's verified progress · 8-hour target</span>
-                <span className="tabular-nums text-muted">{formatDuration(dailyTotals.find((day) => day.user_id === currentProfile.id && day.local_work_date === todayKey)?.actual_seconds ? Number(dailyTotals.find((day) => day.user_id === currentProfile.id && day.local_work_date === todayKey)?.actual_seconds) : 0)} / 8h</span>
+                <span className="tabular-nums text-muted">{formatDuration(todayVerifiedSeconds)} / 8h</span>
               </div>
               <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-100">
-                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, Math.max(0, Number(dailyTotals.find((day) => day.user_id === currentProfile.id && day.local_work_date === todayKey)?.actual_seconds || 0) / 28800 * 100))}%` }} />
+                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${todayTargetPercent}%` }} />
               </div>
               <p className="mt-1 text-[11px] text-muted">Accepted daily credit only. Overtime remains recorded beyond the progress-bar maximum.</p>
             </div>
