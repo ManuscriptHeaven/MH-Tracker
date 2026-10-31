@@ -42,14 +42,15 @@ assert(JSON.stringify(sessions) === before,
   'history presentation sorting never mutates tracker sessions');
 
 const page = fs.readFileSync('src/pages/AttendancePage.tsx', 'utf8');
-assert(page.includes("formatEightHourDayEquivalent(monthSeconds)") &&
+assert(page.includes('Session records · Provisional') &&
+  page.includes("formatDuration(monthSeconds)") &&
   page.includes("formatEightHourDayEquivalent(legacyUnattributedSeconds)") &&
-  page.includes('1 workday equivalent = 8 hours'),
-  'both prior session summary cards show 8-hour equivalents and clear provenance');
+  page.includes('excluded from verified daily totals'),
+  'provisional session totals stay distinct from verified daily credits');
 assert(page.includes("formatDuration(monthSeconds)") &&
   page.includes("formatDuration(legacyUnattributedSeconds)") &&
-  page.includes('without verified dates') &&
-  page.includes('Month · Verified actual'),
+  page.includes('Month · Verified actual') &&
+  page.includes('Days with verified time'),
   'raw durations remain visible and accepted dated actuals remain separate');
 assert(page.includes('groupAttendanceHistoryByDay(mySessions)') &&
   page.includes('<details key={day.dateKey}') &&
