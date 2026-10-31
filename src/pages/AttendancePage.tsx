@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   CalendarDays,
   ChevronDown,
-  CheckCircle2,
   Coffee,
   Download,
   History,
