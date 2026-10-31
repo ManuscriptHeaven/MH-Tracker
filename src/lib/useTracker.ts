@@ -5,6 +5,7 @@ import {
   splitAttendanceIntervalByLocalDate,
   mergeAttendanceDailySlices,
   reconcilePendingAttendanceDailySlices,
+  fetchAllAcceptedAttendanceIntervals,
   repairPendingAttendanceDailySliceDates,
   readPendingAttendanceDailySlices,
   writePendingAttendanceDailySlices,
@@ -5178,16 +5179,34 @@ export function useTracker() {
               const badDay = code === '22023' && message.includes('attendance_slice_outside_session_or_day');
               if ((!overlap && !badDay) || !supabase || mode !== 'supabase') throw syncError;
 
-              // Read already accepted credit. Server RLS restricts this to
-              // attendance sessions visible to the authenticated actor.
-              const { data: accepted, error: readError } = await supabase
-                .from('attendance_daily_credits')
-                .select('started_at,ended_at')
-                .eq('session_id', activeSession.id);
-              if (readError) throw readError;
+              // Reconcile only after reading ALL relevant accepted intervals.
+              // Supabase/PostgREST caps one response (usually 1,000 rows);
+              // long-lived sessions exceed this and repeatedly reject Clock Out
+              // if the missing accepted rows overlap the local queue.
+              // Use strict pagination, a stable sort, and a queued-time window.
+              // RLS still restricts reads to this authenticated session.
+              const validStarts = runtime.pendingDailySlices.map((item) => Date.parse(item.started_at))
+                .filter(Number.isFinite);
+              const validEnds = runtime.pendingDailySlices.map((item) => Date.parse(item.ended_at))
+                .filter(Number.isFinite);
+              const windowStart = validStarts.length ? new Date(Math.min(...validStarts)).toISOString() : null;
+              const windowEnd = validEnds.length ? new Date(Math.max(...validEnds)).toISOString() : null;
+              const accepted = await fetchAllAcceptedAttendanceIntervals(async (from, to) => {
+                let query = supabase
+                  .from('attendance_daily_credits')
+                  .select('started_at,ended_at')
+                  .eq('session_id', activeSession.id)
+                  .order('started_at', { ascending: true })
+                  .range(from, to);
+                if (windowStart) query = query.gt('ended_at', windowStart);
+                if (windowEnd) query = query.lt('started_at', windowEnd);
+                const { data, error: readError } = await query;
+                if (readError) throw readError;
+                return data || [];
+              });
 
               const withoutOverlaps = reconcilePendingAttendanceDailySlices(
-                runtime.pendingDailySlices, accepted || [], createUuid,
+                runtime.pendingDailySlices, accepted, createUuid,
               );
               const repaired = badDay
                 ? repairPendingAttendanceDailySliceDates(withoutOverlaps, createUuid)
