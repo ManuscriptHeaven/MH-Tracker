@@ -124,9 +124,10 @@ assert(tracker.includes('!runtime.isLeader') &&
        tracker.includes('requestAttendanceTakeover') &&
        tracker.includes('onTransferRequested: async () => {'),
   'attendance runtime restricts local accrual and sync to the elected tab');
-assert(ui.includes('Another tab owns attendance') &&
+assert(ui.includes('Another tab owns tracking') &&
        ui.includes('Use This Tab · Transfer Tracking') &&
-       ui.includes('Browser cannot verify single-tab attendance'),
+       ui.includes('Verification unavailable') &&
+       ui.includes("attendanceTabRole === 'secondary'"),
   'secondary and unsupported browser states are disclosed in attendance UI');
 
 if (process.exitCode) console.error('Attendance multi-tab tests FAILED.');

@@ -102,13 +102,14 @@ assert(
 
 assert(
   page.includes('APP_PRESENCE_STALE_MS = 90_000') &&
-    page.includes('Working · Verified') &&
-    page.includes('Working · Offline') &&
-    page.includes('Offline tracking is active.') &&
-    page.includes('App closed · Time paused') &&
+    page.includes('Clocked in · Connected') &&
+    page.includes('Offline · Sync pending') &&
+    page.includes('Offline tracking may continue locally.') &&
+    page.includes('Connection stale · Check tracking') &&
+    page.includes('Accepted daily credits are confirmed in the ledger.') &&
     page.includes('Verified attendance requires a laptop or desktop') &&
     page.includes('Mobile can be used to review attendance'),
-  'attendance UI distinguishes online verified time, offline queued time, closed-app pauses and mobile review-only mode',
+  'attendance UI distinguishes connected sessions, offline pending sync, stale presence and mobile review-only mode without claiming automatic verified activity',
 );
 
 assert(

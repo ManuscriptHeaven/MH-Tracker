@@ -180,6 +180,7 @@ export function Layout({
   onUpdateProfile,
   onOpenConversation,
   desktopAttendanceCapable,
+  attendanceTabRole,
 }: {
   children: React.ReactNode;
   activeView: ViewKey;
@@ -202,6 +203,7 @@ export function Layout({
   ) => Promise<string | void>;
   onOpenConversation?: (conversationId: string) => void;
   desktopAttendanceCapable: boolean;
+  attendanceTabRole: 'leader' | 'secondary' | 'unsupported';
 }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [desktopSidebarMinimized, setDesktopSidebarMinimized] = useState<boolean>(() => {
@@ -534,7 +536,7 @@ export function Layout({
 
               <div className="flex flex-wrap items-center justify-between sm:justify-end gap-1.5 sm:gap-2">
                 {!isClient && desktopAttendanceCapable && (
-                  <AttendanceStatusIndicator userId={currentProfile.id} sessions={data.attendanceSessions || []} breaks={data.attendanceBreaks || []} onOpenAttendance={() => setActiveView('attendance')} />
+                  <AttendanceStatusIndicator tabRole={attendanceTabRole} userId={currentProfile.id} sessions={data.attendanceSessions || []} breaks={data.attendanceBreaks || []} onOpenAttendance={() => setActiveView('attendance')} />
                 )}
                 <IconButton
                   title={soundActive ? 'Message and task notification sounds: On (click to mute)' : 'Message and task notification sounds: Muted (click to enable)'}

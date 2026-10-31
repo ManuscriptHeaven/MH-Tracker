@@ -155,6 +155,12 @@ export function AttendancePage({
   const [editClockOut, setEditClockOut] = useState('');
   const [editReason, setEditReason] = useState('');
   const [teamWindow, setTeamWindow] = useState<'today' | '7d' | '30d'>('today');
+  const [workspace, setWorkspace] = useState<'mine' | 'team'>('mine');
+  const [personalTab, setPersonalTab] = useState<'overview' | 'ledger' | 'history'>('overview');
+  const [teamMemberFilter, setTeamMemberFilter] = useState('all');
+  const [teamReviewOnly, setTeamReviewOnly] = useState(false);
+  const [teamStatusFilter, setTeamStatusFilter] = useState<'all' | 'working' | 'break' | 'paused' | 'off'>('all');
+  const [historyRange, setHistoryRange] = useState<'all' | '7d' | '30d'>('30d');
   const [showOlderHistory, setShowOlderHistory] = useState(false);
   const [historyQuery, setHistoryQuery] = useState('');
   const [showSessionNote, setShowSessionNote] = useState(false);
@@ -228,7 +234,8 @@ export function AttendancePage({
     [breaks, currentProfile.id],
   );
   const historyDays = useMemo(() => groupAttendanceHistoryByDay(mySessions), [mySessions]);
-  const filteredHistoryDays = historyDays.filter((day) => day.dateKey.includes(historyQuery.trim().toLowerCase()));
+  const historyCutoff = historyRange === 'all' ? 0 : nowMs - (historyRange === '7d' ? 7 : 30) * 86_400_000;
+  const filteredHistoryDays = historyDays.filter((day) => day.dateKey.includes(historyQuery.trim().toLowerCase()) && (historyRange === 'all' || day.dateKey === 'unknown' || new Date(`${day.dateKey}T23:59:59`).getTime() >= historyCutoff));
   const visibleHistoryDays = showOlderHistory ? filteredHistoryDays : filteredHistoryDays.slice(0, 5);
   const activeSession = mySessions.find((session) => session.status === 'active') || null;
   const activeBreak = activeSession
@@ -269,6 +276,22 @@ export function AttendancePage({
   const ledgerReviewCount = sessionReconciliation.filter((row) =>
     row.crosses_24h || Number(row.overcredited_discrepancy_seconds || 0) > 0,
   ).length;
+  const reviewedTeamSessionIds = new Set(sessionReconciliation
+    .filter((row) => row.crosses_24h || Number(row.overcredited_discrepancy_seconds || 0) > 0)
+    .map((row) => row.session_id));
+  const filteredTeamProfiles = teamProfiles.filter((profile) => {
+    if (teamMemberFilter !== 'all' && profile.id !== teamMemberFilter) return false;
+    if (teamStatusFilter === 'all') return true;
+    const memberSession = sessions.find((session) => session.user_id === profile.id && session.status === 'active');
+    const memberBreak = memberSession && breaks.some((item) => item.session_id === memberSession.id && !item.ended_at);
+    const memberStatus = !memberSession ? 'off' : memberBreak ? 'break' : isPresenceFresh(memberSession, nowMs) ? 'working' : 'paused';
+    return memberStatus === teamStatusFilter;
+  });
+  const liveTeamSessions = teamProfiles.map((profile) => sessions.find((session) => session.user_id === profile.id && session.status === 'active') || null);
+  const workingCount = liveTeamSessions.filter((session) => session && isPresenceFresh(session, nowMs) && !breaks.some((item) => item.session_id === session.id && !item.ended_at)).length;
+  const breakCount = liveTeamSessions.filter((session) => session && breaks.some((item) => item.session_id === session.id && !item.ended_at)).length;
+  const pausedCount = liveTeamSessions.filter((session) => session && !isPresenceFresh(session, nowMs) && !breaks.some((item) => item.session_id === session.id && !item.ended_at)).length;
+  const offCount = teamProfiles.length - workingCount - breakCount - pausedCount;
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true);
@@ -290,6 +313,8 @@ export function AttendancePage({
         : nowMs - (teamWindow === '7d' ? 7 : 30) * 24 * 60 * 60 * 1000;
 
     sessions
+      .filter((session) => filteredTeamProfiles.some((person) => person.id === session.user_id))
+      .filter((session) => !teamReviewOnly || reviewedTeamSessionIds.has(session.id))
       .filter((session) => new Date(session.clock_in).getTime() >= cutoff)
       .forEach((session) => {
         const profile = profiles.find((item) => item.id === session.user_id);
@@ -327,70 +352,173 @@ export function AttendancePage({
 
   const appConnected = isPresenceFresh(activeSession, nowMs);
   const browserOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
+  // This label represents session/connection state, not proof of continuous activity.
   const currentStatus = !desktopAttendanceCapable
-    ? 'Laptop required'
-    : activeSession
-      ? attendanceTabRole === 'unsupported'
-        ? 'Browser cannot verify single-tab attendance'
+    ? 'Desktop required'
+    : !activeSession
+      ? 'Clocked out'
+      : attendanceTabRole === 'unsupported'
+        ? 'Verification unavailable'
         : attendanceTabRole === 'secondary'
-          ? 'Another tab owns attendance'
-      : activeBreak
-        ? 'On break'
-        : appConnected
-          ? browserOnline
-            ? 'Working · Verified'
-            : 'Working · Offline'
-          : 'App closed · Time paused'
-      : 'Off duty';
+          ? 'Another tab owns tracking'
+          : activeBreak
+            ? 'On break · Time paused'
+            : !browserOnline
+              ? 'Offline · Sync pending'
+              : !appConnected
+                ? 'Connection stale · Check tracking'
+                : 'Clocked in · Connected';
+  const statusDescription = !activeSession ? 'Clock in to begin a new office session.'
+    : activeBreak ? 'Break time is not credited.'
+    : attendanceTabRole === 'secondary' ? 'This tab is read-only until tracking ownership transfers.'
+    : attendanceTabRole === 'unsupported' ? 'Use an updated desktop browser with Web Locks.'
+    : !browserOnline ? 'Work time may queue locally and is subject to server acceptance after reconnecting.'
+    : !appConnected ? 'A recent app heartbeat is missing. Check the tracking tab.'
+    : 'A recent app heartbeat is present. Accepted daily credits are confirmed in the ledger.';
+  const statusTone = !activeSession || !desktopAttendanceCapable ? 'bg-slate-400'
+    : activeBreak || attendanceTabRole !== 'leader' || !browserOnline ? 'bg-amber-400'
+    : appConnected ? 'bg-emerald-400' : 'bg-rose-400';
+  const dailyRemainingSeconds = Math.max(0, 8 * 3600 - todayVerifiedSeconds);
+  const dailyOvertimeSeconds = Math.max(0, todayVerifiedSeconds - 8 * 3600);
 
   return (
-    <div className="mx-auto max-w-[1480px] space-y-4 pb-8 sm:space-y-6">
-      <section className="rounded-2xl border border-border bg-gradient-to-br from-ink via-ink to-[#26241f] p-5 text-white shadow-md sm:p-7">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-gold">Office Attendance</p>
-            <h2 className="mt-1 font-display text-2xl font-semibold sm:text-3xl">Time & Attendance</h2>
-            <p className="mt-2 max-w-2xl text-sm text-white/65">
-              Clock in to track your office work. Review your current session, daily verified hours and attendance history in one place.
-              Tracking may pause during breaks, device sleep or when the app closes.
-            </p>
+    <div className="mx-auto max-w-[1480px] space-y-5 pb-8 sm:space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-gold">Office attendance · V3</p>
+          <h2 className="font-display text-2xl font-semibold text-ink sm:text-3xl">Time & Attendance</h2>
+          <p className="mt-1 text-sm text-muted">See your workday clearly without confusing recorded sessions with accepted verified hours.</p>
+        </div>
+        {canManageAll && (
+          <div className="flex rounded-xl border border-border bg-white p-1" role="group" aria-label="Attendance workspace">
+            <button type="button" onClick={() => setWorkspace('mine')} aria-pressed={workspace === 'mine'} className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${workspace === 'mine' ? 'bg-ink text-white' : 'text-muted hover:bg-ivory'}`}>My attendance</button>
+            <button type="button" onClick={() => setWorkspace('team')} aria-pressed={workspace === 'team'} className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${workspace === 'team' ? 'bg-ink text-white' : 'text-muted hover:bg-ivory'}`}>Team overview</button>
           </div>
+        )}
+      </div>
+      {workspace === 'mine' && (
+        <>
+          <nav className="flex flex-wrap gap-2 border-b border-border pb-3" aria-label="Personal attendance views">
+            {([
+              { id: 'overview', label: 'Overview' },
+              { id: 'ledger', label: 'Verified ledger' },
+              { id: 'history', label: 'My history' },
+            ] as const).map((item) => (
+              <button key={item.id} type="button" onClick={() => setPersonalTab(item.id)} aria-current={personalTab === item.id ? 'page' : undefined} className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${personalTab === item.id ? 'bg-gold text-ink' : 'bg-white text-muted hover:bg-ivory'}`}>
+                {item.label}
+              </button>
+            ))}
+          </nav>
+          {personalTab === 'overview' && (
+            <>
 
-          <div className="min-w-0 rounded-2xl border border-white/10 bg-white/5 p-4 sm:min-w-[300px]">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs text-white/55">Current status</p>
-                <p className="mt-1 text-lg font-bold">{currentStatus}</p>
-              </div>
-              <span className={`h-3 w-3 rounded-full ${
-                !desktopAttendanceCapable
-                  ? 'bg-rose-400'
-                  : activeBreak
-                    ? 'bg-amber-400'
-                    : activeSession && appConnected
-                      ? 'bg-emerald-400'
-                      : activeSession
-                        ? 'bg-slate-400'
-                        : 'bg-white/30'
-              }`} />
-            </div>
-            <p className="mt-3 font-mono text-3xl font-bold tracking-tight text-gold">
+      <section className="overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-ink via-[#282923] to-[#313027] p-5 text-white shadow-lg sm:p-7">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-gold">My office session</p>
+            <h2 className="mt-1 font-display text-2xl font-semibold sm:text-3xl">Your workday at a glance</h2>
+            <p className="mt-2 max-w-2xl text-sm text-white/70">One place to track your shift, breaks, and daily goal. Verified hours are confirmed by the dated ledger.</p>
+          </div>
+          <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white">
+            <span className={`h-2.5 w-2.5 rounded-full ${statusTone}`} />
+            {currentStatus}
+          </span>
+        </div>
+        <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+          <div className="rounded-2xl border border-white/15 bg-white/10 p-5 sm:p-6">
+            <p className="text-xs font-semibold uppercase tracking-widest text-white/65">Current session · provisional timer</p>
+            <p className="mt-2 font-mono text-5xl font-bold tabular-nums tracking-tight text-white sm:text-6xl" aria-label="Recorded session time">
               {activeSession ? formatTimer(getSessionSeconds(activeSession, myBreaks, nowMs)) : '00:00:00'}
             </p>
-            {activeSession ? (
-              <p className="mt-1 text-xs text-white/55">
-                Clocked in {new Date(activeSession.clock_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                {activeBreak
-                  ? ' · break active'
-                  : appConnected
-                    ? browserOnline
-                      ? ' · MH Tracker connected'
-                      : ' · tracking offline, sync pending'
-                    : ' · app presence lost, timer paused'}
+            <p className="mt-3 text-sm leading-relaxed text-white/75" role="status">{statusDescription}</p>
+            {activeSession && (
+              <p className="mt-2 text-xs text-white/60">
+                Clocked in at {new Date(activeSession.clock_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                {activeSession.last_app_heartbeat_at ? ` · Last signal ${new Date(activeSession.last_app_heartbeat_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ' · No heartbeat yet'}
               </p>
-            ) : (
-              <p className="mt-1 text-xs text-white/55">No active office session.</p>
             )}
+                      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            {!activeSession ? (
+              <Button
+                type="button"
+                disabled={busy || !desktopAttendanceCapable || (typeof navigator !== 'undefined' && !navigator.locks)}
+                onClick={() => void run(async () => { await onClockIn(note.trim()); setNote(''); })}
+                className="min-h-12 w-full"
+              >
+                <LogIn className="h-4 w-4" />
+                Clock In
+              </Button>
+            ) : (
+              <>
+                {activeBreak ? (
+                  <Button type="button" disabled={busy} onClick={() => void run(onEndBreak)} className="min-h-12 w-full">
+                    <PlayCircle className="h-4 w-4" />
+                    End Break
+                  </Button>
+                ) : (
+                  <Button type="button" variant="secondary" disabled={busy} onClick={() => void run(onStartBreak)} className="min-h-12 w-full">
+                    <Coffee className="h-4 w-4" />
+                    Start Break
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="danger"
+                  disabled={busy}
+                  onClick={() => void run(async () => { await onClockOut(note.trim()); setNote(''); })}
+                  className="min-h-12 w-full"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Clock Out
+                </Button>
+              </>
+            )}
+          </div>
+
+
+            <div className="mt-3 [&_label]:text-white">
+                        <div className="mt-4">
+            <button type="button" onClick={() => setShowSessionNote((value) => !value)} className="text-xs font-semibold text-ink underline-offset-4 hover:underline">{showSessionNote ? 'Hide optional session note' : 'Add optional session note'}</button>
+            {showSessionNote && <TextareaField
+              label={activeSession ? 'End-of-day note (optional)' : 'Start note (optional)'}
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder={activeSession ? 'Anything the team should know before you leave?' : 'Optional note for today'}
+              rows={2}
+              className="min-h-20"
+            />}
+          </div>
+
+
+            </div>
+          </div>
+          <div className="flex flex-col gap-4">
+            <div className="rounded-2xl border border-white/15 bg-white/10 p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-semibold">Today's verified progress</p>
+                <span className="rounded-full bg-white/10 px-2.5 py-1 font-mono text-xs text-white/85">{formatDuration(todayVerifiedSeconds)} / 8h</span>
+              </div>
+              <div className="mt-4 h-3 overflow-hidden rounded-full bg-white/20" role="progressbar" aria-label="Today's verified hours toward eight-hour target" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(todayTargetPercent)}>
+                <div className="h-full rounded-full bg-gold transition-[width]" style={{ width: `${todayTargetPercent}%` }} />
+              </div>
+              <p className="mt-3 text-sm text-white/80">
+                {dailyOvertimeSeconds > 0 ? `${formatDuration(dailyOvertimeSeconds)} above target` : `${formatDuration(dailyRemainingSeconds)} remaining to 8 hours`}
+              </p>
+              <p className="mt-1 text-xs text-white/55">Accepted credits only; overtime isn't capped or automatically payroll-approved.</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-2xl border border-white/15 bg-white/5 p-4">
+                <p className="text-xs text-white/65">Verified this month</p>
+                <p className="mt-2 text-2xl font-bold tabular-nums text-white">{ledgerState === 'ready' ? formatDuration(ledgerMonthSeconds) : '—'}</p>
+              </div>
+              <div className="rounded-2xl border border-white/15 bg-white/5 p-4">
+                <p className="text-xs text-white/65">Verified days</p>
+                <p className="mt-2 text-2xl font-bold tabular-nums text-white">{ledgerState === 'ready' ? ledgerDaysWorked : '—'}</p>
+              </div>
+            </div>
+            <button type="button" onClick={() => setPersonalTab('ledger')} className="rounded-xl border border-white/20 px-4 py-2.5 text-left text-sm font-semibold text-white transition hover:bg-white/10">
+              View verified daily ledger →
+            </button>
           </div>
         </div>
       </section>
@@ -440,44 +568,6 @@ export function AttendancePage({
             </div>
           ) : null}
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            {!activeSession ? (
-              <Button
-                type="button"
-                disabled={busy || !desktopAttendanceCapable || (typeof navigator !== 'undefined' && !navigator.locks)}
-                onClick={() => void run(async () => { await onClockIn(note.trim()); setNote(''); })}
-                className="min-h-12 w-full"
-              >
-                <LogIn className="h-4 w-4" />
-                Clock In
-              </Button>
-            ) : (
-              <>
-                {activeBreak ? (
-                  <Button type="button" disabled={busy} onClick={() => void run(onEndBreak)} className="min-h-12 w-full">
-                    <PlayCircle className="h-4 w-4" />
-                    End Break
-                  </Button>
-                ) : (
-                  <Button type="button" variant="secondary" disabled={busy} onClick={() => void run(onStartBreak)} className="min-h-12 w-full">
-                    <Coffee className="h-4 w-4" />
-                    Start Break
-                  </Button>
-                )}
-                <Button
-                  type="button"
-                  variant="danger"
-                  disabled={busy}
-                  onClick={() => void run(async () => { await onClockOut(note.trim()); setNote(''); })}
-                  className="min-h-12 w-full"
-                >
-                  <LogOut className="h-4 w-4" />
-                  Clock Out
-                </Button>
-              </>
-            )}
-          </div>
-
           {!desktopAttendanceCapable ? (
             <div className="mt-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
               <Laptop2 className="mt-0.5 h-4 w-4 shrink-0" />
@@ -488,17 +578,17 @@ export function AttendancePage({
             </div>
           ) : null}
 
-          {activeSession && !activeBreak && appConnected && !browserOnline && desktopAttendanceCapable ? (
+          {activeSession && !activeBreak && !browserOnline && desktopAttendanceCapable ? (
             <div className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
               <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
-                <p className="font-semibold">Offline tracking is active.</p>
-                <p className="mt-0.5 text-xs leading-5">Time is being counted locally while MH Tracker stays open and will sync automatically when internet returns.</p>
+                <p className="font-semibold">Offline tracking may continue locally.</p>
+                <p className="mt-0.5 text-xs leading-5">Time may be queued locally while this tracker remains open. Confirm accepted credits after reconnecting.</p>
               </div>
             </div>
           ) : null}
 
-          {activeSession && !activeBreak && !appConnected && desktopAttendanceCapable ? (
+          {activeSession && !activeBreak && !appConnected && browserOnline && desktopAttendanceCapable ? (
             <div className="mt-4 flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
               <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
@@ -509,18 +599,6 @@ export function AttendancePage({
               </div>
             </div>
           ) : null}
-
-          <div className="mt-4">
-            <button type="button" onClick={() => setShowSessionNote((value) => !value)} className="text-xs font-semibold text-ink underline-offset-4 hover:underline">{showSessionNote ? 'Hide optional session note' : 'Add optional session note'}</button>
-            {showSessionNote && <TextareaField
-              label={activeSession ? 'End-of-day note (optional)' : 'Start note (optional)'}
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              placeholder={activeSession ? 'Anything the team should know before you leave?' : 'Optional note for today'}
-              rows={2}
-              className="min-h-20"
-            />}
-          </div>
 
           {activeSession && activeBreak ? (
             <div className="mt-4 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
@@ -542,6 +620,9 @@ export function AttendancePage({
         </Card>
       </section>
 
+            </>
+          )}
+          {personalTab === 'ledger' && (
       <Card className="p-4 sm:p-5">
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
           <div>
@@ -614,15 +695,30 @@ export function AttendancePage({
               No daily cap or automatic overtime approval. Earlier unattributed time: {formatDuration(legacyUnattributedSeconds)} ({formatEightHourDayEquivalent(legacyUnattributedSeconds)} eight-hour equivalents), excluded from verified daily totals.
               {ledgerReviewCount > 0 ? ` ${ledgerReviewCount} multi-day/discrepant sessions require audit.` : ''}
             </p>
-            <div className="mt-4 divide-y divide-border rounded-xl border border-border">
-              {myLedgerDays.length === 0 ? (
-                <p className="p-3 text-xs text-muted">No accepted daily credits for this month.</p>
-              ) : myLedgerDays.slice(0, showAllLedgerDays ? 35 : 7).map((day) => (
-                <div key={day.local_work_date} className="flex justify-between gap-3 p-3 text-xs">
-                  <span className="font-semibold text-ink">{day.local_work_date}</span>
-                  <span>{formatDuration(Number(day.actual_seconds || 0))}</span>
-                </div>
-              ))}
+            <div className="mt-4 overflow-x-auto rounded-xl border border-border">
+              <table className="w-full min-w-[620px] text-left text-sm">
+                <caption className="sr-only">Daily accepted attendance credits compared with an eight-hour reference target</caption>
+                <thead className="bg-ivory text-xs font-bold uppercase tracking-wide text-muted">
+                  <tr><th scope="col" className="px-4 py-3">Work date</th><th scope="col" className="px-4 py-3">Verified</th><th scope="col" className="px-4 py-3">Daily target</th><th scope="col" className="px-4 py-3">Difference</th><th scope="col" className="px-4 py-3">Reference status</th></tr>
+                </thead>
+                <tbody className="divide-y divide-border bg-white">
+                  {myLedgerDays.length === 0 ? (
+                    <tr><td colSpan={5} className="px-4 py-5 text-sm text-muted">No accepted daily credits for this month.</td></tr>
+                  ) : myLedgerDays.slice(0, showAllLedgerDays ? 35 : 7).map((day) => {
+                    const actual = Math.max(0, Number(day.actual_seconds || 0));
+                    const variance = actual - 8 * 3600;
+                    return (
+                      <tr key={day.local_work_date}>
+                        <th scope="row" className="px-4 py-3 font-semibold text-ink">{day.local_work_date}</th>
+                        <td className="px-4 py-3 font-semibold tabular-nums text-ink">{formatDuration(actual)}</td>
+                        <td className="px-4 py-3 tabular-nums text-muted">8h</td>
+                        <td className={`px-4 py-3 font-semibold tabular-nums ${variance >= 0 ? 'text-emerald-700' : 'text-amber-700'}`}>{variance >= 0 ? '+' : '−'}{formatDuration(Math.abs(variance))}</td>
+                        <td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${variance >= 0 ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>{variance > 0 ? 'Over target' : variance === 0 ? 'Target met' : 'Below target'}</span></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
             {myLedgerDays.length > 7 && (
               <button type="button" onClick={() => setShowAllLedgerDays((value) => !value)} className="mt-3 rounded-lg border border-border px-4 py-2 text-xs font-semibold text-ink hover:bg-ivory focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold">
@@ -638,6 +734,8 @@ export function AttendancePage({
         )}
       </Card>
 
+          )}
+          {personalTab === 'history' && (
       <Card className="overflow-hidden p-0">
         <div className="border-b border-border px-4 py-4 sm:px-5">
           <div className="flex items-center gap-2">
@@ -650,6 +748,11 @@ export function AttendancePage({
         </div>
         <div className="px-3 pt-3 sm:px-4">
           <label htmlFor="attendance-history-filter" className="block text-xs font-semibold text-muted">Find date (YYYY-MM-DD)</label>
+          <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="History date range">
+            {(['7d', '30d', 'all'] as const).map((range) => (
+              <button key={range} type="button" onClick={() => { setHistoryRange(range); setShowOlderHistory(false); }} aria-pressed={historyRange === range} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${historyRange === range ? 'bg-ink text-white' : 'bg-ivory text-muted'}`}>{range === '7d' ? 'Last 7 days' : range === '30d' ? 'Last 30 days' : 'All dates'}</button>
+            ))}
+          </div>
           <input id="attendance-history-filter" type="search" value={historyQuery} onChange={(event) => { setHistoryQuery(event.target.value); setShowOlderHistory(true); }} placeholder="e.g. 2026-10-23" className="mt-1 w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-ink focus:border-gold sm:max-w-xs" />
         </div>
         <div className="space-y-2 p-3 sm:p-4">
@@ -765,18 +868,59 @@ export function AttendancePage({
           {!historyDays.length ? (
             <div className="px-3 py-8 text-center text-sm text-muted">No attendance records yet.</div>
           ) : null}
-          {historyDays.length > 12 ? (
+          {filteredHistoryDays.length > 5 ? (
             <div className="pt-2 text-center">
               <Button type="button" variant="secondary" onClick={() => setShowOlderHistory((previous) => !previous)}>
-                {showOlderHistory ? 'Show recent dates' : `Show all ${historyDays.length} dates`}
+                {showOlderHistory ? 'Show recent dates' : `Show all ${filteredHistoryDays.length} dates`}
               </Button>
             </div>
           ) : null}
         </div>
       </Card>
 
-      {canManageAll ? (
+          )}
+        </>
+      )}
+      {canManageAll && workspace === 'team' && (
         <>
+          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Team live attendance summary">
+            {([
+              { label: 'Connected sessions', value: workingCount, tone: 'text-emerald-700' },
+              { label: 'On break', value: breakCount, tone: 'text-amber-700' },
+              { label: 'Presence stale', value: pausedCount, tone: 'text-rose-700' },
+              { label: 'Clocked out', value: offCount, tone: 'text-slate-700' },
+            ] as const).map((item) => (
+              <Card key={item.label} className="p-4">
+                <p className="text-xs font-semibold text-muted">{item.label}</p>
+                <p className={`mt-2 text-3xl font-bold tabular-nums ${item.tone}`}>{item.value}</p>
+              </Card>
+            ))}
+          </section>
+          <Card className="p-4 sm:p-5">
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex min-w-[180px] flex-1 flex-col gap-1 text-xs font-semibold text-muted">
+                Team member
+                <select value={teamMemberFilter} onChange={(event) => setTeamMemberFilter(event.target.value)} className="min-h-10 rounded-lg border border-border bg-white px-3 text-sm text-ink">
+                  <option value="all">All team members</option>
+                  {teamProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.full_name}</option>)}
+                </select>
+              </label>
+              <label className="flex min-w-[170px] flex-1 flex-col gap-1 text-xs font-semibold text-muted">
+                Live status
+                <select value={teamStatusFilter} onChange={(event) => setTeamStatusFilter(event.target.value as typeof teamStatusFilter)} className="min-h-10 rounded-lg border border-border bg-white px-3 text-sm text-ink">
+                  <option value="all">All statuses</option>
+                  <option value="working">Connected session</option>
+                  <option value="break">On break</option>
+                  <option value="paused">Presence stale</option>
+                  <option value="off">Clocked out</option>
+                </select>
+              </label>
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+                {ledgerReviewCount} dated reconciliation exceptions need audit
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-muted">Connected means a recent app heartbeat, not proof of continuous active work. Filtered exports use the same employee, status and review criteria.</p>
+          </Card>
           <Card className="p-4 sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -789,7 +933,7 @@ export function AttendancePage({
             </div>
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {teamProfiles.map((profile) => {
+              {filteredTeamProfiles.map((profile) => {
                 const personSessions = sessions.filter((session) => session.user_id === profile.id);
                 const personBreaks = breaks.filter((item) => item.user_id === profile.id);
                 const personActive = personSessions.find((session) => session.status === 'active') || null;
@@ -801,15 +945,15 @@ export function AttendancePage({
                   ? personBreak
                     ? 'On break'
                     : personConnected
-                      ? 'Working'
-                      : 'App closed'
+                      ? 'Connected'
+                      : 'Presence stale'
                   : 'Off duty';
-                const personToday = personSessions
-                  .filter((session) => localDayKey(session.clock_in) === todayKey)
-                  .reduce((total, session) => total + getSessionSeconds(session, personBreaks, nowMs), 0);
-                const personMonth = personSessions
-                  .filter((session) => new Date(session.clock_in).getTime() >= monthStart)
-                  .reduce((total, session) => total + getSessionSeconds(session, personBreaks, nowMs), 0);
+                const personToday = dailyTotals
+                  .filter((day) => day.user_id === profile.id && day.local_work_date === todayKey)
+                  .reduce((total, day) => total + Number(day.actual_seconds || 0), 0);
+                const personMonth = dailyTotals
+                  .filter((day) => day.user_id === profile.id && day.local_work_date.startsWith(monthKey))
+                  .reduce((total, day) => total + Number(day.actual_seconds || 0), 0);
 
                 return (
                   <article key={profile.id} className="rounded-2xl border border-border bg-[#fcfbf8] p-4">
@@ -832,12 +976,12 @@ export function AttendancePage({
                     </div>
                     <div className="mt-4 grid grid-cols-2 gap-2">
                       <div className="rounded-xl bg-white p-2.5">
-                        <p className="text-[9px] font-bold uppercase tracking-wider text-muted">Today</p>
-                        <p className="mt-1 text-sm font-bold text-ink">{formatDuration(personToday)}</p>
+                        <p className="text-[9px] font-bold uppercase tracking-wider text-muted">Verified today</p>
+                        <p className="mt-1 text-sm font-bold text-ink">{ledgerState === 'ready' ? formatDuration(personToday) : '—'}</p>
                       </div>
                       <div className="rounded-xl bg-white p-2.5">
-                        <p className="text-[9px] font-bold uppercase tracking-wider text-muted">This month</p>
-                        <p className="mt-1 text-sm font-bold text-ink">{formatDuration(personMonth)}</p>
+                        <p className="text-[9px] font-bold uppercase tracking-wider text-muted">Verified month</p>
+                        <p className="mt-1 text-sm font-bold text-ink">{ledgerState === 'ready' ? formatDuration(personMonth) : '—'}</p>
                       </div>
                     </div>
                     <p className="mt-3 text-[10px] text-muted">
@@ -860,6 +1004,7 @@ export function AttendancePage({
                 <p className="text-xs text-muted">Review attendance and export records. Only Admin can change completed times.</p>
               </div>
               <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => setTeamReviewOnly((value) => !value)} aria-pressed={teamReviewOnly} className={`rounded-lg px-3 py-2 text-xs font-bold ${teamReviewOnly ? 'bg-amber-100 text-amber-900' : 'bg-ivory text-muted'}`}>Needs review only</button>
                 {(['today', '7d', '30d'] as const).map((window) => (
                   <button
                     key={window}
@@ -879,6 +1024,8 @@ export function AttendancePage({
             <div className="divide-y divide-border">
               {sessions
                 .filter((session) => {
+                  if (!filteredTeamProfiles.some((profile) => profile.id === session.user_id)) return false;
+                  if (teamReviewOnly && !reviewedTeamSessionIds.has(session.id)) return false;
                   const ts = new Date(session.clock_in).getTime();
                   if (teamWindow === 'today') return localDayKey(session.clock_in) === todayKey;
                   return ts >= nowMs - (teamWindow === '7d' ? 7 : 30) * 24 * 60 * 60 * 1000;
@@ -890,7 +1037,7 @@ export function AttendancePage({
                     <div key={session.id} className="grid gap-2 px-4 py-3 text-xs sm:grid-cols-[minmax(150px,1fr)_160px_160px_90px_auto] sm:items-center sm:px-5">
                       <div className="min-w-0">
                         <p className="truncate font-bold text-ink">{profile?.full_name || 'Team member'}</p>
-                        <p className="text-[10px] text-muted">{profile ? roleLabels[profile.role] : ''}</p>
+                        <p className="text-[10px] text-muted">{profile ? roleLabels[profile.role] : ''}{reviewedTeamSessionIds.has(session.id) ? ' · Needs reconciliation review' : ''}</p>
                       </div>
                       <p className="text-charcoal">{new Date(session.clock_in).toLocaleString()}</p>
                       <p className="text-charcoal">{session.clock_out ? new Date(session.clock_out).toLocaleString() : 'Active now'}</p>
@@ -916,7 +1063,7 @@ export function AttendancePage({
             </div>
           </Card>
         </>
-      ) : null}
+      )}
 
       {editing ? (
         <div className="fixed inset-0 z-50 grid place-items-stretch bg-ink/50 p-0 sm:place-items-center sm:p-4">
