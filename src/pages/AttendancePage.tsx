@@ -158,6 +158,7 @@ export function AttendancePage({
   const [workspace, setWorkspace] = useState<'mine' | 'team'>('mine');
   const [personalTab, setPersonalTab] = useState<'overview' | 'ledger' | 'history'>('overview');
   const [teamMemberFilter, setTeamMemberFilter] = useState('all');
+  const [teamReviewOnly, setTeamReviewOnly] = useState(false);
   const [teamStatusFilter, setTeamStatusFilter] = useState<'all' | 'working' | 'break' | 'paused' | 'off'>('all');
   const [historyRange, setHistoryRange] = useState<'all' | '7d' | '30d'>('30d');
   const [showOlderHistory, setShowOlderHistory] = useState(false);
@@ -312,6 +313,8 @@ export function AttendancePage({
         : nowMs - (teamWindow === '7d' ? 7 : 30) * 24 * 60 * 60 * 1000;
 
     sessions
+      .filter((session) => filteredTeamProfiles.some((person) => person.id === session.user_id))
+      .filter((session) => !teamReviewOnly || reviewedTeamSessionIds.has(session.id))
       .filter((session) => new Date(session.clock_in).getTime() >= cutoff)
       .forEach((session) => {
         const profile = profiles.find((item) => item.id === session.user_id);
@@ -575,17 +578,17 @@ export function AttendancePage({
             </div>
           ) : null}
 
-          {activeSession && !activeBreak && appConnected && !browserOnline && desktopAttendanceCapable ? (
+          {activeSession && !activeBreak && !browserOnline && desktopAttendanceCapable ? (
             <div className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
               <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
-                <p className="font-semibold">Offline tracking is active.</p>
-                <p className="mt-0.5 text-xs leading-5">Time is being counted locally while MH Tracker stays open and will sync automatically when internet returns.</p>
+                <p className="font-semibold">Offline tracking may continue locally.</p>
+                <p className="mt-0.5 text-xs leading-5">Time may be queued locally while this tracker remains open. Confirm accepted credits after reconnecting.</p>
               </div>
             </div>
           ) : null}
 
-          {activeSession && !activeBreak && !appConnected && desktopAttendanceCapable ? (
+          {activeSession && !activeBreak && !appConnected && browserOnline && desktopAttendanceCapable ? (
             <div className="mt-4 flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
               <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
@@ -901,7 +904,7 @@ export function AttendancePage({
                 {ledgerReviewCount} dated reconciliation exceptions need audit
               </div>
             </div>
-            <p className="mt-2 text-xs text-muted">Connected means a recent app heartbeat, not proof of continuous active work.</p>
+            <p className="mt-2 text-xs text-muted">Connected means a recent app heartbeat, not proof of continuous active work. Filtered exports use the same employee, status and review criteria.</p>
           </Card>
           <Card className="p-4 sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -927,15 +930,15 @@ export function AttendancePage({
                   ? personBreak
                     ? 'On break'
                     : personConnected
-                      ? 'Working'
-                      : 'App closed'
+                      ? 'Connected'
+                      : 'Presence stale'
                   : 'Off duty';
-                const personToday = personSessions
-                  .filter((session) => localDayKey(session.clock_in) === todayKey)
-                  .reduce((total, session) => total + getSessionSeconds(session, personBreaks, nowMs), 0);
-                const personMonth = personSessions
-                  .filter((session) => new Date(session.clock_in).getTime() >= monthStart)
-                  .reduce((total, session) => total + getSessionSeconds(session, personBreaks, nowMs), 0);
+                const personToday = dailyTotals
+                  .filter((day) => day.user_id === profile.id && day.local_work_date === todayKey)
+                  .reduce((total, day) => total + Number(day.actual_seconds || 0), 0);
+                const personMonth = dailyTotals
+                  .filter((day) => day.user_id === profile.id && day.local_work_date.startsWith(monthKey))
+                  .reduce((total, day) => total + Number(day.actual_seconds || 0), 0);
 
                 return (
                   <article key={profile.id} className="rounded-2xl border border-border bg-[#fcfbf8] p-4">
@@ -958,12 +961,12 @@ export function AttendancePage({
                     </div>
                     <div className="mt-4 grid grid-cols-2 gap-2">
                       <div className="rounded-xl bg-white p-2.5">
-                        <p className="text-[9px] font-bold uppercase tracking-wider text-muted">Today</p>
-                        <p className="mt-1 text-sm font-bold text-ink">{formatDuration(personToday)}</p>
+                        <p className="text-[9px] font-bold uppercase tracking-wider text-muted">Verified today</p>
+                        <p className="mt-1 text-sm font-bold text-ink">{ledgerState === 'ready' ? formatDuration(personToday) : '—'}</p>
                       </div>
                       <div className="rounded-xl bg-white p-2.5">
-                        <p className="text-[9px] font-bold uppercase tracking-wider text-muted">This month</p>
-                        <p className="mt-1 text-sm font-bold text-ink">{formatDuration(personMonth)}</p>
+                        <p className="text-[9px] font-bold uppercase tracking-wider text-muted">Verified month</p>
+                        <p className="mt-1 text-sm font-bold text-ink">{ledgerState === 'ready' ? formatDuration(personMonth) : '—'}</p>
                       </div>
                     </div>
                     <p className="mt-3 text-[10px] text-muted">
@@ -986,6 +989,7 @@ export function AttendancePage({
                 <p className="text-xs text-muted">Review attendance and export records. Only Admin can change completed times.</p>
               </div>
               <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => setTeamReviewOnly((value) => !value)} aria-pressed={teamReviewOnly} className={`rounded-lg px-3 py-2 text-xs font-bold ${teamReviewOnly ? 'bg-amber-100 text-amber-900' : 'bg-ivory text-muted'}`}>Needs review only</button>
                 {(['today', '7d', '30d'] as const).map((window) => (
                   <button
                     key={window}
@@ -1006,6 +1010,7 @@ export function AttendancePage({
               {sessions
                 .filter((session) => {
                   if (!filteredTeamProfiles.some((profile) => profile.id === session.user_id)) return false;
+                  if (teamReviewOnly && !reviewedTeamSessionIds.has(session.id)) return false;
                   const ts = new Date(session.clock_in).getTime();
                   if (teamWindow === 'today') return localDayKey(session.clock_in) === todayKey;
                   return ts >= nowMs - (teamWindow === '7d' ? 7 : 30) * 24 * 60 * 60 * 1000;
@@ -1017,7 +1022,7 @@ export function AttendancePage({
                     <div key={session.id} className="grid gap-2 px-4 py-3 text-xs sm:grid-cols-[minmax(150px,1fr)_160px_160px_90px_auto] sm:items-center sm:px-5">
                       <div className="min-w-0">
                         <p className="truncate font-bold text-ink">{profile?.full_name || 'Team member'}</p>
-                        <p className="text-[10px] text-muted">{profile ? roleLabels[profile.role] : ''}</p>
+                        <p className="text-[10px] text-muted">{profile ? roleLabels[profile.role] : ''}{reviewedTeamSessionIds.has(session.id) ? ' · Needs reconciliation review' : ''}</p>
                       </div>
                       <p className="text-charcoal">{new Date(session.clock_in).toLocaleString()}</p>
                       <p className="text-charcoal">{session.clock_out ? new Date(session.clock_out).toLocaleString() : 'Active now'}</p>
