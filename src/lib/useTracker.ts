@@ -5191,8 +5191,9 @@ export function useTracker() {
                 .filter(Number.isFinite);
               const windowStart = validStarts.length ? new Date(Math.min(...validStarts)).toISOString() : null;
               const windowEnd = validEnds.length ? new Date(Math.max(...validEnds)).toISOString() : null;
+              const scopedSupabase = supabase;
               const accepted = await fetchAllAcceptedAttendanceIntervals(async (from, to) => {
-                let query = supabase
+                let query = scopedSupabase
                   .from('attendance_daily_credits')
                   .select('started_at,ended_at')
                   .eq('session_id', activeSession.id)
