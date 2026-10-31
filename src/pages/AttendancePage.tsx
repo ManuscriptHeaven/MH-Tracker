@@ -157,6 +157,7 @@ export function AttendancePage({
   const [editReason, setEditReason] = useState('');
   const [teamWindow, setTeamWindow] = useState<'today' | '7d' | '30d'>('today');
   const [showOlderHistory, setShowOlderHistory] = useState(false);
+  const [showAllLedgerDays, setShowAllLedgerDays] = useState(false);
   const [dailyTotals, setDailyTotals] = useState<AttendanceDayTotal[]>([]);
   const [sessionReconciliation, setSessionReconciliation] = useState<AttendanceSessionReconciliation[]>([]);
   const [ledgerState, setLedgerState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
@@ -226,7 +227,7 @@ export function AttendancePage({
     [breaks, currentProfile.id],
   );
   const historyDays = useMemo(() => groupAttendanceHistoryByDay(mySessions), [mySessions]);
-  const visibleHistoryDays = showOlderHistory ? historyDays : historyDays.slice(0, 12);
+  const visibleHistoryDays = showOlderHistory ? historyDays : historyDays.slice(0, 5);
   const activeSession = mySessions.find((session) => session.status === 'active') || null;
   const activeBreak = activeSession
     ? myBreaks.find((item) => item.session_id === activeSession.id && !item.ended_at) || null
@@ -339,16 +340,15 @@ export function AttendancePage({
       : 'Off duty';
 
   return (
-    <div className="mx-auto max-w-[1480px] space-y-5 pb-8">
-      <section className="rounded-2xl border border-border bg-gradient-to-br from-ink via-ink to-[#26241f] p-4 text-white shadow-md sm:p-6">
+    <div className="mx-auto max-w-[1480px] space-y-4 pb-8 sm:space-y-6">
+      <section className="rounded-2xl border border-border bg-gradient-to-br from-ink via-ink to-[#26241f] p-5 text-white shadow-md sm:p-7">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-gold">Office Attendance</p>
             <h2 className="mt-1 font-display text-2xl font-semibold sm:text-3xl">Time & Attendance</h2>
             <p className="mt-2 max-w-2xl text-sm text-white/65">
-              Office time keeps counting while the same MH Tracker window remains open on a laptop or desktop,
-              including when minimized, while using another desktop app, or temporarily offline. Screen lock, sleep/hibernate,
-              manual breaks, and closing the app pause credited time; queued offline time syncs when internet returns.
+              Clock in to track your office work. Review your current session, daily verified hours and attendance history in one place.
+              Tracking may pause during breaks, device sleep or when the app closes.
             </p>
           </div>
 
@@ -397,7 +397,7 @@ export function AttendancePage({
         </div>
       ) : null}
 
-      <section className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+      <section className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
         <Card className="p-4 sm:p-5">
           <div className="flex items-center gap-2">
             <TimerReset className="h-5 w-5 text-gold" />
@@ -436,7 +436,7 @@ export function AttendancePage({
             </div>
           ) : null}
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {!activeSession ? (
               <Button
                 type="button"
@@ -540,7 +540,7 @@ export function AttendancePage({
             </Card>
           ))}
           <p className="col-span-2 text-xs text-muted sm:col-span-4 lg:col-span-2">
-            1 workday equivalent = 8 hours. Month totals are shown as easier-to-read equivalents, not verified days worked or payroll approval. Only the dated ledger below confirms accepted daily time.
+            Session totals are provisional. The verified daily ledger below is the source for accepted work time; 8-hour equivalents are not approved shifts.
           </p>
         </div>
       </section>
@@ -602,7 +602,7 @@ export function AttendancePage({
                 </div>
               ))}
             </div>
-            <p className="mt-3 text-xs text-muted">
+            <p className="mt-3 rounded-lg bg-ivory p-3 text-xs leading-relaxed text-muted">
               Dated actual vs 8-hour target: {ledgerMonthSeconds >= ledgerTargetSeconds ? '+' : '−'}
               {formatDuration(Math.abs(ledgerMonthSeconds - ledgerTargetSeconds))}.
               No daily cap or automatic overtime approval. Earlier time is displayed in 8-hour equivalents only and is excluded from verified daily totals.
@@ -611,13 +611,18 @@ export function AttendancePage({
             <div className="mt-4 divide-y divide-border rounded-xl border border-border">
               {myLedgerDays.length === 0 ? (
                 <p className="p-3 text-xs text-muted">No accepted daily credits for this month.</p>
-              ) : myLedgerDays.slice(0, 35).map((day) => (
+              ) : myLedgerDays.slice(0, showAllLedgerDays ? 35 : 7).map((day) => (
                 <div key={day.local_work_date} className="flex justify-between gap-3 p-3 text-xs">
                   <span className="font-semibold text-ink">{day.local_work_date}</span>
                   <span>{formatDuration(Number(day.actual_seconds || 0))}</span>
                 </div>
               ))}
             </div>
+            {myLedgerDays.length > 7 && (
+              <button type="button" onClick={() => setShowAllLedgerDays((value) => !value)} className="mt-3 rounded-lg border border-border px-4 py-2 text-xs font-semibold text-ink hover:bg-ivory focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold">
+                {showAllLedgerDays ? 'Show recent 7 days' : `View all ${Math.min(myLedgerDays.length, 35)} ledger days`}
+              </button>
+            )}
             {canManageAll && (
               <p className="mt-3 text-xs text-muted">
                 Managers can download all authorized employees' dated ledger rows in the CSV above.
