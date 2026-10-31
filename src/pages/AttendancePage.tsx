@@ -156,6 +156,8 @@ export function AttendancePage({
   const [editReason, setEditReason] = useState('');
   const [teamWindow, setTeamWindow] = useState<'today' | '7d' | '30d'>('today');
   const [showOlderHistory, setShowOlderHistory] = useState(false);
+  const [historyQuery, setHistoryQuery] = useState('');
+  const [showSessionNote, setShowSessionNote] = useState(false);
   const [showAllLedgerDays, setShowAllLedgerDays] = useState(false);
   const [dailyTotals, setDailyTotals] = useState<AttendanceDayTotal[]>([]);
   const [sessionReconciliation, setSessionReconciliation] = useState<AttendanceSessionReconciliation[]>([]);
@@ -226,7 +228,8 @@ export function AttendancePage({
     [breaks, currentProfile.id],
   );
   const historyDays = useMemo(() => groupAttendanceHistoryByDay(mySessions), [mySessions]);
-  const visibleHistoryDays = showOlderHistory ? historyDays : historyDays.slice(0, 5);
+  const filteredHistoryDays = historyDays.filter((day) => day.dateKey.includes(historyQuery.trim().toLowerCase()));
+  const visibleHistoryDays = showOlderHistory ? filteredHistoryDays : filteredHistoryDays.slice(0, 5);
   const activeSession = mySessions.find((session) => session.status === 'active') || null;
   const activeBreak = activeSession
     ? myBreaks.find((item) => item.session_id === activeSession.id && !item.ended_at) || null
@@ -506,14 +509,15 @@ export function AttendancePage({
           ) : null}
 
           <div className="mt-4">
-            <TextareaField
+            <button type="button" onClick={() => setShowSessionNote((value) => !value)} className="text-xs font-semibold text-ink underline-offset-4 hover:underline">{showSessionNote ? 'Hide optional session note' : 'Add optional session note'}</button>
+            {showSessionNote && <TextareaField
               label={activeSession ? 'End-of-day note (optional)' : 'Start note (optional)'}
               value={note}
               onChange={(event) => setNote(event.target.value)}
               placeholder={activeSession ? 'Anything the team should know before you leave?' : 'Optional note for today'}
               rows={2}
               className="min-h-20"
-            />
+            />}
           </div>
 
           {activeSession && activeBreak ? (
@@ -592,6 +596,16 @@ export function AttendancePage({
                 </div>
               ))}
             </div>
+            <div className="mt-4 rounded-xl border border-border p-3">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="font-semibold text-ink">Today's verified progress · 8-hour target</span>
+                <span className="tabular-nums text-muted">{formatDuration(dailyTotals.find((day) => day.user_id === currentProfile.id && day.local_work_date === todayKey)?.actual_seconds ? Number(dailyTotals.find((day) => day.user_id === currentProfile.id && day.local_work_date === todayKey)?.actual_seconds) : 0)} / 8h</span>
+              </div>
+              <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-100">
+                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, Math.max(0, Number(dailyTotals.find((day) => day.user_id === currentProfile.id && day.local_work_date === todayKey)?.actual_seconds || 0) / 28800 * 100))}%` }} />
+              </div>
+              <p className="mt-1 text-[11px] text-muted">Accepted daily credit only. Overtime remains recorded beyond the progress-bar maximum.</p>
+            </div>
             <p className="mt-3 rounded-lg bg-ivory p-3 text-xs leading-relaxed text-muted">
               Dated actual vs 8-hour target: {ledgerMonthSeconds >= ledgerTargetSeconds ? '+' : '−'}
               {formatDuration(Math.abs(ledgerMonthSeconds - ledgerTargetSeconds))}.
@@ -632,7 +646,12 @@ export function AttendancePage({
             Choose a date to expand its sessions, clock times, breaks and notes. These are session records, not audited daily credits.
           </p>
         </div>
+        <div className="px-3 pt-3 sm:px-4">
+          <label htmlFor="attendance-history-filter" className="block text-xs font-semibold text-muted">Find date (YYYY-MM-DD)</label>
+          <input id="attendance-history-filter" type="search" value={historyQuery} onChange={(event) => { setHistoryQuery(event.target.value); setShowOlderHistory(true); }} placeholder="e.g. 2026-10-23" className="mt-1 w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-ink focus:border-gold sm:max-w-xs" />
+        </div>
         <div className="space-y-2 p-3 sm:p-4">
+          {visibleHistoryDays.length === 0 && <p className="text-sm text-muted">No attendance dates match this search.</p>}
           {visibleHistoryDays.map((day) => {
             const recordedSeconds = day.sessions.reduce(
               (total, session) => total + getSessionSeconds(session, myBreaks, nowMs), 0,
