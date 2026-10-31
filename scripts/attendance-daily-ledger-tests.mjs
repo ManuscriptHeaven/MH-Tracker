@@ -177,7 +177,7 @@ assert(page.includes("from('attendance_daily_totals')") &&
        page.includes("from('attendance_session_credit_reconciliation')") &&
        page.includes("ledgerState === 'ready'") &&
        page.includes('Month · Verified actual') &&
-       page.includes('Earlier time · 8h-day equivalent') &&
+       page.includes('Earlier unattributed time:') &&
        page.includes('mh-attendance-daily-verified.csv'),
   'attendance UI shows real server accepted daily dates and a read-only export');
 assert(sql.includes('from public.attendance_sessions s') &&
