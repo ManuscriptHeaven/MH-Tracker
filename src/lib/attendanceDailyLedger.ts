@@ -260,3 +260,30 @@ export function repairPendingAttendanceDailySliceDates(
     }
   });
 }
+
+/**
+ * Fetch all server-accepted intervals, not merely PostgREST's first result page.
+ * An active session can easily exceed the default 1,000-row response limit.
+ * Never return a partial list: overlap reconciliation against incomplete data
+ * can repeatedly reject a pending batch and block Clock Out.
+ */
+export async function fetchAllAcceptedAttendanceIntervals(
+  readPage: (from: number, to: number) => Promise<Array<{ started_at: string; ended_at: string }>>,
+  pageSize = 500,
+): Promise<Array<{ started_at: string; ended_at: string }>> {
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 1000) {
+    throw new Error('Invalid attendance credit page size');
+  }
+  const all: Array<{ started_at: string; ended_at: string }> = [];
+  for (let page = 0; page < 1000; page += 1) {
+    const from = page * pageSize;
+    const rows = await readPage(from, from + pageSize - 1);
+    if (!Array.isArray(rows) || rows.length > pageSize) {
+      throw new Error('Invalid attendance credit page response');
+    }
+    all.push(...rows);
+    if (rows.length < pageSize) return all;
+  }
+  // A partial response is unsafe for retry/reconciliation.
+  throw new Error('Attendance credit history exceeds safe pagination limit');
+}
