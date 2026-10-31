@@ -104,7 +104,7 @@ assert(
   page.includes('APP_PRESENCE_STALE_MS = 90_000') &&
     page.includes('Clocked in · Connected') &&
     page.includes('Offline · Sync pending') &&
-    page.includes('Offline tracking is active.') &&
+    page.includes('Offline tracking may continue locally.') &&
     page.includes('Connection stale · Check tracking') &&
     page.includes('Accepted daily credits are confirmed in the ledger.') &&
     page.includes('Verified attendance requires a laptop or desktop') &&
