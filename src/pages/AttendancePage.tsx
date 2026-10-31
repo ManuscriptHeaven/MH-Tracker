@@ -695,15 +695,30 @@ export function AttendancePage({
               No daily cap or automatic overtime approval. Earlier unattributed time: {formatDuration(legacyUnattributedSeconds)} ({formatEightHourDayEquivalent(legacyUnattributedSeconds)} eight-hour equivalents), excluded from verified daily totals.
               {ledgerReviewCount > 0 ? ` ${ledgerReviewCount} multi-day/discrepant sessions require audit.` : ''}
             </p>
-            <div className="mt-4 divide-y divide-border rounded-xl border border-border">
-              {myLedgerDays.length === 0 ? (
-                <p className="p-3 text-xs text-muted">No accepted daily credits for this month.</p>
-              ) : myLedgerDays.slice(0, showAllLedgerDays ? 35 : 7).map((day) => (
-                <div key={day.local_work_date} className="flex justify-between gap-3 p-3 text-xs">
-                  <span className="font-semibold text-ink">{day.local_work_date}</span>
-                  <span>{formatDuration(Number(day.actual_seconds || 0))}</span>
-                </div>
-              ))}
+            <div className="mt-4 overflow-x-auto rounded-xl border border-border">
+              <table className="w-full min-w-[620px] text-left text-sm">
+                <caption className="sr-only">Daily accepted attendance credits compared with an eight-hour reference target</caption>
+                <thead className="bg-ivory text-xs font-bold uppercase tracking-wide text-muted">
+                  <tr><th scope="col" className="px-4 py-3">Work date</th><th scope="col" className="px-4 py-3">Verified</th><th scope="col" className="px-4 py-3">Daily target</th><th scope="col" className="px-4 py-3">Difference</th><th scope="col" className="px-4 py-3">Reference status</th></tr>
+                </thead>
+                <tbody className="divide-y divide-border bg-white">
+                  {myLedgerDays.length === 0 ? (
+                    <tr><td colSpan={5} className="px-4 py-5 text-sm text-muted">No accepted daily credits for this month.</td></tr>
+                  ) : myLedgerDays.slice(0, showAllLedgerDays ? 35 : 7).map((day) => {
+                    const actual = Math.max(0, Number(day.actual_seconds || 0));
+                    const variance = actual - 8 * 3600;
+                    return (
+                      <tr key={day.local_work_date}>
+                        <th scope="row" className="px-4 py-3 font-semibold text-ink">{day.local_work_date}</th>
+                        <td className="px-4 py-3 font-semibold tabular-nums text-ink">{formatDuration(actual)}</td>
+                        <td className="px-4 py-3 tabular-nums text-muted">8h</td>
+                        <td className={`px-4 py-3 font-semibold tabular-nums ${variance >= 0 ? 'text-emerald-700' : 'text-amber-700'}`}>{variance >= 0 ? '+' : '−'}{formatDuration(Math.abs(variance))}</td>
+                        <td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${variance >= 0 ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>{variance > 0 ? 'Over target' : variance === 0 ? 'Target met' : 'Below target'}</span></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
             {myLedgerDays.length > 7 && (
               <button type="button" onClick={() => setShowAllLedgerDays((value) => !value)} className="mt-3 rounded-lg border border-border px-4 py-2 text-xs font-semibold text-ink hover:bg-ivory focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold">
