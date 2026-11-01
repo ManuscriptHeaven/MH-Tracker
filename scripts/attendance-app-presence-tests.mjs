@@ -113,7 +113,9 @@ assert(
 );
 
 assert(
-  page.includes('Recorded Session Hours · Unreconciled') &&
+  page.includes('Whole-session recorded hours · Provisional') &&
+    page.includes('Verified hours report') &&
+    page.includes('function exportVerifiedCsv()') &&
     page.includes('Time paused · last app signal') &&
     page.includes('Verified live') &&
     app.includes('desktopAttendanceCapable={tracker.desktopAttendanceCapable}'),

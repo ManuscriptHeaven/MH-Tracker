@@ -91,9 +91,10 @@ assert(
 );
 
 assert(
-  page.includes('Team attendance today') &&
-  page.includes('Team attendance records') &&
-  page.includes('Export CSV') &&
+  page.includes('Team live status') &&
+  page.includes('Verified hours report') &&
+  page.includes('Session details & corrections') &&
+  page.includes('Export verified CSV') &&
   page.includes('Correct attendance record'),
   'management gets live team status, history, CSV export and admin corrections',
 );
