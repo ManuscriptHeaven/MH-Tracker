@@ -5169,9 +5169,17 @@ export function useTracker() {
           let rounds = 0;
           while (runtime.pendingDailySlices.length > 0 && rounds < 20 && !cancelled) {
             let batch = runtime.pendingDailySlices.slice(0, 120);
-            try {
-              await recordAttendanceDailySlices(batch);
-            } catch (syncError) {
+            let recoveryAttempt = 0;
+            // Accepted credits can advance between readback and retry,
+            // especially after interrupted requests or a tab handoff.
+            // A single replay is insufficient: re-read and trim again,
+            // with a strict bound to avoid an endless recovery loop.
+            while (batch.length > 0) {
+              try {
+                await recordAttendanceDailySlices(batch);
+                break;
+              } catch (syncError) {
+                if (recoveryAttempt >= 3) throw syncError;
               const code = typeof syncError === 'object' && syncError !== null && 'code' in syncError
                 ? String((syncError as { code?: unknown }).code || '') : '';
               const message = errorMessage(syncError, '');
@@ -5219,7 +5227,8 @@ export function useTracker() {
               runtime.pendingDailySlices = repaired;
               writePendingAttendanceDailySlices(currentProfile.id, activeSession.id, repaired);
               batch = repaired.slice(0, 120);
-              if (batch.length > 0) await recordAttendanceDailySlices(batch);
+              recoveryAttempt += 1;
+              }
             }
 
             const acceptedKeys = new Set(batch.map((slice) => slice.source_key));
