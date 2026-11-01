@@ -651,7 +651,7 @@ export function DashboardPage({
       </section>
         </div>
       ) : (
-        <div className="rounded-2xl bg-[#f4f7fc] p-3 sm:p-5">
+        <div className="rounded-2xl bg-gradient-to-br from-[#f6f7fb] via-[#f9f8f4] to-[#fdf8ee] p-3 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 sm:p-5">
           <OperationsOverview
             projects={projects}
             profiles={profiles}
