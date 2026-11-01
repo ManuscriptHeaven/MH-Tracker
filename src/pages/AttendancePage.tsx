@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { Button, Card, Field, TextareaField } from '../components/ui';
 import { roleLabels } from '../lib/constants';
+import { resolveTeamAttendancePeriod, summarizeVerifiedAttendance, type TeamAttendancePeriod } from '../lib/teamAttendanceReport';
 import { formatEightHourDayEquivalent, groupAttendanceHistoryByDay } from '../lib/attendanceHistoryPresentation';
 import { supabase } from '../lib/supabase';
 import { isClientRole } from '../lib/utils';
@@ -154,7 +155,11 @@ export function AttendancePage({
   const [editClockIn, setEditClockIn] = useState('');
   const [editClockOut, setEditClockOut] = useState('');
   const [editReason, setEditReason] = useState('');
-  const [teamWindow, setTeamWindow] = useState<'today' | '7d' | '30d'>('today');
+  const [teamWindow, setTeamWindow] = useState<TeamAttendancePeriod>('lastMonth');
+  const [teamMonth, setTeamMonth] = useState(() => { const date = new Date(); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`; });
+  const [showAllTeamDays, setShowAllTeamDays] = useState(false);
+  const [reportLedger, setReportLedger] = useState<AttendanceDayTotal[]>([]);
+  const [reportLedgerState, setReportLedgerState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [workspace, setWorkspace] = useState<'mine' | 'team'>('mine');
   const [personalTab, setPersonalTab] = useState<'overview' | 'ledger' | 'history'>('overview');
   const [teamMemberFilter, setTeamMemberFilter] = useState('all');
@@ -219,6 +224,50 @@ export function AttendancePage({
       window.removeEventListener('online', refreshLedger);
     };
   }, [currentProfile.id]);
+
+  // Independent manager report query: not limited to the tracker-wide 120-day
+  // session window. Fetch accepted dated credits for the selected calendar
+  // period, with stable pagination (PostgREST responses can cap at 1000).
+  const reportPeriod = resolveTeamAttendancePeriod(teamWindow, new Date(nowMs), teamMonth);
+  useEffect(() => {
+    if (!canManageAll || workspace !== 'team' || !supabase) return undefined;
+    let cancelled = false;
+    const client = supabase;
+    const reload = async () => {
+      setReportLedgerState('loading');
+      try {
+        const all: AttendanceDayTotal[] = [];
+        const pageSize = 500;
+        let complete = false;
+        for (let page = 0; page < 20; page += 1) {
+          const { data, error: readError } = await client.from('attendance_daily_totals')
+            .select('user_id,local_work_date,actual_seconds,counts_as_day_worked,accepted_slices')
+            .gte('local_work_date', reportPeriod.startDate)
+            .lt('local_work_date', reportPeriod.endDateExclusive)
+            .order('local_work_date', { ascending: false })
+            .order('user_id', { ascending: true })
+            .range(page * pageSize, (page + 1) * pageSize - 1);
+          if (readError) throw readError;
+          const rows = (data || []) as AttendanceDayTotal[];
+          all.push(...rows);
+          if (rows.length < pageSize) { complete = true; break; }
+        }
+        if (!complete) throw new Error('Report exceeds safe pagination limit');
+        if (!cancelled) { setReportLedger(all); setReportLedgerState('ready'); }
+      } catch {
+        if (!cancelled) { setReportLedger([]); setReportLedgerState('unavailable'); }
+      }
+    };
+    void reload();
+    // Refresh verified credits periodically without modifying or approving time.
+    const refreshId = window.setInterval(() => void reload(), 60_000);
+    window.addEventListener('online', reload);
+    return () => {
+      cancelled = true;
+      window.clearInterval(refreshId);
+      window.removeEventListener('online', reload);
+    };
+  }, [canManageAll, workspace, reportPeriod.startDate, reportPeriod.endDateExclusive]);
 
   const teamProfiles = useMemo(
     () => profiles.filter((profile) => !isClientRole(profile.role) && profile.status !== 'inactive'),
@@ -287,6 +336,19 @@ export function AttendancePage({
     const memberStatus = !memberSession ? 'off' : memberBreak ? 'break' : isPresenceFresh(memberSession, nowMs) ? 'working' : 'paused';
     return memberStatus === teamStatusFilter;
   });
+  // Historical totals must NOT be filtered by live connected/off-duty state.
+  const reportTeamProfiles = teamProfiles.filter((person) =>
+    teamMemberFilter === 'all' || person.id === teamMemberFilter);
+  const reportTeamIds = new Set(reportTeamProfiles.map((person) => person.id));
+  const reportDays = reportLedger.filter((day) => reportTeamIds.has(day.user_id));
+  const reportSummary = summarizeVerifiedAttendance(reportDays);
+  const perPersonReport = reportTeamProfiles.map((person) => ({
+    profile: person,
+    ...summarizeVerifiedAttendance(reportDays.filter((day) => day.user_id === person.id)),
+  }));
+  const reportHoursMissing = Math.max(0, reportSummary.targetSeconds - reportSummary.seconds);
+  const reportOverTarget = Math.max(0, reportSummary.seconds - reportSummary.targetSeconds);
+
   const liveTeamSessions = teamProfiles.map((profile) => sessions.find((session) => session.user_id === profile.id && session.status === 'active') || null);
   const workingCount = liveTeamSessions.filter((session) => session && isPresenceFresh(session, nowMs) && !breaks.some((item) => item.session_id === session.id && !item.ended_at)).length;
   const breakCount = liveTeamSessions.filter((session) => session && breaks.some((item) => item.session_id === session.id && !item.ended_at)).length;
