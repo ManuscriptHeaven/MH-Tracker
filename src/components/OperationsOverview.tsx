@@ -264,7 +264,7 @@ export function OperationsOverview({
               </p>
             )}
           </div>
-          {filteredTasks.length > 8 && <button type="button" onClick={onViewTeamTasks} className="mt-3 text-xs font-semibold text-[#7a5518] hover:underline dark:text-amber-300">View all matching tasks <ArrowRight className="inline h-3 w-3" /></button>}
+          {filteredTasks.length > 8 && <button type="button" onClick={onViewTeamTasks} className="mt-3 text-xs font-semibold text-[#7a5518] hover:underline dark:text-amber-300">Open task workspace <ArrowRight className="inline h-3 w-3" /></button>}
         </Card>
 
         <Card className="min-w-0 rounded-2xl border border-border bg-rose-50/30 p-4 shadow-sm dark:bg-slate-900 sm:p-5">
