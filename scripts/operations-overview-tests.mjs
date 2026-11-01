@@ -109,7 +109,7 @@ assert.ok(dashboard.includes("{dashboardView === 'projects' || !canManageProject
 assert.ok(dashboard.includes('operationsSnapshot.attentionTasks.length') &&
   dashboard.includes('setDashboardView(\'operations\')'), 'projects view links to team task alerts');
 assert.ok(dashboard.includes('setQuickFilter(\'overdue\'); setDashboardView(\'projects\')'), 'operations links to overdue projects');
-assert.ok(dashboard.includes('bg-[#fffdf9]') && dashboard.includes('bg-[#f4f7fc]'), 'projects and operations are visually distinct');
+assert.ok(dashboard.includes('bg-[#fffdf9]') && dashboard.includes('from-[#f6f7fb] via-[#f9f8f4] to-[#fdf8ee]'), 'projects and operations are visually distinct');
 assert.ok(!dashboard.includes('xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.7fr)]'), 'projects are not squeezed beside a competing operations rail');
 assert.ok(overview.includes('Tasks Requiring Action') && overview.includes('Team Workload'), 'both work views are visible');
 assert.ok(overview.includes('Recent Team Tasks') && overview.includes('recentTasks.map'),
