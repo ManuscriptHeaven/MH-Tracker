@@ -1139,9 +1139,9 @@ export function AttendancePage({
               <div>
                 <div className="flex items-center gap-2">
                   <Users className="h-5 w-5 text-gold" />
-                  <h3 className="font-display text-xl font-semibold text-ink">Team attendance today</h3>
+                  <h3 className="font-display text-xl font-semibold text-ink">Team live status</h3>
                 </div>
-                <p className="mt-1 text-xs text-muted">Live verified app presence, today’s credited time, and month-to-date hours.</p>
+                <p className="mt-1 text-xs text-muted">Current connection state, with historical verified hours for the selected reporting period.</p>
               </div>
             </div>
 
@@ -1161,12 +1161,8 @@ export function AttendancePage({
                       ? 'Connected'
                       : 'Presence stale'
                   : 'Off duty';
-                const personToday = dailyTotals
-                  .filter((day) => day.user_id === profile.id && day.local_work_date === todayKey)
-                  .reduce((total, day) => total + Number(day.actual_seconds || 0), 0);
-                const personMonth = dailyTotals
-                  .filter((day) => day.user_id === profile.id && day.local_work_date.startsWith(monthKey))
-                  .reduce((total, day) => total + Number(day.actual_seconds || 0), 0);
+                const selectedDays = reportDays.filter((day) => day.user_id === profile.id);
+                const personSummary = summarizeVerifiedAttendance(selectedDays);
 
                 return (
                   <article key={profile.id} className="rounded-2xl border border-border bg-[#fcfbf8] p-4">
@@ -1189,12 +1185,12 @@ export function AttendancePage({
                     </div>
                     <div className="mt-4 grid grid-cols-2 gap-2">
                       <div className="rounded-xl bg-white p-2.5">
-                        <p className="text-[9px] font-bold uppercase tracking-wider text-muted">Verified today</p>
-                        <p className="mt-1 text-sm font-bold text-ink">{ledgerState === 'ready' ? formatDuration(personToday) : '—'}</p>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted">Verified · {reportPeriod.label}</p>
+                        <p className="mt-1 text-lg font-bold tabular-nums text-ink">{reportLedgerState === 'ready' ? formatDuration(personSummary.seconds) : '—'}</p>
                       </div>
                       <div className="rounded-xl bg-white p-2.5">
-                        <p className="text-[9px] font-bold uppercase tracking-wider text-muted">Verified month</p>
-                        <p className="mt-1 text-sm font-bold text-ink">{ledgerState === 'ready' ? formatDuration(personMonth) : '—'}</p>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted">Credited days</p>
+                        <p className="mt-1 text-lg font-bold tabular-nums text-ink">{reportLedgerState === 'ready' ? personSummary.workedDays : '—'}</p>
                       </div>
                     </div>
                     <p className="mt-3 text-[10px] text-muted">
@@ -1213,35 +1209,28 @@ export function AttendancePage({
           <Card className="overflow-hidden p-0">
             <div className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
               <div>
-                <h3 className="font-display text-xl font-semibold text-ink">Team attendance records</h3>
-                <p className="text-xs text-muted">Review attendance and export records. Only Admin can change completed times.</p>
+                <h3 className="font-display text-xl font-semibold text-ink">Session details & corrections</h3>
+                <p className="text-xs text-muted">Whole-session records grouped by clock-in date, separate from the dated verified report above. Recent session history may be limited to 120 days; only Admin can correct completed sessions.</p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => setTeamReviewOnly((value) => !value)} aria-pressed={teamReviewOnly} className={`rounded-lg px-3 py-2 text-xs font-bold ${teamReviewOnly ? 'bg-amber-100 text-amber-900' : 'bg-ivory text-muted'}`}>Needs review only</button>
-                {(['today', '7d', '30d'] as const).map((window) => (
-                  <button
-                    key={window}
-                    type="button"
-                    onClick={() => setTeamWindow(window)}
-                    className={`rounded-lg px-3 py-2 text-xs font-bold ${teamWindow === window ? 'bg-ink text-white' : 'bg-ivory text-muted'}`}
-                  >
-                    {window === 'today' ? 'Today' : window === '7d' ? '7 days' : '30 days'}
-                  </button>
-                ))}
+                <span className="rounded-lg bg-ivory px-3 py-2 text-xs font-semibold text-muted">{reportPeriod.label}</span>
                 <Button type="button" variant="secondary" onClick={exportCsv} className="min-h-9 px-3 text-xs">
-                  <Download className="h-3.5 w-3.5" /> Export CSV
+                  <Download className="h-3.5 w-3.5" /> Session CSV (provisional)
                 </Button>
               </div>
             </div>
 
+            <div className="hidden border-b border-border bg-ivory px-5 py-2 text-xs font-semibold uppercase tracking-wide text-muted sm:grid sm:grid-cols-[minmax(150px,1fr)_160px_160px_90px_auto]">
+              <span>Team member</span><span>Clock in</span><span>Clock out</span><span>Session time</span><span className="text-right">Action</span>
+            </div>
             <div className="divide-y divide-border">
               {sessions
                 .filter((session) => {
-                  if (!filteredTeamProfiles.some((profile) => profile.id === session.user_id)) return false;
+                  if (!reportTeamIds.has(session.user_id)) return false;
                   if (teamReviewOnly && !reviewedTeamSessionIds.has(session.id)) return false;
-                  const ts = new Date(session.clock_in).getTime();
-                  if (teamWindow === 'today') return localDayKey(session.clock_in) === todayKey;
-                  return ts >= nowMs - (teamWindow === '7d' ? 7 : 30) * 24 * 60 * 60 * 1000;
+                  const sessionDate = localDayKey(session.clock_in);
+                  return sessionDate >= reportPeriod.startDate && sessionDate < reportPeriod.endDateExclusive;
                 })
                 .slice(0, 100)
                 .map((session) => {
