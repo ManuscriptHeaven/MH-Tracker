@@ -210,7 +210,7 @@ export function OperationsOverview({
           </label>
         </div>
         <p className="mt-3 text-xs text-muted" role="status">
-          {filtersActive ? String(filteredTasks.length) + ' matching tasks' : 'Showing recent and priority tasks'} from {activeProjectCount} active projects.
+          {filtersActive ? String(filteredTasks.length) + ' matching tasks' : 'Showing recent and priority tasks'} across {activeProjectCount} projects with tasks.
           {' '}Summary cards remain organization-wide; filters affect the task panels only.
         </p>
       </Card>
