@@ -367,17 +367,50 @@ export function AttendancePage({
     }
   }
 
-  function exportCsv() {
-    const rows = [['Name', 'Role', 'Clock In', 'Clock Out', 'Recorded Session Hours · Unreconciled', 'Note', 'Correction Reason']];
-    const cutoff =
-      teamWindow === 'today'
-        ? new Date(new Date(nowMs).setHours(0, 0, 0, 0)).getTime()
-        : nowMs - (teamWindow === '7d' ? 7 : 30) * 24 * 60 * 60 * 1000;
+  function downloadReportCsv(rows: string[][], filename: string) {
+    const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
 
+  function exportVerifiedCsv() {
+    if (reportLedgerState !== 'ready') return;
+    const rows = [[
+      'Team member', 'Work date', 'Verified hours', 'Verified seconds',
+      '8-hour reference target', 'Difference (hours)', 'Credited day', 'Accepted slices',
+    ]];
+    for (const day of reportDays) {
+      const person = profiles.find((profile) => profile.id === day.user_id);
+      const seconds = Math.max(0, Number(day.actual_seconds || 0));
+      rows.push([
+        person?.full_name || 'Team member',
+        day.local_work_date,
+        (seconds / 3600).toFixed(2),
+        String(seconds),
+        '8',
+        ((seconds - 8 * 3600) / 3600).toFixed(2),
+        seconds >= 60 ? 'Yes' : 'No',
+        String(day.accepted_slices),
+      ]);
+    }
+    downloadReportCsv(rows, `mh-attendance-verified-${reportPeriod.startDate}-to-${reportPeriod.endDateExclusive}.csv`);
+  }
+
+  function exportCsv() {
+    // Detailed sessions are for audit, NOT a substitute for dated verified credits.
+    const rows = [['Name', 'Role', 'Clock In', 'Clock Out', 'Whole-session recorded hours · Provisional', 'Note', 'Correction Reason']];
     sessions
-      .filter((session) => filteredTeamProfiles.some((person) => person.id === session.user_id))
+      .filter((session) => reportTeamIds.has(session.user_id))
       .filter((session) => !teamReviewOnly || reviewedTeamSessionIds.has(session.id))
-      .filter((session) => new Date(session.clock_in).getTime() >= cutoff)
+      .filter((session) => {
+        const day = localDayKey(session.clock_in);
+        return day >= reportPeriod.startDate && day < reportPeriod.endDateExclusive;
+      })
       .forEach((session) => {
         const profile = profiles.find((item) => item.id === session.user_id);
         rows.push([
@@ -390,17 +423,7 @@ export function AttendancePage({
           session.adjustment_reason || '',
         ]);
       });
-
-    const csv = rows
-      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-      .join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `mh-attendance-${teamWindow}-${todayKey}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    downloadReportCsv(rows, `mh-attendance-sessions-${reportPeriod.startDate}-to-${reportPeriod.endDateExclusive}.csv`);
   }
 
   function openCorrection(session: AttendanceSession) {
