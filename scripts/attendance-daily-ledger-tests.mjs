@@ -138,7 +138,9 @@ assert(tracker.includes("code === '23P01'") &&
   tracker.includes(".from('attendance_daily_credits')") &&
   tracker.includes("reconcilePendingAttendanceDailySlices(") &&
   tracker.includes("writePendingAttendanceDailySlices(currentProfile.id, activeSession.id, repaired)") &&
-  tracker.includes("if (batch.length > 0) await recordAttendanceDailySlices(batch)"),
+  tracker.includes('while (batch.length > 0)') &&
+  tracker.includes('if (recoveryAttempt >= 3) throw syncError') &&
+  tracker.includes('recoveryAttempt += 1'),
   'live overlap and date-boundary recovery preserves idempotent retry keys');
 assert(tracker.includes('inFlightAttendanceFlush') &&
   tracker.includes('while (runtime.pendingDailySlices.length > 0 && rounds < 20') &&
