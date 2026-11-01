@@ -46,8 +46,8 @@ assert.deepEqual(result.openTasks.map((item) => item.id), ['print', 'blocker', '
 assert.equal(result.inProgressCount, 1);
 assert.equal(result.blockedCount, 1);
 assert.equal(result.unassignedCount, 1);
-assert.equal(result.attentionTasks[0].id, 'assign', 'unassigned work is prioritized');
-assert.equal(result.attentionTasks[1].id, 'blocker', 'blocked work follows unassigned work');
+assert.equal(result.attentionTasks[0].id, 'blocker', 'blocked work takes priority over unassigned work');
+assert.equal(result.attentionTasks[1].id, 'assign', 'unassigned work remains in the action queue');
 assert.equal(result.projectTaskCounts.p1.open, 4);
 assert.equal(result.projectTaskCounts.finished, undefined, 'completed projects do not inflate workload');
 assert.ok(result.recentTasks.every((item) => !['archived','personal','finished-project'].includes(item.id)),
@@ -109,10 +109,10 @@ assert.ok(dashboard.includes("{dashboardView === 'projects' || !canManageProject
 assert.ok(dashboard.includes('operationsSnapshot.attentionTasks.length') &&
   dashboard.includes('setDashboardView(\'operations\')'), 'projects view links to team task alerts');
 assert.ok(dashboard.includes('setQuickFilter(\'overdue\'); setDashboardView(\'projects\')'), 'operations links to overdue projects');
-assert.ok(dashboard.includes('bg-[#fffdf9]') && dashboard.includes('bg-[#f4f7fc]'), 'projects and operations are visually distinct');
+assert.ok(dashboard.includes('bg-[#fffdf9]') && dashboard.includes('from-[#f6f7fb] via-[#f9f8f4] to-[#fdf8ee]'), 'projects and operations are visually distinct');
 assert.ok(!dashboard.includes('xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.7fr)]'), 'projects are not squeezed beside a competing operations rail');
 assert.ok(overview.includes('Tasks Requiring Action') && overview.includes('Team Workload'), 'both work views are visible');
-assert.ok(overview.includes('Recent Team Tasks') && overview.includes('snapshot.recentTasks.map'),
+assert.ok(overview.includes('Recent Team Tasks') && overview.includes('recentTasks.map'),
   'Operations has a visible list of recent tasks independent of urgency');
 assert.ok(overview.includes('Open Tasks') && overview.includes('snapshot.openTasks.length'),
   'Operations shows all open tasks not only the in-progress subset');

@@ -24,6 +24,7 @@ export interface MemberWorkload {
 
 export interface OperationsSnapshot {
   openTasks: Task[];
+  visibleTasks: Task[];
   recentTasks: Task[];
   attentionTasks: Task[];
   inProgressCount: number;
@@ -63,9 +64,9 @@ function presenceFor(
 }
 
 function attentionRank(task: Task, today: string): number {
-  if (!task.assigned_to) return 0;
-  if (task.status === 'Blocked') return 1;
-  if (task.due_date && task.due_date < today) return 2;
+  if (task.status === 'Blocked') return 0;
+  if (task.due_date && task.due_date < today) return 1;
+  if (!task.assigned_to) return 2;
   if (task.due_date === today) return 3;
   if (task.priority === 'Urgent') return 4;
   return 5;
@@ -112,8 +113,7 @@ export function buildOperationsSnapshot({
   );
   const openTasks = dashboardTasks.filter((task) => task.status !== 'Done');
   const recentTasks = [...dashboardTasks]
-    .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '') ||
-      (b.updated_at || '').localeCompare(a.updated_at || '') ||
+    .sort((a, b) => (b.updated_at || b.created_at || '').localeCompare(a.updated_at || a.created_at || '') ||
       a.title.localeCompare(b.title))
     .slice(0, 8);
   const attentionTasks = openTasks
@@ -171,6 +171,7 @@ export function buildOperationsSnapshot({
 
   return {
     openTasks,
+    visibleTasks: dashboardTasks,
     recentTasks,
     attentionTasks,
     inProgressCount: openTasks.filter((task) => task.status === 'In Progress').length,
