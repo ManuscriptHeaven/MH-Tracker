@@ -1,18 +1,10 @@
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Building2,
-  Calendar,
-  Clock,
   CreditCard,
   FilePenLine,
-  Globe,
-  HeartHandshake,
   ImageDown,
   Layers,
-  Mail,
-  MapPin,
-  Phone,
   Printer,
   X,
 } from 'lucide-react';
@@ -380,21 +372,8 @@ export function InvoiceModal({
               <p className="text-[#555555] text-[11px] mt-0.5">
                 Please issue payment on or before the due date. Thank you for choosing Manuscript Heaven.
               </p>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-2.5 rounded-lg border border-[#e8dec8] bg-[#faf8f5] p-3">
-            <Building2 className="h-4 w-4 text-[#7a5518] flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-[#555555] text-[11px]">
-                Please issue payment on or before the due date. Thank you for choosing Manuscript Heaven.
-              </p>
-              {invoice?.notes ? (
-                <p className="mt-2 border-t border-[#e8dec8] pt-2 text-[10px] text-[#666666]">
-                  <strong className="text-[#7a5518]">Note:</strong> {invoice.notes}
-                </p>
-              ) : null}
-              {invoiceConfig.latePaymentNoteEnabled ? <p className="mt-2 text-[10px] text-[#444444]">{invoiceConfig.latePaymentNote}</p> : null}
+              {invoice?.notes ? <p className="mt-1 border-t border-[#e8dec8] pt-1 text-[10px] text-[#555555]"><strong className="text-[#7a5518]">Note:</strong> {invoice.notes}</p> : null}
+              {invoiceConfig.latePaymentNoteEnabled ? <p className="mt-1 text-[10px] text-[#444444]">{invoiceConfig.latePaymentNote}</p> : null}
             </div>
           </div>
         </div>
