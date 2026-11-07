@@ -150,6 +150,7 @@ export function createBulkInvoice(
   eligibleProjects: Project[],
   month: number | 'all',
   year: number | 'all',
+  servicesDeliveredOverride?: string,
 ): Invoice {
   const currentYear = year !== 'all' && Number(year) > 0 ? Number(year) : new Date().getFullYear();
   const currentMonth = month !== 'all' && Number(month) > 0 ? Number(month) : new Date().getMonth() + 1;
@@ -176,6 +177,7 @@ export function createBulkInvoice(
       company_name: project.company_name || null,
       contact_name: project.contact_name || null,
       billing_address: project.billing_address || null,
+      invoice_services_delivered: servicesDeliveredOverride?.trim() || monthLabelText,
     };
   });
 
@@ -202,7 +204,7 @@ export function createBulkInvoice(
     created_at: new Date().toISOString(),
     due_date: dueDateStr,
     payment_terms: 'Net 14',
-    services_delivered: monthLabelText,
+    services_delivered: servicesDeliveredOverride?.trim() || monthLabelText,
     items,
     subtotal,
     total_paid,

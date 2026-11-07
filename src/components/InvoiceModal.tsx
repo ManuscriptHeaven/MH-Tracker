@@ -319,7 +319,7 @@ export function InvoiceModal({
             <div><span className="text-[9px] font-bold uppercase text-[#555555] block">Invoice Date</span><p className="text-xs font-semibold text-[#1a1a1a]">{invoiceDate}</p></div>
             <div><span className="text-[9px] font-bold uppercase text-[#555555] block">Due Date</span><p className="text-xs font-semibold text-[#1a1a1a]">{dueDate}</p></div>
             <div><span className="text-[9px] font-bold uppercase text-[#555555] block">Payment Terms</span><p className="text-xs font-semibold text-[#1a1a1a]">{invoice?.payment_terms || invoiceConfig.defaultPaymentTerms}</p></div>
-            <div><span className="text-[9px] font-bold uppercase text-[#555555] block">Services Delivered</span><p className="text-xs font-semibold text-[#1a1a1a]">{invoice?.services_delivered || invoice?.month_label || '—'}</p></div>
+            <div><span className="text-[9px] font-bold uppercase text-[#555555] block">Services Delivered</span><p className="text-xs font-semibold text-[#1a1a1a]">{invoice?.services_delivered || invoice?.items?.[0]?.invoice_services_delivered || invoice?.month_label || '—'}</p></div>
             <div><span className="text-[9px] font-bold uppercase text-[#555555] block">Currency</span><p className="text-xs font-semibold text-[#1a1a1a]">USD</p></div>
             <div><span className="text-[9px] font-bold uppercase text-[#555555] block">Status</span><p className="text-xs font-semibold text-[#1a1a1a]">{statusLabel}</p></div>
           </div>

@@ -387,6 +387,7 @@ export interface InvoiceItem {
   company_name?: string | null;
   contact_name?: string | null;
   billing_address?: string | null;
+  invoice_services_delivered?: string | null;
 }
 
 export interface Invoice {
