@@ -22,9 +22,10 @@ import type { Invoice, InvoiceItem, Project } from '../lib/types';
 import { useCurrency } from '../lib/currency';
 import { calculateDueAmount } from '../lib/invoiceUtils';
 import { ManuscriptHeavenLogo } from './ManuscriptHeavenLogo';
-import { UserAvatar } from './UserAvatar';
 
-const ITEMS_PER_PAGE = 5;
+// Twelve compact rows fit on the first US Letter page while keeping room for
+// the billing panel, final totals and footer on invoices with up to 12 items.
+const ITEMS_PER_PAGE = 12;
 const EXPORT_SCALE_300_DPI = 3.125;
 
 function chunkInvoiceItems(items: InvoiceItem[]) {
@@ -242,11 +243,6 @@ export function InvoiceModal({
             <span className="inline-block rounded-md bg-[#7a5518] px-3 py-1 font-mono text-xs font-bold text-white tracking-wider shadow-xs">
               #{invoiceNumber}
             </span>
-            {invoice?.version_number ? (
-              <span className="inline-block rounded-md border border-[#d8ccb8] bg-[#faf8f5] px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[#7a5518]">
-                Version {invoice.version_number}
-              </span>
-            ) : null}
           </div>
 
           {!compact ? (
@@ -295,16 +291,15 @@ export function InvoiceModal({
   function renderClientAndSummary() {
     return (
       <div className="grid grid-cols-12 gap-5 mb-6 invoice-keep-together">
-        <div className="col-span-5 rounded-xl border border-[#e8dec8] bg-[#faf8f5] p-4 min-h-[106px]">
+        <div className="col-span-5 rounded-xl border border-[#e8dec8] bg-[#faf8f5] p-4 min-h-[96px]">
           <div className="text-[10px] font-bold uppercase tracking-wider text-[#8b6f38] mb-3">BILLED TO</div>
-          <div className="flex items-center gap-3">
-            <UserAvatar name={clientName} size="lg" showRoleRing={false} />
-            <div className="min-w-0 flex-1">
-              <h3 className="font-display text-base font-bold text-[#1a1a1a] break-words">{clientName}</h3>
+          <div className="min-w-0">
+              {invoice?.company_name ? <p className="font-display text-base font-bold text-[#1a1a1a] break-words">{invoice.company_name}</p> : null}
+              <h3 className="font-display text-base font-bold text-[#1a1a1a] break-words">{invoice?.contact_name || clientName}</h3>
               {clientEmail ? (
                 <p className="text-[11px] leading-snug text-[#666666] break-all mt-1">{clientEmail}</p>
               ) : null}
-            </div>
+              {invoice?.billing_address ? <p className="text-[10px] leading-snug text-[#555555] whitespace-pre-line mt-1">{invoice.billing_address}</p> : null}
           </div>
         </div>
 
@@ -352,21 +347,21 @@ export function InvoiceModal({
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="bg-[#7a5518] text-white font-bold text-[11px] tracking-wider uppercase">
-                <th className="py-2.5 px-3 text-center w-10">#</th>
-                <th className="py-2.5 px-4">PROJECT</th>
-                <th className="py-2.5 px-4">SERVICE</th>
-                <th className="py-2.5 px-4 text-right">TOTAL</th>
-                <th className="py-2.5 px-4 text-right">PAID</th>
-                <th className="py-2.5 px-4 text-right text-[#ffe8b8]">BALANCE DUE</th>
+                <th className="py-2 px-2 text-center w-8">#</th>
+                <th className="py-2 px-3">PROJECT</th>
+                <th className="py-2 px-3">SERVICE</th>
+                <th className="py-2 px-2 text-right">TOTAL</th>
+                <th className="py-2 px-2 text-right">PAID</th>
+                <th className="py-2 px-2 text-right text-white">BALANCE DUE</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#e8dec8] bg-white">
               {pageItems.map((item, idx) => (
                 <tr key={item.project_id || `${pageIndex}-${idx}`} className="invoice-keep-together">
-                  <td className="py-3 px-3 text-center font-medium text-[#777777]">
+                  <td className="py-2 px-2 text-center font-medium text-[#555555]">
                     {pageIndex * ITEMS_PER_PAGE + idx + 1}
                   </td>
-                  <td className="py-3 px-4 max-w-[220px]">
+                  <td className="py-2 px-3 max-w-[220px]">
                     <span className="invoice-export-project-title font-bold text-[#1a1a1a] block text-xs leading-snug line-clamp-2">
                       {item.project_title}
                     </span>
@@ -374,16 +369,16 @@ export function InvoiceModal({
                       Project ID: {item.project_number}
                     </span>
                   </td>
-                  <td className="py-3 px-4 text-[#444444] text-[11px] max-w-[150px]">
+                  <td className="py-2 px-3 text-[#444444] text-[11px] max-w-[150px]">
                     <span className="invoice-export-service line-clamp-2">{item.service_type || 'Publishing & Formatting'}</span>
                   </td>
-                  <td className="py-3 px-4 text-right font-medium text-[#1a1a1a] whitespace-nowrap">
+                  <td className="py-2 px-2 text-right font-medium text-[#1a1a1a] whitespace-nowrap">
                     {formatMoney(item.total_price)}
                   </td>
-                  <td className="py-3 px-4 text-right text-emerald-700 font-medium whitespace-nowrap">
+                  <td className={`py-2 px-2 text-right font-medium whitespace-nowrap ${item.due_amount <= 0 ? 'text-emerald-700' : 'text-[#444444]'}`}>
                     {formatMoney(item.advance_paid)}
                   </td>
-                  <td className="py-3 px-4 text-right font-bold text-[#7a5518] whitespace-nowrap">
+                  <td className="py-2 px-2 text-right font-bold text-[#7a5518] whitespace-nowrap">
                     {formatMoney(item.due_amount)}
                   </td>
                 </tr>
@@ -415,7 +410,7 @@ export function InvoiceModal({
             <Building2 className="h-4 w-4 text-[#7a5518] flex-shrink-0 mt-0.5" />
             <div>
               <p className="text-[#555555] text-[11px]">
-                We accept bank transfer, PayPal, Wise, and major credit cards. Payment details will be shared upon request.
+                Payment details will be shared upon request.
               </p>
               {invoice?.notes ? (
                 <p className="mt-2 border-t border-[#e8dec8] pt-2 text-[10px] text-[#666666]">
@@ -562,7 +557,7 @@ export function InvoiceModal({
                     {isLastPage ? renderTotals() : null}
                   </div>
 
-                  {isLastPage ? renderFullFooter(pageNumber) : renderContinuationFooter(pageNumber)}
+                  {renderFullFooter(pageNumber)}
                 </section>
               );
             })}
