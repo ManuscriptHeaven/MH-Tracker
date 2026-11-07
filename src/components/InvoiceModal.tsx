@@ -257,9 +257,6 @@ export function InvoiceModal({
 
           {!compact ? (
             <div className="invoice-export-meta mt-4 flex items-center justify-end gap-6 text-xs">
-              <div><span className="text-[10px] uppercase font-bold text-[#704b12] tracking-wider block">PAYMENT TERMS</span><strong className="block text-[#1a1a1a] font-semibold text-xs mt-0.5">{invoice?.payment_terms || invoiceConfig.defaultPaymentTerms}</strong></div>
-              <div><span className="text-[10px] uppercase font-bold text-[#704b12] tracking-wider block">SERVICES DELIVERED</span><strong className="block text-[#1a1a1a] font-semibold text-xs mt-0.5">{invoice?.services_delivered || invoice?.month_label || '—'}</strong></div>
-              <div><span className="text-[10px] uppercase font-bold text-[#704b12] tracking-wider block">CURRENCY</span><strong className="block text-[#1a1a1a] font-semibold text-xs mt-0.5">USD</strong></div>
               <div>
                 <span className="text-[10px] uppercase font-bold text-[#704b12] tracking-wider flex items-center gap-1 justify-end">
                   <Calendar className="h-3 w-3" /> INVOICE DATE
@@ -317,20 +314,14 @@ export function InvoiceModal({
         </div>
 
         <div className="col-span-7 rounded-xl border border-[#e8dec8] bg-[#faf8f5] p-4 min-h-[106px]">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-[#704b12] mb-2.5">PAYMENT OVERVIEW</div>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="p-2">
-              <span className="text-[10px] font-bold uppercase text-[#555555] block">TOTAL AMOUNT</span>
-              <p className="font-display text-lg font-bold text-[#1a1a1a] mt-1">{formatInvoiceMoney(subtotal)}</p>
-            </div>
-            <div className="p-2 border-l border-[#e8dec8]">
-              <span className="text-[10px] font-bold uppercase text-[#555555] block">PAID AMOUNT</span>
-              <p className="font-display text-lg font-bold text-[#1a1a1a] mt-1">{formatInvoiceMoney(totalPaid)}</p>
-            </div>
-            <div className="rounded-lg bg-[#faf0dc] border border-[#e0cb9e] p-2 text-center">
-              <span className="text-[10px] font-bold uppercase text-[#7a5518] block">AMOUNT DUE</span>
-              <p className="font-display text-lg font-bold text-[#7a5518] mt-1">{formatInvoiceMoney(totalDue)}</p>
-            </div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-[#704b12] mb-2.5">INVOICE DETAILS</div>
+          <div className="grid grid-cols-3 gap-x-3 gap-y-2">
+            <div><span className="text-[9px] font-bold uppercase text-[#555555] block">Invoice Date</span><p className="text-xs font-semibold text-[#1a1a1a]">{invoiceDate}</p></div>
+            <div><span className="text-[9px] font-bold uppercase text-[#555555] block">Due Date</span><p className="text-xs font-semibold text-[#1a1a1a]">{dueDate}</p></div>
+            <div><span className="text-[9px] font-bold uppercase text-[#555555] block">Payment Terms</span><p className="text-xs font-semibold text-[#1a1a1a]">{invoice?.payment_terms || invoiceConfig.defaultPaymentTerms}</p></div>
+            <div><span className="text-[9px] font-bold uppercase text-[#555555] block">Services Delivered</span><p className="text-xs font-semibold text-[#1a1a1a]">{invoice?.services_delivered || invoice?.month_label || '—'}</p></div>
+            <div><span className="text-[9px] font-bold uppercase text-[#555555] block">Currency</span><p className="text-xs font-semibold text-[#1a1a1a]">USD</p></div>
+            <div><span className="text-[9px] font-bold uppercase text-[#555555] block">Status</span><p className="text-xs font-semibold text-[#1a1a1a]">{statusLabel}</p></div>
           </div>
         </div>
       </div>
