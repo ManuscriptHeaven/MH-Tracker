@@ -14,6 +14,17 @@ export function ManuscriptHeavenLogo({
   size = 'md',
   darkTheme = false,
 }: ManuscriptHeavenLogoProps) {
+  const logoSize = size === 'sm' ? 40 : size === 'md' ? 56 : size === 'lg' ? 80 : 112;
+  if (variant === 'invoice-header') {
+    return <div className={cn('flex items-center gap-3', className)}><img src="/manuscript-heaven-logo.png" alt="Manuscript Heaven" className="h-[62px] w-[62px] object-contain" /><div><h2 className="font-serif text-xl font-bold tracking-tight text-[#1a1a1a] uppercase">MANUSCRIPT HEAVEN</h2><p className="text-[10px] tracking-[0.18em] font-semibold text-[#704b12] uppercase mt-0.5">PROFESSIONAL BOOK PRODUCTION</p></div></div>;
+  }
+  if (variant === 'emblem') {
+    return <img src="/manuscript-heaven-logo.png" alt="Manuscript Heaven logo" className={cn('object-contain flex-shrink-0', className)} style={{ width: logoSize, height: logoSize }} />;
+  }
+  if (variant === 'monogram') {
+    return <img src="/manuscript-heaven-logo.png" alt="Manuscript Heaven logo" className={cn('object-contain flex-shrink-0', className)} style={{ width: logoSize, height: logoSize }} />;
+  }
+  return <div className={cn('flex items-center gap-3', className)}><img src="/manuscript-heaven-logo.png" alt="Manuscript Heaven" className="h-11 w-11 object-contain flex-shrink-0" /><div><p className={cn('font-serif text-lg font-bold tracking-tight leading-tight', darkTheme ? 'text-white' : 'text-ink')}>Manuscript Heaven</p><p className="text-[10px] uppercase tracking-[0.24em] font-semibold text-gold">Project Tracker</p></div></div>;
   // SVG Monogram with Feather Quill
   const QuillMonogram = ({ sizePx = 40 }: { sizePx?: number }) => (
     <svg

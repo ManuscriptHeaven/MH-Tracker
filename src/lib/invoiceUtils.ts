@@ -15,6 +15,15 @@ export const monthNames = [
   'December',
 ];
 
+export function normalizeInvoiceProjectTitle(title: string): string {
+  const spaced = (title || '').replace(/([A-Za-z])([0-9]+)$/g, '$1 $2').trim();
+  if (!spaced) return '';
+  if (spaced === spaced.toUpperCase()) {
+    return spaced.toLowerCase().replace(/(^|\s|[-'])\S/g, (letter) => letter.toUpperCase());
+  }
+  return spaced;
+}
+
 export function calculateDueAmount(project: Project): number {
   const total = Number(project.total_price || 0);
   const paid = Number(project.advance_paid || 0);
@@ -148,12 +157,15 @@ export function createBulkInvoice(
     return {
       project_id: project.id,
       project_number: project.project_number,
-      project_title: project.project_title,
+      project_title: normalizeInvoiceProjectTitle(project.project_title),
       service_type: project.service_type || 'Publishing Service',
       total_price: total,
       advance_paid: paid,
       due_amount: due,
       completion_date: project.delivery_date || project.due_date,
+      delivered_on: project.delivery_date || null,
+      description: project.invoice_description || null,
+      author: project.author || null,
     };
   });
 
@@ -171,11 +183,16 @@ export function createBulkInvoice(
     invoice_number: invoiceNum,
     client_name: clientName,
     client_email: clientEmail || eligibleProjects[0]?.client_email || '',
+    company_name: eligibleProjects[0]?.company_name || null,
+    contact_name: eligibleProjects[0]?.contact_name || null,
+    billing_address: eligibleProjects[0]?.billing_address || null,
     month: currentMonth,
     year: currentYear,
     month_label: monthLabelText,
     created_at: new Date().toISOString(),
     due_date: dueDateStr,
+    payment_terms: 'Net 14',
+    services_delivered: monthLabelText,
     items,
     subtotal,
     total_paid,

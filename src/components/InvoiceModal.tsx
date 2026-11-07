@@ -21,6 +21,7 @@ import { formatDate } from '../lib/date';
 import type { Invoice, InvoiceItem, Project } from '../lib/types';
 import { useCurrency } from '../lib/currency';
 import { calculateDueAmount } from '../lib/invoiceUtils';
+import { invoiceConfig } from '../lib/invoiceConfig';
 import { ManuscriptHeavenLogo } from './ManuscriptHeavenLogo';
 
 // Twelve compact rows fit on the first US Letter page while keeping room for
@@ -365,9 +366,9 @@ export function InvoiceModal({
                     <span className="invoice-export-project-title font-bold text-[#1a1a1a] block text-xs leading-snug line-clamp-2">
                       {item.project_title}
                     </span>
-                    <span className="invoice-export-project-id font-mono text-[10px] text-[#777777]">
-                      Project ID: {item.project_number}
-                    </span>
+                    {item.author ? <span className="block text-[10px] leading-snug text-[#555555]">by {item.author}</span> : null}
+                    {item.description ? <span className="block text-[10px] leading-snug text-[#555555]">{item.description}</span> : null}
+                    <span className="invoice-export-project-id font-mono text-[10px] text-[#555555]">ID: {item.project_number}</span>
                   </td>
                   <td className="py-2 px-3 text-[#444444] text-[11px] max-w-[150px]">
                     <span className="invoice-export-service line-clamp-2">{item.service_type || 'Publishing & Formatting'}</span>
@@ -410,7 +411,7 @@ export function InvoiceModal({
             <Building2 className="h-4 w-4 text-[#7a5518] flex-shrink-0 mt-0.5" />
             <div>
               <p className="text-[#555555] text-[11px]">
-                Payment details will be shared upon request.
+                {invoiceConfig.paymentDetailsPlaceholder}
               </p>
               {invoice?.notes ? (
                 <p className="mt-2 border-t border-[#e8dec8] pt-2 text-[10px] text-[#666666]">
@@ -453,12 +454,12 @@ export function InvoiceModal({
             <strong className="font-serif text-xs font-bold text-[#7a5518] uppercase block tracking-wider">
               MANUSCRIPT HEAVEN
             </strong>
-            <p className="flex items-center gap-1.5"><Mail className="h-3 w-3 text-[#7a5518]" /> hello@manuscriptheaven.com</p>
-            <p className="flex items-center gap-1.5"><Globe className="h-3 w-3 text-[#7a5518]" /> www.manuscriptheaven.com</p>
-            <p className="flex items-center gap-1.5"><Phone className="h-3 w-3 text-[#7a5518]" /> +1 (844) 687-0111</p>
+            <p className="flex items-center gap-1.5"><Mail className="h-3 w-3 text-[#7a5518]" /> {invoiceConfig.email}</p>
+            <p className="flex items-center gap-1.5"><Globe className="h-3 w-3 text-[#7a5518]" /> {invoiceConfig.website}</p>
+            <p className="flex items-center gap-1.5"><Phone className="h-3 w-3 text-[#7a5518]" /> {invoiceConfig.phone}</p>
             <p className="flex items-center gap-1.5">
               <MapPin className="h-3 w-3 text-[#7a5518] flex-shrink-0" />
-              3031 Tisch Way, Suite 110, San Jose, CA 95128
+              {invoiceConfig.address}
             </p>
           </div>
           <div className="col-span-5 border-l border-[#e8dec8] pl-4">
