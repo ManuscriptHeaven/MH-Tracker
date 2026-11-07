@@ -24,6 +24,13 @@ export function normalizeInvoiceProjectTitle(title: string): string {
   return spaced;
 }
 
+export function chunkInvoiceItems<T>(items: T[], pageSize = 12): T[][] {
+  if (items.length === 0) return [[]];
+  const pages: T[][] = [];
+  for (let index = 0; index < items.length; index += pageSize) pages.push(items.slice(index, index + pageSize));
+  return pages;
+}
+
 export function calculateDueAmount(project: Project): number {
   const total = Number(project.total_price || 0);
   const paid = Number(project.advance_paid || 0);

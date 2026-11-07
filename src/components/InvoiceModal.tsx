@@ -20,7 +20,7 @@ import { Button, IconButton } from './ui';
 import { formatDate } from '../lib/date';
 import type { Invoice, InvoiceItem, Project } from '../lib/types';
 import { useCurrency } from '../lib/currency';
-import { calculateDueAmount } from '../lib/invoiceUtils';
+import { calculateDueAmount, chunkInvoiceItems } from '../lib/invoiceUtils';
 import { invoiceConfig } from '../lib/invoiceConfig';
 import { ManuscriptHeavenLogo } from './ManuscriptHeavenLogo';
 
@@ -28,15 +28,6 @@ import { ManuscriptHeavenLogo } from './ManuscriptHeavenLogo';
 // the billing panel, final totals and footer on invoices with up to 12 items.
 const ITEMS_PER_PAGE = 12;
 const EXPORT_SCALE_300_DPI = 3.125;
-
-export function chunkInvoiceItems(items: InvoiceItem[]) {
-  if (items.length === 0) return [[]] as InvoiceItem[][];
-  const pages: InvoiceItem[][] = [];
-  for (let index = 0; index < items.length; index += ITEMS_PER_PAGE) {
-    pages.push(items.slice(index, index + ITEMS_PER_PAGE));
-  }
-  return pages;
-}
 
 function reviewFlags(item: InvoiceItem, allItems: InvoiceItem[]) {
   const flags: string[] = [];
