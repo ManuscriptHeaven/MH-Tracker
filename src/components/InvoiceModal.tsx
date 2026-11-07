@@ -259,7 +259,7 @@ export function InvoiceModal({
             </span>
           </div>
 
-          {compact ? (
+          {compact && (
             <div className="mt-2 flex items-center justify-end gap-4 text-[10px] text-[#555555]">
               <span>{clientName}</span>
               <span>Due {dueDate}</span>
