@@ -982,6 +982,7 @@ export function PaymentsPage({
       {selectedBulkInvoice ? (
         <InvoiceModal
           invoice={selectedBulkInvoice}
+          projects={projects}
           onClose={() => setSelectedBulkInvoice(null)}
           onRevise={(invoice) => {
             setSelectedBulkInvoice(null);

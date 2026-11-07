@@ -29,13 +29,15 @@ import { ManuscriptHeavenLogo } from './ManuscriptHeavenLogo';
 const ITEMS_PER_PAGE = 12;
 const EXPORT_SCALE_300_DPI = 3.125;
 
-function reviewFlags(item: InvoiceItem, allItems: InvoiceItem[]) {
+function reviewFlags(item: InvoiceItem, allItems: InvoiceItem[], projectHistory: Project[]) {
   const flags: string[] = [];
   const redundant = /^(reformatting|formatting|typesetting)\b/i.exec(item.project_title || '');
   if (redundant && item.service_type.toLowerCase().includes(redundant[1].toLowerCase())) {
     flags.push('Review title: service wording is repeated');
   }
-  const peers = allItems.filter((peer) => peer.service_type === item.service_type && peer.project_id !== item.project_id).map((peer) => peer.total_price).sort((a, b) => a - b);
+  const invoicedProjectIds = new Set(allItems.map((peer) => peer.project_id));
+  const history = projectHistory.filter((project) => project.service_type === item.service_type && !invoicedProjectIds.has(project.id)).map((project) => Number(project.total_price || 0)).filter((price) => price > 0);
+  const peers = (history.length >= 3 ? history : allItems.filter((peer) => peer.service_type === item.service_type && peer.project_id !== item.project_id).map((peer) => peer.total_price)).sort((a, b) => a - b);
   if (peers.length >= 2) {
     const median = peers[Math.floor(peers.length / 2)];
     if (median > 0 && (item.total_price < median * 0.5 || item.total_price > median * 2)) flags.push('Review price against this service rate');
@@ -46,11 +48,13 @@ function reviewFlags(item: InvoiceItem, allItems: InvoiceItem[]) {
 export function InvoiceModal({
   project,
   invoice,
+  projects = [],
   onClose,
   onRevise,
 }: {
   project?: Project | null;
   invoice?: Invoice | null;
+  projects?: Project[];
   onClose: () => void;
   onRevise?: (invoice: Invoice) => void;
 }) {
@@ -373,7 +377,7 @@ export function InvoiceModal({
                     {item.description ? <span className="block text-[10px] leading-snug text-[#555555]">{item.description}</span> : null}
                     {item.delivered_on || item.completion_date ? <span className="block text-[10px] leading-snug text-[#555555]">Delivered {formatDate(item.delivered_on || item.completion_date || '')}</span> : null}
                     <span className="invoice-export-project-id font-mono text-[10px] text-[#555555]">ID: {item.project_number}</span>
-                    {reviewFlags(item, items).map((flag) => <span key={flag} className="block text-[9px] font-semibold text-[#704b12]">{flag}</span>)}
+                    {reviewFlags(item, items, projects).map((flag) => <span key={flag} className="block text-[9px] font-semibold text-[#704b12]">{flag}</span>)}
                   </td>
                   <td className="py-2 px-3 text-[#444444] text-[11px] max-w-[150px]">
                     <span className="invoice-export-service line-clamp-2">{item.service_type || 'Publishing & Formatting'}</span>
