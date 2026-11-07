@@ -276,6 +276,9 @@ export interface Project {
   contact_name?: string | null;
   billing_address?: string | null;
   author?: string | null;
+  company_name?: string | null;
+  contact_name?: string | null;
+  billing_address?: string | null;
   invoice_description?: string | null;
   project_title: string;
   service_type: string;

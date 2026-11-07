@@ -173,6 +173,9 @@ export function createBulkInvoice(
       delivered_on: project.delivery_date || null,
       description: project.invoice_description || null,
       author: project.author || null,
+      company_name: project.company_name || null,
+      contact_name: project.contact_name || null,
+      billing_address: project.billing_address || null,
     };
   });
 

@@ -74,6 +74,9 @@ export function InvoiceModal({
   const dueDate = invoice ? formatDate(invoice.due_date) : formatDate(project?.due_date);
   const clientName = invoice ? invoice.client_name : project?.client_name || 'Valued Client';
   const clientEmail = invoice ? invoice.client_email : project?.client_email || '';
+  const billedCompany = invoice?.company_name || invoice?.items?.[0]?.company_name || project?.company_name || '';
+  const billedContact = invoice?.contact_name || invoice?.items?.[0]?.contact_name || project?.contact_name || clientName;
+  const billingAddress = invoice?.billing_address || invoice?.items?.[0]?.billing_address || project?.billing_address || '';
 
   const rawStatus = invoice
     ? invoice.status === 'Paid'
@@ -304,12 +307,12 @@ export function InvoiceModal({
         <div className="col-span-5 rounded-xl border border-[#e8dec8] bg-[#faf8f5] p-4 min-h-[96px]">
           <div className="text-[10px] font-bold uppercase tracking-wider text-[#704b12] mb-3">BILLED TO</div>
           <div className="min-w-0">
-              {invoice?.company_name ? <p className="font-display text-base font-bold text-[#1a1a1a] break-words">{invoice.company_name}</p> : null}
-              <h3 className="font-display text-base font-bold text-[#1a1a1a] break-words">{invoice?.contact_name || clientName}</h3>
+              {billedCompany ? <p className="font-display text-base font-bold text-[#1a1a1a] break-words">{billedCompany}</p> : null}
+              <h3 className="font-display text-base font-bold text-[#1a1a1a] break-words">{billedContact}</h3>
               {clientEmail ? (
                 <p className="text-[11px] leading-snug text-[#666666] break-all mt-1">{clientEmail}</p>
               ) : null}
-              {invoice?.billing_address ? <p className="text-[10px] leading-snug text-[#555555] whitespace-pre-line mt-1">{invoice.billing_address}</p> : null}
+              {billingAddress ? <p className="text-[10px] leading-snug text-[#555555] whitespace-pre-line mt-1">{billingAddress}</p> : null}
           </div>
         </div>
 
