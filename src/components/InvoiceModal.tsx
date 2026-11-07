@@ -114,7 +114,13 @@ export function InvoiceModal({
   const versionSuffix = invoice?.version_number ? `-v${invoice.version_number}` : '';
 
   function handlePrint() {
-    window.print();
+    const previousTitle = document.title;
+    document.title = `Invoice-${invoiceNumber}`;
+    try {
+      window.print();
+    } finally {
+      document.title = previousTitle;
+    }
   }
 
   async function waitForInvoiceAssets() {
