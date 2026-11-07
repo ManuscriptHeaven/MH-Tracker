@@ -64,6 +64,7 @@ export function InvoiceModal({
   onRevise?: (invoice: Invoice) => void;
 }) {
   const { formatMoney } = useCurrency();
+  const formatInvoiceMoney = (amount: number) => formatMoney(amount, 'USD', { showCode: true });
   const invoiceRef = useRef<HTMLDivElement>(null);
   const [savingImage, setSavingImage] = useState(false);
 
@@ -266,28 +267,28 @@ export function InvoiceModal({
               <div><span className="text-[10px] uppercase font-bold text-[#704b12] tracking-wider block">SERVICES DELIVERED</span><strong className="block text-[#1a1a1a] font-semibold text-xs mt-0.5">{invoice?.services_delivered || invoice?.month_label || '—'}</strong></div>
               <div><span className="text-[10px] uppercase font-bold text-[#704b12] tracking-wider block">CURRENCY</span><strong className="block text-[#1a1a1a] font-semibold text-xs mt-0.5">USD</strong></div>
               <div>
-                <span className="text-[10px] uppercase font-bold text-[#8b6f38] tracking-wider flex items-center gap-1 justify-end">
+                <span className="text-[10px] uppercase font-bold text-[#704b12] tracking-wider flex items-center gap-1 justify-end">
                   <Calendar className="h-3 w-3" /> INVOICE DATE
                 </span>
                 <strong className="block text-[#1a1a1a] font-semibold text-xs mt-0.5">{invoiceDate}</strong>
               </div>
 
               <div>
-                <span className="text-[10px] uppercase font-bold text-[#8b6f38] tracking-wider flex items-center gap-1 justify-end">
+                <span className="text-[10px] uppercase font-bold text-[#704b12] tracking-wider flex items-center gap-1 justify-end">
                   <Clock className="h-3 w-3" /> DUE DATE
                 </span>
                 <strong className="block text-[#1a1a1a] font-semibold text-xs mt-0.5">{dueDate}</strong>
               </div>
 
               <div className="invoice-export-status">
-                <span className="text-[10px] uppercase font-bold text-[#8b6f38] tracking-wider block">STATUS</span>
+                <span className="text-[10px] uppercase font-bold text-[#704b12] tracking-wider block">STATUS</span>
                 <span
                   className={`invoice-export-status-badge inline-block mt-0.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold tracking-wider uppercase border ${
                     isPaid
                       ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
                       : isPartial
                         ? 'bg-blue-50 text-blue-700 border-blue-300'
-                        : 'bg-[#faf5eb] text-[#8b6f38] border-[#e2d2b4]'
+                        : 'bg-[#faf5eb] text-[#704b12] border-[#e2d2b4]'
                   }`}
                 >
                   {statusLabel}
@@ -295,10 +296,10 @@ export function InvoiceModal({
               </div>
             </div>
           ) : (
-            <div className="mt-2 flex items-center justify-end gap-4 text-[10px] text-[#777777]">
+            <div className="mt-2 flex items-center justify-end gap-4 text-[10px] text-[#555555]">
               <span>{clientName}</span>
               <span>Due {dueDate}</span>
-              <span className="font-bold text-[#7a5518]">{formatMoney(totalDue)} due</span>
+              <span className="font-bold text-[#7a5518]">{formatInvoiceMoney(totalDue)} due</span>
             </div>
           )}
         </div>
@@ -310,7 +311,7 @@ export function InvoiceModal({
     return (
       <div className="grid grid-cols-12 gap-5 mb-6 invoice-keep-together">
         <div className="col-span-5 rounded-xl border border-[#e8dec8] bg-[#faf8f5] p-4 min-h-[96px]">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-[#8b6f38] mb-3">BILLED TO</div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-[#704b12] mb-3">BILLED TO</div>
           <div className="min-w-0">
               {invoice?.company_name ? <p className="font-display text-base font-bold text-[#1a1a1a] break-words">{invoice.company_name}</p> : null}
               <h3 className="font-display text-base font-bold text-[#1a1a1a] break-words">{invoice?.contact_name || clientName}</h3>
@@ -322,19 +323,19 @@ export function InvoiceModal({
         </div>
 
         <div className="col-span-7 rounded-xl border border-[#e8dec8] bg-[#faf8f5] p-4 min-h-[106px]">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-[#8b6f38] mb-2.5">PAYMENT OVERVIEW</div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-[#704b12] mb-2.5">PAYMENT OVERVIEW</div>
           <div className="grid grid-cols-3 gap-3">
             <div className="p-2">
-              <span className="text-[10px] font-bold uppercase text-[#777777] block">TOTAL AMOUNT</span>
-              <p className="font-display text-lg font-bold text-[#1a1a1a] mt-1">{formatMoney(subtotal)}</p>
+              <span className="text-[10px] font-bold uppercase text-[#555555] block">TOTAL AMOUNT</span>
+              <p className="font-display text-lg font-bold text-[#1a1a1a] mt-1">{formatInvoiceMoney(subtotal)}</p>
             </div>
             <div className="p-2 border-l border-[#e8dec8]">
-              <span className="text-[10px] font-bold uppercase text-[#777777] block">PAID AMOUNT</span>
-              <p className="font-display text-lg font-bold text-[#1a1a1a] mt-1">{formatMoney(totalPaid)}</p>
+              <span className="text-[10px] font-bold uppercase text-[#555555] block">PAID AMOUNT</span>
+              <p className="font-display text-lg font-bold text-[#1a1a1a] mt-1">{formatInvoiceMoney(totalPaid)}</p>
             </div>
             <div className="rounded-lg bg-[#faf0dc] border border-[#e0cb9e] p-2 text-center">
               <span className="text-[10px] font-bold uppercase text-[#7a5518] block">AMOUNT DUE</span>
-              <p className="font-display text-lg font-bold text-[#7a5518] mt-1">{formatMoney(totalDue)}</p>
+              <p className="font-display text-lg font-bold text-[#7a5518] mt-1">{formatInvoiceMoney(totalDue)}</p>
             </div>
           </div>
         </div>
@@ -355,7 +356,7 @@ export function InvoiceModal({
             </h4>
           </div>
           {totalPages > 1 ? (
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-[#8b6f38]">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-[#704b12]">
               Projects {pageIndex * ITEMS_PER_PAGE + 1}–{pageIndex * ITEMS_PER_PAGE + pageItems.length} of {items.length}
             </span>
           ) : null}
@@ -393,13 +394,13 @@ export function InvoiceModal({
                     <span className="invoice-export-service line-clamp-2">{item.service_type || 'Publishing & Formatting'}</span>
                   </td>
                   <td className="py-2 px-2 text-right font-medium text-[#1a1a1a] whitespace-nowrap">
-                    {formatMoney(item.total_price)}
+                    {formatInvoiceMoney(item.total_price)}
                   </td>
                   <td className={`py-2 px-2 text-right font-medium whitespace-nowrap ${item.due_amount <= 0 ? 'text-emerald-700' : 'text-[#444444]'}`}>
-                    {formatMoney(item.advance_paid)}
+                    {formatInvoiceMoney(item.advance_paid)}
                   </td>
                   <td className="py-2 px-2 text-right font-bold text-[#7a5518] whitespace-nowrap">
-                    {formatMoney(item.due_amount)}
+                    {formatInvoiceMoney(item.due_amount)}
                   </td>
                 </tr>
               ))}
@@ -437,6 +438,7 @@ export function InvoiceModal({
                   <strong className="text-[#7a5518]">Note:</strong> {invoice.notes}
                 </p>
               ) : null}
+              {invoiceConfig.latePaymentNoteEnabled ? <p className="mt-2 text-[10px] text-[#444444]">{invoiceConfig.latePaymentNote}</p> : null}
             </div>
           </div>
         </div>
@@ -445,16 +447,16 @@ export function InvoiceModal({
           <div className="space-y-2 text-xs">
             <div className="flex justify-between text-[#555555]">
               <span>Subtotal</span>
-              <strong className="text-[#1a1a1a]">{formatMoney(subtotal)}</strong>
+              <strong className="text-[#1a1a1a]">{formatInvoiceMoney(subtotal)}</strong>
             </div>
             <div className="flex justify-between text-[#555555]">
               <span>Total Paid</span>
-              <strong className="text-[#1a1a1a]">{formatMoney(totalPaid)}</strong>
+              <strong className="text-[#1a1a1a]">{formatInvoiceMoney(totalPaid)}</strong>
             </div>
             <div className="border-t border-dashed border-[#d8ccb8] pt-2" />
             <div className="rounded-lg bg-[#faf0dc] border border-[#e0cb9e] p-3 flex items-center justify-between">
               <span className="font-display font-bold text-sm uppercase tracking-wider text-[#7a5518]">TOTAL DUE</span>
-              <span className="font-display text-2xl font-extrabold text-[#7a5518]">{formatMoney(totalDue)}</span>
+              <span className="font-display text-2xl font-extrabold text-[#7a5518]">{formatInvoiceMoney(totalDue)}</span>
             </div>
           </div>
         </div>
@@ -488,7 +490,7 @@ export function InvoiceModal({
             <p className="text-[10px] text-[#555555] leading-relaxed">
               We appreciate your business and look forward to helping you publish more incredible books.
             </p>
-            <p className="mt-2 text-[9px] font-semibold uppercase tracking-wider text-[#8b6f38]">
+            <p className="mt-2 text-[9px] font-semibold uppercase tracking-wider text-[#704b12]">
               Page {pageNumber} of {totalPages}
             </p>
           </div>
@@ -499,7 +501,7 @@ export function InvoiceModal({
 
   function renderContinuationFooter(pageNumber: number) {
     return (
-      <div className="mt-auto flex items-center justify-between border-t border-[#e8dec8] pt-3 text-[9px] uppercase tracking-wider text-[#8b6f38]">
+      <div className="mt-auto flex items-center justify-between border-t border-[#e8dec8] pt-3 text-[9px] uppercase tracking-wider text-[#704b12]">
         <span>Manuscript Heaven · {invoiceNumber}</span>
         <span>Page {pageNumber} of {totalPages}</span>
       </div>
