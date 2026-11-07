@@ -16,7 +16,7 @@ export function ManuscriptHeavenLogo({
 }: ManuscriptHeavenLogoProps) {
   const logoSize = size === 'sm' ? 40 : size === 'md' ? 56 : size === 'lg' ? 80 : 112;
   if (variant === 'invoice-header') {
-    return <img src="/manuscript-heaven-logo.png" alt="Manuscript Heaven Professional Book Production" className={cn('h-32 w-32 object-contain flex-shrink-0', className)} />;
+    return <img src="/manuscript-heaven-logo.png" alt="Manuscript Heaven Professional Book Production" className={cn('h-20 w-20 object-contain flex-shrink-0', className)} />;
   }
   if (variant === 'emblem') {
     return <img src="/manuscript-heaven-logo.png" alt="Manuscript Heaven logo" className={cn('object-contain flex-shrink-0', className)} style={{ width: logoSize, height: logoSize }} />;

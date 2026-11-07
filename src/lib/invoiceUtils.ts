@@ -161,11 +161,15 @@ export function createBulkInvoice(
     const total = Number(project.total_price || 0);
     const paid = Number(project.advance_paid || 0);
     const due = calculateDueAmount(project);
+    const legacyAuthorMatch = !project.author ? /\s+by\s+(.+)$/i.exec(project.project_title || '') : null;
+    const sourceTitle = legacyAuthorMatch
+      ? (project.project_title || '').slice(0, legacyAuthorMatch.index).trim()
+      : project.project_title;
 
     return {
       project_id: project.id,
       project_number: project.project_number,
-      project_title: normalizeInvoiceProjectTitle(project.project_title),
+      project_title: normalizeInvoiceProjectTitle(sourceTitle),
       service_type: project.service_type || 'Publishing Service',
       total_price: total,
       advance_paid: paid,
@@ -173,7 +177,7 @@ export function createBulkInvoice(
       completion_date: project.delivery_date || project.due_date,
       delivered_on: project.delivery_date || null,
       description: project.invoice_description || null,
-      author: project.author || null,
+      author: project.author || legacyAuthorMatch?.[1]?.trim() || null,
       company_name: project.company_name || null,
       contact_name: project.contact_name || null,
       billing_address: project.billing_address || null,

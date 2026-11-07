@@ -246,7 +246,7 @@ export function InvoiceModal({
 
   function renderInvoiceIdentity(compact = false) {
     return (
-      <div className={compact ? 'flex items-start justify-between border-b-2 border-[#e8dec8] pb-4 mb-5' : 'flex items-start justify-between border-b-2 border-[#e8dec8] pb-6 mb-6'}>
+      <div className={compact ? 'flex items-start justify-between border-b-2 border-[#e8dec8] pb-2 mb-3' : 'flex items-start justify-between border-b-2 border-[#e8dec8] pb-3 mb-3'}>
         <ManuscriptHeavenLogo variant="invoice-header" className={compact ? 'scale-90 origin-left' : ''} />
 
         <div className="invoice-export-header-right text-right">
@@ -273,9 +273,9 @@ export function InvoiceModal({
 
   function renderClientAndSummary() {
     return (
-      <div className="grid grid-cols-12 gap-5 mb-6 invoice-keep-together">
-        <div className="col-span-5 rounded-xl border border-[#e8dec8] bg-[#faf8f5] p-4 min-h-[96px]">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-[#704b12] mb-3">BILLED TO</div>
+      <div className="grid grid-cols-12 gap-3 mb-3 invoice-keep-together">
+        <div className="col-span-5 rounded-xl border border-[#e8dec8] bg-[#faf8f5] p-3 min-h-[80px]">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-[#704b12] mb-2">BILLED TO</div>
           <div className="min-w-0">
               {billedCompany ? <p className="font-display text-base font-bold text-[#1a1a1a] break-words">{billedCompany}</p> : null}
               <h3 className="font-display text-base font-bold text-[#1a1a1a] break-words">{billedContact}</h3>
@@ -286,9 +286,9 @@ export function InvoiceModal({
           </div>
         </div>
 
-        <div className="col-span-7 rounded-xl border border-[#e8dec8] bg-[#faf8f5] p-4 min-h-[106px]">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-[#704b12] mb-2.5">INVOICE DETAILS</div>
-          <div className="grid grid-cols-3 gap-x-3 gap-y-2">
+        <div className="col-span-7 rounded-xl border border-[#e8dec8] bg-[#faf8f5] p-3 min-h-[80px]">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-[#704b12] mb-1.5">INVOICE DETAILS</div>
+          <div className="grid grid-cols-3 gap-x-3 gap-y-1">
             <div><span className="text-[9px] font-bold uppercase text-[#555555] block">Invoice Date</span><p className="text-xs font-semibold text-[#1a1a1a]">{invoiceDate}</p></div>
             <div><span className="text-[9px] font-bold uppercase text-[#555555] block">Due Date</span><p className="text-xs font-semibold text-[#1a1a1a]">{dueDate}</p></div>
             <div><span className="text-[9px] font-bold uppercase text-[#555555] block">Payment Terms</span><p className="text-xs font-semibold text-[#1a1a1a]">{invoice?.payment_terms || invoiceConfig.defaultPaymentTerms}</p></div>
@@ -303,8 +303,8 @@ export function InvoiceModal({
 
   function renderServices(pageItems: InvoiceItem[], pageIndex: number) {
     return (
-      <div className="mb-5">
-        <div className="flex items-center justify-between gap-3 mb-2.5">
+      <div className="mb-3">
+        <div className="flex items-center justify-between gap-3 mb-1.5">
           <div className="flex items-center gap-2">
             <div className="flex h-5 w-5 items-center justify-center rounded bg-[#7a5518] text-white text-[10px]">
               <Layers className="h-3 w-3" />
@@ -324,38 +324,38 @@ export function InvoiceModal({
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="bg-[#7a5518] text-white font-bold text-[11px] tracking-wider uppercase">
-                <th className="py-2 px-2 text-center w-8">#</th>
-                <th className="py-2 px-3">PROJECT</th>
-                <th className="py-2 px-3">SERVICE</th>
-                <th className="py-2 px-2 text-right">TOTAL</th>
-                <th className="py-2 px-2 text-right">PAID</th>
-                <th className="py-2 px-2 text-right text-white">BALANCE DUE</th>
+                <th className="py-1.5 px-2 text-center w-8">#</th>
+                <th className="py-1.5 px-3">PROJECT</th>
+                <th className="py-1.5 px-3">SERVICE</th>
+                <th className="py-1.5 px-2 text-right">TOTAL</th>
+                <th className="py-1.5 px-2 text-right">PAID</th>
+                <th className="py-1.5 px-2 text-right text-white">BALANCE DUE</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#e8dec8] bg-white">
               {pageItems.map((item, idx) => (
                 <tr key={item.project_id || `${pageIndex}-${idx}`} className="invoice-keep-together">
-                  <td className="py-2 px-2 text-center font-medium text-[#555555]">
+                  <td className="py-1 px-2 text-center font-medium text-[#555555]">
                     {pageIndex * ITEMS_PER_PAGE + idx + 1}
                   </td>
-                  <td className="py-2 px-3 max-w-[220px]">
-                    <span className="invoice-export-project-title font-bold text-[#1a1a1a] block text-xs leading-snug line-clamp-2">
+                  <td className="py-1 px-3 max-w-[220px]">
+                    <span className="invoice-export-project-title font-bold text-[#1a1a1a] block text-[11px] leading-tight line-clamp-2">
                       {item.project_title}
                     </span>
-                    {item.author || item.description ? <span className="block text-[10px] leading-tight text-[#555555] line-clamp-1">{item.author ? `by ${item.author}` : ''}{item.author && item.description ? ' · ' : ''}{item.description || ''}</span> : null}
+                    {item.author || item.description ? <span className="block text-[9px] leading-tight text-[#555555] line-clamp-1">{item.author ? `by ${item.author}` : ''}{item.author && item.description ? ' · ' : ''}{item.description || ''}</span> : null}
                     <span className="invoice-export-project-id font-mono text-[9px] leading-tight text-[#555555]">ID: {item.project_number}{item.delivered_on ? ` · Delivered ${formatDate(item.delivered_on)}` : ''}</span>
                     {reviewFlags(item, items, projects).map((flag) => <span key={flag} className="block text-[9px] font-semibold text-[#704b12]">{flag}</span>)}
                   </td>
-                  <td className="py-2 px-3 text-[#444444] text-[11px] max-w-[150px]">
+                  <td className="py-1 px-3 text-[#444444] text-[10px] max-w-[150px]">
                     <span className="invoice-export-service line-clamp-2">{item.service_type || 'Publishing & Formatting'}</span>
                   </td>
-                  <td className="py-2 px-2 text-right font-medium text-[#1a1a1a] whitespace-nowrap">
+                  <td className="py-1 px-2 text-right font-medium text-[#1a1a1a] whitespace-nowrap">
                     {formatInvoiceMoney(item.total_price)}
                   </td>
-                  <td className={`py-2 px-2 text-right font-medium whitespace-nowrap ${item.due_amount <= 0 ? 'text-emerald-700' : 'text-[#444444]'}`}>
+                  <td className={`py-1 px-2 text-right font-medium whitespace-nowrap ${item.due_amount <= 0 ? 'text-emerald-700' : 'text-[#444444]'}`}>
                     {formatInvoiceMoney(item.advance_paid)}
                   </td>
-                  <td className="py-2 px-2 text-right font-bold text-[#7a5518] whitespace-nowrap">
+                  <td className="py-1 px-2 text-right font-bold text-[#7a5518] whitespace-nowrap">
                     {formatInvoiceMoney(item.due_amount)}
                   </td>
                 </tr>
@@ -369,9 +369,9 @@ export function InvoiceModal({
 
   function renderTotals() {
     return (
-      <div className="grid grid-cols-12 gap-5 mb-6 invoice-keep-together">
-        <div className="col-span-6 space-y-3 text-xs">
-          <div className="flex items-start gap-2.5 rounded-lg border border-[#e8dec8] bg-[#faf8f5] p-3">
+      <div className="grid grid-cols-12 gap-3 mb-3 invoice-keep-together">
+        <div className="col-span-6 space-y-2 text-xs">
+          <div className="flex items-start gap-2 rounded-lg border border-[#e8dec8] bg-[#faf8f5] p-2.5">
             <CreditCard className="h-4 w-4 text-[#7a5518] flex-shrink-0 mt-0.5" />
             <div>
               <strong className="text-[11px] font-bold uppercase tracking-wider text-[#7a5518] block">
@@ -399,8 +399,8 @@ export function InvoiceModal({
           </div>
         </div>
 
-        <div className="col-span-6 rounded-xl border border-[#e8dec8] bg-[#faf8f5] p-4">
-          <div className="space-y-2 text-xs">
+        <div className="col-span-6 rounded-xl border border-[#e8dec8] bg-[#faf8f5] p-3">
+          <div className="space-y-1.5 text-xs">
             <div className="flex justify-between text-[#555555]">
               <span>Subtotal</span>
               <strong className="text-[#1a1a1a]">{formatInvoiceMoney(subtotal, true)}</strong>
@@ -409,10 +409,10 @@ export function InvoiceModal({
               <span>Total Paid</span>
               <strong className="text-[#1a1a1a]">{formatInvoiceMoney(totalPaid, true)}</strong>
             </div>
-            <div className="border-t border-dashed border-[#d8ccb8] pt-2" />
-            <div className="rounded-lg bg-[#faf0dc] border border-[#e0cb9e] p-3 flex items-center justify-between">
+            <div className="border-t border-dashed border-[#d8ccb8] pt-1" />
+            <div className="rounded-lg bg-[#faf0dc] border border-[#e0cb9e] p-2 flex items-center justify-between">
               <span className="font-display font-bold text-sm uppercase tracking-wider text-[#7a5518]">TOTAL DUE</span>
-              <span className="font-display text-2xl font-extrabold text-[#7a5518]">{formatInvoiceMoney(totalDue, true)}</span>
+              <span className="font-display text-xl font-extrabold text-[#7a5518]">{formatInvoiceMoney(totalDue, true)}</span>
             </div>
           </div>
         </div>
@@ -422,35 +422,15 @@ export function InvoiceModal({
 
   function renderFullFooter(pageNumber: number) {
     return (
-      <div className="border-t-2 border-[#e8dec8] pt-4 invoice-keep-together">
-        <div className="grid grid-cols-12 items-center gap-4 text-xs">
-          <div className="col-span-2 flex items-center justify-center">
-            <ManuscriptHeavenLogo variant="emblem" size="md" />
-          </div>
-          <div className="col-span-5 border-l border-[#e8dec8] pl-4 space-y-1 text-[10px] text-[#555555]">
-            <strong className="font-serif text-xs font-bold text-[#7a5518] uppercase block tracking-wider">
-              MANUSCRIPT HEAVEN
-            </strong>
-            <p className="flex items-center gap-1.5"><Mail className="h-3 w-3 text-[#7a5518]" /> {invoiceConfig.email}</p>
-            <p className="flex items-center gap-1.5"><Globe className="h-3 w-3 text-[#7a5518]" /> {invoiceConfig.website}</p>
-            <p className="flex items-center gap-1.5"><Phone className="h-3 w-3 text-[#7a5518]" /> {invoiceConfig.phone}</p>
-            <p className="flex items-center gap-1.5">
-              <MapPin className="h-3 w-3 text-[#7a5518] flex-shrink-0" />
-              {invoiceConfig.address}
-            </p>
-            <p className="mt-1 font-semibold text-[#444444]">{invoiceConfig.paymentDetailsPlaceholder}</p>
-          </div>
-          <div className="col-span-5 border-l border-[#e8dec8] pl-4">
-            <div className="flex items-center gap-1.5 text-[#7a5518] font-bold text-xs uppercase tracking-wider mb-1">
-              <HeartHandshake className="h-4 w-4" /> THANK YOU!
-            </div>
-            <p className="text-[10px] text-[#555555] leading-relaxed">
-              We appreciate your business and look forward to helping you publish more incredible books.
-            </p>
-            <p className="mt-2 text-[9px] font-semibold uppercase tracking-wider text-[#704b12]">
-              Page {pageNumber} of {totalPages}
-            </p>
-          </div>
+      <div className="mt-auto border-t border-[#d8ccb8] pt-2 invoice-keep-together text-[9px] leading-snug text-[#444444]">
+        <div className="flex items-center justify-between gap-3">
+          <strong className="font-serif text-[10px] text-[#7a5518] uppercase tracking-wider">Manuscript Heaven</strong>
+          <span>{invoiceConfig.email} · {invoiceConfig.website} · {invoiceConfig.phone}</span>
+          <span className="font-semibold text-[#704b12]">Page {pageNumber} of {totalPages}</span>
+        </div>
+        <div className="mt-1 flex items-center justify-between gap-3">
+          <span>{invoiceConfig.address}</span>
+          <span className="font-semibold">{invoiceConfig.paymentDetailsPlaceholder}</span>
         </div>
       </div>
     );
