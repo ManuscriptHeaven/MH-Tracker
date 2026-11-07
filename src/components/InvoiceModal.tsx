@@ -29,13 +29,27 @@ import { ManuscriptHeavenLogo } from './ManuscriptHeavenLogo';
 const ITEMS_PER_PAGE = 12;
 const EXPORT_SCALE_300_DPI = 3.125;
 
-function chunkInvoiceItems(items: InvoiceItem[]) {
+export function chunkInvoiceItems(items: InvoiceItem[]) {
   if (items.length === 0) return [[]] as InvoiceItem[][];
   const pages: InvoiceItem[][] = [];
   for (let index = 0; index < items.length; index += ITEMS_PER_PAGE) {
     pages.push(items.slice(index, index + ITEMS_PER_PAGE));
   }
   return pages;
+}
+
+function reviewFlags(item: InvoiceItem, allItems: InvoiceItem[]) {
+  const flags: string[] = [];
+  const redundant = /^(reformatting|formatting|typesetting)\b/i.exec(item.project_title || '');
+  if (redundant && item.service_type.toLowerCase().includes(redundant[1].toLowerCase())) {
+    flags.push('Review title: service wording is repeated');
+  }
+  const peers = allItems.filter((peer) => peer.service_type === item.service_type && peer.project_id !== item.project_id).map((peer) => peer.total_price).sort((a, b) => a - b);
+  if (peers.length >= 2) {
+    const median = peers[Math.floor(peers.length / 2)];
+    if (median > 0 && (item.total_price < median * 0.5 || item.total_price > median * 2)) flags.push('Review price against this service rate');
+  }
+  return flags;
 }
 
 export function InvoiceModal({
@@ -248,6 +262,9 @@ export function InvoiceModal({
 
           {!compact ? (
             <div className="invoice-export-meta mt-4 flex items-center justify-end gap-6 text-xs">
+              <div><span className="text-[10px] uppercase font-bold text-[#704b12] tracking-wider block">PAYMENT TERMS</span><strong className="block text-[#1a1a1a] font-semibold text-xs mt-0.5">{invoice?.payment_terms || invoiceConfig.defaultPaymentTerms}</strong></div>
+              <div><span className="text-[10px] uppercase font-bold text-[#704b12] tracking-wider block">SERVICES DELIVERED</span><strong className="block text-[#1a1a1a] font-semibold text-xs mt-0.5">{invoice?.services_delivered || invoice?.month_label || '—'}</strong></div>
+              <div><span className="text-[10px] uppercase font-bold text-[#704b12] tracking-wider block">CURRENCY</span><strong className="block text-[#1a1a1a] font-semibold text-xs mt-0.5">USD</strong></div>
               <div>
                 <span className="text-[10px] uppercase font-bold text-[#8b6f38] tracking-wider flex items-center gap-1 justify-end">
                   <Calendar className="h-3 w-3" /> INVOICE DATE
@@ -368,7 +385,9 @@ export function InvoiceModal({
                     </span>
                     {item.author ? <span className="block text-[10px] leading-snug text-[#555555]">by {item.author}</span> : null}
                     {item.description ? <span className="block text-[10px] leading-snug text-[#555555]">{item.description}</span> : null}
+                    {item.delivered_on || item.completion_date ? <span className="block text-[10px] leading-snug text-[#555555]">Delivered {formatDate(item.delivered_on || item.completion_date || '')}</span> : null}
                     <span className="invoice-export-project-id font-mono text-[10px] text-[#555555]">ID: {item.project_number}</span>
+                    {reviewFlags(item, items).map((flag) => <span key={flag} className="block text-[9px] font-semibold text-[#704b12]">{flag}</span>)}
                   </td>
                   <td className="py-2 px-3 text-[#444444] text-[11px] max-w-[150px]">
                     <span className="invoice-export-service line-clamp-2">{item.service_type || 'Publishing & Formatting'}</span>

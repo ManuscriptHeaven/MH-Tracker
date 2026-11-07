@@ -8,4 +8,6 @@ export const invoiceConfig = {
   currency: 'USD',
   defaultPaymentTerms: 'Net 14',
   paymentDetailsPlaceholder: 'Payment details will be shared upon request.',
+  latePaymentNoteEnabled: false,
+  latePaymentNote: 'Late payments may be subject to additional fees.',
 } as const;
