@@ -1,4 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="690" height="390" viewBox="285 200 690 390">
-  <image href="/manuscript-heaven-logo.png" x="0" y="0" width="1254" height="1254" />
+  <defs>
+    <filter id="remove-cream-background" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix" values="
+        1 0 0 0 0
+        0 1 0 0 0
+        0 0 1 0 0
+        -1 -1 -1 0 2.9" />
+    </filter>
+  </defs>
+  <image href="/manuscript-heaven-logo.png" x="0" y="0" width="1254" height="1254" filter="url(#remove-cream-background)" />
 </svg>
 
