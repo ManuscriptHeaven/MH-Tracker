@@ -475,7 +475,7 @@ export type ProjectDraft = Omit<
 };
 
 export type ProjectMetadataUpdate = Partial<Pick<Project,
-  | 'client_name' | 'client_email' | 'client_profile_id' | 'project_title' | 'service_type'
+  | 'client_name' | 'client_email' | 'company_name' | 'contact_name' | 'billing_address' | 'author' | 'invoice_description' | 'client_profile_id' | 'project_title' | 'service_type'
   | 'genre' | 'trim_size' | 'page_count' | 'word_count' | 'image_count' | 'platform'
   | 'assigned_to' | 'project_manager' | 'priority'
   | 'general_notes' | 'internal_notes' | 'client_instructions'

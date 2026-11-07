@@ -57,7 +57,12 @@ function defaultDraft(currentProfile: Profile, canonical: boolean): ProjectDraft
   return {
     client_name: '',
     client_email: '',
+    company_name: '',
+    contact_name: '',
+    billing_address: '',
     project_title: '',
+    author: '',
+    invoice_description: '',
     service_type: 'Print Formatting',
     requires_print: true,
     requires_ebook: false,
@@ -319,6 +324,9 @@ export function ProjectFormModal({
               value={draft.client_email}
               onChange={(event) => update('client_email', event.target.value)}
             />
+            <Field label="Company Name (invoice)" value={draft.company_name || ''} onChange={(event) => update('company_name', event.target.value)} />
+            <Field label="Contact Name (invoice)" value={draft.contact_name || ''} onChange={(event) => update('contact_name', event.target.value)} />
+            <Field label="Billing Address (invoice)" value={draft.billing_address || ''} onChange={(event) => update('billing_address', event.target.value)} />
             <Field
               label="Project Title"
               required
@@ -326,6 +334,8 @@ export function ProjectFormModal({
               value={draft.project_title}
               onChange={(event) => update('project_title', event.target.value)}
             />
+            <Field label="Author (invoice subtitle)" value={draft.author || ''} onChange={(event) => update('author', event.target.value)} />
+            <Field label="Invoice Description" placeholder="Page count, trim size, or rate basis" value={draft.invoice_description || ''} onChange={(event) => update('invoice_description', event.target.value)} />
             <Field
               label="Service Type"
               list="service-type-options"
