@@ -324,9 +324,9 @@ export function InvoiceModal({
                 <th className="py-1.5 px-2 text-right text-white">BALANCE DUE</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#e8dec8] bg-white">
+            <tbody className="divide-y divide-[#e8dec8]">
               {pageItems.map((item, idx) => (
-                <tr key={item.project_id || `${pageIndex}-${idx}`} className="invoice-keep-together">
+                <tr key={item.project_id || `${pageIndex}-${idx}`} className={`invoice-keep-together ${idx % 2 === 1 ? 'bg-[#faf8f5]' : 'bg-white'}`}>
                   <td className="py-1 px-2 text-center font-medium text-[#555555]">
                     {pageIndex * ITEMS_PER_PAGE + idx + 1}
                   </td>
@@ -370,8 +370,9 @@ export function InvoiceModal({
                 PAYMENT INSTRUCTIONS
               </strong>
               <p className="text-[#555555] text-[11px] mt-0.5">
-                Please issue payment on or before the due date. Thank you for choosing Manuscript Heaven.
+                Please pay by {dueDate} ({invoice?.payment_terms || invoiceConfig.defaultPaymentTerms}). Use invoice number {invoiceNumber} as your payment reference.
               </p>
+              <p className="mt-1 text-[10px] font-semibold text-[#444444]">{invoiceConfig.paymentDetailsPlaceholder}</p>
               {invoice?.notes ? <p className="mt-1 border-t border-[#e8dec8] pt-1 text-[10px] text-[#555555]"><strong className="text-[#7a5518]">Note:</strong> {invoice.notes}</p> : null}
               {invoiceConfig.latePaymentNoteEnabled ? <p className="mt-1 text-[10px] text-[#444444]">{invoiceConfig.latePaymentNote}</p> : null}
             </div>
@@ -401,15 +402,17 @@ export function InvoiceModal({
 
   function renderFullFooter(pageNumber: number) {
     return (
-      <div className="mt-auto border-t border-[#d8ccb8] pt-2 invoice-keep-together text-[9px] leading-snug text-[#444444]">
-        <div className="flex items-center justify-between gap-3">
-          <strong className="font-serif text-[10px] text-[#7a5518] uppercase tracking-wider">Manuscript Heaven</strong>
-          <span>{invoiceConfig.email} · {invoiceConfig.website} · {invoiceConfig.phone}</span>
-          <span className="font-semibold text-[#704b12]">Page {pageNumber} of {totalPages}</span>
-        </div>
-        <div className="mt-1 flex items-center justify-between gap-3">
-          <span>{invoiceConfig.address}</span>
-          <span className="font-semibold">{invoiceConfig.paymentDetailsPlaceholder}</span>
+      <div className="mt-auto border-t border-[#d8ccb8] pt-3 invoice-keep-together text-[9px] leading-snug text-[#444444]">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-0.5">
+            <strong className="block font-serif text-[10px] text-[#7a5518] uppercase tracking-wider">{invoiceConfig.businessName}</strong>
+            <p>{invoiceConfig.email} <span className="mx-1">|</span> {invoiceConfig.website} <span className="mx-1">|</span> {invoiceConfig.phone}</p>
+            <p>{invoiceConfig.address}</p>
+          </div>
+          <div className="min-w-[130px] text-right">
+            <strong className="block text-[10px] text-[#1a1a1a]">{invoiceConfig.footerThankYou}</strong>
+            <span className="mt-1 block font-semibold text-[#704b12]">Page {pageNumber} of {totalPages}</span>
+          </div>
         </div>
       </div>
     );
@@ -506,3 +509,4 @@ export function InvoiceModal({
     document.body,
   );
 }
+
