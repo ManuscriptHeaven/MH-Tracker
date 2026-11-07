@@ -59,7 +59,7 @@ export function InvoiceModal({
   onRevise?: (invoice: Invoice) => void;
 }) {
   const { formatMoney } = useCurrency();
-  const formatInvoiceMoney = (amount: number) => formatMoney(amount, 'USD', { showCode: true });
+  const formatInvoiceMoney = (amount: number, showCode = false) => formatMoney(amount, 'USD', { showCode });
   const invoiceRef = useRef<HTMLDivElement>(null);
   const [savingImage, setSavingImage] = useState(false);
 
@@ -259,38 +259,7 @@ export function InvoiceModal({
             </span>
           </div>
 
-          {!compact ? (
-            <div className="invoice-export-meta mt-4 flex items-center justify-end gap-6 text-xs">
-              <div>
-                <span className="text-[10px] uppercase font-bold text-[#704b12] tracking-wider flex items-center gap-1 justify-end">
-                  <Calendar className="h-3 w-3" /> INVOICE DATE
-                </span>
-                <strong className="block text-[#1a1a1a] font-semibold text-xs mt-0.5">{invoiceDate}</strong>
-              </div>
-
-              <div>
-                <span className="text-[10px] uppercase font-bold text-[#704b12] tracking-wider flex items-center gap-1 justify-end">
-                  <Clock className="h-3 w-3" /> DUE DATE
-                </span>
-                <strong className="block text-[#1a1a1a] font-semibold text-xs mt-0.5">{dueDate}</strong>
-              </div>
-
-              <div className="invoice-export-status">
-                <span className="text-[10px] uppercase font-bold text-[#704b12] tracking-wider block">STATUS</span>
-                <span
-                  className={`invoice-export-status-badge inline-block mt-0.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold tracking-wider uppercase border ${
-                    isPaid
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                      : isPartial
-                        ? 'bg-blue-50 text-blue-700 border-blue-300'
-                        : 'bg-[#faf5eb] text-[#704b12] border-[#e2d2b4]'
-                  }`}
-                >
-                  {statusLabel}
-                </span>
-              </div>
-            </div>
-          ) : (
+          {compact ? (
             <div className="mt-2 flex items-center justify-end gap-4 text-[10px] text-[#555555]">
               <span>{clientName}</span>
               <span>Due {dueDate}</span>
@@ -373,10 +342,8 @@ export function InvoiceModal({
                     <span className="invoice-export-project-title font-bold text-[#1a1a1a] block text-xs leading-snug line-clamp-2">
                       {item.project_title}
                     </span>
-                    {item.author ? <span className="block text-[10px] leading-snug text-[#555555]">by {item.author}</span> : null}
-                    {item.description ? <span className="block text-[10px] leading-snug text-[#555555]">{item.description}</span> : null}
-                    {item.delivered_on || item.completion_date ? <span className="block text-[10px] leading-snug text-[#555555]">Delivered {formatDate(item.delivered_on || item.completion_date || '')}</span> : null}
-                    <span className="invoice-export-project-id font-mono text-[10px] text-[#555555]">ID: {item.project_number}</span>
+                    {item.author || item.description ? <span className="block text-[10px] leading-tight text-[#555555] line-clamp-1">{item.author ? `by ${item.author}` : ''}{item.author && item.description ? ' · ' : ''}{item.description || ''}</span> : null}
+                    <span className="invoice-export-project-id font-mono text-[9px] leading-tight text-[#555555]">ID: {item.project_number}{item.delivered_on ? ` · Delivered ${formatDate(item.delivered_on)}` : ''}</span>
                     {reviewFlags(item, items, projects).map((flag) => <span key={flag} className="block text-[9px] font-semibold text-[#704b12]">{flag}</span>)}
                   </td>
                   <td className="py-2 px-3 text-[#444444] text-[11px] max-w-[150px]">
@@ -420,7 +387,7 @@ export function InvoiceModal({
             <Building2 className="h-4 w-4 text-[#7a5518] flex-shrink-0 mt-0.5" />
             <div>
               <p className="text-[#555555] text-[11px]">
-                {invoiceConfig.paymentDetailsPlaceholder}
+                Please issue payment on or before the due date. Thank you for choosing Manuscript Heaven.
               </p>
               {invoice?.notes ? (
                 <p className="mt-2 border-t border-[#e8dec8] pt-2 text-[10px] text-[#666666]">
@@ -436,16 +403,16 @@ export function InvoiceModal({
           <div className="space-y-2 text-xs">
             <div className="flex justify-between text-[#555555]">
               <span>Subtotal</span>
-              <strong className="text-[#1a1a1a]">{formatInvoiceMoney(subtotal)}</strong>
+              <strong className="text-[#1a1a1a]">{formatInvoiceMoney(subtotal, true)}</strong>
             </div>
             <div className="flex justify-between text-[#555555]">
               <span>Total Paid</span>
-              <strong className="text-[#1a1a1a]">{formatInvoiceMoney(totalPaid)}</strong>
+              <strong className="text-[#1a1a1a]">{formatInvoiceMoney(totalPaid, true)}</strong>
             </div>
             <div className="border-t border-dashed border-[#d8ccb8] pt-2" />
             <div className="rounded-lg bg-[#faf0dc] border border-[#e0cb9e] p-3 flex items-center justify-between">
               <span className="font-display font-bold text-sm uppercase tracking-wider text-[#7a5518]">TOTAL DUE</span>
-              <span className="font-display text-2xl font-extrabold text-[#7a5518]">{formatInvoiceMoney(totalDue)}</span>
+              <span className="font-display text-2xl font-extrabold text-[#7a5518]">{formatInvoiceMoney(totalDue, true)}</span>
             </div>
           </div>
         </div>
@@ -471,6 +438,7 @@ export function InvoiceModal({
               <MapPin className="h-3 w-3 text-[#7a5518] flex-shrink-0" />
               {invoiceConfig.address}
             </p>
+            <p className="mt-1 font-semibold text-[#444444]">{invoiceConfig.paymentDetailsPlaceholder}</p>
           </div>
           <div className="col-span-5 border-l border-[#e8dec8] pl-4">
             <div className="flex items-center gap-1.5 text-[#7a5518] font-bold text-xs uppercase tracking-wider mb-1">
