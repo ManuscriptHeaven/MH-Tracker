@@ -507,6 +507,11 @@ function projectMetadataPayload(project: ProjectMetadataUpdate | ProjectDraft) {
   return {
     client_name: project.client_name,
     client_email: project.client_email,
+    company_name: project.company_name || null,
+    contact_name: project.contact_name || null,
+    billing_address: project.billing_address || null,
+    author: project.author || null,
+    invoice_description: project.invoice_description || null,
     client_profile_id: project.client_profile_id,
     project_title: project.project_title,
     service_type: project.service_type,

@@ -279,6 +279,11 @@ export interface Project {
   client_profile_id?: string | null;
   client_name: string;
   client_email: string;
+  company_name?: string | null;
+  contact_name?: string | null;
+  billing_address?: string | null;
+  author?: string | null;
+  invoice_description?: string | null;
   project_title: string;
   service_type: string;
   genre: string;
@@ -383,6 +388,13 @@ export interface InvoiceItem {
   advance_paid: number;
   due_amount: number;
   completion_date?: string | null;
+  delivered_on?: string | null;
+  description?: string | null;
+  author?: string | null;
+  company_name?: string | null;
+  contact_name?: string | null;
+  billing_address?: string | null;
+  invoice_services_delivered?: string | null;
 }
 
 export interface Invoice {
@@ -394,11 +406,16 @@ export interface Invoice {
   invoice_number: string;
   client_name: string;
   client_email: string;
+  company_name?: string | null;
+  contact_name?: string | null;
+  billing_address?: string | null;
   month: number;
   year: number;
   month_label: string;
   created_at: string;
   due_date: string;
+  payment_terms?: string;
+  services_delivered?: string;
   items: InvoiceItem[];
   subtotal: number;
   total_paid: number;
@@ -469,7 +486,7 @@ export type ProjectDraft = Omit<
 };
 
 export type ProjectMetadataUpdate = Partial<Pick<Project,
-  | 'client_name' | 'client_email' | 'client_profile_id' | 'project_title' | 'service_type'
+  | 'client_name' | 'client_email' | 'company_name' | 'contact_name' | 'billing_address' | 'author' | 'invoice_description' | 'client_profile_id' | 'project_title' | 'service_type'
   | 'genre' | 'trim_size' | 'page_count' | 'word_count' | 'image_count' | 'platform'
   | 'assigned_to' | 'project_manager' | 'priority'
   | 'general_notes' | 'internal_notes' | 'client_instructions'
@@ -853,6 +870,11 @@ export interface ProjectProfitabilityItem {
 export interface ClientReceivableItem {
   client_name: string;
   client_email: string;
+  company_name?: string | null;
+  contact_name?: string | null;
+  billing_address?: string | null;
+  author?: string | null;
+  invoice_description?: string | null;
   total_invoiced_pkr: number;
   total_paid_pkr: number;
   outstanding_pkr: number;
