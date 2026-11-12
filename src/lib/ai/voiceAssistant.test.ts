@@ -368,6 +368,7 @@ export async function runVoiceAssistantTests() {
     invoices: [] as any[],
   };
 
+  let createdTaskCalls = 0;
   const createAdminCtx = (_legacyCurrency: 'USD' | 'PKR' = 'USD'): AIToolContext => ({
     currentProfile: adminProfile,
     data: mockData,
@@ -385,6 +386,10 @@ export async function runVoiceAssistantTests() {
       return numeric;
     },
     trackerMutations: {
+      createTask: async (draft) => {
+        createdTaskCalls += 1;
+        return { ...mockData.tasks[0], ...draft, id: 'confirmed-task-test' };
+      },
       setProjectLifecycle: async (projectId, lifecycle) => {
         canonicalMutationCalls.lifecycle.push({ projectId, lifecycle });
         const project = testProjects.find((item) => item.id === projectId);
@@ -636,7 +641,7 @@ export async function runVoiceAssistantTests() {
   console.log(`   User: "Create a task for Zain to check the print PDF tomorrow"\n   Assistant (Preview): "${res26a.spokenText}"`);
 
   const res26b = await voiceQueryEngine.processQuery('Confirm', createAdminCtx());
-  assert(Boolean(res26b.success && res26b.spokenText.includes('assigned to Zain')), 'Test 26b: Verbal confirmation "Confirm" creates task');
+  assert(Boolean(res26b.success && res26b.spokenText.includes('assigned to Zain') && createdTaskCalls === 1 && res26b.data?.id === 'confirmed-task-test'), 'Test 26b: Verbal confirmation "Confirm" creates task');
   console.log(`   User: "Confirm"\n   Assistant (Executed): "${res26b.spokenText}"`);
 
   // TEST 27: Change Project Status with High Risk Confirmation

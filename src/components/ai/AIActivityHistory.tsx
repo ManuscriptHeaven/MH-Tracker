@@ -4,15 +4,19 @@ import { useAIContext } from '../../lib/ai/aiContext';
 import { formatDate } from '../../lib/date';
 
 export function AIActivityHistory() {
-  const { auditLogs } = useAIContext();
+  const { auditLogs, messages } = useAIContext();
+  const events = messages.filter(
+    (message) => message.metadata?.actionStatus && !message.metadata.auditLog,
+  );
 
-  if (!auditLogs || auditLogs.length === 0) {
+  if ((!auditLogs || auditLogs.length === 0) && events.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-6 text-center text-muted">
         <ShieldCheck className="w-10 h-10 text-gold/50 mb-2" />
         <h4 className="font-display font-semibold text-ink text-sm mb-1">No AI Activity Yet</h4>
         <p className="text-xs max-w-xs">
-          Actions executed by the AI Assistant (such as assigning tasks, changing deadlines, or updating statuses) will appear here for auditability.
+          Actions executed by the AI Assistant (such as assigning tasks, changing deadlines, or
+          updating statuses) will appear here for auditability.
         </p>
       </div>
     );
@@ -22,10 +26,40 @@ export function AIActivityHistory() {
     <div className="p-4 space-y-3 overflow-y-auto max-h-full">
       <div className="flex items-center justify-between pb-2 border-b border-border text-xs">
         <span className="font-semibold text-ink">AI Action Audit Trail</span>
-        <span className="text-muted text-[11px]">{auditLogs.length} actions</span>
+        <span className="text-muted text-[11px]">{auditLogs.length + events.length} actions</span>
       </div>
 
       <div className="space-y-2.5">
+        {events
+          .slice()
+          .reverse()
+          .map((message) => (
+            <div
+              key={message.id}
+              className="p-3 rounded-xl bg-white border border-border text-xs space-y-2"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <strong className="text-ink capitalize">
+                  {message.metadata?.actionStatus === 'cancelled'
+                    ? 'Action cancelled'
+                    : message.metadata?.actionStatus === 'failed'
+                      ? 'Action failed'
+                      : 'Action confirmed'}
+                </strong>
+                <time className="text-muted text-[10px]">
+                  {new Date(message.createdAt).toLocaleString([], {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </time>
+              </div>
+              <p className="text-muted whitespace-pre-wrap break-words">
+                {message.content.replace(/\*\*/g, '')}
+              </p>
+            </div>
+          ))}
         {auditLogs.map((log) => (
           <div
             key={log.id}
@@ -43,7 +77,10 @@ export function AIActivityHistory() {
                 <span>{log.action}</span>
               </div>
               <span className="text-[10px] text-muted shrink-0">
-                {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                {new Date(log.timestamp).toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
               </span>
             </div>
 

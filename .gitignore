@@ -6,3 +6,7 @@ dist
 .DS_Store
 *.log
 *.zip
+# Local assistant verification artifacts
+.test-output/
+.npm-cache/
+.format-tools/

@@ -82,7 +82,7 @@ function SafeMessageContent({ content }: { content: string }) {
 }
 
 export function AIChatMessage({ message, isProcessing, onViewInvoice }: AIChatMessageProps) {
-  const { isSpeaking, speakText, stopSpeaking, sendMessage } = useAIContext();
+  const { isSpeaking, speakText, stopSpeaking, sendMessage, pendingAction, isProcessing: busy } = useAIContext();
   const isUser = message.role === 'user';
 
   const handlePlayVoice = () => {
@@ -131,7 +131,7 @@ export function AIChatMessage({ message, isProcessing, onViewInvoice }: AIChatMe
           {message.metadata?.pendingAction ? (
             <AIActionPreviewCard
               action={message.metadata.pendingAction}
-              isConfirmedOrCancelled={Boolean(message.metadata.actionStatus)}
+              isConfirmedOrCancelled={Boolean(message.metadata.actionStatus) && message.metadata.pendingAction.actionId !== pendingAction?.actionId}
             />
           ) : null}
 
@@ -150,6 +150,7 @@ export function AIChatMessage({ message, isProcessing, onViewInvoice }: AIChatMe
               <button
                 key={followUp}
                 type="button"
+                disabled={busy}
                 onClick={() => sendMessage(followUp)}
                 className="rounded-full border border-border bg-white px-2.5 py-1 text-[10px] font-semibold text-muted transition hover:border-gold/60 hover:text-ink"
               >

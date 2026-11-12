@@ -19,6 +19,8 @@
     "test:messages": "node scripts/messages-ui-tests.mjs",
     "test:dashboard": "node scripts/dashboard-responsive-tests.mjs",
     "test:ai-command-center": "node scripts/ai-command-center-tests.mjs",
+    "test:ai-dashboard-v2": "node scripts/run-ai-tests.mjs scripts/ai-dashboard-v2-tests.mjs scripts/ai-task-followup-tests.mjs scripts/ai-creation-forms-tests.mjs",
+    "test:ai-local-conversation": "node scripts/run-ai-tests.mjs scripts/local-conversation-tests.mjs scripts/voice-pause-tests.mjs",
     "test:ai-project-wizard": "node scripts/ai-project-wizard-tests.mjs",
     "test:ai-daily-briefing": "npx --yes tsx scripts/ai-daily-briefing-tests.mjs",
     "test:ai-client-communication": "npx --yes tsx scripts/ai-client-communication-tests.mjs",

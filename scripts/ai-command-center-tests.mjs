@@ -13,7 +13,13 @@ function assert(condition, message) {
   console.log(`✓ PASS: ${message}`);
 }
 
-const page = read('src/pages/AIAssistantPage.tsx');
+const page = [
+  'src/pages/AIAssistantPage.tsx',
+  'src/components/ai/AIQuickCommandsPanel.tsx',
+  'src/components/ai/AIVoiceHeroPanel.tsx',
+  'src/components/ai/AIChatPanelV2.tsx',
+  'src/lib/ai/dashboardV2.ts',
+].map(read).join('\n');
 const panel = read('src/components/ai/AIChatPanel.tsx');
 const message = read('src/components/ai/AIChatMessage.tsx');
 const context = read('src/lib/ai/aiContext.tsx');
@@ -116,7 +122,7 @@ assert(
 );
 
 assert(
-  app.includes('<AIAssistantPage projects={visibleProjects} currentProfile={tracker.currentProfile} />'),
+  app.includes('<AIAssistantPage projects={visibleProjects} profiles={tracker.data.profiles} currentProfile={tracker.currentProfile} />'),
   'App passes the signed-in profile to the AI command center',
 );
 

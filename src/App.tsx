@@ -283,7 +283,7 @@ export default function App() {
     {activeView === 'dashboard' && !isClient && <DashboardPage projects={visibleProjects} profiles={tracker.data.profiles} canViewPayments={tracker.canManageAll} canManageProjects={tracker.canManageAll} currentProfileId={tracker.currentProfile.id} onAddProject={openAddProject} onSelectProject={setSelectedProject} onConfirmReceivedFiles={tracker.mode === 'supabase' ? (project) => setReceivedFilesProjectId(project.id) : undefined} />}
     {activeView === 'ai_assistant' && tracker.canManageAll && (
       <ErrorBoundary>
-        <AIAssistantPage projects={visibleProjects} currentProfile={tracker.currentProfile} />
+        <AIAssistantPage projects={visibleProjects} profiles={tracker.data.profiles} currentProfile={tracker.currentProfile} />
       </ErrorBoundary>
     )}
     {activeView === 'projects' && isClient && <ClientProjectsPage projects={visibleProjects} searchTerm={searchTerm} onSelectProject={openClientProject} onSubmitFiles={(project) => openClientProject(project, 'files')} onGetProjectFileUrl={tracker.getProjectFileUrl} />}

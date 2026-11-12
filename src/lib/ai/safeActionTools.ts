@@ -67,6 +67,9 @@ export async function execute_create_task(
 
   try {
     let createdTask: any = null;
+    if (!ctx.trackerMutations?.createTask) {
+      throw new Error('Task creation is unavailable in this workspace. No task was saved.');
+    }
     if (ctx.trackerMutations?.createTask) {
       createdTask = await ctx.trackerMutations.createTask({
         title: payload.title,

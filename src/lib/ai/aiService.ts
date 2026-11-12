@@ -391,7 +391,7 @@ export class AIService {
 
   async getUserSettings(): Promise<AIUserSettings> {
     const defaultSettings: AIUserSettings = {
-      voiceEnabled: false,
+      voiceEnabled: true,
       voiceLanguage: 'en-US',
       ttsEnabled: false,
       autoSpeak: false

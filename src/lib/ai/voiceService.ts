@@ -21,6 +21,10 @@ export class VoiceService {
   private isMuted: boolean = false;
   private silenceTimer: any = null;
   private restartTimeout: any = null;
+  private listeningSession = 0;
+  private finalTranscript = '';
+  private interimTranscript = '';
+  public readonly pauseWindowMs = 2500;
 
   private constructor() {
     this.initSynth();
@@ -46,7 +50,10 @@ export class VoiceService {
       };
 
       populateVoices();
-      if (typeof window.speechSynthesis !== 'undefined' && window.speechSynthesis.onvoiceschanged !== undefined) {
+      if (
+        typeof window.speechSynthesis !== 'undefined' &&
+        window.speechSynthesis.onvoiceschanged !== undefined
+      ) {
         window.speechSynthesis.onvoiceschanged = populateVoices;
       }
     }
@@ -67,13 +74,28 @@ export class VoiceService {
       rec.interimResults = true;
       rec.maxAlternatives = 1;
       rec.lang = this.currentLanguage;
+      const seenFinals = new Set<number>();
+
+      rec.onspeechstart = () => {
+        if (this.recognition === rec) this.clearSilenceTimer();
+      };
+      rec.onspeechend = () => {
+        if (this.recognition === rec) this.resetSilenceTimer();
+      };
 
       rec.onstart = () => {
+        if (this.recognition !== rec) {
+          try {
+            rec.abort();
+          } catch {}
+          return;
+        }
         this.isCurrentlyListening = true;
         this.onListeningChange?.(true);
       };
 
       rec.onresult = (event: any) => {
+        if (this.recognition !== rec) return;
         if (this.isCurrentlySpeaking) {
           this.stopSpeaking();
         }
@@ -83,38 +105,47 @@ export class VoiceService {
 
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
+            if (!seenFinals.has(i)) {
+              finalTranscript += ' ' + event.results[i][0].transcript;
+              seenFinals.add(i);
+            }
           } else {
             interimTranscript += event.results[i][0].transcript;
           }
         }
 
-        if (finalTranscript) {
-          this.clearSilenceTimer();
-          this.onTranscript?.(finalTranscript.trim(), true);
-          this.stopListening();
-        } else if (interimTranscript) {
-          this.onTranscript?.(interimTranscript.trim(), false);
-          this.resetSilenceTimer();
-        }
+        if (finalTranscript.trim())
+          this.finalTranscript = [this.finalTranscript, finalTranscript.trim()]
+            .filter(Boolean)
+            .join(' ');
+        this.interimTranscript = interimTranscript.trim();
+        const combined = [this.finalTranscript, this.interimTranscript].filter(Boolean).join(' ');
+        if (combined) this.onTranscript?.(combined, false);
+        this.resetSilenceTimer();
       };
 
       rec.onerror = (event: any) => {
+        if (this.recognition !== rec) return;
         console.warn('Speech recognition error event:', event.error);
-        this.isCurrentlyListening = false;
-        this.onListeningChange?.(false);
-        this.clearSilenceTimer();
-
         if (event.error === 'no-speech') {
-          // Normal timeout if user hasn't started speaking yet
+          if (this.finalTranscript || this.interimTranscript) {
+            this.resetSilenceTimer();
+            return;
+          }
+          this.stopListening();
+          this.onError?.('No speech was detected. Try again, or type into the field.');
           return;
         }
 
+        this.stopListening();
+
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          this.onError?.('Microphone permission was denied. Please allow microphone access in your browser.');
+          this.onError?.(
+            'Microphone permission was denied. Please allow microphone access in your browser.',
+          );
         } else if (event.error === 'network') {
           this.onError?.(
-            'Browser speech service unreachable. (If using Brave, enable "Google services for voice recognition" in Settings > Privacy, or use Chrome/Edge).'
+            'Browser speech service unreachable. (If using Brave, enable "Google services for voice recognition" in Settings > Privacy, or use Chrome/Edge).',
           );
         } else {
           this.onError?.(`Voice recognition notice: ${event.error}`);
@@ -122,9 +153,23 @@ export class VoiceService {
       };
 
       rec.onend = () => {
-        this.isCurrentlyListening = false;
-        this.onListeningChange?.(false);
-        this.clearSilenceTimer();
+        if (this.recognition !== rec) return;
+        this.recognition = null;
+        if (!this.isCurrentlyListening) return;
+        // Browsers often end recognition at a short pause. Reopen within the
+        // same click-to-speak session while retaining the sentence and timer.
+        const session = this.listeningSession;
+        this.restartTimeout = setTimeout(() => {
+          this.restartTimeout = null;
+          if (session !== this.listeningSession || !this.isCurrentlyListening) return;
+          this.recognition = this.createRecognitionInstance();
+          try {
+            this.recognition?.start();
+          } catch {
+            this.stopListening();
+            this.onError?.('Listening stopped. Please try again, or type your request.');
+          }
+        }, 100);
       };
 
       return rec;
@@ -134,13 +179,16 @@ export class VoiceService {
     }
   }
 
-  private resetSilenceTimer() {
+  private resetSilenceTimer(delay = this.pauseWindowMs) {
     this.clearSilenceTimer();
+    const session = this.listeningSession;
     this.silenceTimer = setTimeout(() => {
-      if (this.isCurrentlyListening) {
-        this.stopListening();
-      }
-    }, 4500); // Stop after 4.5 seconds of silence
+      if (session !== this.listeningSession) return;
+      const text = [this.finalTranscript, this.interimTranscript].filter(Boolean).join(' ').trim();
+      this.stopListening();
+      if (text) this.onTranscript?.(text, true);
+      else this.onError?.('No speech was detected. Try again, or type your request.');
+    }, delay);
   }
 
   private clearSilenceTimer() {
@@ -153,12 +201,16 @@ export class VoiceService {
   public isSupported(): boolean {
     return (
       typeof window !== 'undefined' &&
-      (Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) || 'speechSynthesis' in window)
+      (Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) ||
+        'speechSynthesis' in window)
     );
   }
 
   public isRecognitionSupported(): boolean {
-    return typeof window !== 'undefined' && Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+    return (
+      typeof window !== 'undefined' &&
+      Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
+    );
   }
 
   public isSynthSupported(): boolean {
@@ -181,6 +233,8 @@ export class VoiceService {
   }
 
   public async startListening(language?: string) {
+    this.stopListening();
+    const session = this.listeningSession;
     if (language) {
       this.setLanguage(language);
     }
@@ -194,25 +248,32 @@ export class VoiceService {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         stream.getTracks().forEach((track) => track.stop());
+        if (session !== this.listeningSession) return;
       } catch (micErr: any) {
+        if (session !== this.listeningSession) return;
         if (micErr.name === 'NotAllowedError' || micErr.name === 'PermissionDeniedError') {
-          this.onError?.('Microphone access was denied. Please allow microphone permissions in your browser.');
+          this.onError?.(
+            'Microphone access was denied. Please allow microphone permissions in your browser.',
+          );
           return;
         }
       }
     }
 
     // Create a fresh SpeechRecognition instance on every session to avoid stale socket states
-    this.stopListening();
+    if (session !== this.listeningSession) return;
     this.recognition = this.createRecognitionInstance();
 
     if (!this.recognition) {
-      this.onError?.('Speech recognition is not supported on this browser. You can still type your questions!');
+      this.onError?.(
+        'Speech recognition is not supported on this browser. You can still type your questions!',
+      );
       return;
     }
 
     try {
       this.recognition.start();
+      this.resetSilenceTimer(10000);
     } catch (e: any) {
       console.warn('Recognition start error:', e);
       if (e.name === 'InvalidStateError' || e.message?.includes('already started')) {
@@ -225,31 +286,44 @@ export class VoiceService {
   }
 
   public stopListening() {
+    this.listeningSession += 1;
     this.clearSilenceTimer();
+    if (this.restartTimeout) {
+      clearTimeout(this.restartTimeout);
+      this.restartTimeout = null;
+    }
+    this.finalTranscript = '';
+    this.interimTranscript = '';
     if (this.recognition) {
-      try {
-        this.recognition.stop();
-      } catch (e) {}
+      const recognition = this.recognition;
       this.recognition = null;
+      try {
+        recognition.abort();
+      } catch (e) {}
     }
     this.isCurrentlyListening = false;
     this.onListeningChange?.(false);
   }
 
   public cleanTextForSpeech(text: string): string {
-    return text
-      // Remove markdown headings, bold, italics, code blocks
-      .replace(/^#{1,6}\s+/gm, '')
-      .replace(/\*\*(.*?)\*\*/g, '$1')
-      .replace(/\*(.*?)\*/g, '$1')
-      .replace(/`(.*?)`/g, '$1')
-      // Remove bullet symbols
-      .replace(/^[•\-\*]\s+/gm, '')
-      // Remove emoji symbols
-      .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
-      // Clean extra spaces
-      .replace(/\s+/g, ' ')
-      .trim();
+    return (
+      text
+        // Remove markdown headings, bold, italics, code blocks
+        .replace(/^#{1,6}\s+/gm, '')
+        .replace(/\*\*(.*?)\*\*/g, '$1')
+        .replace(/\*(.*?)\*/g, '$1')
+        .replace(/`(.*?)`/g, '$1')
+        // Remove bullet symbols
+        .replace(/^[•\-\*]\s+/gm, '')
+        // Remove emoji symbols
+        .replace(
+          /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu,
+          '',
+        )
+        // Clean extra spaces
+        .replace(/\s+/g, ' ')
+        .trim()
+    );
   }
 
   public async speak(text: string, language: string = this.currentLanguage): Promise<void> {
@@ -318,7 +392,7 @@ export class VoiceService {
   }
 
   public stopSpeaking() {
-    if (this.synth && this.isCurrentlySpeaking) {
+    if (this.synth) {
       try {
         this.synth.cancel();
       } catch (e) {}

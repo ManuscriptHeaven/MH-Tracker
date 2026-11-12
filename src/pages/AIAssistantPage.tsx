@@ -1,888 +1,379 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertTriangle,
-  Bot,
-  CheckCircle2,
-  ChevronRight,
-  CircleDollarSign,
-  Clock3,
-  FileText,
+  ArrowUpRight,
+  Command,
   FolderKanban,
-  History,
-  MessageSquare,
+  LayoutGrid,
   Mic,
   MicOff,
-  Plus,
-  RefreshCw,
-  SendHorizontal,
   ShieldCheck,
   Sparkles,
-  Users,
-  Volume2,
-  VolumeX,
+  Square,
+  Plus,
+  FolderPlus,
 } from 'lucide-react';
 import { useAIContext } from '../lib/ai/aiContext';
-import { AIChatMessage } from '../components/ai/AIChatMessage';
-import { AIActivityHistory } from '../components/ai/AIActivityHistory';
+import { AIQuickCommandsPanel } from '../components/ai/AIQuickCommandsPanel';
+import { AIVoiceHeroPanel } from '../components/ai/AIVoiceHeroPanel';
+import { AIChatPanelV2 } from '../components/ai/AIChatPanelV2';
+import { AICreationForm, type CreationFormSelection } from '../components/ai/AICreationForm';
 import { AIOperatorIntelligencePanel } from '../components/ai/AIOperatorIntelligencePanel';
 import { InvoiceModal } from '../components/InvoiceModal';
-import { cn, firstName, isManagerRole } from '../lib/utils';
+import { assistantState, dashboardCommands } from '../lib/ai/dashboardV2';
+import { firstName } from '../lib/utils';
 import { isDueToday, isOverdue } from '../lib/date';
-import { useCurrency } from '../lib/currency';
 import type { Invoice, Profile, Project } from '../lib/types';
+import '../styles/ai-dashboard.css';
 
 interface AIAssistantPageProps {
   projects?: Project[];
+  profiles?: Profile[];
   currentProfile: Profile;
 }
 
-type QuickCommand = {
-  label: string;
-  description: string;
-  query: string;
-  icon: typeof Sparkles;
-  adminOnly?: boolean;
-};
-
-function conversationDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  const today = new Date();
-  const sameDay = date.toDateString() === today.toDateString();
-  return sameDay
-    ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+function loadRecent(userId: string): string[] {
+  try {
+    const value = JSON.parse(localStorage.getItem(`mh_ai_recent_commands:${userId}`) || '[]');
+    return Array.isArray(value)
+      ? value.filter((item) => typeof item === 'string').slice(0, 10)
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 export function AIAssistantPage({
   projects = [],
+  profiles = [],
   currentProfile,
 }: AIAssistantPageProps) {
   const {
-    messages,
     sendMessage,
     isProcessing,
     isListening,
     isSpeaking,
-    isMuted,
-    isWakeWordListening,
-    toggleWakeWordListener,
-    settings,
-    liveTranscript,
+    pendingAction,
     voiceError,
+    clearVoiceError,
     startVoice,
     stopVoice,
-    toggleMute,
-    clearConversation,
-    clearVoiceError,
+    stopSpeaking,
+    startNewConversation,
     activeTab,
     setActiveTab,
-    auditLogs,
-    conversations,
-    activeConversationId,
-    switchConversation,
-    startNewConversation,
     dailySummary,
     refreshDailyBriefing,
+    settings,
+    messages,
   } = useAIContext();
-
-  const { formatMoney } = useCurrency();
-  const [input, setInput] = useState('');
+  const dashboardRef = useRef<HTMLDivElement>(null);
+  const [commandsOpen, setCommandsOpen] = useState(false);
+  const [recent, setRecent] = useState<string[]>(() => loadRecent(currentProfile.id));
   const [viewingInvoice, setViewingInvoice] = useState<Invoice | null>(null);
-  const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const composerRef = useRef<HTMLTextAreaElement>(null);
-
-  const canManage = isManagerRole(currentProfile.role);
-  const isAdmin = currentProfile.role === 'admin';
+  const [creationForm, setCreationForm] = useState<CreationFormSelection | null>(null);
+  const openedFormMessageRef = useRef<string | null>(null);
+  const closeCreationForm = useCallback(() => {
+    stopVoice();
+    setCreationForm(null);
+  }, [stopVoice]);
+  const commands = useMemo(
+    () => dashboardCommands(currentProfile, projects),
+    [currentProfile, projects],
+  );
   const userName = firstName(currentProfile.full_name);
-
-  const activeProjects = useMemo(
-    () =>
-      projects.filter((project) => {
-        const status = String(project.status || '').toLowerCase();
-        const lifecycle = String(project.project_status || '').toLowerCase();
-        return (
-          !['completed', 'delivered', 'cancelled', 'archived'].includes(status) &&
-          !['completed', 'cancelled', 'archived'].includes(lifecycle)
-        );
-      }),
-    [projects],
-  );
-
-  const overdueProjects = useMemo(
-    () => activeProjects.filter((project) => isOverdue(project)),
-    [activeProjects],
-  );
-  const dueTodayProjects = useMemo(
-    () => activeProjects.filter((project) => isDueToday(project)),
-    [activeProjects],
-  );
-  const pendingApprovals = useMemo(
-    () =>
-      activeProjects.filter(
-        (project) =>
-          project.status === 'Awaiting Client Approval' ||
-          project.stage_status === 'PAUSED_CLIENT_REVIEW' ||
-          String(project.current_stage || '').includes('Approval'),
-      ),
-    [activeProjects],
-  );
-  const totalReceivables = useMemo(
-    () =>
-      projects.reduce(
-        (sum, project) =>
-          sum +
-          Math.max(
-            Number(project.remaining_balance ?? 0),
-            Number(project.total_price || 0) - Number(project.advance_paid || 0),
-            0,
-          ),
-        0,
-      ),
-    [projects],
-  );
-
-  const firstUnpaid = useMemo(
-    () =>
-      projects.find(
-        (project) =>
-          Math.max(
-            Number(project.total_price || 0) - Number(project.advance_paid || 0),
-            Number(project.remaining_balance || 0),
-          ) > 0.005,
-      ),
-    [projects],
-  );
-
-  const firstOverdue = overdueProjects[0];
-  const firstApproval = pendingApprovals[0];
-
-  const quickCommands = useMemo<QuickCommand[]>(() => {
-    const commands: QuickCommand[] = [
-      {
-        label: 'Overdue Projects',
-        description: 'See what needs immediate attention.',
-        query: 'How many projects are overdue?',
-        icon: AlertTriangle,
-      },
-      {
-        label: 'Client Approvals',
-        description: 'Review work currently waiting on clients.',
-        query: 'What projects are waiting for client approval?',
-        icon: Clock3,
-      },
-      {
-        label: 'Team Workload',
-        description: 'See who has the most active work.',
-        query: 'Which employee has the most active projects?',
-        icon: Users,
-      },
-      {
-        label: 'Receivables',
-        description: 'See who owes money and outstanding balances.',
-        query: 'Who owes us money and what are the receivables?',
-        icon: CircleDollarSign,
-        adminOnly: true,
-      },
-      {
-        label: 'Finance Summary',
-        description: 'Order revenue, expenses and revenue less expenses.',
-        query: 'Show order revenue and expenses this month',
-        icon: FileText,
-        adminOnly: true,
-      },
-      {
-        label: 'Payroll',
-        description: 'Review what is currently owed to the team.',
-        query: 'How much do we owe the team in monthly payroll?',
-        icon: Users,
-        adminOnly: true,
-      },
-    ];
-
-    if (canManage) {
-      commands.push(
-        {
-          label: 'New Project',
-          description: 'Start the guided project creation wizard.',
-          query: 'Create a new project',
-          icon: FolderKanban,
-        },
-        {
-          label: 'Create Task',
-          description: 'Preview a task before creating it.',
-          query: 'Create a task for Zain to check the print PDF tomorrow',
-          icon: CheckCircle2,
-        },
-      );
-
-      if (firstApproval) {
-        commands.push({
-          label: 'Client Reminder',
-          description: 'Draft an approval reminder from live project context.',
-          query: `Draft a professional approval reminder message for ${firstApproval.project_number}`,
-          icon: MessageSquare,
-        });
-      }
-    }
-
-    if (firstUnpaid && canManage) {
-      commands.push({
-        label: 'Generate Invoice',
-        description: `Build an invoice from ${firstUnpaid.client_name}'s pending work.`,
-        query: `Generate invoice for ${firstUnpaid.client_name} for all pending payments`,
-        icon: FileText,
-      });
-    }
-
-    if (firstOverdue && canManage) {
-      commands.push({
-        label: 'Project Action',
-        description: `Preview a status action for ${firstOverdue.project_title}.`,
-        query: `Put ${firstOverdue.project_title} on hold`,
-        icon: FolderKanban,
-      });
-    }
-
-    return commands.filter((command) => !command.adminOnly || isAdmin);
-  }, [canManage, firstApproval, firstOverdue, firstUnpaid, isAdmin]);
-
+  const lastReply = [...messages].reverse().find((message) => message.role === 'assistant');
+  const lastResult = lastReply?.metadata?.toolResult;
   useEffect(() => {
-    if (activeTab === 'chat') {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages, isProcessing, liveTranscript, activeTab]);
-
-  function handleVoiceToggle() {
-    clearVoiceError();
-    if (isListening) {
+    const form = lastResult?.data?.creationForm;
+    if (
+      isProcessing ||
+      !lastReply ||
+      openedFormMessageRef.current === lastReply.id ||
+      !form ||
+      !['task', 'project'].includes(form.kind)
+    )
+      return;
+    openedFormMessageRef.current = lastReply.id;
+    stopVoice();
+    stopSpeaking();
+    setCommandsOpen(false);
+    setCreationForm({ kind: form.kind, draft: form.draft });
+  }, [lastReply, lastResult, isProcessing, stopVoice, stopSpeaking]);
+  const requestFailed =
+    !isProcessing &&
+    !pendingAction &&
+    (lastReply?.metadata?.actionStatus === 'failed' ||
+      (lastResult?.success === false &&
+        !lastResult.disambiguation?.length &&
+        !/required|not_found|ambiguous|invalid_date|invalid_amount/.test(lastResult.error || '')));
+  const state = assistantState({
+    requestFailed,
+    isListening,
+    isSpeaking,
+    isProcessing,
+    voiceError,
+    hasPendingAction: Boolean(pendingAction),
+  });
+  const closeCommands = useCallback(() => setCommandsOpen(false), []);
+  useEffect(() => {
+    setRecent(loadRecent(currentProfile.id));
+  }, [currentProfile.id]);
+  useEffect(
+    () => () => {
       stopVoice();
-    } else {
-      startVoice();
+      stopSpeaking();
+    },
+    [stopVoice, stopSpeaking],
+  );
+  useEffect(() => {
+    const root = dashboardRef.current;
+    if (!root) return;
+    const nav = document.querySelector('[data-mobile-bottom-nav]');
+    const composer = root.querySelector('.ai-chat-composer');
+    const measure = () => {
+      root.style.setProperty(
+        '--ai-mobile-nav-height',
+        `${nav?.getBoundingClientRect().height || 64}px`,
+      );
+      root.style.setProperty(
+        '--ai-composer-height',
+        `${composer?.getBoundingClientRect().height || 0}px`,
+      );
+    };
+    const observer = new ResizeObserver(measure);
+    if (nav) observer.observe(nav);
+    if (composer) observer.observe(composer);
+    measure();
+    return () => observer.disconnect();
+  }, [activeTab]);
+
+  function handleCommand(query: string) {
+    if (isProcessing) return;
+    stopVoice();
+    stopSpeaking();
+    clearVoiceError();
+    setRecent((previous) => {
+      const next = [query, ...previous.filter((item) => item !== query)].slice(0, 10);
+      try {
+        localStorage.setItem(`mh_ai_recent_commands:${currentProfile.id}`, JSON.stringify(next));
+      } catch {
+        /* Storage may be unavailable in private browsing. */
+      }
+      return next;
+    });
+    setActiveTab('chat');
+    setCommandsOpen(false);
+    if (query === 'Create a task' || query === 'Create a new project') {
+      setCreationForm({ kind: query === 'Create a task' ? 'task' : 'project' });
+      return;
     }
+    void sendMessage(query);
   }
-
-  function handleSubmit() {
-    const text = input.trim();
-    if (!text || isProcessing) return;
-    setInput('');
-    if (composerRef.current) composerRef.current.style.height = 'auto';
-    void sendMessage(text);
-  }
-
-  function handleComposerKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      handleSubmit();
-    }
-  }
-
-  function handleNewConversation() {
+  function handleNewChat() {
+    if (isProcessing) return;
     startNewConversation();
     setActiveTab('chat');
-    setMobileHistoryOpen(false);
-    requestAnimationFrame(() => composerRef.current?.focus());
+    setCommandsOpen(false);
   }
-
-  const assistantState = isListening
-    ? 'Listening'
-    : isSpeaking
-      ? 'Speaking'
-      : isProcessing
-        ? 'Working'
-        : 'Ready';
+  function handleVoice() {
+    clearVoiceError();
+    if (isSpeaking) stopSpeaking();
+    else if (isListening) stopVoice();
+    else if (!isProcessing) startVoice();
+  }
+  const activeProjects = projects.filter(
+    (project) =>
+      !['completed', 'delivered', 'cancelled', 'archived'].includes(
+        String(project.status).toLowerCase(),
+      ) &&
+      !['completed', 'cancelled', 'archived'].includes(
+        String(project.project_status || '').toLowerCase(),
+      ),
+  );
+  const metrics = [
+    {
+      label: 'Active projects',
+      value: activeProjects.length,
+      query: 'Show active projects summary',
+      tone: 'gold',
+    },
+    {
+      label: 'Overdue',
+      value: activeProjects.filter(isOverdue).length,
+      query: 'How many projects are overdue?',
+      tone: 'amber',
+    },
+    {
+      label: 'Due today',
+      value: activeProjects.filter(isDueToday).length,
+      query: 'What projects are due today?',
+      tone: 'green',
+    },
+  ];
 
   return (
-    <div className="mx-auto w-full max-w-[1500px] space-y-5 p-0 sm:space-y-6">
-      {/* Page heading */}
-      <section className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div ref={dashboardRef} className="mh-ai" data-dashboard-version="2">
+      <header className="ai-page-header">
         <div>
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#8b6f38]">
-            <Sparkles className="h-3.5 w-3.5" />
-            Live Workspace Intelligence
+          <div className="ai-brand-line">
+            <span className="ai-mh-monogram">MH</span>
+            <span>Live Workspace Intelligence</span>
+            <i />
+            <span>ASSISTANT V2</span>
           </div>
-          <h1 className="mt-1 font-display text-2xl font-bold text-ink sm:text-3xl">
-            AI Command Center
+          <h1>
+            AI Command Center<span>Make room for what matters.</span>
           </h1>
-          <p className="mt-1 text-sm text-muted">
-            {userName}, ask about live Tracker data or preview safe actions before anything changes.
-          </p>
         </div>
-
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="ai-header-actions">
           <button
-            type="button"
-            onClick={() => setMobileHistoryOpen((value) => !value)}
-            className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-border bg-white px-3 text-xs font-semibold text-ink shadow-xs lg:hidden"
+            className="ai-outline-button ai-create-command"
+            disabled={isProcessing}
+            onClick={() => handleCommand('Create a new project')}
           >
-            <History className="h-4 w-4 text-gold" />
-            Chats
-            {conversations.length > 0 ? (
-              <span className="rounded-full bg-linen px-1.5 py-0.5 text-[10px] text-muted">
-                {conversations.length}
-              </span>
-            ) : null}
+            <FolderPlus size={15} />
+            New Project
           </button>
-
           <button
-            type="button"
-            onClick={toggleWakeWordListener}
-            className={cn(
-              'inline-flex min-h-10 items-center gap-2 rounded-xl border px-3 text-xs font-semibold transition',
-              settings.wakeWordEnabled
-                ? 'border-gold/50 bg-gold/10 text-[#7a5518]'
-                : 'border-border bg-white text-muted hover:text-ink',
-            )}
+            className="ai-speak-button ai-create-command"
+            disabled={isProcessing}
+            onClick={() => handleCommand('Create a task')}
           >
-            <span className="relative flex h-2 w-2">
-              {settings.wakeWordEnabled && isWakeWordListening ? (
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-gold opacity-60" />
-              ) : null}
-              <span
-                className={cn(
-                  'relative inline-flex h-2 w-2 rounded-full',
-                  settings.wakeWordEnabled ? 'bg-gold' : 'bg-muted',
-                )}
-              />
-            </span>
-            {settings.wakeWordEnabled ? 'Hey James On' : 'Hey James Off'}
+            <Plus size={15} />
+            New Task
           </button>
-
+          <span className="ai-private-label">
+            <ShieldCheck size={13} /> Confirmation protected
+          </span>
           <button
-            type="button"
-            onClick={toggleMute}
-            className={cn(
-              'grid h-10 w-10 place-items-center rounded-xl border bg-white transition',
-              isMuted
-                ? 'border-rose-200 text-rose-600'
-                : 'border-border text-muted hover:border-gold/50 hover:text-ink',
-            )}
-            title={isMuted ? 'Unmute assistant voice' : 'Mute assistant voice'}
+            className="ai-outline-button ai-open-commands"
+            onClick={() => setCommandsOpen(true)}
+            aria-expanded={commandsOpen}
+            aria-controls="ai-command-rail"
           >
-            {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+            <Command size={15} />
+            Commands
           </button>
         </div>
-      </section>
-
-      <AIOperatorIntelligencePanel />
-
-      {dailySummary ? (
-        <section className="rounded-2xl border border-gold/30 bg-white p-4 shadow-xs sm:p-5">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-gold/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em] text-[#7a5518]">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  Today’s AI Briefing
-                </span>
-                <button
-                  type="button"
-                  onClick={refreshDailyBriefing}
-                  className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-semibold text-muted transition hover:bg-linen hover:text-ink"
-                  title="Refresh daily briefing"
-                >
-                  <RefreshCw className="h-3 w-3" />
-                  Refresh
-                </button>
-              </div>
-              <h2 className="mt-3 font-display text-lg font-bold text-ink sm:text-xl">
-                {dailySummary.headline}
-              </h2>
-              <p className="mt-1 text-xs text-muted">
-                {dailySummary.overdueProjects.count} overdue · {dailySummary.dueToday.count} due today ·{' '}
-                {dailySummary.awaitingApprovals.count} awaiting approval · {dailySummary.overdueTasks.count} overdue tasks
-              </p>
-
-              {dailySummary.proactiveInsights.length > 0 ? (
-                <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                  {dailySummary.proactiveInsights.slice(0, 3).map((insight) => (
-                    <div
-                      key={insight.type + '-' + (insight.relatedId || insight.title)}
-                      className={cn(
-                        'rounded-xl border p-3',
-                        insight.severity === 'critical'
-                          ? 'border-rose-200 bg-rose-50'
-                          : insight.severity === 'warning'
-                            ? 'border-amber-200 bg-amber-50'
-                            : 'border-blue-200 bg-blue-50',
-                      )}
-                    >
-                      <div className="flex items-start gap-2">
-                        <AlertTriangle
-                          className={cn(
-                            'mt-0.5 h-3.5 w-3.5 shrink-0',
-                            insight.severity === 'critical'
-                              ? 'text-rose-700'
-                              : insight.severity === 'warning'
-                                ? 'text-amber-700'
-                                : 'text-blue-700',
-                          )}
-                        />
-                        <div className="min-w-0">
-                          <p className="text-[11px] font-bold text-ink">{insight.title}</p>
-                          <p className="mt-0.5 line-clamp-2 text-[10px] leading-relaxed text-muted">
-                            {insight.description}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
-                  No urgent blockers detected in your current workspace.
-                </div>
-              )}
-            </div>
-
-            <div className="w-full xl:max-w-sm">
-              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
-                Recommended Next
-              </p>
-              <div className="mt-2 space-y-2">
-                {dailySummary.recommendedActions.slice(0, 3).map((action) => (
-                  <button
-                    key={action.id}
-                    type="button"
-                    onClick={() => void sendMessage(action.command)}
-                    className="group flex w-full items-center gap-2 rounded-xl border border-border bg-[#fcfbf8] px-3 py-2.5 text-left transition hover:border-gold/60 hover:bg-gold/[0.045]"
-                  >
-                    <span
-                      className={cn(
-                        'h-2 w-2 shrink-0 rounded-full',
-                        action.priority === 'high'
-                          ? 'bg-rose-500'
-                          : action.priority === 'medium'
-                            ? 'bg-amber-500'
-                            : 'bg-emerald-500',
-                      )}
-                    />
-                    <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-ink">
-                      {action.title}
-                    </span>
-                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted/50 group-hover:text-[#7a5518]" />
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
-      ) : null}
-
-      {/* Live business brief */}
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[
-          {
-            label: 'Active Projects',
-            value: activeProjects.length,
-            helper: 'Current open workload',
-            icon: FolderKanban,
-            tone: 'bg-blue-50 text-blue-700',
-            query: 'Show active projects summary',
-          },
-          {
-            label: 'Needs Attention',
-            value: overdueProjects.length + dueTodayProjects.length,
-            helper:
-              overdueProjects.length > 0
-                ? `${overdueProjects.length} overdue · ${dueTodayProjects.length} due today`
-                : `${dueTodayProjects.length} due today`,
-            icon: AlertTriangle,
-            tone: 'bg-rose-50 text-rose-700',
-            query: 'How many projects are overdue?',
-          },
-          {
-            label: 'Awaiting Approval',
-            value: pendingApprovals.length,
-            helper: 'Waiting for client review',
-            icon: Clock3,
-            tone: 'bg-amber-50 text-amber-700',
-            query: 'What projects are waiting for client approval?',
-          },
-          {
-            label: 'Receivables',
-            value: isAdmin ? formatMoney(totalReceivables, 'USD') : 'Restricted',
-            helper: isAdmin ? 'Outstanding client balances' : 'Admin financial data',
-            icon: CircleDollarSign,
-            tone: 'bg-emerald-50 text-emerald-700',
-            query: 'Who owes us money and what are the receivables?',
-          },
-        ].map((metric) => {
-          const Icon = metric.icon;
-          const disabled = metric.label === 'Receivables' && !isAdmin;
-          return (
+      </header>
+      <div className="ai-workspace-strip">
+        <span>
+          <FolderKanban size={14} /> Workspace at a glance
+        </span>
+        <div>
+          {metrics.map((metric) => (
             <button
               key={metric.label}
-              type="button"
-              disabled={disabled}
-              onClick={() => !disabled && void sendMessage(metric.query)}
-              className="rounded-2xl border border-border bg-white p-4 text-left shadow-xs transition hover:-translate-y-0.5 hover:border-gold/50 hover:shadow-soft disabled:cursor-default disabled:hover:translate-y-0 disabled:hover:border-border"
+              disabled={isProcessing}
+              onClick={() => handleCommand(metric.query)}
             >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-muted">
-                    {metric.label}
-                  </p>
-                  <p className="mt-1.5 truncate font-display text-2xl font-bold text-ink sm:text-3xl">
-                    {metric.value}
-                  </p>
-                </div>
-                <span className={cn('grid h-10 w-10 shrink-0 place-items-center rounded-xl', metric.tone)}>
-                  <Icon className="h-4 w-4" />
-                </span>
-              </div>
-              <p className="mt-3 truncate border-t border-border/60 pt-2.5 text-[11px] text-muted">
-                {metric.helper}
-              </p>
+              <i className={`ai-metric-dot ${metric.tone}`} />
+              <strong>{metric.value}</strong> {metric.label}
+              <ArrowUpRight size={11} />
             </button>
-          );
-        })}
-      </section>
-
-      {/* Workspace */}
-      <section className="grid min-h-[650px] gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
-        {/* Saved conversation rail */}
-        <aside
-          className={cn(
-            'overflow-hidden rounded-2xl border border-border bg-white shadow-xs',
-            mobileHistoryOpen ? 'block' : 'hidden',
-            'lg:block',
-          )}
-        >
-          <div className="border-b border-border p-3.5">
-            <button
-              type="button"
-              onClick={handleNewConversation}
-              className="flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-ink px-3 text-xs font-bold text-white transition hover:bg-ink/90"
-            >
-              <Plus className="h-4 w-4 text-gold" />
-              New Conversation
-            </button>
-          </div>
-
-          <div className="px-3 pb-2 pt-3">
-            <div className="flex items-center justify-between gap-2 px-1">
-              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
-                Conversation History
-              </p>
-              <span className="text-[10px] text-muted">{conversations.length}</span>
-            </div>
-          </div>
-
-          <div className="max-h-[565px] space-y-1.5 overflow-y-auto px-2.5 pb-3">
-            {conversations.length ? (
-              conversations.map((conversation) => {
-                const active = conversation.id === activeConversationId;
-                return (
-                  <button
-                    key={conversation.id}
-                    type="button"
-                    onClick={() => {
-                      void switchConversation(conversation.id);
-                      setActiveTab('chat');
-                      setMobileHistoryOpen(false);
-                    }}
-                    className={cn(
-                      'w-full rounded-xl px-3 py-2.5 text-left transition',
-                      active
-                        ? 'bg-gold/15 ring-1 ring-gold/30'
-                        : 'hover:bg-black/[0.035]',
-                    )}
-                  >
-                    <div className="flex items-start gap-2.5">
-                      <MessageSquare
-                        className={cn(
-                          'mt-0.5 h-3.5 w-3.5 shrink-0',
-                          active ? 'text-[#7a5518]' : 'text-muted',
-                        )}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-xs font-semibold text-ink">
-                          {conversation.title || 'New Conversation'}
-                        </p>
-                        <p className="mt-0.5 text-[10px] text-muted">
-                          {conversationDate(conversation.updatedAt)}
-                        </p>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })
-            ) : (
-              <div className="rounded-xl border border-dashed border-border bg-[#faf9f6] p-5 text-center">
-                <History className="mx-auto h-5 w-5 text-muted/40" />
-                <p className="mt-2 text-xs font-semibold text-ink">No saved chats yet</p>
-                <p className="mt-1 text-[10px] leading-relaxed text-muted">
-                  Your AI conversations will appear here automatically.
-                </p>
-              </div>
-            )}
-          </div>
-        </aside>
-
-        {/* Chat / Activity workspace */}
-        <div className="flex min-h-[650px] min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-[#fcfbf8] shadow-xs">
-          <div className="flex flex-col gap-3 border-b border-border bg-white px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-            <div className="flex items-center gap-3">
-              <div className="grid h-10 w-10 place-items-center rounded-xl bg-ink text-gold shadow-xs">
-                <Bot className="h-5 w-5" />
-              </div>
+          ))}
+        </div>
+        <span className="ai-connected">
+          <i /> Live workspace context
+        </span>
+      </div>
+      <div className="ai-dashboard-grid">
+        <AIQuickCommandsPanel
+          commands={commands}
+          recent={recent.filter((query) => commands.some((command) => command.query === query))}
+          disabled={isProcessing}
+          open={commandsOpen}
+          onClose={closeCommands}
+          onCommand={handleCommand}
+          onNewChat={handleNewChat}
+        />
+        <AIVoiceHeroPanel
+          state={state}
+          userName={userName}
+          commands={commands}
+          onCommand={handleCommand}
+          onVoice={handleVoice}
+        />
+        <AIChatPanelV2
+          onVoice={handleVoice}
+          onNewChat={handleNewChat}
+          onViewInvoice={setViewingInvoice}
+        />
+      </div>
+      <div className="ai-dashboard-footer">
+        <span>
+          <Sparkles size={12} /> Built around your workspace.
+        </span>
+        <span>
+          <ShieldCheck size={12} /> Click-to-speak only · You approve every change
+        </span>
+      </div>
+      <details className="ai-workspace-details">
+        <summary>
+          <LayoutGrid size={15} /> Workspace insights & assistant health
+        </summary>
+        <div className="ai-details-content">
+          {dailySummary && (
+            <section className="ai-daily-details">
               <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="font-display text-base font-bold text-ink">MH AI Assistant</h2>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-700">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    {assistantState}
-                  </span>
-                </div>
-                <p className="mt-0.5 text-[11px] text-muted">
-                  Live data · write actions require confirmation
+                <span className="ai-eyebrow">TODAY’S AI BRIEFING</span>
+                <button className="ai-outline-button" onClick={refreshDailyBriefing}>
+                  Refresh briefing
+                </button>
+              </div>
+              <h2>{dailySummary.headline}</h2>
+              <p>
+                {dailySummary.overdueProjects.count} overdue · {dailySummary.dueToday.count} due
+                today · {dailySummary.awaitingApprovals.count} awaiting approval ·{' '}
+                {dailySummary.overdueTasks.count} overdue tasks
+              </p>
+              {dailySummary.proactiveInsights.slice(0, 3).map((insight) => (
+                <p key={insight.type + insight.title}>
+                  <strong>{insight.title}</strong> — {insight.description}
                 </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1 rounded-xl bg-linen p-1">
-              <button
-                type="button"
-                onClick={() => setActiveTab('chat')}
-                className={cn(
-                  'inline-flex min-h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition',
-                  activeTab === 'chat'
-                    ? 'bg-white text-ink shadow-xs'
-                    : 'text-muted hover:text-ink',
-                )}
-              >
-                <MessageSquare className="h-3.5 w-3.5" />
-                Assistant
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('activity')}
-                className={cn(
-                  'inline-flex min-h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition',
-                  activeTab === 'activity'
-                    ? 'bg-white text-ink shadow-xs'
-                    : 'text-muted hover:text-ink',
-                )}
-              >
-                <History className="h-3.5 w-3.5" />
-                Activity
-                {auditLogs.length > 0 ? (
-                  <span className="rounded-full bg-gold/15 px-1.5 py-0.5 text-[9px] text-[#7a5518]">
-                    {auditLogs.length}
-                  </span>
-                ) : null}
-              </button>
-            </div>
-          </div>
-
-          {activeTab === 'activity' ? (
-            <div className="min-h-0 flex-1 overflow-hidden bg-white">
-              <AIActivityHistory />
-            </div>
-          ) : (
-            <>
-              <div className="min-h-0 flex-1 overflow-y-auto px-3 py-5 sm:px-5 lg:px-7">
-                <div className="mx-auto w-full max-w-4xl space-y-5">
-                  {messages.length === 0 ? (
-                    <div className="flex min-h-[380px] flex-col items-center justify-center text-center">
-                      <div className="grid h-14 w-14 place-items-center rounded-2xl bg-gold/15 text-[#7a5518]">
-                        <Sparkles className="h-6 w-6" />
-                      </div>
-                      <h3 className="mt-4 font-display text-lg font-bold text-ink">
-                        What should we work on?
-                      </h3>
-                      <p className="mt-1 max-w-md text-xs leading-relaxed text-muted sm:text-sm">
-                        Ask about projects, deadlines, team workload, finance, invoices, or preview a
-                        safe action. Nothing is changed until a write action is confirmed.
-                      </p>
-
-                      <div className="mt-5 grid w-full max-w-2xl gap-2 sm:grid-cols-2">
-                        {quickCommands.slice(0, 4).map((command) => {
-                          const Icon = command.icon;
-                          return (
-                            <button
-                              key={command.label}
-                              type="button"
-                              onClick={() => void sendMessage(command.query)}
-                              className="flex items-start gap-3 rounded-xl border border-border bg-white p-3 text-left transition hover:border-gold/60 hover:bg-gold/[0.04]"
-                            >
-                              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-linen text-[#7a5518]">
-                                <Icon className="h-4 w-4" />
-                              </span>
-                              <span className="min-w-0">
-                                <span className="block text-xs font-bold text-ink">{command.label}</span>
-                                <span className="mt-0.5 block text-[10px] leading-relaxed text-muted">
-                                  {command.description}
-                                </span>
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : (
-                    messages.map((message) => (
-                      <AIChatMessage
-                        key={message.id}
-                        message={message}
-                        onViewInvoice={setViewingInvoice}
-                      />
-                    ))
-                  )}
-
-                  {isProcessing ? (
-                    <AIChatMessage
-                      message={{
-                        id: 'ai-processing',
-                        conversationId: activeConversationId || '',
-                        role: 'assistant',
-                        content: '',
-                        createdAt: new Date().toISOString(),
-                      }}
-                      isProcessing
-                    />
-                  ) : null}
-
-                  {isListening && liveTranscript ? (
-                    <div className="rounded-xl border border-gold/30 bg-gold/10 px-3 py-2 text-xs text-ink">
-                      <span className="font-bold text-[#7a5518]">Hearing:</span>{' '}
-                      “{liveTranscript}”
-                    </div>
-                  ) : null}
-
-                  {voiceError ? (
-                    <div className="flex items-start justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
-                      <div className="flex items-start gap-2">
-                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                        <span>{voiceError}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={clearVoiceError}
-                        className="font-bold hover:underline"
-                      >
-                        Dismiss
-                      </button>
-                    </div>
-                  ) : null}
-
-                  <div ref={messagesEndRef} />
-                </div>
-              </div>
-
-              <div className="border-t border-border bg-white p-3 sm:p-4">
-                <div className="mx-auto w-full max-w-4xl">
-                  <div className="rounded-2xl border border-border bg-white shadow-xs transition focus-within:border-gold focus-within:ring-2 focus-within:ring-gold/10">
-                    <div className="flex items-end gap-2 p-2">
-                      <button
-                        type="button"
-                        onClick={handleVoiceToggle}
-                        className={cn(
-                          'grid h-10 w-10 shrink-0 place-items-center rounded-xl transition',
-                          isListening
-                            ? 'bg-rose-600 text-white shadow-rose-200 animate-pulse'
-                            : 'bg-gold/20 text-[#7a5518] hover:bg-gold/30',
-                        )}
-                        title={isListening ? 'Stop listening' : 'Speak to assistant'}
-                      >
-                        {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                      </button>
-
-                      <textarea
-                        ref={composerRef}
-                        rows={1}
-                        value={input}
-                        disabled={isProcessing}
-                        onChange={(event) => {
-                          setInput(event.target.value);
-                          event.currentTarget.style.height = 'auto';
-                          event.currentTarget.style.height =
-                            Math.min(event.currentTarget.scrollHeight, 140) + 'px';
-                        }}
-                        onKeyDown={handleComposerKeyDown}
-                        placeholder={
-                          isListening
-                            ? 'Listening…'
-                            : 'Ask about projects, finance, team workload, or preview an action…'
-                        }
-                        className="min-h-10 max-h-[140px] flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-5 text-ink outline-none placeholder:text-muted/60"
-                      />
-
-                      <button
-                        type="button"
-                        onClick={handleSubmit}
-                        disabled={!input.trim() || isProcessing}
-                        className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-ink text-white transition hover:bg-ink/90 disabled:cursor-not-allowed disabled:opacity-35"
-                        title="Send"
-                      >
-                        <SendHorizontal className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-1.5 flex items-center justify-between gap-3 px-1 text-[10px] text-muted">
-                    <span>Enter to send · Shift+Enter for a new line</span>
-                    <button
-                      type="button"
-                      onClick={clearConversation}
-                      className="font-semibold text-[#7a5518] hover:underline"
-                    >
-                      Start fresh chat
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </>
+              ))}
+            </section>
           )}
+          <AIOperatorIntelligencePanel />
         </div>
-      </section>
-
-      {/* Quick command library */}
-      <section className="rounded-2xl border border-border bg-white p-4 shadow-xs sm:p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="font-display text-lg font-semibold text-ink">Quick Commands</h2>
-            <p className="mt-0.5 text-xs text-muted">
-              Common live-data questions and safe actions for your current role.
-            </p>
-          </div>
-          <div className="hidden items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 sm:flex">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            Confirmation protected
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
-          {quickCommands.map((command) => {
-            const Icon = command.icon;
-            return (
-              <button
-                key={command.label + command.query}
-                type="button"
-                onClick={() => void sendMessage(command.query)}
-                className="group flex items-start gap-3 rounded-xl border border-border bg-[#fcfbf8] p-3.5 text-left transition hover:border-gold/60 hover:bg-gold/[0.045]"
-              >
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white text-[#7a5518] shadow-xs transition group-hover:bg-gold/15">
-                  <Icon className="h-4 w-4" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-xs font-bold text-ink">{command.label}</span>
-                  <span className="mt-0.5 block text-[10px] leading-relaxed text-muted">
-                    {command.description}
-                  </span>
-                </span>
-                <ChevronRight className="mt-1 h-3.5 w-3.5 shrink-0 text-muted/50 group-hover:text-[#7a5518]" />
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
-      {viewingInvoice ? (
+      </details>
+      <div className="ai-mobile-actions">
+        <button
+          className="ai-outline-button"
+          onClick={() => setCommandsOpen(true)}
+          aria-expanded={commandsOpen}
+          aria-controls="ai-command-rail"
+        >
+          <Command size={16} />
+          Commands
+        </button>
+        <button
+          className="ai-speak-button"
+          disabled={isProcessing || (!settings.voiceEnabled && !isListening && !isSpeaking)}
+          onClick={handleVoice}
+        >
+          {isSpeaking ? (
+            <Square size={16} />
+          ) : isListening ? (
+            <MicOff size={16} />
+          ) : (
+            <Mic size={16} />
+          )}
+          {isSpeaking ? 'Stop Speaking' : isListening ? 'Stop Listening' : 'Speak'}
+        </button>
+      </div>
+      {viewingInvoice && (
         <InvoiceModal invoice={viewingInvoice} onClose={() => setViewingInvoice(null)} />
-      ) : null}
+      )}
+      {creationForm && (
+        <AICreationForm
+          key={creationForm.kind + (openedFormMessageRef.current || '')}
+          selection={creationForm}
+          projects={projects}
+          profiles={profiles}
+          onClose={closeCreationForm}
+        />
+      )}
     </div>
   );
 }

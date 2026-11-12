@@ -1,8 +1,17 @@
-import React from 'react';
-import { AlertCircle, CheckCircle2, ShieldAlert, X, ArrowRight, Send, AlertTriangle } from 'lucide-react';
+import React, { useState } from 'react';
+import {
+  AlertCircle,
+  CheckCircle2,
+  ShieldAlert,
+  X,
+  ArrowRight,
+  Send,
+  AlertTriangle,
+} from 'lucide-react';
 import type { AIActionPreview } from '../../lib/ai/aiTypes';
 import { useAIContext } from '../../lib/ai/aiContext';
 import { cn } from '../../lib/utils';
+import { confirmationIntent } from '../../lib/ai/aiPreviewRevision';
 
 interface Props {
   action: AIActionPreview;
@@ -10,7 +19,11 @@ interface Props {
 }
 
 export function AIActionPreviewCard({ action, isConfirmedOrCancelled }: Props) {
-  const { confirmAction, cancelAction, isProcessing } = useAIContext();
+  const { confirmAction, cancelAction, isProcessing, pendingAction, sendMessage } = useAIContext();
+  const [editing, setEditing] = useState(false);
+  const [correction, setCorrection] = useState('');
+  const [editError, setEditError] = useState('');
+  const active = !isConfirmedOrCancelled && pendingAction?.actionId === action.actionId;
 
   const isDestructive = action.category === 'destructive' || action.requiresStrongConfirmation;
   const isHighRisk = action.category === 'high_risk';
@@ -73,7 +86,9 @@ export function AIActionPreviewCard({ action, isConfirmedOrCancelled }: Props) {
               <div className="flex items-center gap-1.5 text-right overflow-hidden text-ellipsis">
                 {change.oldValue && (
                   <>
-                    <span className="line-through text-muted text-[10px]">{String(change.oldValue)}</span>
+                    <span className="line-through text-muted text-[10px]">
+                      {String(change.oldValue)}
+                    </span>
                     <ArrowRight className="w-3 h-3 text-muted shrink-0" />
                   </>
                 )}
@@ -85,7 +100,7 @@ export function AIActionPreviewCard({ action, isConfirmedOrCancelled }: Props) {
       )}
 
       {/* Action Buttons (Disabled if already answered) */}
-      {!isConfirmedOrCancelled ? (
+      {active ? (
         <div className="flex items-center gap-2 pt-1">
           <button
             onClick={() => confirmAction(action)}
@@ -97,8 +112,21 @@ export function AIActionPreviewCard({ action, isConfirmedOrCancelled }: Props) {
                 : 'bg-gold hover:bg-[#b89757] text-ink font-semibold',
             )}
           >
-            {isDestructive ? <AlertCircle className="w-3.5 h-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+            {isDestructive ? (
+              <AlertCircle className="w-3.5 h-3.5" />
+            ) : (
+              <CheckCircle2 className="w-3.5 h-3.5" />
+            )}
             <span>{action.confirmButtonText || 'Confirm'}</span>
+          </button>
+
+          <button
+            type="button"
+            disabled={isProcessing}
+            onClick={() => setEditing((value) => !value)}
+            className="py-2 px-3 rounded-lg border border-black/10 text-muted font-medium text-xs"
+          >
+            Edit
           </button>
 
           <button
@@ -111,7 +139,52 @@ export function AIActionPreviewCard({ action, isConfirmedOrCancelled }: Props) {
           </button>
         </div>
       ) : (
-        <div className="pt-1 text-[10px] text-muted italic">Action completed</div>
+        <div className="pt-1 text-[10px] text-muted italic">This preview is no longer active.</div>
+      )}
+      {active && editing && (
+        <form
+          className="mt-3 space-y-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!correction.trim() || isProcessing) return;
+            if (confirmationIntent(correction)) {
+              setEditError(
+                'Describe a field change here. Use the action buttons to confirm or cancel.',
+              );
+              return;
+            }
+            void sendMessage(correction.trim());
+            setEditing(false);
+            setCorrection('');
+            setEditError('');
+          }}
+        >
+          <label className="block text-[11px] text-muted">
+            Describe your correction
+            <input
+              autoFocus
+              value={correction}
+              onChange={(event) => {
+                setCorrection(event.target.value);
+                setEditError('');
+              }}
+              placeholder="For example: change the due date to Friday"
+              className="mt-1 block w-full rounded-lg border border-border bg-white p-2 text-ink"
+            />
+          </label>
+          {editError && (
+            <p role="alert" className="text-[11px] text-muted">
+              {editError}
+            </p>
+          )}
+          <button
+            type="submit"
+            disabled={isProcessing || !correction.trim()}
+            className="rounded-lg bg-gold px-3 py-2 text-ink font-semibold"
+          >
+            Update preview
+          </button>
+        </form>
       )}
     </div>
   );

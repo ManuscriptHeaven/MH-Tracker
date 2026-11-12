@@ -498,6 +498,7 @@ export function Layout({
           desktopSidebarMinimized ? 'lg:ml-20' : 'lg:ml-72',
         )}
       >
+        {activeView !== 'ai_assistant' && (
         <header className="no-print sticky top-0 z-20 border-b border-border bg-linen/95 px-3 py-3 backdrop-blur sm:px-4 sm:py-4 lg:px-8">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex items-center justify-between gap-3">
@@ -574,12 +575,14 @@ export function Layout({
             </div>
           </div>
         </header>
+        )}
 
         <div className="p-3 sm:p-4 lg:p-8">{children}</div>
       </main>
 
       {/* Mobile Bottom Navigation Bar (5 Items: 4 Quick Views + More) */}
       <nav
+        data-mobile-bottom-nav
         className="no-print fixed bottom-0 left-0 right-0 z-40 grid grid-cols-5 border-t border-border bg-white/95 backdrop-blur-md px-1 py-1.5 shadow-[0_-6px_20px_rgba(26,26,26,0.06)] lg:hidden"
         style={{ paddingBottom: 'calc(0.375rem + env(safe-area-inset-bottom, 0px))' }}
       >

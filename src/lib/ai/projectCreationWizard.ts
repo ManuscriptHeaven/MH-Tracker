@@ -7,7 +7,7 @@ import type {
 import { formatDate, parseNaturalDate, todayInput } from '../date';
 import { isClientRole, isManagerRole } from '../utils';
 
-const SERVICE_TYPES = [
+export const SERVICE_TYPES = [
   'Print Formatting',
   'eBook Formatting',
   'Cover Design',
@@ -292,6 +292,7 @@ function wizardPrompt(
   return {
     success: true,
     toolName: 'create_project',
+    data: { creationForm: { kind: 'project', draft } },
     spokenText:
       'I can create the project. I still need ' +
       missingLabels.join(', ') +

@@ -17,7 +17,7 @@ const wizard = read('src/lib/ai/projectCreationWizard.ts');
 const engine = read('src/lib/ai/voiceQueryEngine.ts');
 const actions = read('src/lib/ai/safeActionTools.ts');
 const types = read('src/lib/ai/aiTypes.ts');
-const page = read('src/pages/AIAssistantPage.tsx');
+const page = read('src/pages/AIAssistantPage.tsx') + read('src/lib/ai/dashboardV2.ts');
 
 console.log('--- AI Project Creation Wizard Static Tests ---');
 

@@ -23,6 +23,10 @@ import {
 } from './aiPlannerService';
 import { rankEntityCandidates, resolveUniqueEntityMatch } from './aiEntityMatcher';
 import { verifyActionOutcome } from './aiActionVerifier';
+import { confirmationIntent, reviseTaskPreview } from './aiPreviewRevision';
+import { buildCreationPreview, type AICreationRequest } from './creationForms';
+import { processLocalConversation } from './localConversation';
+import { cleanRequest } from './localLanguage';
 
 function startsIndependentRequest(query: string): boolean {
   return /^(?:(?:can|could|would|will)\s+you\s+)?(?:how|what|which|who|when|where|why|show|give|provide|list|summarize|send|create|generate|make|record|add|update|change|delete|archive)\b|^please\s+(?:show|give|provide|list|summarize|send|create|generate|make|record|add|update|change|delete|archive)\b/i.test(query.trim());
@@ -46,6 +50,15 @@ export class VoiceQueryEngine {
 
   public clearMemory(): void {
     this.memory = {};
+  }
+
+  public prepareCreationDraft(request: AICreationRequest, ctx: AIToolContext): AIToolResult {
+    const result = buildCreationPreview(request, ctx);
+    if (result.pendingAction) {
+      this.clearMemory();
+      this.memory.pendingAction = result.pendingAction;
+    }
+    return result;
   }
 
   public getLogs(): ToolExecutionLog[] {
@@ -84,7 +97,7 @@ export class VoiceQueryEngine {
   }
 
   public async processQuery(rawQuery: string, ctx: AIToolContext): Promise<AIToolResult> {
-    const q = rawQuery.trim();
+    const q = this.normalizeTaskRequest(cleanRequest(rawQuery), ctx);
     const lower = q.toLowerCase();
 
     // ==========================================
@@ -92,6 +105,11 @@ export class VoiceQueryEngine {
     // ==========================================
     if (this.memory.pendingAction) {
       const pending = this.memory.pendingAction;
+      const revision = reviseTaskPreview(q, pending, ctx);
+      if (revision?.pendingAction) {
+        this.memory.pendingAction = revision.pendingAction;
+        return revision;
+      }
 
       if (
         pending.toolName === 'send_client_message' &&
@@ -117,8 +135,8 @@ export class VoiceQueryEngine {
         }
       }
 
-      const isAffirmative = /\b(yes|yes do it|confirm|go ahead|do that|do it|okay|ok|sure|proceed|yep|yeah)\b/i.test(lower);
-      const isNegative = /\b(no|cancel|don't do it|dont do it|stop|never mind|nevermind|abort)\b/i.test(lower);
+      const isAffirmative = confirmationIntent(q) === 'confirm';
+      const isNegative = confirmationIntent(q) === 'cancel';
 
       if (isAffirmative) {
         const action = pending;
@@ -144,6 +162,10 @@ export class VoiceQueryEngine {
         this.logExecution(ctx, q, action.toolName, true);
         return result;
       }
+      // A new request supersedes the old preview, so a later "yes" cannot
+      // execute a hidden draft that is no longer represented by the UI.
+      this.memory.pendingAction = null;
+      this.cancelPendingPlan();
     }
 
     // ==========================================
@@ -167,6 +189,17 @@ export class VoiceQueryEngine {
     }
 
     // ==========================================
+    // Local task dialogue and project questions run before keyword routing.
+    // They use only the visible workspace and never call a model provider.
+    const localResult = processLocalConversation(rawQuery, ctx, this.memory);
+    if (localResult) {
+      this.memory.pendingCommandCompletion = null;
+      this.memory.pendingProjectCreation = null;
+      this.updateMemory(localResult, q);
+      this.logExecution(ctx, q, localResult.toolName, localResult.success, localResult.error);
+      return localResult;
+    }
+
     // 0C. HANDLE PROJECT CREATION WIZARD
     // ==========================================
     if (this.memory.pendingProjectCreation) {
@@ -563,7 +596,12 @@ export class VoiceQueryEngine {
       if (proj) {
         result = await tools.get_project_details(proj, ctx);
       } else {
-        result = await tools.get_project_summary(ctx);
+        result = {
+          success: true,
+          toolName: 'get_project_summary',
+          displayText: 'I’m not sure what you’d like me to do. You can say “give Zain a task to check the ebook tomorrow” or ask “how is The End of Smart going?”',
+          spokenText: 'I’m not sure what you’d like me to do. Tell me the task you need, or name a project to check.',
+        };
       }
     }
 
@@ -859,7 +897,18 @@ export class VoiceQueryEngine {
       }
 
       // Extract Assignee
-      const targetEmp = this.extractEmployeeFromQuery(lower, ctx);
+      const taskDetails = q.replace(/^(?:create|add)\s+(?:a\s+)?task\s*/i, '').trim();
+      const explicitAssignee = taskDetails.match(/^for\s+(.+?)(?:\s+to\s+|$)/i);
+      const targetEmp = explicitAssignee ? this.extractEmployeeFromQuery(explicitAssignee[1], ctx) : undefined;
+      if (explicitAssignee && !targetEmp) {
+        return {
+          success: false,
+          toolName: 'create_task',
+          error: 'assignee_clarification_required',
+          spokenText: 'Please use a unique team member’s full name.',
+          displayText: 'I couldn’t identify a unique assignee. Please repeat the task with their full name, for example: **Create a task for Zain to prepare ebook**.',
+        };
+      }
       const targetEmpProfile = targetEmp ? ctx.data.profiles.find((p) => p.full_name === targetEmp) : ctx.currentProfile;
       const targetEmpName = targetEmpProfile ? firstName(targetEmpProfile.full_name) : 'you';
 
@@ -896,6 +945,7 @@ export class VoiceQueryEngine {
 
       taskTitle = taskTitle
         .replace(/\s+(tomorrow|today|by\s+[a-zA-Z0-9\s]+|due\s+[a-zA-Z0-9\s]+)\s*$/i, '')
+        .replace(/^[\s:,.–-]+|[.!?]+$/g, '')
         .trim();
 
       if (!taskTitle || taskTitle.length < 3) {
@@ -903,6 +953,7 @@ export class VoiceQueryEngine {
           success: false,
           toolName: 'create_task',
           error: 'task_details_required',
+          data: { creationForm: { kind: 'task', draft: { assignedToId: targetEmpProfile?.id } } },
           spokenText: 'What should the task for ' + targetEmpName + ' be called?',
           displayText:
             '### Task Details Needed\n\n' +
@@ -2268,6 +2319,12 @@ export class VoiceQueryEngine {
   public async executeConfirmedAction(action: AIActionPreview, ctx: AIToolContext): Promise<AIToolResult> {
     const result = await this.executeAction(action, ctx);
 
+    if (result.success && action.toolName === 'create_task' && action.payload.localConversation) {
+      const owner = ctx.data.profiles.find(profile => profile.id === action.payload.assignedToId);
+      result.displayText = `Created **“${action.payload.title}”**, assigned to **${owner?.full_name || 'you'}**${action.payload.dueDate ? `, due **${formatDate(action.payload.dueDate)}**` : ''}. You'll find it in Tasks.`;
+      result.spokenText = result.displayText.replace(/\*\*/g, '');
+    }
+
     if (result.success) {
       const verification = await verifyActionOutcome(action, result);
       if (verification) {
@@ -2695,8 +2752,9 @@ export class VoiceQueryEngine {
     this.memory.lastToolUsed = result.toolName;
     this.memory.lastQueryTime = new Date().toISOString();
 
-    if (result.entities?.projects && result.entities.projects.length > 0) {
+    if (result.entities?.projects) {
       this.memory.lastProjects = result.entities.projects;
+      this.memory.lastLocalProjectId = result.entities.projects.length === 1 ? result.entities.projects[0].id : undefined;
     }
     if (result.entities?.clients && result.entities.clients.length > 0) {
       this.memory.lastClientName = result.entities.clients[0];
@@ -2709,6 +2767,31 @@ export class VoiceQueryEngine {
   // ==========================================
   // ENTITY EXTRACTION HELPERS
   // ==========================================
+
+  private normalizeTaskRequest(rawQuery: string, ctx: AIToolContext): string {
+    const raw = rawQuery.trim();
+    const request = raw
+      .replace(/^(?:hey\s+(?:james|mh)(?:\s+ai)?[,!]?\s+)?(?:(?:please\s+)|(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?)|(?:i(?:'d| would)\s+like\s+(?:you\s+)?to\s+)|(?:i\s+want\s+(?:you\s+)?to\s+))*/i, '')
+      .replace(/[.!?]+$/, '')
+      .trim();
+    if (/^new\s+task\b/i.test(request)) return `Create a task ${request.replace(/^new\s+task\s*/i, '')}`.trim();
+    if (/^new\s+project[.!?\s]*$/i.test(request)) return 'Create a new project';
+    const create = request.match(/^(?:create|add|make|set up)\s+(?:(?:a|new|a new)\s+)?task\b\s*(.*)$/i);
+    const assign = request.match(/^(?:assign|give)\s+(?:(?:a|new|a new)\s+)?task\s+(?:to|for)\s+(.+)$/i);
+    if (assign) return `Create a task for ${assign[1]}`;
+    const details = create ? create[1] : request;
+    // A named instruction such as "Zain to prepare ebook" is an unambiguous
+    // task draft request, even when a restored chat has no in-memory context.
+    const team = ctx.data.profiles.filter(profile => !isClientRole(profile.role));
+    const aliases = [...new Set(team.flatMap(profile => [profile.full_name, firstName(profile.full_name)]))]
+      .filter(Boolean).sort((a, b) => b.length - a.length);
+    for (const alias of aliases) {
+      const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const match = details.match(new RegExp(`^(?:for\\s+)?(${escaped})\\s+(?:to\\s+|:\\s*)(.+)$`, 'i'));
+      if (match) return `Create a task for ${match[1]} to ${match[2]}`;
+    }
+    return create ? `Create a task ${details}`.trim() : raw;
+  }
 
   private findProjectInQueryOrMemory(query: string, ctx: AIToolContext) {
     const qLower = query.toLowerCase();

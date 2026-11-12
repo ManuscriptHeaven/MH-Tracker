@@ -15,7 +15,9 @@ import type {
 import { aiService } from './aiService';
 import { voiceService } from './voiceService';
 import { voiceQueryEngine } from './voiceQueryEngine';
-import { wakeWordService } from './wakeWordService';
+import { confirmationIntent } from './aiPreviewRevision';
+import type { AICreationRequest } from './creationForms';
+import { VoiceInputRouter, type DictationHandler } from './voiceInputRouter';
 import { buildDailyBriefing } from './dailyBriefing';
 import {
   buildOperatorIntelligence,
@@ -116,7 +118,8 @@ interface AIContextType {
   openChat: () => void;
   closeChat: () => void;
   minimizeChat: (min: boolean) => void;
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (text: string, creation?: AICreationRequest) => Promise<AIToolResult | undefined>;
+  startDictation: (handler: DictationHandler) => void;
   confirmAction: (action: AIActionPreview) => Promise<void>;
   cancelAction: (action: AIActionPreview) => void;
   selectDisambiguationOption: (option: DisambiguationOption) => Promise<void>;
@@ -188,7 +191,8 @@ export function AIProvider({
   const [operatorIntelligence, setOperatorIntelligence] = useState<AIOperatorIntelligence | null>(null);
   const [showDailyPopup, setShowDailyPopup] = useState(false);
 
-  const [isWakeWordListening, setIsWakeWordListening] = useState(false);
+  // Kept for older consumers; background microphone capture is never enabled.
+  const isWakeWordListening = false;
 
   const [settings, setSettings] = useState<AIUserSettings>({
     voiceEnabled: true,
@@ -196,7 +200,7 @@ export function AIProvider({
     ttsEnabled: true,
     autoSpeak: true,
     isMuted: false,
-    wakeWordEnabled: true,
+    wakeWordEnabled: false,
     wakeWord: 'hey james',
     assistantName: 'James',
   });
@@ -216,6 +220,11 @@ export function AIProvider({
   const selectedProjectRef = useRef<any>(selectedProject);
   selectedProjectRef.current = selectedProject;
   const dailyPopupCheckRef = useRef<string | null>(null);
+  const pendingActionRef = useRef<AIActionPreview | null>(null);
+  pendingActionRef.current = pendingAction;
+  const processingRef = useRef(false);
+  const voiceScopeRef = useRef(0);
+  const voiceInputRouter = useRef(new VoiceInputRouter());
 
   // Persist audit logs
   useEffect(() => {
@@ -305,7 +314,7 @@ export function AIProvider({
   useEffect(() => {
     async function init() {
       const loadedSettings = await aiService.getUserSettings();
-      setSettings((prev) => ({ ...prev, ...loadedSettings }));
+      setSettings((prev) => ({ ...prev, ...loadedSettings, wakeWordEnabled: false }));
       voiceService.setMuted(Boolean(loadedSettings.isMuted));
       if (loadedSettings.voiceLanguage) {
         voiceService.setLanguage(loadedSettings.voiceLanguage);
@@ -378,25 +387,26 @@ export function AIProvider({
 
   const openChat = useCallback(() => setIsOpen(true), []);
   const closeChat = useCallback(() => {
+    voiceScopeRef.current += 1;
     setIsOpen(false);
     voiceService.stopSpeaking();
     voiceService.stopListening();
   }, []);
 
   const toggleChat = useCallback(() => {
-    setIsOpen((p) => {
-      const next = !p;
-      if (!next && isSpeaking) {
-        voiceService.stopSpeaking();
-      }
-      return next;
-    });
-  }, [isSpeaking]);
+    if (isOpen) closeChat();
+    else openChat();
+  }, [isOpen, closeChat, openChat]);
 
-  const minimizeChat = useCallback((min: boolean) => setIsChatMinimized(min), []);
+  const minimizeChat = useCallback((min: boolean) => {
+    if (min) { voiceScopeRef.current += 1; voiceService.stopListening(); voiceService.stopSpeaking(); }
+    setIsChatMinimized(min);
+  }, []);
 
   const switchConversation = useCallback(async (id: string) => {
+    if (processingRef.current) return;
     voiceQueryEngine.clearMemory();
+    voiceService.stopListening();
     voiceService.stopSpeaking();
     setPendingAction(null);
     setVoiceError(null);
@@ -405,14 +415,16 @@ export function AIProvider({
 
     if (isPersistentConversationId(id)) {
       const loaded = await aiService.loadMessages(id);
-      setMessages(loaded);
+      if (activeConvoRef.current === id) setMessages(loaded);
     } else {
       setMessages([]);
     }
   }, []);
 
   const startNewConversation = useCallback(() => {
+    if (processingRef.current) return;
     voiceQueryEngine.clearMemory();
+    voiceService.stopListening();
     voiceService.stopSpeaking();
     setActiveConversationId(null);
     activeConvoRef.current = null;
@@ -425,7 +437,9 @@ export function AIProvider({
   // Historical chats are preserved in Supabase. "Clear" starts a fresh chat
   // instead of deleting the audit/history trail.
   const clearConversation = useCallback(() => {
+    if (processingRef.current) return;
     voiceQueryEngine.clearMemory();
+    voiceService.stopListening();
     voiceService.stopSpeaking();
     setActiveConversationId(null);
     activeConvoRef.current = null;
@@ -452,22 +466,30 @@ export function AIProvider({
   }, []);
 
   const startVoice = useCallback(() => {
+    if (processingRef.current || !settings.voiceEnabled) return;
+    voiceInputRouter.current.cancelDictation();
+    setLiveTranscript('');
     setVoiceError(null);
     voiceService.startListening(settings.voiceLanguage);
-  }, [settings.voiceLanguage]);
+  }, [settings.voiceLanguage, settings.voiceEnabled]);
 
   const stopVoice = useCallback(() => {
+    voiceInputRouter.current.cancelDictation();
     voiceService.stopListening();
   }, []);
 
+  const startDictation = useCallback((handler: DictationHandler) => {
+    if (processingRef.current || !settingsRef.current.voiceEnabled) return;
+    voiceService.stopListening();
+    voiceService.stopSpeaking();
+    setVoiceError(null);
+    setLiveTranscript('');
+    voiceInputRouter.current.beginDictation(handler);
+    void voiceService.startListening(settingsRef.current.voiceLanguage);
+  }, []);
+
   const toggleWakeWordListener = useCallback(() => {
-    setSettings((prev) => {
-      const next = !prev.wakeWordEnabled;
-      if (!next) {
-        wakeWordService.stopListening();
-      }
-      return { ...prev, wakeWordEnabled: next };
-    });
+    setSettings((prev) => ({ ...prev, wakeWordEnabled: false }));
   }, []);
 
   const clearVoiceError = useCallback(() => {
@@ -493,34 +515,22 @@ export function AIProvider({
       await voiceService.speak(welcomeText, settingsRef.current.voiceLanguage);
     }
     
-    startVoice();
-  }, [startVoice]);
+  }, []);
 
-  // Synchronize Wake Word Service Event Listeners
+  // Leaving a view, hiding the tab, or unmounting must release all voice capture.
   useEffect(() => {
-    wakeWordService.onListeningStateChange = (active) => {
-      setIsWakeWordListening(active);
-    };
-
-    wakeWordService.onWakeWordDetected = () => {
-      triggerWakeUpGreeting();
-    };
-  }, [triggerWakeUpGreeting]);
-
-  // Manage background Wake Word listener loop
+    voiceScopeRef.current += 1;
+    voiceService.stopListening();
+    voiceService.stopSpeaking();
+    return () => { voiceService.stopListening(); voiceService.stopSpeaking(); };
+  }, [activeView]);
   useEffect(() => {
-    const isManagerOrAdmin =
-      trackerRef.current?.canManageAll ||
-      trackerRef.current?.currentProfile?.role === 'admin' ||
-      trackerRef.current?.currentProfile?.role === 'project_manager' ||
-      trackerRef.current?.currentProfile?.role === 'manager';
-
-    if (settings.wakeWordEnabled && !isListening && !isSpeaking && isManagerOrAdmin) {
-      wakeWordService.startListening(settings.wakeWord || 'hey james', settings.assistantName || 'James');
-    } else {
-      wakeWordService.stopListening();
-    }
-  }, [settings.wakeWordEnabled, settings.wakeWord, settings.assistantName, isListening, isSpeaking]);
+    const stopWhenHidden = () => {
+      if (document.hidden) { voiceScopeRef.current += 1; voiceService.stopListening(); voiceService.stopSpeaking(); }
+    };
+    document.addEventListener('visibilitychange', stopWhenHidden);
+    return () => document.removeEventListener('visibilitychange', stopWhenHidden);
+  }, []);
 
   // Voice Event Handlers
   useEffect(() => {
@@ -528,8 +538,6 @@ export function AIProvider({
       setIsListening(listening);
       if (listening) {
         setVoiceError(null);
-      } else {
-        setLiveTranscript('');
       }
     };
 
@@ -538,6 +546,7 @@ export function AIProvider({
     };
 
     voiceService.onError = (err) => {
+      voiceInputRouter.current.cancelDictation();
       setVoiceError(err);
       setIsListening(false);
       setLiveTranscript('');
@@ -545,9 +554,7 @@ export function AIProvider({
 
     voiceService.onTranscript = (text, isFinal) => {
       setLiveTranscript(text);
-      if (isFinal && text.trim()) {
-        sendMessage(text.trim());
-      }
+      voiceInputRouter.current.receive(text, isFinal, command => { void sendMessage(command); });
     };
 
     return () => {
@@ -559,8 +566,17 @@ export function AIProvider({
   }, []);
 
   const sendMessage = useCallback(
-    async (text: string) => {
-      if (!text.trim()) return;
+    async (text: string, creation?: AICreationRequest) => {
+      if (!text.trim() || processingRef.current) return;
+      processingRef.current = true;
+      const voiceScope = voiceScopeRef.current;
+      const actionAtStart = pendingActionRef.current;
+      const confirmation = actionAtStart ? confirmationIntent(text) : null;
+      pendingActionRef.current = null;
+      setPendingAction(null);
+      setIsProcessing(true);
+      voiceService.stopListening();
+      voiceService.stopSpeaking();
 
       if (!isOpen) openChat();
 
@@ -605,7 +621,9 @@ export function AIProvider({
         const toolCtx = getToolContext();
 
         // Process query using semantic Natural Language Voice Query Engine
-        const result: AIToolResult = await voiceQueryEngine.processQuery(text, toolCtx);
+        const result: AIToolResult = creation
+          ? voiceQueryEngine.prepareCreationDraft(creation, toolCtx)
+          : await voiceQueryEngine.processQuery(text, toolCtx);
 
         if (result.pendingAction) {
           setPendingAction(result.pendingAction);
@@ -627,6 +645,7 @@ export function AIProvider({
           metadata: {
             toolUsed: result.toolName,
             toolResult: result,
+            actionStatus: confirmation === 'cancel' ? 'cancelled' : confirmation === 'confirm' ? (result.success ? 'confirmed' : 'failed') : undefined,
             pendingAction: result.pendingAction,
             disambiguation: result.disambiguation,
             auditLog: result.auditLog,
@@ -677,11 +696,15 @@ export function AIProvider({
           .then(refreshOperatorIntelligence);
 
         // Speak response if voice TTS is enabled and not muted
-        if (settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
+        if (voiceScope === voiceScopeRef.current && settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
           voiceService.speak(result.spokenText || result.displayText, settingsRef.current.voiceLanguage);
         }
+        return result;
       } catch (e: any) {
         console.error('Error processing query:', e);
+        voiceQueryEngine.setPendingAction(null);
+        voiceQueryEngine.cancelPendingPlan();
+        setPendingAction(null);
         void aiService
           .recordOperatorEvent({
             eventType: 'query_result',
@@ -709,6 +732,7 @@ export function AIProvider({
           await aiService.touchConversation(convoId);
         }
       } finally {
+        processingRef.current = false;
         setIsProcessing(false);
       }
     },
@@ -717,6 +741,10 @@ export function AIProvider({
 
   const confirmAction = useCallback(
     async (action: AIActionPreview) => {
+      if (processingRef.current || pendingActionRef.current?.actionId !== action.actionId) return;
+      processingRef.current = true;
+      const voiceScope = voiceScopeRef.current;
+      pendingActionRef.current = null;
       setIsProcessing(true);
       setPendingAction(null);
       voiceQueryEngine.setPendingAction(null);
@@ -802,7 +830,7 @@ export function AIProvider({
           })
           .then(refreshOperatorIntelligence);
 
-        if (settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
+        if (voiceScope === voiceScopeRef.current && settingsRef.current.ttsEnabled && settingsRef.current.autoSpeak && !settingsRef.current.isMuted) {
           voiceService.speak(result.spokenText || result.displayText, settingsRef.current.voiceLanguage);
         }
       } catch (e: any) {
@@ -826,6 +854,7 @@ export function AIProvider({
           conversationId: convoId,
           role: 'assistant',
           content: `❌ Could not complete action: ${e?.message || 'Unknown error'}`,
+          metadata: { actionStatus: 'failed', toolUsed: action.toolName },
           createdAt: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, errorMsg]);
@@ -834,6 +863,7 @@ export function AIProvider({
           await aiService.touchConversation(convoId);
         }
       } finally {
+        processingRef.current = false;
         setIsProcessing(false);
       }
     },
@@ -841,6 +871,8 @@ export function AIProvider({
   );
 
   const cancelAction = useCallback((action: AIActionPreview) => {
+    if (processingRef.current || pendingActionRef.current?.actionId !== action.actionId) return;
+    pendingActionRef.current = null;
     setPendingAction(null);
     voiceQueryEngine.setPendingAction(null);
     voiceQueryEngine.cancelPendingPlan();
@@ -853,6 +885,7 @@ export function AIProvider({
       content: '🛑 **Action cancelled.** No changes were made.',
       spokenText: 'Action cancelled.',
       metadata: {
+        toolUsed: action.toolName,
         actionStatus: 'cancelled',
       },
       createdAt: new Date().toISOString(),
@@ -905,7 +938,8 @@ export function AIProvider({
 
   const updateSettings = useCallback(
     async (newSettings: Partial<AIUserSettings>) => {
-      const updated = { ...settings, ...newSettings };
+      const updated = { ...settings, ...newSettings, wakeWordEnabled: false };
+      if (newSettings.voiceEnabled === false) voiceService.stopListening();
       setSettings(updated);
       if (newSettings.isMuted !== undefined) {
         voiceService.setMuted(newSettings.isMuted);
@@ -953,6 +987,7 @@ export function AIProvider({
     dismissDailyPopup,
     updateSettings,
     startVoice,
+    startDictation,
     stopVoice,
     toggleMute,
     toggleWakeWordListener,

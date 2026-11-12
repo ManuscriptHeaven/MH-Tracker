@@ -148,6 +148,9 @@ export async function planNaturalLanguageAction(
   message: string,
   ctx: AIToolContext,
 ): Promise<AIPlannerResult | null> {
+  // External language planning is explicitly off until a provider is approved.
+  // The local dialogue engine and canonical Tracker actions remain available.
+  if (!externalLanguagePlanningEnabled()) return null;
   if (!shouldUseAIPlanner(message) || typeof window === 'undefined') {
     return null;
   }
@@ -200,4 +203,8 @@ export async function planNaturalLanguageAction(
     // Planner is an enhancement, never a dependency for core Tracker actions.
     return null;
   }
+}
+
+export function externalLanguagePlanningEnabled(): boolean {
+  return false;
 }

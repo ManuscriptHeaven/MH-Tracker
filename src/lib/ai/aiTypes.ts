@@ -13,6 +13,7 @@ import type {
   EmployeeLedgerType,
   Invoice,
 } from '../types';
+import type { LocalTaskConversation, LocalProjectQuestion } from './localConversation';
 
 export type { Profile } from '../types';
 
@@ -334,6 +335,10 @@ export interface ProjectCreationMemoryDraft {
 }
 
 export interface ConversationMemory {
+  pendingLocalTask?: LocalTaskConversation | null;
+  pendingLocalProjectQuestion?: LocalProjectQuestion | null;
+  lastLocalProjectId?: string;
+  lastLocalProjectField?: string;
   lastTopic?: 'projects' | 'tasks' | 'revisions' | 'clients' | 'team' | 'finance' | 'payroll' | 'messages' | 'general';
   lastToolUsed?: AIToolName;
   lastProjects?: Project[];

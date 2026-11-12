@@ -16,15 +16,37 @@ export function ManuscriptHeavenLogo({
 }: ManuscriptHeavenLogoProps) {
   const logoSize = size === 'sm' ? 40 : size === 'md' ? 56 : size === 'lg' ? 80 : 112;
   if (variant === 'invoice-header') {
-    return <img src="/manuscript-heaven-logo.png" alt="Manuscript Heaven Professional Book Production" className={cn('h-20 w-20 object-contain flex-shrink-0', className)} />;
+    return (
+      <div className={cn('flex items-center gap-2.5', className)}>
+        <img src="/mh-monogram.svg" alt="" className="h-12 w-[82px] object-contain flex-shrink-0" />
+        <div className="border-l border-[#d8ccb8] pl-2.5">
+          <h2 className="font-serif text-lg font-bold tracking-tight text-[#1a1a1a] uppercase leading-tight">
+            Manuscript Heaven
+          </h2>
+          <p className="text-[8px] tracking-[0.16em] font-semibold text-[#704b12] uppercase mt-0.5">
+            Professional Book Production
+          </p>
+        </div>
+      </div>
+    );
   }
   if (variant === 'emblem') {
-    return <img src="/manuscript-heaven-logo.png" alt="Manuscript Heaven logo" className={cn('object-contain flex-shrink-0', className)} style={{ width: logoSize, height: logoSize }} />;
+    return <img src="/mh-monogram.svg" alt="Manuscript Heaven monogram" className={cn('object-contain flex-shrink-0', className)} style={{ width: logoSize, height: logoSize }} />;
   }
   if (variant === 'monogram') {
-    return <img src="/manuscript-heaven-logo.png" alt="Manuscript Heaven logo" className={cn('object-contain flex-shrink-0', className)} style={{ width: logoSize, height: logoSize }} />;
+    return <img src="/mh-monogram.svg" alt="Manuscript Heaven monogram" className={cn('object-contain flex-shrink-0', className)} style={{ width: logoSize, height: logoSize }} />;
   }
-  return <div className={cn('flex items-center gap-3', className)}><img src="/manuscript-heaven-logo.png" alt="Manuscript Heaven" className="h-16 w-16 object-contain flex-shrink-0" /><div><p className={cn('font-serif text-lg font-bold tracking-tight leading-tight', darkTheme ? 'text-white' : 'text-ink')}>Manuscript Heaven</p><p className="text-[10px] uppercase tracking-[0.24em] font-semibold text-gold">Project Tracker</p></div></div>;
+  return (
+    <div className={cn('flex items-center gap-3', className)}>
+      <img src="/mh-monogram.svg" alt="" className="h-11 w-[76px] object-contain flex-shrink-0" />
+      <div>
+        <p className={cn('font-serif text-lg font-bold tracking-tight leading-tight', darkTheme ? 'text-white' : 'text-ink')}>
+          Manuscript Heaven
+        </p>
+        <p className="text-[10px] uppercase tracking-[0.24em] font-semibold text-gold">Project Tracker</p>
+      </div>
+    </div>
+  );
   // SVG Monogram with Feather Quill
   const QuillMonogram = ({ sizePx = 40 }: { sizePx?: number }) => (
     <svg
