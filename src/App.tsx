@@ -16,6 +16,8 @@ import { ClientProjectsPage } from './pages/ClientProjectsPage';
 import { TasksPage } from './pages/TasksPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { lazyPage } from './lib/lazyPage';
+import { useMfaGate } from './lib/mfa';
+import { MfaChallengeScreen } from './components/MfaChallengeScreen';
 
 // Heavy, less-visited pages load on demand so the first screen stays small.
 const CalendarPage = lazyPage(() => import('./pages/CalendarPage'), 'CalendarPage');
@@ -44,6 +46,7 @@ import { OfflineBanner } from './components/OfflineBanner';
 
 export default function App() {
   const tracker = useTracker();
+  const mfaGate = useMfaGate(tracker.mode === 'supabase' && Boolean(tracker.currentProfile), tracker.currentProfile?.id);
   const [activeView, setActiveView] = useState<ViewKey>('dashboard');
   const [dashboardTaskIntent, setDashboardTaskIntent] = useState<{ taskId?: string; assigneeId?: string; create?: boolean } | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -239,6 +242,29 @@ export default function App() {
           isLoading={tracker.isSubmittingLogin}
         />
       </>
+    );
+  }
+
+  if (tracker.mode === 'supabase' && mfaGate.status !== 'ok') {
+    if (mfaGate.status === 'checking') {
+      return (
+        <main className="grid min-h-screen place-items-center bg-ivory text-sm text-muted" role="status">
+          Checking sign-in…
+        </main>
+      );
+    }
+    return (
+      <MfaChallengeScreen
+        email={tracker.currentProfile.email}
+        onSignOut={() => void tracker.signOut()}
+        onVerified={async () => {
+          // Data loaded before the code was entered could not include
+          // finance and payroll rows; reload it with the upgraded session.
+          const profile = tracker.currentProfile;
+          if (profile) await tracker.loadSupabaseData(profile);
+          await mfaGate.recheck();
+        }}
+      />
     );
   }
 

@@ -1,0 +1,84 @@
+name: Database Backup
+
+# Weekly encrypted backup of the production Supabase database.
+# Needs two repository secrets (Settings > Secrets and variables > Actions):
+#   SUPABASE_DB_URL     Session pooler connection string from Supabase > Connect,
+#                       with the database password filled in.
+#   BACKUP_PASSPHRASE   A long passphrase you choose and keep safe. Without it the
+#                       backup cannot be decrypted, and nobody else can read it.
+# The dump is encrypted before upload, so the artifact is safe even if the
+# repository is public. Restore steps: docs/BACKUP_AND_RESTORE.md
+
+on:
+  schedule:
+    # Every Sunday 22:17 UTC (Monday 03:17 Pakistan time)
+    - cron: '17 22 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: database-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+    steps:
+      - name: Check secrets
+        id: secrets
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ] || [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "::warning title=Backup skipped::Set the SUPABASE_DB_URL and BACKUP_PASSPHRASE repository secrets to enable database backups (see docs/BACKUP_AND_RESTORE.md)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Supabase CLI
+        if: steps.secrets.outputs.ready == 'true'
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Dump roles, schema and data
+        if: steps.secrets.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          dir="mh-tracker-db-$stamp"
+          mkdir -p "$dir"
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f "$dir/roles.sql" --role-only
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f "$dir/schema.sql"
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f "$dir/data.sql" --use-copy --data-only
+          for f in roles schema data; do
+            test -s "$dir/$f.sql" || { echo "::error::$f.sql is empty"; exit 1; }
+          done
+          ls -la "$dir"
+          tar -czf "$dir.tar.gz" "$dir"
+          rm -rf "$dir"
+          echo "BACKUP_NAME=$dir" >> "$GITHUB_ENV"
+
+      - name: Encrypt
+        if: steps.secrets.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          printf '%s' "$BACKUP_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --symmetric --cipher-algo AES256 \
+            -o "$BACKUP_NAME.tar.gz.gpg" "$BACKUP_NAME.tar.gz"
+          rm -f "$BACKUP_NAME.tar.gz"
+          ls -la "$BACKUP_NAME.tar.gz.gpg"
+
+      - name: Upload encrypted backup
+        if: steps.secrets.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BACKUP_NAME }}
+          path: ${{ env.BACKUP_NAME }}.tar.gz.gpg
+          retention-days: 90
+          if-no-files-found: error
