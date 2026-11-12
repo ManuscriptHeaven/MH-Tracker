@@ -32,7 +32,7 @@ assert.equal(finance.outstanding, 150);
 
 const migration = readFileSync('supabase/migrations/20261025114000_task_incentive_payroll.sql', 'utf8');
 const taskModel = readFileSync('src/lib/types.ts', 'utf8');
-const taskSource = readFileSync('src/lib/useTracker.ts', 'utf8');
+const taskSource = (readFileSync('src/lib/useTracker.ts', 'utf8') + '\n' + readFileSync('src/lib/trackerHelpers.ts', 'utf8'));
 const card = readFileSync('src/components/tasks/TaskIncentiveCard.tsx', 'utf8');
 assert.match(migration, /alter table public\.task_incentives enable row level security/i);
 assert.match(migration, /revoke all on public\.task_incentives from public, anon, authenticated/i);

@@ -123,7 +123,7 @@ assert.ok(!modal.includes('required='));
 assert.ok(!modal.includes('placeholder='));
 assert.ok(!modal.includes('Client Submission & Approval Request'));
 assert.ok(modal.includes('busyRef.current'));
-const tracker = readFileSync('src/lib/useTracker.ts','utf8');
+const tracker = (readFileSync('src/lib/useTracker.ts','utf8') + '\n' + readFileSync('src/lib/trackerHelpers.ts','utf8'));
 const submission = tracker.slice(tracker.indexOf('const submitStageForApproval'),tracker.indexOf('const getProjectFileUrl'));
 assert.ok(submission.includes(".eq('workflow_version', latest.workflow_version)"));
 assert.ok(submission.includes('upsert: false'));

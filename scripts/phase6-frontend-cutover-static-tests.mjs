@@ -24,7 +24,7 @@ const walk=(dir)=>{for(const entry of fs.readdirSync(dir,{withFileTypes:true})){
 }};
 walk('src');
 const source=sourceFiles.map((file)=>fs.readFileSync(file,'utf8')).join('\n');
-const tracker=fs.readFileSync('src/lib/useTracker.ts','utf8').replace(/\r\n/g,'\n');
+const tracker=(fs.readFileSync('src/lib/useTracker.ts','utf8') + '\n' + fs.readFileSync('src/lib/trackerHelpers.ts','utf8')).replace(/\r\n/g,'\n');
 const workflow=fs.readFileSync('src/lib/workflowClient.ts','utf8');
 const notifications=fs.readFileSync('src/lib/notifications.ts','utf8');
 const app=fs.readFileSync('src/App.tsx','utf8');

@@ -14,7 +14,7 @@ function assert(condition, message) {
 }
 
 const migration = read('supabase/phase6/migrations/00660_invoice_version_history.sql');
-const tracker = read('src/lib/useTracker.ts');
+const tracker = (read('src/lib/useTracker.ts') + '\n' + read('src/lib/trackerHelpers.ts'));
 const payments = read('src/pages/PaymentsPage.tsx');
 const invoiceModal = read('src/components/InvoiceModal.tsx');
 const revisionModal = read('src/components/InvoiceRevisionModal.tsx');
@@ -73,11 +73,11 @@ assert(
 );
 
 assert(
-  invoiceModal.includes('const ITEMS_PER_PAGE = 5') &&
+  invoiceModal.includes('const ITEMS_PER_PAGE = 12') &&
     invoiceModal.includes('chunkInvoiceItems') &&
     invoiceModal.includes('Projects {pageIndex * ITEMS_PER_PAGE + 1}') &&
     invoiceModal.includes('Page {pageNumber} of {totalPages}'),
-  'invoice preview enforces a maximum of five projects per numbered page',
+  'invoice preview enforces a maximum of twelve projects per numbered page',
 );
 
 assert(

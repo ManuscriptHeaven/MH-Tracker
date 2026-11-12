@@ -1,18 +1,10 @@
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Building2,
-  Calendar,
-  Clock,
   CreditCard,
   FilePenLine,
-  Globe,
-  HeartHandshake,
   ImageDown,
   Layers,
-  Mail,
-  MapPin,
-  Phone,
   Printer,
   X,
 } from 'lucide-react';
@@ -20,34 +12,46 @@ import { Button, IconButton } from './ui';
 import { formatDate } from '../lib/date';
 import type { Invoice, InvoiceItem, Project } from '../lib/types';
 import { useCurrency } from '../lib/currency';
-import { calculateDueAmount } from '../lib/invoiceUtils';
+import { calculateDueAmount, chunkInvoiceItems } from '../lib/invoiceUtils';
+import { invoiceConfig } from '../lib/invoiceConfig';
 import { ManuscriptHeavenLogo } from './ManuscriptHeavenLogo';
-import { UserAvatar } from './UserAvatar';
 
-const ITEMS_PER_PAGE = 5;
+// Twelve compact rows fit on the first US Letter page while keeping room for
+// the billing panel, final totals and footer on invoices with up to 12 items.
+const ITEMS_PER_PAGE = 12;
 const EXPORT_SCALE_300_DPI = 3.125;
 
-function chunkInvoiceItems(items: InvoiceItem[]) {
-  if (items.length === 0) return [[]] as InvoiceItem[][];
-  const pages: InvoiceItem[][] = [];
-  for (let index = 0; index < items.length; index += ITEMS_PER_PAGE) {
-    pages.push(items.slice(index, index + ITEMS_PER_PAGE));
+function reviewFlags(item: InvoiceItem, allItems: InvoiceItem[], projectHistory: Project[]) {
+  const flags: string[] = [];
+  const redundant = /^(reformatting|formatting|typesetting)\b/i.exec(item.project_title || '');
+  if (redundant && item.service_type.toLowerCase().includes(redundant[1].toLowerCase())) {
+    flags.push('Review title: service wording is repeated');
   }
-  return pages;
+  const invoicedProjectIds = new Set(allItems.map((peer) => peer.project_id));
+  const history = projectHistory.filter((project) => project.service_type === item.service_type && !invoicedProjectIds.has(project.id)).map((project) => Number(project.total_price || 0)).filter((price) => price > 0);
+  const peers = (history.length >= 3 ? history : allItems.filter((peer) => peer.service_type === item.service_type && peer.project_id !== item.project_id).map((peer) => peer.total_price)).sort((a, b) => a - b);
+  if (peers.length >= 2) {
+    const median = peers[Math.floor(peers.length / 2)];
+    if (median > 0 && (item.total_price < median * 0.5 || item.total_price > median * 2)) flags.push('Review price against this service rate');
+  }
+  return flags;
 }
 
 export function InvoiceModal({
   project,
   invoice,
+  projects = [],
   onClose,
   onRevise,
 }: {
   project?: Project | null;
   invoice?: Invoice | null;
+  projects?: Project[];
   onClose: () => void;
   onRevise?: (invoice: Invoice) => void;
 }) {
   const { formatMoney } = useCurrency();
+  const formatInvoiceMoney = (amount: number, showCode = false) => formatMoney(amount, 'USD', { showCode });
   const invoiceRef = useRef<HTMLDivElement>(null);
   const [savingImage, setSavingImage] = useState(false);
 
@@ -66,6 +70,9 @@ export function InvoiceModal({
   const dueDate = invoice ? formatDate(invoice.due_date) : formatDate(project?.due_date);
   const clientName = invoice ? invoice.client_name : project?.client_name || 'Valued Client';
   const clientEmail = invoice ? invoice.client_email : project?.client_email || '';
+  const billedCompany = invoice?.company_name || invoice?.items?.[0]?.company_name || project?.company_name || '';
+  const billedContact = invoice?.contact_name || invoice?.items?.[0]?.contact_name || project?.contact_name || clientName;
+  const billingAddress = invoice?.billing_address || invoice?.items?.[0]?.billing_address || project?.billing_address || '';
 
   const rawStatus = invoice
     ? invoice.status === 'Paid'
@@ -107,7 +114,13 @@ export function InvoiceModal({
   const versionSuffix = invoice?.version_number ? `-v${invoice.version_number}` : '';
 
   function handlePrint() {
-    window.print();
+    const previousTitle = document.title;
+    document.title = `Invoice-${invoiceNumber}`;
+    try {
+      window.print();
+    } finally {
+      document.title = previousTitle;
+    }
   }
 
   async function waitForInvoiceAssets() {
@@ -231,7 +244,7 @@ export function InvoiceModal({
 
   function renderInvoiceIdentity(compact = false) {
     return (
-      <div className={compact ? 'flex items-start justify-between border-b-2 border-[#e8dec8] pb-4 mb-5' : 'flex items-start justify-between border-b-2 border-[#e8dec8] pb-6 mb-6'}>
+      <div className={compact ? 'flex items-start justify-between border-b-2 border-[#e8dec8] pb-2 mb-3' : 'flex items-start justify-between border-b-2 border-[#e8dec8] pb-3 mb-3'}>
         <ManuscriptHeavenLogo variant="invoice-header" className={compact ? 'scale-90 origin-left' : ''} />
 
         <div className="invoice-export-header-right text-right">
@@ -242,49 +255,13 @@ export function InvoiceModal({
             <span className="inline-block rounded-md bg-[#7a5518] px-3 py-1 font-mono text-xs font-bold text-white tracking-wider shadow-xs">
               #{invoiceNumber}
             </span>
-            {invoice?.version_number ? (
-              <span className="inline-block rounded-md border border-[#d8ccb8] bg-[#faf8f5] px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[#7a5518]">
-                Version {invoice.version_number}
-              </span>
-            ) : null}
           </div>
 
-          {!compact ? (
-            <div className="invoice-export-meta mt-4 flex items-center justify-end gap-6 text-xs">
-              <div>
-                <span className="text-[10px] uppercase font-bold text-[#8b6f38] tracking-wider flex items-center gap-1 justify-end">
-                  <Calendar className="h-3 w-3" /> INVOICE DATE
-                </span>
-                <strong className="block text-[#1a1a1a] font-semibold text-xs mt-0.5">{invoiceDate}</strong>
-              </div>
-
-              <div>
-                <span className="text-[10px] uppercase font-bold text-[#8b6f38] tracking-wider flex items-center gap-1 justify-end">
-                  <Clock className="h-3 w-3" /> DUE DATE
-                </span>
-                <strong className="block text-[#1a1a1a] font-semibold text-xs mt-0.5">{dueDate}</strong>
-              </div>
-
-              <div className="invoice-export-status">
-                <span className="text-[10px] uppercase font-bold text-[#8b6f38] tracking-wider block">STATUS</span>
-                <span
-                  className={`invoice-export-status-badge inline-block mt-0.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold tracking-wider uppercase border ${
-                    isPaid
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                      : isPartial
-                        ? 'bg-blue-50 text-blue-700 border-blue-300'
-                        : 'bg-[#faf5eb] text-[#8b6f38] border-[#e2d2b4]'
-                  }`}
-                >
-                  {statusLabel}
-                </span>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-2 flex items-center justify-end gap-4 text-[10px] text-[#777777]">
+          {compact && (
+            <div className="mt-2 flex items-center justify-end gap-4 text-[10px] text-[#555555]">
               <span>{clientName}</span>
               <span>Due {dueDate}</span>
-              <span className="font-bold text-[#7a5518]">{formatMoney(totalDue)} due</span>
+              <span className="font-bold text-[#7a5518]">{formatInvoiceMoney(totalDue)} due</span>
             </div>
           )}
         </div>
@@ -294,35 +271,28 @@ export function InvoiceModal({
 
   function renderClientAndSummary() {
     return (
-      <div className="grid grid-cols-12 gap-5 mb-6 invoice-keep-together">
-        <div className="col-span-5 rounded-xl border border-[#e8dec8] bg-[#faf8f5] p-4 min-h-[106px]">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-[#8b6f38] mb-3">BILLED TO</div>
-          <div className="flex items-center gap-3">
-            <UserAvatar name={clientName} size="lg" showRoleRing={false} />
-            <div className="min-w-0 flex-1">
-              <h3 className="font-display text-base font-bold text-[#1a1a1a] break-words">{clientName}</h3>
+      <div className="grid grid-cols-12 gap-3 mb-3 invoice-keep-together">
+        <div className="col-span-5 rounded-xl border border-[#e8dec8] bg-[#faf8f5] p-3 min-h-[80px]">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-[#704b12] mb-2">BILLED TO</div>
+          <div className="min-w-0">
+              {billedCompany ? <p className="font-display text-base font-bold text-[#1a1a1a] break-words">{billedCompany}</p> : null}
+              <h3 className="font-display text-base font-bold text-[#1a1a1a] break-words">{billedContact}</h3>
               {clientEmail ? (
                 <p className="text-[11px] leading-snug text-[#666666] break-all mt-1">{clientEmail}</p>
               ) : null}
-            </div>
+              {billingAddress ? <p className="text-[10px] leading-snug text-[#555555] whitespace-pre-line mt-1">{billingAddress}</p> : null}
           </div>
         </div>
 
-        <div className="col-span-7 rounded-xl border border-[#e8dec8] bg-[#faf8f5] p-4 min-h-[106px]">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-[#8b6f38] mb-2.5">PAYMENT OVERVIEW</div>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="p-2">
-              <span className="text-[10px] font-bold uppercase text-[#777777] block">TOTAL AMOUNT</span>
-              <p className="font-display text-lg font-bold text-[#1a1a1a] mt-1">{formatMoney(subtotal)}</p>
-            </div>
-            <div className="p-2 border-l border-[#e8dec8]">
-              <span className="text-[10px] font-bold uppercase text-[#777777] block">PAID AMOUNT</span>
-              <p className="font-display text-lg font-bold text-[#1a1a1a] mt-1">{formatMoney(totalPaid)}</p>
-            </div>
-            <div className="rounded-lg bg-[#faf0dc] border border-[#e0cb9e] p-2 text-center">
-              <span className="text-[10px] font-bold uppercase text-[#7a5518] block">AMOUNT DUE</span>
-              <p className="font-display text-lg font-bold text-[#7a5518] mt-1">{formatMoney(totalDue)}</p>
-            </div>
+        <div className="col-span-7 rounded-xl border border-[#e8dec8] bg-[#faf8f5] p-3 min-h-[80px]">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-[#704b12] mb-1.5">INVOICE DETAILS</div>
+          <div className="grid grid-cols-3 gap-x-3 gap-y-1">
+            <div><span className="text-[9px] font-bold uppercase text-[#555555] block">Invoice Date</span><p className="text-xs font-semibold text-[#1a1a1a]">{invoiceDate}</p></div>
+            <div><span className="text-[9px] font-bold uppercase text-[#555555] block">Due Date</span><p className="text-xs font-semibold text-[#1a1a1a]">{dueDate}</p></div>
+            <div><span className="text-[9px] font-bold uppercase text-[#555555] block">Payment Terms</span><p className="text-xs font-semibold text-[#1a1a1a]">{invoice?.payment_terms || invoiceConfig.defaultPaymentTerms}</p></div>
+            <div><span className="text-[9px] font-bold uppercase text-[#555555] block">Services Delivered</span><p className="text-xs font-semibold text-[#1a1a1a]">{invoice?.services_delivered || invoice?.items?.[0]?.invoice_services_delivered || invoice?.month_label || '—'}</p></div>
+            <div><span className="text-[9px] font-bold uppercase text-[#555555] block">Currency</span><p className="text-xs font-semibold text-[#1a1a1a]">USD</p></div>
+            <div><span className="text-[9px] font-bold uppercase text-[#555555] block">Status</span><p className="text-xs font-semibold text-[#1a1a1a]">{statusLabel}</p></div>
           </div>
         </div>
       </div>
@@ -331,8 +301,8 @@ export function InvoiceModal({
 
   function renderServices(pageItems: InvoiceItem[], pageIndex: number) {
     return (
-      <div className="mb-5">
-        <div className="flex items-center justify-between gap-3 mb-2.5">
+      <div className="mb-3">
+        <div className="flex items-center justify-between gap-3 mb-1.5">
           <div className="flex items-center gap-2">
             <div className="flex h-5 w-5 items-center justify-center rounded bg-[#7a5518] text-white text-[10px]">
               <Layers className="h-3 w-3" />
@@ -342,7 +312,7 @@ export function InvoiceModal({
             </h4>
           </div>
           {totalPages > 1 ? (
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-[#8b6f38]">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-[#704b12]">
               Projects {pageIndex * ITEMS_PER_PAGE + 1}–{pageIndex * ITEMS_PER_PAGE + pageItems.length} of {items.length}
             </span>
           ) : null}
@@ -352,39 +322,39 @@ export function InvoiceModal({
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="bg-[#7a5518] text-white font-bold text-[11px] tracking-wider uppercase">
-                <th className="py-2.5 px-3 text-center w-10">#</th>
-                <th className="py-2.5 px-4">PROJECT</th>
-                <th className="py-2.5 px-4">SERVICE</th>
-                <th className="py-2.5 px-4 text-right">TOTAL</th>
-                <th className="py-2.5 px-4 text-right">PAID</th>
-                <th className="py-2.5 px-4 text-right text-[#ffe8b8]">BALANCE DUE</th>
+                <th className="py-1.5 px-2 text-center w-8">#</th>
+                <th className="py-1.5 px-3">PROJECT</th>
+                <th className="py-1.5 px-3">SERVICE</th>
+                <th className="py-1.5 px-2 text-right">TOTAL</th>
+                <th className="py-1.5 px-2 text-right">PAID</th>
+                <th className="py-1.5 px-2 text-right text-white">BALANCE DUE</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#e8dec8] bg-white">
+            <tbody className="divide-y divide-[#e8dec8]">
               {pageItems.map((item, idx) => (
-                <tr key={item.project_id || `${pageIndex}-${idx}`} className="invoice-keep-together">
-                  <td className="py-3 px-3 text-center font-medium text-[#777777]">
+                <tr key={item.project_id || `${pageIndex}-${idx}`} className={`invoice-keep-together ${idx % 2 === 1 ? 'bg-[#faf8f5]' : 'bg-white'}`}>
+                  <td className="py-1 px-2 text-center font-medium text-[#555555]">
                     {pageIndex * ITEMS_PER_PAGE + idx + 1}
                   </td>
-                  <td className="py-3 px-4 max-w-[220px]">
-                    <span className="invoice-export-project-title font-bold text-[#1a1a1a] block text-xs leading-snug line-clamp-2">
+                  <td className="py-1 px-3 max-w-[220px]">
+                    <span className="invoice-export-project-title font-bold text-[#1a1a1a] block text-[11px] leading-tight line-clamp-2">
                       {item.project_title}
                     </span>
-                    <span className="invoice-export-project-id font-mono text-[10px] text-[#777777]">
-                      Project ID: {item.project_number}
-                    </span>
+                    {item.author || item.description ? <span className="block text-[9px] leading-tight text-[#555555] line-clamp-1">{item.author ? `by ${item.author}` : ''}{item.author && item.description ? ' · ' : ''}{item.description || ''}</span> : null}
+                    <span className="invoice-export-project-id font-mono text-[9px] leading-tight text-[#555555]">ID: {item.project_number}{item.delivered_on ? ` · Delivered ${formatDate(item.delivered_on)}` : ''}</span>
+                    {reviewFlags(item, items, projects).map((flag) => <span key={flag} className="block text-[9px] font-semibold text-[#704b12]">{flag}</span>)}
                   </td>
-                  <td className="py-3 px-4 text-[#444444] text-[11px] max-w-[150px]">
+                  <td className="py-1 px-3 text-[#444444] text-[10px] max-w-[150px]">
                     <span className="invoice-export-service line-clamp-2">{item.service_type || 'Publishing & Formatting'}</span>
                   </td>
-                  <td className="py-3 px-4 text-right font-medium text-[#1a1a1a] whitespace-nowrap">
-                    {formatMoney(item.total_price)}
+                  <td className="py-1 px-2 text-right font-medium text-[#1a1a1a] whitespace-nowrap">
+                    {formatInvoiceMoney(item.total_price)}
                   </td>
-                  <td className="py-3 px-4 text-right text-emerald-700 font-medium whitespace-nowrap">
-                    {formatMoney(item.advance_paid)}
+                  <td className={`py-1 px-2 text-right font-medium whitespace-nowrap ${item.due_amount <= 0 ? 'text-emerald-700' : 'text-[#444444]'}`}>
+                    {formatInvoiceMoney(item.advance_paid)}
                   </td>
-                  <td className="py-3 px-4 text-right font-bold text-[#7a5518] whitespace-nowrap">
-                    {formatMoney(item.due_amount)}
+                  <td className="py-1 px-2 text-right font-bold text-[#7a5518] whitespace-nowrap">
+                    {formatInvoiceMoney(item.due_amount)}
                   </td>
                 </tr>
               ))}
@@ -397,49 +367,38 @@ export function InvoiceModal({
 
   function renderTotals() {
     return (
-      <div className="grid grid-cols-12 gap-5 mb-6 invoice-keep-together">
-        <div className="col-span-6 space-y-3 text-xs">
-          <div className="flex items-start gap-2.5 rounded-lg border border-[#e8dec8] bg-[#faf8f5] p-3">
+      <div className="grid grid-cols-12 gap-3 mb-3 invoice-keep-together">
+        <div className="col-span-6 space-y-2 text-xs">
+          <div className="flex items-start gap-2 rounded-lg border border-[#e8dec8] bg-[#faf8f5] p-2.5">
             <CreditCard className="h-4 w-4 text-[#7a5518] flex-shrink-0 mt-0.5" />
             <div>
               <strong className="text-[11px] font-bold uppercase tracking-wider text-[#7a5518] block">
                 PAYMENT INSTRUCTIONS
               </strong>
               <p className="text-[#555555] text-[11px] mt-0.5">
-                Please issue payment on or before the due date. Thank you for choosing Manuscript Heaven.
+                Please pay by {dueDate} ({invoice?.payment_terms || invoiceConfig.defaultPaymentTerms}). Use invoice number {invoiceNumber} as your payment reference.
               </p>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-2.5 rounded-lg border border-[#e8dec8] bg-[#faf8f5] p-3">
-            <Building2 className="h-4 w-4 text-[#7a5518] flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-[#555555] text-[11px]">
-                We accept bank transfer, PayPal, Wise, and major credit cards. Payment details will be shared upon request.
-              </p>
-              {invoice?.notes ? (
-                <p className="mt-2 border-t border-[#e8dec8] pt-2 text-[10px] text-[#666666]">
-                  <strong className="text-[#7a5518]">Note:</strong> {invoice.notes}
-                </p>
-              ) : null}
+              <p className="mt-1 text-[10px] font-semibold text-[#444444]">{invoiceConfig.paymentDetailsPlaceholder}</p>
+              {invoice?.notes ? <p className="mt-1 border-t border-[#e8dec8] pt-1 text-[10px] text-[#555555]"><strong className="text-[#7a5518]">Note:</strong> {invoice.notes}</p> : null}
+              {invoiceConfig.latePaymentNoteEnabled ? <p className="mt-1 text-[10px] text-[#444444]">{invoiceConfig.latePaymentNote}</p> : null}
             </div>
           </div>
         </div>
 
-        <div className="col-span-6 rounded-xl border border-[#e8dec8] bg-[#faf8f5] p-4">
-          <div className="space-y-2 text-xs">
+        <div className="col-span-6 rounded-xl border border-[#e8dec8] bg-[#faf8f5] p-3">
+          <div className="space-y-1.5 text-xs">
             <div className="flex justify-between text-[#555555]">
               <span>Subtotal</span>
-              <strong className="text-[#1a1a1a]">{formatMoney(subtotal)}</strong>
+              <strong className="text-[#1a1a1a]">{formatInvoiceMoney(subtotal, true)}</strong>
             </div>
             <div className="flex justify-between text-[#555555]">
               <span>Total Paid</span>
-              <strong className="text-[#1a1a1a]">{formatMoney(totalPaid)}</strong>
+              <strong className="text-[#1a1a1a]">{formatInvoiceMoney(totalPaid, true)}</strong>
             </div>
-            <div className="border-t border-dashed border-[#d8ccb8] pt-2" />
-            <div className="rounded-lg bg-[#faf0dc] border border-[#e0cb9e] p-3 flex items-center justify-between">
+            <div className="border-t border-dashed border-[#d8ccb8] pt-1" />
+            <div className="rounded-lg bg-[#faf0dc] border border-[#e0cb9e] p-2 flex items-center justify-between">
               <span className="font-display font-bold text-sm uppercase tracking-wider text-[#7a5518]">TOTAL DUE</span>
-              <span className="font-display text-2xl font-extrabold text-[#7a5518]">{formatMoney(totalDue)}</span>
+              <span className="font-display text-xl font-extrabold text-[#7a5518]">{formatInvoiceMoney(totalDue, true)}</span>
             </div>
           </div>
         </div>
@@ -449,33 +408,16 @@ export function InvoiceModal({
 
   function renderFullFooter(pageNumber: number) {
     return (
-      <div className="border-t-2 border-[#e8dec8] pt-4 invoice-keep-together">
-        <div className="grid grid-cols-12 items-center gap-4 text-xs">
-          <div className="col-span-2 flex items-center justify-center">
-            <ManuscriptHeavenLogo variant="emblem" size="md" />
+      <div className="mt-auto border-t border-[#d8ccb8] pt-3 invoice-keep-together text-[9px] leading-snug text-[#444444]">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-0.5">
+            <strong className="block font-serif text-[10px] text-[#7a5518] uppercase tracking-wider">{invoiceConfig.businessName}</strong>
+            <p>{invoiceConfig.email} <span className="mx-1">|</span> {invoiceConfig.website} <span className="mx-1">|</span> {invoiceConfig.phone}</p>
+            <p>{invoiceConfig.address}</p>
           </div>
-          <div className="col-span-5 border-l border-[#e8dec8] pl-4 space-y-1 text-[10px] text-[#555555]">
-            <strong className="font-serif text-xs font-bold text-[#7a5518] uppercase block tracking-wider">
-              MANUSCRIPT HEAVEN
-            </strong>
-            <p className="flex items-center gap-1.5"><Mail className="h-3 w-3 text-[#7a5518]" /> hello@manuscriptheaven.com</p>
-            <p className="flex items-center gap-1.5"><Globe className="h-3 w-3 text-[#7a5518]" /> www.manuscriptheaven.com</p>
-            <p className="flex items-center gap-1.5"><Phone className="h-3 w-3 text-[#7a5518]" /> +1 (844) 687-0111</p>
-            <p className="flex items-center gap-1.5">
-              <MapPin className="h-3 w-3 text-[#7a5518] flex-shrink-0" />
-              3031 Tisch Way, Suite 110, San Jose, CA 95128
-            </p>
-          </div>
-          <div className="col-span-5 border-l border-[#e8dec8] pl-4">
-            <div className="flex items-center gap-1.5 text-[#7a5518] font-bold text-xs uppercase tracking-wider mb-1">
-              <HeartHandshake className="h-4 w-4" /> THANK YOU!
-            </div>
-            <p className="text-[10px] text-[#555555] leading-relaxed">
-              We appreciate your business and look forward to helping you publish more incredible books.
-            </p>
-            <p className="mt-2 text-[9px] font-semibold uppercase tracking-wider text-[#8b6f38]">
-              Page {pageNumber} of {totalPages}
-            </p>
+          <div className="min-w-[130px] text-right">
+            <strong className="block text-[10px] text-[#1a1a1a]">{invoiceConfig.footerThankYou}</strong>
+            <span className="mt-1 block font-semibold text-[#704b12]">Page {pageNumber} of {totalPages}</span>
           </div>
         </div>
       </div>
@@ -484,7 +426,7 @@ export function InvoiceModal({
 
   function renderContinuationFooter(pageNumber: number) {
     return (
-      <div className="mt-auto flex items-center justify-between border-t border-[#e8dec8] pt-3 text-[9px] uppercase tracking-wider text-[#8b6f38]">
+      <div className="mt-auto flex items-center justify-between border-t border-[#e8dec8] pt-3 text-[9px] uppercase tracking-wider text-[#704b12]">
         <span>Manuscript Heaven · {invoiceNumber}</span>
         <span>Page {pageNumber} of {totalPages}</span>
       </div>
@@ -562,7 +504,7 @@ export function InvoiceModal({
                     {isLastPage ? renderTotals() : null}
                   </div>
 
-                  {isLastPage ? renderFullFooter(pageNumber) : renderContinuationFooter(pageNumber)}
+                  {renderFullFooter(pageNumber)}
                 </section>
               );
             })}
@@ -573,3 +515,4 @@ export function InvoiceModal({
     document.body,
   );
 }
+

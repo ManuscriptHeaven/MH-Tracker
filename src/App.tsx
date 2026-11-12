@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { Archive } from 'lucide-react';
 import { Layout, type ViewKey } from './components/Layout';
 import { ProjectDetail } from './components/ProjectDetail';
@@ -10,21 +10,24 @@ import { Button, Modal, TextareaField } from './components/ui';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { ProjectsPage } from './pages/ProjectsPage';
-import { CalendarPage } from './pages/CalendarPage';
-import { TeamPage } from './pages/TeamPage';
-import { AttendancePage } from './pages/AttendancePage';
-import { PaymentsPage } from './pages/PaymentsPage';
-import { SettingsPage } from './pages/SettingsPage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { ClientPortalPage } from './pages/ClientPortalPage';
 import { ClientProjectsPage } from './pages/ClientProjectsPage';
-import { ClientAccessPage } from './pages/ClientAccessPage';
 import { TasksPage } from './pages/TasksPage';
-import { FinancePage } from './pages/FinancePage';
-import { CommunicationPage } from './pages/CommunicationPage';
-import { AIAssistantPage } from './pages/AIAssistantPage';
-import { SocialStudioPage } from './pages/SocialStudioPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { lazyPage } from './lib/lazyPage';
+
+// Heavy, less-visited pages load on demand so the first screen stays small.
+const CalendarPage = lazyPage(() => import('./pages/CalendarPage'), 'CalendarPage');
+const TeamPage = lazyPage(() => import('./pages/TeamPage'), 'TeamPage');
+const AttendancePage = lazyPage(() => import('./pages/AttendancePage'), 'AttendancePage');
+const PaymentsPage = lazyPage(() => import('./pages/PaymentsPage'), 'PaymentsPage');
+const SettingsPage = lazyPage(() => import('./pages/SettingsPage'), 'SettingsPage');
+const ClientAccessPage = lazyPage(() => import('./pages/ClientAccessPage'), 'ClientAccessPage');
+const FinancePage = lazyPage(() => import('./pages/FinancePage'), 'FinancePage');
+const CommunicationPage = lazyPage(() => import('./pages/CommunicationPage'), 'CommunicationPage');
+const AIAssistantPage = lazyPage(() => import('./pages/AIAssistantPage'), 'AIAssistantPage');
+const SocialStudioPage = lazyPage(() => import('./pages/SocialStudioPage'), 'SocialStudioPage');
 import { AIProvider } from './lib/ai/aiContext';
 import { CurrencyProvider } from './lib/currency';
 import { AIChatButton } from './components/ai/AIChatButton';
@@ -291,6 +294,7 @@ export default function App() {
       <AIProvider tracker={tracker} activeView={activeView} selectedProject={selectedProjectFresh}>
         <OfflineBanner />
         <Layout activeView={activeView} setActiveView={setActiveView} currentProfile={tracker.currentProfile} data={tracker.data} notifications={tracker.visibleNotifications} searchTerm={searchTerm} setSearchTerm={setSearchTerm} onAddProject={openAddProject} onMarkNotificationRead={tracker.markNotificationRead} onMarkAllNotificationsRead={tracker.markAllNotificationsRead} onMarkConversationRead={tracker.markConversationRead} onViewNotifications={() => setActiveView('notifications')} onOpenNotificationProject={openProjectById} onSignOut={tracker.signOut} onUpdateProfile={tracker.updateProfile} onOpenConversation={(conversationId) => { setJumpToConversationId(conversationId); setActiveView('communication'); }} desktopAttendanceCapable={tracker.desktopAttendanceCapable} attendanceTabRole={tracker.attendanceTabRole}>
+    <Suspense fallback={<div className="p-8 text-sm text-slate-400" role="status">Loading…</div>}>
     {activeView === 'dashboard' && isClient && (
       <ClientPortalPage
         projects={visibleProjects}
@@ -694,6 +698,7 @@ export default function App() {
     {!isClient && tracker.currentProfile && (
       <AttendanceReminder userId={tracker.currentProfile.id} sessions={tracker.data.attendanceSessions || []} breaks={tracker.data.attendanceBreaks || []} enabled={tracker.desktopAttendanceCapable} />
     )}
+    </Suspense>
   </Layout>
   {activeView !== 'ai_assistant' && tracker.canManageAll && (
     <>

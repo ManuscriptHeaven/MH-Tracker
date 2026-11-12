@@ -9,7 +9,7 @@ function assert(condition, message) {
   console.log('✓ PASS: ' + message);
 }
 
-const tracker = fs.readFileSync('src/lib/useTracker.ts', 'utf8');
+const tracker = (fs.readFileSync('src/lib/useTracker.ts', 'utf8') + '\n' + fs.readFileSync('src/lib/trackerHelpers.ts', 'utf8'));
 const projectChat = fs.readFileSync('src/components/ProjectDiscussionChat.tsx', 'utf8');
 const projectDetail = fs.readFileSync('src/components/ProjectDetail.tsx', 'utf8');
 const clientDetail = fs.readFileSync('src/components/ClientProjectDetailModal.tsx', 'utf8');

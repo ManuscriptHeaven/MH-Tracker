@@ -216,6 +216,7 @@ export function PaymentsPage({
   const [bulkClient, setBulkClient] = useState('all');
   const [bulkMonth, setBulkMonth] = useState<number | 'all'>('all');
   const [bulkYear, setBulkYear] = useState<number | 'all'>('all');
+  const [servicesDeliveredOverride, setServicesDeliveredOverride] = useState('');
   const [bulkPaymentStatus, setBulkPaymentStatus] = useState<string>('all');
   const [includeInvoiced, setIncludeInvoiced] = useState<boolean>(false);
   const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
@@ -278,6 +279,7 @@ export function PaymentsPage({
         eligibleProjectsForBulk,
         bulkMonth,
         bulkYear,
+        servicesDeliveredOverride,
       );
       const savedInvoice = await onSaveInvoiceVersion(newInvoice);
       setSelectedBulkInvoice(savedInvoice);
@@ -493,7 +495,7 @@ export function PaymentsPage({
           </div>
         </div>
 
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5 items-end">
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-6 items-end">
           <SelectField
             label="Client"
             value={bulkClient}
@@ -540,6 +542,8 @@ export function PaymentsPage({
               <option key={st} value={st}>{st}</option>
             ))}
           </SelectField>
+
+          <Field label="Services Delivered (optional override)" placeholder="e.g. October 2026" value={servicesDeliveredOverride} onChange={(event) => setServicesDeliveredOverride(event.target.value)} />
 
           <div>
             <Button
@@ -982,6 +986,7 @@ export function PaymentsPage({
       {selectedBulkInvoice ? (
         <InvoiceModal
           invoice={selectedBulkInvoice}
+          projects={projects}
           onClose={() => setSelectedBulkInvoice(null)}
           onRevise={(invoice) => {
             setSelectedBulkInvoice(null);

@@ -51,7 +51,7 @@ await assert.rejects(
   'failed later page must not be silently treated as complete history',
 );
 
-const tracker = fs.readFileSync('src/lib/useTracker.ts','utf8');
+const tracker = (fs.readFileSync('src/lib/useTracker.ts','utf8') + '\n' + fs.readFileSync('src/lib/trackerHelpers.ts','utf8'));
 assert(tracker.includes('fetchAllAcceptedAttendanceIntervals(async (from, to) => {'));
 assert(tracker.includes(".eq('session_id', activeSession.id)") && tracker.includes(".order('started_at', { ascending: true })") && tracker.includes('.range(from, to)'));
 assert(tracker.includes("query.gt('ended_at', windowStart)") && tracker.includes("query.lt('started_at', windowEnd)"));

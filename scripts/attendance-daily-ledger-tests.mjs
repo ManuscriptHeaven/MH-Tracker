@@ -119,7 +119,7 @@ const invalidTimezone = [{...alreadyCorrect[0], time_zone:'Not/A_Timezone'}];
 assert(repairPendingAttendanceDailySliceDates(invalidTimezone,key)[0] === invalidTimezone[0],
   'invalid timezones remain queued for explicit review rather than being dropped');
 
-const tracker = fs.readFileSync('src/lib/useTracker.ts','utf8');
+const tracker = (fs.readFileSync('src/lib/useTracker.ts','utf8') + '\n' + fs.readFileSync('src/lib/trackerHelpers.ts','utf8'));
 assert(tracker.includes("supabase.rpc('attendance_sync_daily_slices'") &&
   tracker.includes('pendingDailySlices: AttendanceDailySlice[]') &&
   tracker.includes('splitAttendanceIntervalByLocalDate') &&

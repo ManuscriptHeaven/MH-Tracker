@@ -22,7 +22,7 @@ assert.deepEqual(allFailed.succeeded,[]);
 assert.deepEqual(await markUnreadConversationsRead([],async()=>{}),{succeeded:[],failed:[]});
 
 const bell = readFileSync('src/components/MessageNotificationBell.tsx','utf8');
-const tracker = readFileSync('src/lib/useTracker.ts','utf8');
+const tracker = (readFileSync('src/lib/useTracker.ts','utf8') + '\n' + readFileSync('src/lib/trackerHelpers.ts','utf8'));
 const layout = readFileSync('src/components/Layout.tsx','utf8');
 const messages = readFileSync('src/pages/CommunicationPage.tsx','utf8');
 assert.ok(

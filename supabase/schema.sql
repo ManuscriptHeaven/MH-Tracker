@@ -1873,7 +1873,7 @@ values
   ('Tahir', 'tahir@manuscriptheaven.com', 'admin', '', 'active'),
   ('Atia', 'atia@manuscriptheaven.com', 'project_manager', '', 'active'),
   ('Amelia Carter', 'amelia@example.com', 'client', '', 'active'),
-  ('Zain', 'hafizainali313@gmail.com', 'employee', '', 'active'),
+  ('Zain', 'zain@example.com', 'employee', '', 'active'),
   ('Hamza', 'hamza@manuscriptheaven.com', 'employee', '', 'active'),
   ('Irfan', 'irfan@manuscriptheaven.com', 'junior_assistant', '', 'active')
 on conflict (email) do update set

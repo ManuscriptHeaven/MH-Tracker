@@ -16,7 +16,7 @@ function assert(condition, message) {
 const financePage = read('src/pages/FinancePage.tsx');
 const currencySelector = read('src/components/CurrencySelector.tsx');
 const currencyContext = read('src/lib/currency.tsx');
-const tracker = read('src/lib/useTracker.ts');
+const tracker = (read('src/lib/useTracker.ts') + '\n' + read('src/lib/trackerHelpers.ts'));
 
 console.log('--- Finance Auto Revenue / USD Static Tests ---');
 
