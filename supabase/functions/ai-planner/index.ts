@@ -526,6 +526,17 @@ serve(async (req) => {
       });
     }
 
+    // The planner only normalizes staff commands. Clients and inactive accounts
+    // must not be able to spend model quota, so the role is read from the
+    // database with the caller's own token, never from the request body.
+    const { data: actorClass, error: actorError } = await authClient.rpc('phase6_app_actor_class');
+    if (actorError || !['admin', 'project_manager', 'employee'].includes(String(actorClass || ''))) {
+      return new Response(JSON.stringify({ error: 'Forbidden' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     const now = Date.now();
     const state = rateLimits.get(user.id);
     const next = !state || state.resetAt <= now

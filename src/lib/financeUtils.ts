@@ -548,6 +548,15 @@ export function exportToCSV(filename: string, headers: string[], rows: (string |
   document.body.removeChild(link);
 }
 
+function escapeHtml(value: string | number): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export function exportReportPDF(
   title: string,
   subtitle: string,
@@ -564,8 +573,8 @@ export function exportReportPDF(
           .map(
             (s) => `
           <div style="border: 1px solid #e2e8f0; background: #faf8f5; padding: 12px 16px; border-radius: 8px; flex: 1; min-width: 140px;">
-            <div style="font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 600;">${s.label}</div>
-            <div style="font-size: 18px; font-weight: 700; color: #1e293b; margin-top: 4px;">${s.value}</div>
+            <div style="font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 600;">${escapeHtml(s.label)}</div>
+            <div style="font-size: 18px; font-weight: 700; color: #1e293b; margin-top: 4px;">${escapeHtml(s.value)}</div>
           </div>
         `,
           )
@@ -573,13 +582,13 @@ export function exportReportPDF(
       </div>`
     : '';
 
-  const tableHeaderHTML = headers.map((h) => `<th style="border-bottom: 2px solid #cbd5e1; padding: 10px; text-align: left; font-size: 12px; font-weight: 700; color: #334155; background: #f1f5f9;">${h}</th>`).join('');
+  const tableHeaderHTML = headers.map((h) => `<th style="border-bottom: 2px solid #cbd5e1; padding: 10px; text-align: left; font-size: 12px; font-weight: 700; color: #334155; background: #f1f5f9;">${escapeHtml(h)}</th>`).join('');
 
   const tableRowsHTML = rows
     .map(
       (row) => `
       <tr style="border-bottom: 1px solid #e2e8f0;">
-        ${row.map((cell) => `<td style="padding: 10px; font-size: 12px; color: #1e293b;">${cell}</td>`).join('')}
+        ${row.map((cell) => `<td style="padding: 10px; font-size: 12px; color: #1e293b;">${escapeHtml(cell)}</td>`).join('')}
       </tr>
     `,
     )
@@ -589,7 +598,7 @@ export function exportReportPDF(
     <!DOCTYPE html>
     <html>
       <head>
-        <title>${title} - Manuscript Heaven</title>
+        <title>${escapeHtml(title)} - Manuscript Heaven</title>
         <style>
           body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 30px; color: #1e293b; }
           .header { border-bottom: 2px solid #c5a059; padding-bottom: 15px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-end; }
@@ -607,8 +616,8 @@ export function exportReportPDF(
             <div class="subbrand">Financial ERP System</div>
           </div>
           <div style="text-align: right;">
-            <h2 style="margin: 0; font-size: 20px; color: #1e293b;">${title}</h2>
-            <div style="font-size: 12px; color: #64748b; margin-top: 4px;">${subtitle} · ${new Date().toLocaleDateString()}</div>
+            <h2 style="margin: 0; font-size: 20px; color: #1e293b;">${escapeHtml(title)}</h2>
+            <div style="font-size: 12px; color: #64748b; margin-top: 4px;">${escapeHtml(subtitle)} · ${new Date().toLocaleDateString()}</div>
           </div>
         </div>
 
