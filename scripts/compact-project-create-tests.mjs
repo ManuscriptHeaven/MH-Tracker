@@ -6,7 +6,7 @@ const read = (path) => readFileSync(path, 'utf8');
 const compact = read('src/components/CompactProjectCreateForm.tsx');
 const modal = read('src/components/ProjectFormModal.tsx');
 const app = read('src/App.tsx');
-const tracker = read('src/lib/useTracker.ts');
+const tracker = (read('src/lib/useTracker.ts') + '\n' + read('src/lib/trackerHelpers.ts'));
 const details = read('src/components/ProjectDetail.tsx');
 const migration = read('supabase/migrations/20261023220000_staff_project_initial_attachments.sql');
 

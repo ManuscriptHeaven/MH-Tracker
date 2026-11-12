@@ -9,7 +9,7 @@ function assert(condition, message) {
   console.log('✓ PASS: ' + message);
 }
 
-const tracker = fs.readFileSync('src/lib/useTracker.ts', 'utf8');
+const tracker = (fs.readFileSync('src/lib/useTracker.ts', 'utf8') + '\n' + fs.readFileSync('src/lib/trackerHelpers.ts', 'utf8'));
 const chat = fs.readFileSync('src/components/ProjectDiscussionChat.tsx', 'utf8');
 const migration = fs.readFileSync('supabase/migrations/20260920000400_fix_project_window_client_messaging.sql', 'utf8');
 const deliveryMigration = fs.readFileSync('supabase/migrations/20260922000100_harden_client_message_delivery.sql', 'utf8');

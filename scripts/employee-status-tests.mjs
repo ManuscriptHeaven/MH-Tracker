@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 const team = fs.readFileSync('src/pages/TeamPage.tsx', 'utf8');
 const modal = fs.readFileSync('src/components/TeamStatusModal.tsx', 'utf8');
-const tracker = fs.readFileSync('src/lib/useTracker.ts', 'utf8');
+const tracker = (fs.readFileSync('src/lib/useTracker.ts', 'utf8') + '\n' + fs.readFileSync('src/lib/trackerHelpers.ts', 'utf8'));
 const sql = fs.readFileSync('supabase/migrations/20261021153055_employee_lifecycle_status_20261021.sql', 'utf8');
 const payroll = fs.readFileSync('src/lib/payrollUtils.ts', 'utf8');
 

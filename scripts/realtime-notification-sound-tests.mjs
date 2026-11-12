@@ -48,7 +48,7 @@ assert.equal(claimRealtimeSound('client', 'message:m1'), true,
 assert.equal(claimRealtimeSound('employee', 'message:m2'), true,
   'new incoming message has its own chime');
 
-const tracker = readFileSync('src/lib/useTracker.ts', 'utf8');
+const tracker = (readFileSync('src/lib/useTracker.ts', 'utf8') + '\n' + readFileSync('src/lib/trackerHelpers.ts', 'utf8'));
 const sound = readFileSync('src/lib/sound.ts', 'utf8');
 const layout = readFileSync('src/components/Layout.tsx', 'utf8');
 assert.ok(

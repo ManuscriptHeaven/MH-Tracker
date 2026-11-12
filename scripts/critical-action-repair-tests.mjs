@@ -33,7 +33,7 @@ function getFiles(dir, filter) {
 }
 
 const srcFiles = getFiles(resolve(root, 'src'), (f) => /\.(ts|tsx|js|jsx)$/.test(f));
-const trackerSrc = readFileSync(resolve(root, 'src/lib/useTracker.ts'), 'utf8');
+const trackerSrc = (readFileSync(resolve(root, 'src/lib/useTracker.ts'), 'utf8') + '\n' + readFileSync(resolve(root, 'src/lib/trackerHelpers.ts'), 'utf8'));
 const projectDetailSrc = readFileSync(resolve(root, 'src/components/ProjectDetail.tsx'), 'utf8');
 const projectsPageSrc = readFileSync(resolve(root, 'src/pages/ProjectsPage.tsx'), 'utf8');
 const appSrc = readFileSync(resolve(root, 'src/App.tsx'), 'utf8');

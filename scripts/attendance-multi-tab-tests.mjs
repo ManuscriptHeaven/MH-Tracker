@@ -113,7 +113,7 @@ assert(!secondary.requestTakeover(), 'current leader does not request unnecessar
 primary.stop();
 secondary.stop();
 
-const tracker = fs.readFileSync('src/lib/useTracker.ts', 'utf8');
+const tracker = (fs.readFileSync('src/lib/useTracker.ts', 'utf8') + '\n' + fs.readFileSync('src/lib/trackerHelpers.ts', 'utf8'));
 const ui = fs.readFileSync('src/pages/AttendancePage.tsx','utf8');
 assert(tracker.includes('!runtime.isLeader') &&
        tracker.includes('startAttendanceTabLeadership(') &&

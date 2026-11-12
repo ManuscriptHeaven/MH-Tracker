@@ -15,7 +15,7 @@ function assert(condition, message) {
 
 const migration = read('supabase/phase6/migrations/00670_employee_compensation_update_grants.sql');
 const clientPage = read('src/pages/ClientAccessPage.tsx');
-const tracker = read('src/lib/useTracker.ts');
+const tracker = (read('src/lib/useTracker.ts') + '\n' + read('src/lib/trackerHelpers.ts'));
 const app = read('src/App.tsx');
 const functionSource = read('supabase/functions/provision-client/index.ts');
 const salaryModal = read('src/components/payroll/EditEmployeeSalaryModal.tsx');

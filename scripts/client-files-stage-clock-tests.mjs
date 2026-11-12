@@ -15,7 +15,7 @@ function assert(condition, message) {
 
 const timeline = read('src/lib/timeline.ts');
 const constants = read('src/lib/constants.ts');
-const tracker = read('src/lib/useTracker.ts');
+const tracker = (read('src/lib/useTracker.ts') + '\n' + read('src/lib/trackerHelpers.ts'));
 const workflowClient = read('src/lib/workflowClient.ts');
 const stageClock = read('src/components/StageClock.tsx');
 const projectTimeline = read('src/components/ProjectTimeline.tsx');

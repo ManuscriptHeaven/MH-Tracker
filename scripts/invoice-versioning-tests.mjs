@@ -14,7 +14,7 @@ function assert(condition, message) {
 }
 
 const migration = read('supabase/phase6/migrations/00660_invoice_version_history.sql');
-const tracker = read('src/lib/useTracker.ts');
+const tracker = (read('src/lib/useTracker.ts') + '\n' + read('src/lib/trackerHelpers.ts'));
 const payments = read('src/pages/PaymentsPage.tsx');
 const invoiceModal = read('src/components/InvoiceModal.tsx');
 const revisionModal = read('src/components/InvoiceRevisionModal.tsx');

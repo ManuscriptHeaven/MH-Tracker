@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import assert from 'node:assert/strict';
 
 const app = fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
-const tracker = fs.readFileSync(new URL('../src/lib/useTracker.ts', import.meta.url), 'utf8');
+const tracker = (fs.readFileSync(new URL('../src/lib/useTracker.ts', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('../src/lib/trackerHelpers.ts', import.meta.url), 'utf8'));
 
 assert.match(
   app,

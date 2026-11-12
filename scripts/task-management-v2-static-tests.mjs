@@ -8,7 +8,7 @@ const migration = readFileSync(resolve(root, 'supabase/phase6/migrations/00600_t
 const advisorFix = readFileSync(resolve(root, 'supabase/phase6/migrations/00610_task_management_v2_advisor_fixes.sql'), 'utf8');
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const types = readFileSync(resolve(root, 'src/lib/types.ts'), 'utf8');
-const tracker = readFileSync(resolve(root, 'src/lib/useTracker.ts'), 'utf8');
+const tracker = (readFileSync(resolve(root, 'src/lib/useTracker.ts'), 'utf8') + '\n' + readFileSync(resolve(root, 'src/lib/trackerHelpers.ts'), 'utf8'));
 const tasksPage = readFileSync(resolve(root, 'src/pages/TasksPage.tsx'), 'utf8');
 
 const checks = [

@@ -27,7 +27,7 @@ const app = read('src/App.tsx');
 const portal = read('src/pages/ClientPortalPage.tsx');
 const projects = read('src/pages/ClientProjectsPage.tsx');
 const modal = read('src/components/ClientProjectDetailModal.tsx');
-const tracker = read('src/lib/useTracker.ts');
+const tracker = (read('src/lib/useTracker.ts') + '\n' + read('src/lib/trackerHelpers.ts'));
 assert.equal((app.match(/onSubmitFiles=\{\(project\) => openClientProject\(project, 'files'\)\}/g) || []).length, 2);
 assert.ok(app.includes('initialTab={clientProjectTab}') && app.includes('key={selectedProjectFresh.id}'));
 assert.ok(modal.includes("initialTab = 'overview'") && modal.includes('>(initialTab)'));
