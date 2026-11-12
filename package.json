@@ -68,7 +68,8 @@
     "test:attendance-v3": "node scripts/attendance-v3-ui-tests.mjs",
     "test:attendance-overlap": "node --experimental-strip-types scripts/attendance-overlap-pagination-tests.mjs",
     "test:attendance-team-report": "node --experimental-strip-types scripts/team-attendance-report-tests.mjs",
-    "test:operations-v2": "node --experimental-strip-types scripts/operations-dashboard-v2-tests.mjs"
+    "test:operations-v2": "node --experimental-strip-types scripts/operations-dashboard-v2-tests.mjs",
+    "test:e2e": "vite build && node e2e/demo-smoke.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
@@ -81,6 +82,7 @@
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "playwright": "1.63.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.2",
