@@ -9,6 +9,7 @@ import { useAIContext } from '../lib/ai/aiContext';
 import { useCurrency } from '../lib/currency';
 import { UserAvatar } from '../components/UserAvatar';
 import { AvatarUploadModal } from '../components/AvatarUploadModal';
+import { TwoFactorSettings } from '../components/TwoFactorSettings';
 
 export function SettingsPage({
   mode,
@@ -109,6 +110,10 @@ export function SettingsPage({
             </Button>
           </div>
         </Card>
+      )}
+
+      {mode === 'supabase' && isSupabaseConfigured && currentProfile && (
+        <TwoFactorSettings highlight={currentProfile.role === 'admin' || currentProfile.role === 'project_manager'} />
       )}
 
       {currentProfile?.role === 'admin' && onEnterAdminDemo ? (
