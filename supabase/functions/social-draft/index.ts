@@ -283,7 +283,7 @@ Deno.serve(async (req: Request) => {
         const detail = await response.text().catch(() => '');
         lastError = providerError(response.status, detail);
         // Invalid keys/permissions will not succeed on retry.
-        if (response.status === 400 || response.status === 403) {
+        if (response.status === 403 || /API_KEY_INVALID|API key not valid/i.test(detail)) {
           return result({ error: lastError }, 502);
         }
         continue;
