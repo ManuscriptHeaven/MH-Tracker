@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, ArrowRight, CalendarDays, CheckSquare2, Clock3, FolderOpen, ListFilter, Plus, RotateCcw, Users } from 'lucide-react';
+import { AlertTriangle, ArrowRight, CalendarDays, CheckCircle2, CheckSquare2, ChevronDown, ChevronUp, Clock3, FolderOpen, ListFilter, Plus, RotateCcw, Users } from 'lucide-react';
 import { UserAvatar } from './UserAvatar';
 import { Button, Card } from './ui';
 import { formatDate, todayInput } from '../lib/date';
 import { buildOperationsSnapshot, type MemberWorkload } from '../lib/operationsInsights';
 import type { AttendanceBreak, AttendanceSession, Profile, Project, Task } from '../lib/types';
+
+const STATUS_RANK: Record<string, number> = { Blocked: 0, 'In Progress': 1, 'To Do': 2, Done: 3 };
 
 type KpiFilter = 'open' | 'inProgress' | 'unassigned' | 'blocked' | null;
 const inputStyle = 'mt-1 min-h-10 w-full rounded-lg border border-border bg-white px-3 text-sm text-ink outline-none focus-visible:border-gold focus-visible:ring-2 focus-visible:ring-gold/30 dark:bg-slate-900 dark:text-slate-100';
@@ -71,6 +73,7 @@ export function OperationsOverview({
   const [dueFrom, setDueFrom] = useState('');
   const [dueTo, setDueTo] = useState('');
   const [memberFilter, setMemberFilter] = useState('all');
+  const [showFilters, setShowFilters] = useState(false);
 
   const snapshot = useMemo(() => buildOperationsSnapshot({
     tasks, profiles, projects, attendanceSessions, attendanceBreaks, today,
@@ -99,12 +102,21 @@ export function OperationsOverview({
   }), [snapshot.visibleTasks, kpiFilter, employeeFilter, statusFilter, priorityFilter, projectFilter, dueFrom, dueTo]);
 
   const filteredIds = useMemo(() => new Set(filteredTasks.map((task) => task.id)), [filteredTasks]);
-  const recentTasks = useMemo(() => [...filteredTasks]
-    .sort((a, b) => (b.updated_at || b.created_at || '').localeCompare(a.updated_at || a.created_at || '') ||
-      a.title.localeCompare(b.title)).slice(0, 8), [filteredTasks]);
+  // Dashboard shows active work only. Done tasks appear only when the Status filter is explicitly set to "Done".
+  const activeFilteredTasks = useMemo(
+    () => filteredTasks.filter((task) => statusFilter === 'Done' || task.status !== 'Done'),
+    [filteredTasks, statusFilter],
+  );
+  const recentTasks = useMemo(() => [...activeFilteredTasks]
+    .sort((a, b) => (STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9) ||
+      (a.due_date || '9999-12-31').localeCompare(b.due_date || '9999-12-31') ||
+      (b.updated_at || b.created_at || '').localeCompare(a.updated_at || a.created_at || '') ||
+      a.title.localeCompare(b.title)).slice(0, 10), [activeFilteredTasks]);
   const attentionTasks = useMemo(() => snapshot.attentionTasks.filter((task) => filteredIds.has(task.id)).slice(0, 8),
     [snapshot.attentionTasks, filteredIds]);
-  const memberCards = snapshot.members.filter((member) => memberFilter === 'all' || member.profile.id === memberFilter);
+  const memberCards = snapshot.members
+    .filter((member) => memberFilter === 'all' || member.profile.id === memberFilter)
+    .sort((a, b) => (b.inProgressCount + b.openCount + b.overdueCount > 0 ? 1 : 0) - (a.inProgressCount + a.openCount + a.overdueCount > 0 ? 1 : 0));
   const activeProjectCount = visibleProjects.length;
 
   function clearFilters() {
@@ -160,16 +172,21 @@ export function OperationsOverview({
         ))}
       </div>
 
-      <Card className="rounded-2xl border border-border bg-white p-4 shadow-sm dark:bg-slate-900 sm:p-5">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="flex items-center gap-2 text-sm font-bold text-ink"><ListFilter className="h-4 w-4 text-gold" /> Task filters</h3>
+      <Card className="rounded-2xl border border-border bg-white px-4 py-3 shadow-sm dark:bg-slate-900 sm:px-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <button type="button" onClick={() => setShowFilters((value) => !value)} aria-expanded={showFilters}
+            className="flex items-center gap-2 text-sm font-bold text-ink">
+            <ListFilter className="h-4 w-4 text-gold" /> Task filters
+            {filtersActive && <span className="rounded-full bg-gold/20 px-2 py-0.5 text-[11px] font-semibold text-[#7a5518]">On</span>}
+            {showFilters ? <ChevronUp className="h-4 w-4 text-muted" /> : <ChevronDown className="h-4 w-4 text-muted" />}
+          </button>
           {filtersActive && (
             <button type="button" onClick={clearFilters} className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-[#7a5518] hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-slate-800">
               <RotateCcw className="h-3.5 w-3.5" /> Clear filters
             </button>
           )}
         </div>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
+        {showFilters && <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
           <label className="min-w-0 text-xs font-semibold text-muted">
             Employee
             <select value={employeeFilter} onChange={(event) => setEmployeeFilter(event.target.value)} className={inputStyle}>
@@ -208,103 +225,125 @@ export function OperationsOverview({
             Due through
             <input type="date" value={dueTo} min={dueFrom || undefined} onChange={(event) => setDueTo(event.target.value)} className={inputStyle} />
           </label>
-        </div>
-        <p className="mt-3 text-xs text-muted" role="status">
-          {filtersActive ? String(filteredTasks.length) + ' matching tasks' : 'Showing recent and priority tasks'} across {activeProjectCount} projects with tasks.
+        </div>}
+        <p className="mt-2 text-xs text-muted" role="status">
+          {filtersActive ? String(activeFilteredTasks.length) + ' matching tasks' : String(activeFilteredTasks.length) + ' active tasks'} across {activeProjectCount} projects with tasks.
           {' '}Summary cards remain organization-wide; filters affect the task panels only.
         </p>
       </Card>
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-        <Card className="min-w-0 rounded-2xl border border-border bg-white p-4 shadow-sm dark:bg-slate-900 sm:p-5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
+        <Card className="min-w-0 rounded-2xl border border-border bg-white p-0 shadow-sm dark:bg-slate-900">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3 sm:px-5">
             <div>
               <h3 className="flex items-center gap-2 font-display text-xl font-semibold text-ink">
-                <CheckSquare2 className="h-5 w-5 text-blue-600" /> Recent Team Tasks
+                <CheckSquare2 className="h-5 w-5 text-blue-600" /> Active Team Tasks
+                <span className="rounded-full bg-blue-50 px-2 py-0.5 font-sans text-xs font-semibold text-blue-700 dark:bg-slate-800 dark:text-blue-300">{activeFilteredTasks.length}</span>
               </h3>
-              <p className="mt-1 text-xs text-muted">{filtersActive ? 'Latest matching tasks, ordered by most recent update.' : 'Latest eight active-project or general tasks.'}</p>
+              <p className="mt-0.5 text-xs text-muted">Blocked and in-progress first, then by due date. Completed tasks are hidden.</p>
             </div>
             <button type="button" onClick={onViewTeamTasks} className="inline-flex items-center gap-1 text-xs font-semibold text-[#7a5518] hover:underline dark:text-amber-300">
               View all <ArrowRight className="h-3.5 w-3.5" />
             </button>
           </div>
-          <div className="mt-4 space-y-2">
-            {recentTasks.length ? recentTasks.map((task) => {
-              const assignee = profiles.find((person) => person.id === task.assigned_to);
-              return (
-                <button
-                  key={task.id}
-                  type="button"
-                  onClick={() => onOpenTask(task.id)}
-                  className="w-full rounded-xl border border-border bg-white p-3 text-left transition hover:border-blue-300 hover:bg-blue-50/40 hover:shadow-sm dark:bg-slate-900 dark:hover:bg-slate-800"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="min-w-0 flex-1 text-sm font-semibold leading-snug text-ink" title={task.title}>{task.title}</p>
-                    <span className={'shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ' + taskStatusTone(task.status)}>{task.status}</span>
-                  </div>
-                  <p className="mt-1.5 flex items-center gap-1.5 truncate text-xs text-muted">
-                    <FolderOpen className="h-3.5 w-3.5 shrink-0" />
-                    {task.project_id ? projectNames.get(task.project_id) || 'Project task' : 'General task'}
-                  </p>
-                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-border/70 pt-2">
-                    <div className="flex min-w-0 items-center gap-2">
-                      {assignee ? <UserAvatar profile={assignee} size="sm" /> : <Users className="h-4 w-4 text-muted" />}
-                      <span className="truncate text-xs text-muted">{assignee?.full_name || 'Unassigned'}</span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <span className={'rounded px-1.5 py-0.5 font-medium ' + (task.priority === 'Urgent' ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-600')}>{task.priority}</span>
-                      <span className="inline-flex items-center gap-1 text-muted"><CalendarDays className="h-3.5 w-3.5" />{task.due_date ? formatDate(task.due_date) : 'No due date'}</span>
-                    </div>
-                  </div>
-                </button>
-              );
-            }) : (
-              <p className="rounded-xl border border-dashed border-border bg-ivory p-6 text-center text-sm text-muted dark:bg-slate-900">
-                No tasks match the current filters. Clear filters or assign a new task.
-              </p>
-            )}
-          </div>
-          {filteredTasks.length > 8 && <button type="button" onClick={onViewTeamTasks} className="mt-3 text-xs font-semibold text-[#7a5518] hover:underline dark:text-amber-300">Open task workspace <ArrowRight className="inline h-3 w-3" /></button>}
+          {recentTasks.length ? (
+            <ul className="divide-y divide-border/70">
+              {recentTasks.map((task) => {
+                const assignee = profiles.find((person) => person.id === task.assigned_to);
+                const overdue = !!task.due_date && task.due_date < today && task.status !== 'Done';
+                return (
+                  <li key={task.id}>
+                    <button
+                      type="button"
+                      onClick={() => onOpenTask(task.id)}
+                      className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 px-4 py-2.5 text-left transition hover:bg-blue-50/40 dark:hover:bg-slate-800 sm:grid-cols-[minmax(0,1fr)_140px_auto_96px] sm:px-5"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-ink" title={task.title}>{task.title}</p>
+                        <p className="mt-0.5 flex items-center gap-1.5 truncate text-xs text-muted">
+                          <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+                          {task.project_id ? projectNames.get(task.project_id) || 'Project task' : 'General task'}
+                        </p>
+                      </div>
+                      <div className="hidden min-w-0 items-center gap-2 sm:flex">
+                        {assignee ? <UserAvatar profile={assignee} size="sm" /> : <Users className="h-4 w-4 text-muted" />}
+                        <span className="truncate text-xs text-muted">{assignee?.full_name || 'Unassigned'}</span>
+                      </div>
+                      <div className="hidden items-center gap-2 text-xs sm:flex">
+                        {task.priority === 'High' || task.priority === 'Urgent' ? (
+                          <span className={'rounded px-1.5 py-0.5 font-semibold ' + (task.priority === 'Urgent' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700')}>{task.priority}</span>
+                        ) : null}
+                        <span className={'inline-flex items-center gap-1 whitespace-nowrap ' + (overdue ? 'font-semibold text-rose-700' : 'text-muted')}>
+                          <CalendarDays className="h-3.5 w-3.5" />{task.due_date ? formatDate(task.due_date) : 'No date'}
+                        </span>
+                      </div>
+                      <span className={'justify-self-end whitespace-nowrap rounded-full px-2 py-1 text-[11px] font-semibold ' + taskStatusTone(task.status)}>{task.status}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <div className="flex flex-col items-center gap-2 p-8 text-center text-sm text-muted">
+              <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+              {filtersActive ? 'No active tasks match the current filters.' : 'No active tasks right now. Everything is done.'}
+            </div>
+          )}
+          {activeFilteredTasks.length > recentTasks.length && (
+            <div className="border-t border-border px-4 py-2.5 sm:px-5">
+              <button type="button" onClick={onViewTeamTasks} className="text-xs font-semibold text-[#7a5518] hover:underline dark:text-amber-300">
+                +{activeFilteredTasks.length - recentTasks.length} more in task workspace <ArrowRight className="inline h-3 w-3" />
+              </button>
+            </div>
+          )}
         </Card>
 
-        <Card className="min-w-0 rounded-2xl border border-border bg-rose-50/30 p-4 shadow-sm dark:bg-slate-900 sm:p-5">
-          <div>
+        <Card className="min-w-0 rounded-2xl border border-border bg-white p-0 shadow-sm dark:bg-slate-900">
+          <div className="border-b border-border px-4 py-3 sm:px-5">
             <h3 className="flex items-center gap-2 font-display text-xl font-semibold text-ink">
               <AlertTriangle className="h-5 w-5 text-rose-600" /> Tasks Requiring Action
+              {attentionTasks.length > 0 && <span className="rounded-full bg-rose-50 px-2 py-0.5 font-sans text-xs font-semibold text-rose-700">{attentionTasks.length}</span>}
             </h3>
-            <p className="mt-1 text-xs text-muted">Blocked first, then overdue, unassigned, due today, and urgent tasks.</p>
+            <p className="mt-0.5 text-xs text-muted">Blocked, overdue, unassigned, due today and urgent.</p>
           </div>
-          <div className="mt-4 space-y-2">
-            {attentionTasks.length ? attentionTasks.map((task) => {
-              const attention = attentionLabel(task, today);
-              return (
-                <button
-                  key={task.id}
-                  type="button"
-                  onClick={() => onOpenTask(task.id)}
-                  className="w-full rounded-xl border border-rose-100 bg-white p-3 text-left transition hover:border-rose-300 hover:shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="min-w-0 flex-1 text-sm font-semibold leading-snug text-ink">{task.title}</p>
-                    <span className={'shrink-0 rounded-full px-2 py-1 text-[11px] font-bold ' + attention.color}>{attention.text}</span>
-                  </div>
-                  <p className="mt-2 truncate text-xs text-muted">{task.project_id ? projectNames.get(task.project_id) || 'Project task' : 'General task'} {' · '} {task.assigned_to ? profileNames.get(task.assigned_to) || 'Team member' : 'Needs assignment'}</p>
-                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-                    <span className="inline-flex items-center gap-1 text-muted"><Clock3 className="h-3.5 w-3.5" />{task.due_date ? formatDate(task.due_date) : 'No due date'}</span>
-                    <span className="font-semibold text-[#7a5518] dark:text-amber-300">{!task.assigned_to ? 'Assign in task details' : 'Open task'} <ArrowRight className="inline h-3 w-3" /></span>
-                  </div>
-                </button>
-              );
-            }) : (
-              <p className="rounded-xl border border-dashed border-rose-200 bg-white p-6 text-center text-sm text-muted dark:border-slate-700 dark:bg-slate-900">
-                No urgent tasks match your filters.
-              </p>
-            )}
-          </div>
+          {attentionTasks.length ? (
+            <ul className="divide-y divide-border/70">
+              {attentionTasks.map((task) => {
+                const attention = attentionLabel(task, today);
+                return (
+                  <li key={task.id}>
+                    <button
+                      type="button"
+                      onClick={() => onOpenTask(task.id)}
+                      className="w-full px-4 py-2.5 text-left transition hover:bg-rose-50/40 dark:hover:bg-slate-800 sm:px-5"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="min-w-0 flex-1 truncate text-sm font-semibold text-ink" title={task.title}>{task.title}</p>
+                        <span className={'shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ' + attention.color}>{attention.text}</span>
+                      </div>
+                      <p className="mt-0.5 flex items-center gap-1.5 truncate text-xs text-muted">
+                        <Clock3 className="h-3.5 w-3.5 shrink-0" />
+                        {task.due_date ? formatDate(task.due_date) : 'No due date'}
+                        {' · '}
+                        {task.assigned_to ? profileNames.get(task.assigned_to) || 'Team member' : 'Needs assignment'}
+                      </p>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <div className="flex items-center gap-3 px-4 py-5 text-sm text-muted sm:px-5">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-emerald-50 text-emerald-700"><CheckCircle2 className="h-5 w-5" /></span>
+              <span><span className="font-semibold text-ink">All clear.</span> No blocked, overdue or urgent tasks.</span>
+            </div>
+          )}
           {snapshot.attentionTasks.filter((task) => filteredIds.has(task.id)).length > 8 && (
-            <button type="button" onClick={onViewTeamTasks} className="mt-3 text-xs font-semibold text-[#7a5518] hover:underline dark:text-amber-300">
-              View all priority tasks <ArrowRight className="inline h-3 w-3" />
-            </button>
+            <div className="border-t border-border px-4 py-2.5 sm:px-5">
+              <button type="button" onClick={onViewTeamTasks} className="text-xs font-semibold text-[#7a5518] hover:underline dark:text-amber-300">
+                View all priority tasks <ArrowRight className="inline h-3 w-3" />
+              </button>
+            </div>
           )}
         </Card>
       </div>
@@ -333,7 +372,7 @@ export function OperationsOverview({
 
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {memberCards.length ? memberCards.map((member) => (
-            <article key={member.profile.id} className="min-w-0 rounded-2xl border border-border bg-[#fcfbf8] p-4 dark:bg-slate-900">
+            <article key={member.profile.id} className="min-w-0 rounded-2xl border border-border bg-[#fcfbf8] p-3.5 dark:bg-slate-900">
               <div className="flex min-w-0 items-start gap-3">
                 <UserAvatar profile={member.profile} size="sm" showRoleRing />
                 <div className="min-w-0 flex-1">
@@ -342,28 +381,28 @@ export function OperationsOverview({
                 </div>
                 <span className={'shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ' + presenceTone(member.presence)}>{member.presence}</span>
               </div>
-              <p className="mt-3 min-h-[36px] text-xs leading-relaxed text-muted" title={member.focusTask?.title || ''}>
+              <p className="mt-2.5 truncate text-xs text-muted" title={member.focusTask?.title || ''}>
                 <span className="font-semibold text-ink">{member.focusTask?.status === 'In Progress' ? 'In progress' : 'Next task'}:</span>{' '}
                 {member.focusTask?.title || 'No active task'}
               </p>
-              <div className="mt-3 grid grid-cols-3 gap-2">
-                <div className="rounded-lg bg-blue-50 p-2 text-center dark:bg-slate-800">
-                  <p className="text-lg font-bold tabular-nums text-blue-700 dark:text-blue-300">{member.openCount}</p><p className="text-[11px] text-muted">Open</p>
+              <div className="mt-2.5 grid grid-cols-3 gap-2">
+                <div className="rounded-lg bg-blue-50 px-2 py-1.5 text-center dark:bg-slate-800">
+                  <p className="text-base font-bold tabular-nums text-blue-700 dark:text-blue-300">{member.openCount}</p><p className="text-[11px] text-muted">Open</p>
                 </div>
-                <div className="rounded-lg bg-amber-50 p-2 text-center dark:bg-slate-800">
-                  <p className="text-lg font-bold tabular-nums text-amber-700 dark:text-amber-300">{member.inProgressCount}</p><p className="text-[11px] text-muted">In progress</p>
+                <div className="rounded-lg bg-amber-50 px-2 py-1.5 text-center dark:bg-slate-800">
+                  <p className="text-base font-bold tabular-nums text-amber-700 dark:text-amber-300">{member.inProgressCount}</p><p className="text-[11px] text-muted">In progress</p>
                 </div>
-                <div className="rounded-lg bg-rose-50 p-2 text-center dark:bg-slate-800">
-                  <p className="text-lg font-bold tabular-nums text-rose-700 dark:text-rose-300">{member.overdueCount}</p><p className="text-[11px] text-muted">Overdue</p>
+                <div className="rounded-lg bg-rose-50 px-2 py-1.5 text-center dark:bg-slate-800">
+                  <p className="text-base font-bold tabular-nums text-rose-700 dark:text-rose-300">{member.overdueCount}</p><p className="text-[11px] text-muted">Overdue</p>
                 </div>
               </div>
-              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+              <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
                 {member.blockedCount > 0 && <span className="font-semibold text-rose-700">{member.blockedCount} blocked</span>}
                 <span>{member.estimatedMinutes > 0 ? (member.estimatedMinutes / 60).toFixed(1) + 'h estimated' : 'No task estimate'}</span>
                 {member.unestimatedCount > 0 && <span>{member.unestimatedCount} without estimates</span>}
               </div>
               <button type="button" onClick={() => onViewMemberTasks(member.profile.id)}
-                className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-[#7a5518] hover:underline dark:text-amber-300">
+                className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[#7a5518] hover:underline dark:text-amber-300">
                 View assigned tasks <ArrowRight className="h-3.5 w-3.5" />
               </button>
             </article>

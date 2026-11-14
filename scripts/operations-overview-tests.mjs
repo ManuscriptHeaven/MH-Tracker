@@ -112,7 +112,7 @@ assert.ok(dashboard.includes('setQuickFilter(\'overdue\'); setDashboardView(\'pr
 assert.ok(dashboard.includes('bg-[#fffdf9]') && dashboard.includes('from-[#f6f7fb] via-[#f9f8f4] to-[#fdf8ee]'), 'projects and operations are visually distinct');
 assert.ok(!dashboard.includes('xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.7fr)]'), 'projects are not squeezed beside a competing operations rail');
 assert.ok(overview.includes('Tasks Requiring Action') && overview.includes('Team Workload'), 'both work views are visible');
-assert.ok(overview.includes('Recent Team Tasks') && overview.includes('recentTasks.map'),
+assert.ok(overview.includes('Active Team Tasks') && overview.includes('recentTasks.map') && overview.includes("task.status !== 'Done'"),
   'Operations has a visible list of recent tasks independent of urgency');
 assert.ok(overview.includes('Open Tasks') && overview.includes('snapshot.openTasks.length'),
   'Operations shows all open tasks not only the in-progress subset');
