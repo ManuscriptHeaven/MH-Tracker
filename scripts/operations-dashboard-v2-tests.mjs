@@ -5,13 +5,13 @@ import { buildOperationsSnapshot } from '../src/lib/operationsInsights.ts';
 const overview = fs.readFileSync('src/components/OperationsOverview.tsx', 'utf8');
 const insight = fs.readFileSync('src/lib/operationsInsights.ts', 'utf8');
 
-const panelStart = overview.indexOf('<div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">');
-const left = overview.indexOf('Recent Team Tasks', panelStart);
+const panelStart = overview.indexOf('<div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">');
+const left = overview.indexOf('Active Team Tasks', panelStart);
 const right = overview.indexOf('Tasks Requiring Action', panelStart);
 const workload = overview.indexOf('Team Workload', right);
 
 assert(panelStart >= 0 && left > panelStart && right > left && workload > right,
-  'recent tasks on left, actions on right, full-width team workload below');
+  'active tasks on left, actions on right, full-width team workload below');
 assert(overview.includes('md:grid-cols-2 xl:grid-cols-3'), 'workload uses responsive multi-column employee cards');
 assert(overview.includes('grid grid-cols-2 gap-3 lg:grid-cols-4'), 'KPI layout stacks from mobile through desktop');
 assert(overview.includes('aria-pressed={kpiFilter === item.id}') && overview.includes('setKpiFilter('),
@@ -20,7 +20,7 @@ for (const label of ['Employee', 'Status', 'Priority', 'Project', 'Due from', 'D
   assert(overview.includes(label), 'shared task filter is present: ' + label);
 }
 assert(overview.includes('snapshot.visibleTasks.filter(') &&
-  overview.includes('const recentTasks = useMemo(() => [...filteredTasks]') &&
+  overview.includes('const recentTasks = useMemo(() => [...activeFilteredTasks]') &&
   overview.includes('snapshot.attentionTasks.filter((task) => filteredIds.has(task.id))'),
   'filters are applied consistently before lists are limited');
 assert(overview.includes('onOpenTask(task.id)') && overview.includes('onViewMemberTasks(member.profile.id)') &&
