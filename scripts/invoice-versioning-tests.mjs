@@ -66,6 +66,14 @@ assert(
 );
 
 assert(
+  payments.includes('async function markInvoicePaid') &&
+    payments.includes("payment_status: 'Fully Paid'") &&
+    payments.includes('row.outstanding') &&
+    payments.includes('Mark Paid'),
+  'payments UI can mark a whole invoice paid, settling every outstanding project on it',
+);
+
+assert(
   payments.includes('<InvoiceRevisionModal') &&
     revisionModal.includes('A new immutable invoice version will be created') &&
     revisionModal.includes('Revision Reason *'),
