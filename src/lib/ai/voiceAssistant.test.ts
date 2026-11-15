@@ -631,9 +631,9 @@ export async function runVoiceAssistantTests() {
 
   // TEST 26: Create Task with Voice Preview & Verbal Confirmation
   voiceQueryEngine.clearMemory();
-  const res26a = await voiceQueryEngine.processQuery('Create a task for Zain to check the print PDF tomorrow', createAdminCtx());
+  const res26a = await voiceQueryEngine.processQuery('Create a task for Zain to check the print PDF tomorrow, no project', createAdminCtx());
   assert(Boolean(res26a.success && res26a.pendingAction && res26a.pendingAction.toolName === 'create_task'), 'Test 26a: Task creation intent detected');
-  console.log(`   User: "Create a task for Zain to check the print PDF tomorrow"\n   Assistant (Preview): "${res26a.spokenText}"`);
+  console.log(`   User: "Create a task for Zain to check the print PDF tomorrow, no project"\n   Assistant (Preview): "${res26a.spokenText}"`);
 
   const res26b = await voiceQueryEngine.processQuery('Confirm', createAdminCtx());
   assert(Boolean(!res26b.success && res26b.error === 'task_creation_unavailable'), 'Test 26b: Confirmation fails closed when the test fixture has no task persistence');

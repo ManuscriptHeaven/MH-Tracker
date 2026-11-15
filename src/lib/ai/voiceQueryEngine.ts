@@ -22,7 +22,7 @@ import {
   looksLikeCompoundAction,
 } from './aiPlannerService';
 import { rankEntityCandidates, resolveUniqueEntityMatch } from './aiEntityMatcher';
-import { isCreateTaskRequest, resolveTaskCreation } from './taskCreationIntent';
+import { answerTaskClarification, isCreateTaskRequest, NO_DUE_DATE, resolveTaskCreation } from './taskCreationIntent';
 import type { TaskCreationOverrides } from './taskCreationIntent';
 import { verifyActionOutcome } from './aiActionVerifier';
 import { isMessageReadingIntent, readTrackerMessages } from './messageIntelligence';
@@ -169,6 +169,24 @@ export class VoiceQueryEngine {
           this.updateMemory(resolvedResult, q);
           this.logExecution(ctx, q, resolvedResult.toolName, resolvedResult.success, resolvedResult.error);
           return resolvedResult;
+        }
+      } else if (
+        this.memory.pendingDisambiguationContext?.intentType === 'create_task' &&
+        this.memory.pendingDisambiguationContext.field &&
+        !isCreateTaskRequest(q)
+      ) {
+        // A typed/spoken answer that is not one of the buttons: "20 November",
+        // "kal", "no project", "Snowman Patch". Only a confident answer resumes
+        // the task; anything else is handled as a fresh request below.
+        const context = this.memory.pendingDisambiguationContext;
+        const answer = answerTaskClarification(context.field as any, q, ctx);
+        if (answer) {
+          this.memory.pendingDisambiguation = null;
+          this.memory.pendingDisambiguationContext = null;
+          const result = this.prepareTaskCreation(context.originalQuery, ctx, { ...(context.targetPayload || {}), ...answer });
+          this.updateMemory(result, q);
+          this.logExecution(ctx, q, result.toolName, result.success, result.error);
+          return result;
         }
       }
     }
@@ -2054,13 +2072,15 @@ export class VoiceQueryEngine {
       };
     }
 
-    const resolved = resolveTaskCreation(originalQuery, ctx, overrides);
+    const selectedProject = (ctx as any).selectedProject || null;
+    const resolved = resolveTaskCreation(originalQuery, { ...ctx, selectedProject }, overrides);
     if (resolved.kind === 'clarify') {
       this.memory.pendingDisambiguation = resolved.options;
       this.memory.pendingDisambiguationContext = {
         originalQuery,
         intentType: 'create_task',
         targetPayload: overrides,
+        field: resolved.field,
       };
       return {
         success: true, toolName: 'create_task',
@@ -2083,7 +2103,13 @@ export class VoiceQueryEngine {
       };
     }
 
-    const { title, assignee, project, dueDate } = resolved;
+    const { title, assignee, project, dueDate, dueDateSource, priority, projectSource } = resolved;
+    const dueLabel = dueDate
+      ? `${formatDate(dueDate)}${dueDateSource === 'project' ? ' (project deadline)' : ''}`
+      : 'No due date';
+    const projectLabel = project
+      ? `${project.project_title} (${project.project_number})${projectSource === 'page' ? ' — current page' : ''}`
+      : 'No project linked';
     const preview: AIActionPreview = {
       actionId: `act-${Date.now()}`,
       toolName: 'create_task',
@@ -2096,19 +2122,20 @@ export class VoiceQueryEngine {
       changes: [
         { field: 'title', label: 'Task', newValue: title },
         { field: 'assigned_to', label: 'Assigned To', newValue: assignee.full_name },
-        { field: 'project', label: 'Active Project', newValue: project ? `${project.project_title} (${project.project_number})` : 'No project linked' },
-        ...(dueDate ? [{ field: 'due_date', label: 'Due Date', newValue: formatDate(dueDate) }] : []),
+        { field: 'project', label: 'Active Project', newValue: projectLabel },
+        { field: 'due_date', label: 'Due Date', newValue: dueLabel },
+        { field: 'priority', label: 'Priority', newValue: priority },
       ],
       payload: {
         title,
         assignedToId: assignee.id,
         projectId: project?.id,
         dueDate,
-        priority: 'Normal',
+        priority,
       },
       confirmButtonText: 'Create and Assign Task',
       cancelButtonText: 'Cancel',
-      spokenPrompt: `Create "${title}" for ${assignee.full_name}${project ? ` in ${project.project_title}` : ''}? Confirm?`,
+      spokenPrompt: `Create "${title}" for ${assignee.full_name}${project ? ` in ${project.project_title}` : ''}${dueDate ? `, due ${formatDate(dueDate)}` : ''}? Confirm?`,
     };
     this.memory.pendingAction = preview;
 
@@ -2119,8 +2146,9 @@ export class VoiceQueryEngine {
         '### Review Task Before Creating\\n\\n' +
         `• **Task:** ${title}\\n` +
         `• **Assigned To:** ${assignee.full_name}\\n` +
-        `• **Project:** ${project ? `${project.project_title} (${project.project_number})` : 'Not linked'}\\n` +
-        (dueDate ? `• **Due:** ${formatDate(dueDate)}\\n` : '') +
+        `• **Project:** ${projectLabel}\\n` +
+        `• **Due:** ${dueLabel}\\n` +
+        `• **Priority:** ${priority}\\n` +
         '\\n**Confirm** to create and assign this task.',
     };
   }
@@ -2429,7 +2457,11 @@ export class VoiceQueryEngine {
     if (q === '3' || q === '#3' || q === 'third' || q === 'third one') return options[2];
     if (q === '4' || q === '#4' || q === 'fourth') return options[3];
 
-    // Match by title substring
+    // Match by title substring. Very short answers ("no", "ok") must not
+    // select an option merely because a title contains those letters.
+    if (q.replace(/[^a-z0-9]/g, '').length < 3) return undefined;
+    const exact = options.find((opt) => opt.title.toLowerCase() === q.replace(/[.!?]+$/, ''));
+    if (exact) return exact;
     return options.find((opt) => opt.title.toLowerCase().includes(q) || q.includes(opt.title.toLowerCase()));
   }
 
@@ -2442,6 +2474,10 @@ export class VoiceQueryEngine {
       const overrides: TaskCreationOverrides = { ...(context.targetPayload || {}) };
       if (selected.type === 'employee') overrides.employeeId = selected.id;
       if (selected.type === 'project') overrides.projectId = selected.id;
+      return this.prepareTaskCreation(context.originalQuery, ctx, overrides);
+    }
+    if (context?.intentType === 'create_task' && selected.type === 'date') {
+      const overrides: TaskCreationOverrides = { ...(context.targetPayload || {}), dueDate: selected.data?.dueDate || NO_DUE_DATE };
       return this.prepareTaskCreation(context.originalQuery, ctx, overrides);
     }
 
