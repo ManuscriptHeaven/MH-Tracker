@@ -82,7 +82,22 @@ export function AIAssistantPage({
     startNewConversation,
     dailySummary,
     refreshDailyBriefing,
+    handsFree,
+    setHandsFreeEnabled,
+    setWakeName,
   } = useAIContext();
+  const [editingWakeName, setEditingWakeName] = useState(false);
+  const [wakeNameDraft, setWakeNameDraft] = useState(handsFree.name);
+  const wakeName = handsFree.name;
+  const greeting = (() => {
+    const hour = new Date().getHours();
+    return hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  })();
+
+  function saveWakeName() {
+    setWakeName(wakeNameDraft);
+    setEditingWakeName(false);
+  }
 
   const { formatMoney } = useCurrency();
   const [input, setInput] = useState('');
@@ -213,7 +228,7 @@ export function AIAssistantPage({
         {
           label: 'Create Task',
           description: 'Preview a task before creating it.',
-          query: 'Create a task for Zain to check the print PDF tomorrow',
+          query: 'Assign a task to Zain to check the print PDF by tomorrow',
           icon: CheckCircle2,
         },
       );
@@ -330,21 +345,41 @@ export function AIAssistantPage({
 
   return (
     <div className="mx-auto w-full max-w-[1660px] space-y-4 pb-8">
-      {/* AI Assistant Dashboard V2: keep the existing AI context, permissions, and action confirmations. */}
+      {/* AI Assistant: greeting, live workspace pulse, hands-free and audio controls. */}
       <header className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#0d1524] px-5 py-5 text-white shadow-xl shadow-black/10 sm:px-7">
         <div className="pointer-events-none absolute -right-12 -top-20 h-56 w-56 rounded-full bg-cyan-500/10 blur-3xl" aria-hidden="true" />
-        <div className="relative flex flex-wrap items-center justify-between gap-4">
-          <div>
+        <div className="relative flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
             <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-gold">
               <Sparkles className="h-3.5 w-3.5" />
-              Live Workspace Intelligence
+              {wakeName} · your MH assistant
             </div>
-            <h1 className="mt-1 font-display text-2xl font-bold sm:text-3xl">AI Command Center <span className="text-gold">V2</span></h1>
-            <p className="mt-1 text-xs text-slate-400 sm:text-sm">
-              {userName}, speak, chat, or launch a safe workflow from one workspace.
+            <h1 className="mt-1 font-display text-2xl font-bold sm:text-3xl">{greeting}, {userName}</h1>
+            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-slate-400 sm:text-sm">
+              Ask by voice or text — create and assign tasks, check projects and deadlines, finance, or draft client messages.
+              Nothing changes until you confirm.
             </p>
+            <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+              <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-slate-300"><b className="text-white">{activeProjects.length}</b> active projects</span>
+              <span className={cn('rounded-full border px-2.5 py-1', overdueProjects.length ? 'border-rose-400/30 bg-rose-500/10 text-rose-200' : 'border-white/10 bg-white/5 text-slate-300')}><b>{overdueProjects.length}</b> overdue</span>
+              <span className={cn('rounded-full border px-2.5 py-1', dueTodayProjects.length ? 'border-amber-400/30 bg-amber-500/10 text-amber-200' : 'border-white/10 bg-white/5 text-slate-300')}><b>{dueTodayProjects.length}</b> due today</span>
+              <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-slate-300"><b className="text-white">{pendingApprovals.length}</b> waiting on clients</span>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {handsFree.supported ? (
+              <button
+                type="button"
+                onClick={() => setHandsFreeEnabled(!handsFree.enabled)}
+                aria-pressed={handsFree.enabled}
+                title={handsFree.enabled ? 'Turn hands-free off (microphone released)' : `Turn hands-free on, then say "Hey ${wakeName}"`}
+                className={cn('inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-xs font-semibold transition',
+                  handsFree.enabled ? 'border-cyan-400/40 bg-cyan-500/15 text-cyan-100' : 'border-white/15 bg-white/5 text-slate-200 hover:bg-white/10')}
+              >
+                <span className={cn('h-2 w-2 rounded-full', handsFree.enabled ? (handsFree.listening ? 'animate-pulse bg-cyan-300' : 'bg-cyan-500') : 'bg-slate-500')} />
+                {handsFree.enabled ? `Hands-free · "Hey ${wakeName}"` : 'Hands-free off'}
+              </button>
+            ) : null}
             <span className={cn('inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold', voiceStateColor)} aria-live="polite">
               <span className={cn('h-2 w-2 rounded-full', isListening ? 'animate-pulse bg-cyan-300' : isSpeaking ? 'animate-pulse bg-emerald-300' : isProcessing ? 'animate-pulse bg-amber-300' : voiceError ? 'bg-rose-400' : 'bg-slate-400')} />
               {assistantState}
@@ -369,7 +404,7 @@ export function AIAssistantPage({
           className="fixed inset-0 z-[80] bg-black/70 xl:hidden" />
       ) : null}
 
-      <section aria-label="AI Assistant V2 workspace" className="grid min-w-0 gap-4 lg:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)] xl:grid-cols-[250px_minmax(290px,0.82fr)_minmax(360px,1.18fr)]">
+      <section aria-label="AI assistant workspace" className="grid min-w-0 gap-4 lg:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)] xl:grid-cols-[250px_minmax(290px,0.82fr)_minmax(360px,1.18fr)]">
         {/* Left: role-aware commands and saved conversations */}
         <aside className={cn(
           'min-w-0 flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#111c2b] text-slate-100 shadow-2xl shadow-black/10',
@@ -457,8 +492,8 @@ export function AIAssistantPage({
           <div className="pointer-events-none absolute left-1/2 top-1/3 h-80 w-80 -translate-x-1/2 rounded-full bg-cyan-500/[0.065] blur-3xl" aria-hidden="true" />
           <div className="relative flex items-start justify-between gap-3">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-gold">MH Voice Intelligence</p>
-              <h2 className="mt-1 text-base font-semibold">Voice Command Center</h2>
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-gold">Voice</p>
+              <h2 className="mt-1 text-base font-semibold">Talk to {wakeName}</h2>
             </div>
             <span className={cn('rounded-full border px-2.5 py-1 text-[10px] font-bold', voiceStateColor)}>{assistantState}</span>
           </div>
@@ -487,17 +522,65 @@ export function AIAssistantPage({
               ))}
             </div>
             <h3 aria-live="polite" className="mt-3 text-lg font-semibold">
-              {voiceError ? 'Microphone needs attention' : isListening ? 'Listening…' : isSpeaking ? 'Speaking…' : isProcessing ? 'Thinking…' : 'Click to Speak'}
+              {voiceError ? 'Microphone needs attention' : isListening ? 'Listening…' : isSpeaking ? 'Speaking…' : isProcessing ? 'Thinking…' : handsFree.enabled ? `Say "Hey ${wakeName}"` : 'Tap to speak'}
             </h3>
             <p className="mt-1 max-w-xs text-xs leading-relaxed text-slate-400">
-              {isListening ? 'Speak your request clearly. Your transcript will appear below.' :
-                isSpeaking ? 'The assistant is reading its response. Stop audio at any time.' :
-                isProcessing ? 'Reviewing your request and current workspace data.' :
-                'The microphone stays off until you click Speak.'}
+              {isListening ? 'Speak your request clearly. Your words appear below.' :
+                isSpeaking ? 'Reading the answer aloud. You can stop audio at any time.' :
+                isProcessing ? 'Checking your request against live workspace data.' :
+                handsFree.enabled ? `Hands-free is on. Try: "Hey ${wakeName}, assign a task to Zain to create the print version for Snowman Patch by Friday."` :
+                'The microphone stays off until you tap Speak or turn on Hands-free.'}
             </p>
           </div>
 
           <div className="relative space-y-3">
+            {handsFree.supported ? (
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-slate-100">Hands-free mode</p>
+                    <p className="mt-0.5 text-[10px] leading-relaxed text-slate-400">
+                      {handsFree.enabled
+                        ? `Listening for "Hey ${wakeName}" while the app is open. Turns off after 5 minutes without a command. Changes still need your confirmation.`
+                        : `Turn on to start with "Hey ${wakeName}" instead of tapping. Only this device.`}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={handsFree.enabled}
+                    aria-label="Hands-free mode"
+                    onClick={() => setHandsFreeEnabled(!handsFree.enabled)}
+                    className={cn('relative h-6 w-11 shrink-0 rounded-full transition', handsFree.enabled ? 'bg-cyan-500' : 'bg-white/15')}
+                  >
+                    <span className={cn('absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all', handsFree.enabled ? 'left-[22px]' : 'left-0.5')} />
+                  </button>
+                </div>
+                <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-300">
+                  <span className="text-slate-500">Wake name:</span>
+                  {editingWakeName ? (
+                    <>
+                      <input
+                        value={wakeNameDraft}
+                        onChange={(event) => setWakeNameDraft(event.target.value)}
+                        onKeyDown={(event) => { if (event.key === 'Enter') saveWakeName(); if (event.key === 'Escape') setEditingWakeName(false); }}
+                        maxLength={20}
+                        aria-label="Wake name"
+                        className="h-7 w-28 rounded-lg border border-white/15 bg-black/20 px-2 text-xs text-white outline-none focus:border-cyan-400/60"
+                        autoFocus
+                      />
+                      <button type="button" onClick={saveWakeName} className="rounded-lg bg-gold px-2 py-1 text-[10px] font-bold text-[#102035]">Save</button>
+                    </>
+                  ) : (
+                    <button type="button" onClick={() => { setWakeNameDraft(wakeName); setEditingWakeName(true); }} className="rounded-lg border border-white/10 px-2 py-1 font-semibold text-white hover:border-gold/40" title="Change wake name">
+                      Hey {wakeName} ✎
+                    </button>
+                  )}
+                </div>
+                {handsFree.error ? <p className="mt-2 text-[10px] text-rose-300" role="alert">{handsFree.error}</p> : null}
+                {!handsFree.error && handsFree.notice ? <p className="mt-2 text-[10px] text-amber-200" role="status">{handsFree.notice}</p> : null}
+              </div>
+            ) : null}
             <div className="min-h-16 rounded-2xl border border-white/10 bg-white/5 p-3" aria-live="polite">
               <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Live transcript</p>
               <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-slate-200">{liveTranscript || (isListening ? 'Listening for your request…' : 'Your words will appear here when you speak.')}</p>
@@ -513,10 +596,10 @@ export function AIAssistantPage({
                 className={cn('inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50',
                   isListening ? 'bg-rose-500 text-white hover:bg-rose-400' : 'bg-gold text-[#102035] hover:bg-amber-300')}>
                 {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                {isListening ? 'Stop Listening' : 'Click to Speak'}
+                {isListening ? 'Stop Listening' : 'Tap to Speak'}
               </button>
               <button type="button" onClick={() => { stopVoice(); stopSpeaking(); }} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 text-sm font-semibold text-slate-200 hover:bg-white/10">
-                <MicOff className="h-4 w-4" /> {isSpeaking ? 'Stop Speaking' : 'Sleep / Stop'}
+                <MicOff className="h-4 w-4" /> {isSpeaking ? 'Stop Speaking' : 'Stop'}
               </button>
             </div>
             <div className="flex flex-wrap justify-center gap-1.5 pb-1">
@@ -539,14 +622,14 @@ export function AIAssistantPage({
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="font-display text-base font-bold text-slate-100">MH AI Assistant</h2>
+                  <h2 className="font-display text-base font-bold text-slate-100">{wakeName}</h2>
                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-400/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-300">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                     {assistantState}
                   </span>
                 </div>
                 <p className="mt-0.5 text-[11px] text-slate-400">
-                  Live data · write actions require confirmation
+                  Live workspace data · changes need your confirmation
                 </p>
               </div>
             </div>

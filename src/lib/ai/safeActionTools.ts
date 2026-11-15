@@ -122,9 +122,9 @@ export async function execute_create_task(
       toolName: 'create_task',
       spokenText: `Task "${title}" was created for ${firstName(assignedProfile.full_name)}${project ? ` in ${project.project_title}` : ''}.`,
       displayText:
-        `### ✅ Task Created\\n\\n• **Task:** ${title}\\n• **Assigned To:** ${assignedProfile.full_name}\\n` +
-        (project ? `• **Project:** ${project.project_title} (${project.project_number})\\n` : '') +
-        (payload.dueDate ? `• **Due:** ${formatDate(payload.dueDate)}\\n` : '') +
+        `### ✅ Task Created\n\n• **Task:** ${title}\n• **Assigned To:** ${assignedProfile.full_name}\n` +
+        (project ? `• **Project:** ${project.project_title} (${project.project_number})\n` : '') +
+        (payload.dueDate ? `• **Due:** ${formatDate(payload.dueDate)}\n` : '') +
         '• **Status:** To Do',
       auditLog: audit,
       data: createdTask,
