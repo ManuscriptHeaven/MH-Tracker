@@ -9,7 +9,7 @@ const mkProfile = (id, full_name, role = 'employee', extra = {}) => ({
 const mkProject = (id, project_title, project_status = 'active', extra = {}) => ({
   id, project_title, project_status,
   project_number: id, client_name: 'Test Client',
-  status: 'In Progress', ...extra,
+  status: 'In Progress', internal_deadline: '2099-12-31', ...extra,
 });
 const admin = mkProfile('admin-id', 'Admin Test', 'admin');
 const zain = mkProfile('zain-id', 'Zain Ahmad');
@@ -28,7 +28,7 @@ assert.equal(isCreateTaskRequest('Task for Zain'), false, 'incomplete task short
 assert.equal(isCreateTaskRequest('What tasks are assigned to Zain?'), false, 'read queries remain read-only');
 const screenshotParsed = resolveTaskCreation(screenshotCommand, ctx);
 assert.equal(screenshotParsed.kind, 'ready');
-assert.equal(screenshotParsed.title, 'update the ebook cover');
+assert.equal(screenshotParsed.title, 'Update the ebook cover');
 assert.equal(screenshotParsed.assignee.id, zain.id);
 assert.equal(screenshotParsed.project.id, smart.id);
 voiceQueryEngine.clearMemory();
@@ -37,7 +37,7 @@ assert.equal(screenshotRouted.toolName, 'create_task', 'full message pipeline mu
 assert.equal(screenshotRouted.pendingAction?.toolName, 'create_task', 'shorthand prepares confirmation');
 assert.equal(screenshotRouted.pendingAction?.payload.assignedToId, zain.id);
 assert.equal(screenshotRouted.pendingAction?.payload.projectId, smart.id);
-assert.equal(screenshotRouted.pendingAction?.payload.title, 'update the ebook cover');
+assert.equal(screenshotRouted.pendingAction?.payload.title, 'Update the ebook cover');
 voiceQueryEngine.clearMemory();
 
 // Screenshot #2: speech recognition turned "Task for Zen" into "Task Force Zen".
@@ -49,13 +49,13 @@ assert.equal(isCreateTaskRequest('Task Force Zen meeting tomorrow'), false, 'lit
 assert.equal(isCreateTaskRequest('What is Task Force Zen doing?'), false, 'task force questions stay read-only');
 const voiceParsed = resolveTaskCreation(voiceCommand, ctx);
 assert.equal(voiceParsed.kind, 'ready');
-assert.equal(voiceParsed.title, 'create ebook version');
+assert.equal(voiceParsed.title, 'Create ebook version');
 assert.equal(voiceParsed.assignee.id, zain.id);
 assert.equal(voiceParsed.project.id, smart.id);
 const voicePreview = await voiceQueryEngine.processQuery(voiceCommand, ctx);
 assert.equal(voicePreview.toolName, 'create_task', 'voice transcript routes to task creation');
 assert.equal(voicePreview.pendingAction?.toolName, 'create_task', 'voice command requests confirmation, not a new project');
-assert.equal(voicePreview.pendingAction?.payload.title, 'create ebook version');
+assert.equal(voicePreview.pendingAction?.payload.title, 'Create ebook version');
 assert.equal(voicePreview.pendingAction?.payload.projectId, smart.id);
 assert.equal(voicePreview.pendingAction?.payload.assignedToId, zain.id);
 voiceQueryEngine.clearMemory();
@@ -81,7 +81,7 @@ voiceQueryEngine.clearMemory();
 
 const parsed = resolveTaskCreation(command, ctx);
 assert.equal(parsed.kind, 'ready', 'spoken instruction produces a complete task');
-assert.equal(parsed.title, 'update the e-book cover', 'task title excludes assignee and project');
+assert.equal(parsed.title, 'Update the e-book cover', 'task title excludes assignee and project');
 assert.equal(parsed.assignee.id, zain.id, 'Zen is resolved uniquely to Zain');
 assert.equal(parsed.project.id, smart.id, 'spoken title correction selects The End of Smart');
 
@@ -92,13 +92,13 @@ assert.equal(original.project.id, smart.id);
 
 const invalidProject = resolveTaskCreation(
   'Create a task for Zain to update cover for the project named Missing Project', ctx);
-assert.equal(invalidProject.kind, 'error');
-assert.equal(invalidProject.code, 'project_not_found', 'unknown project cannot lead to unlinked task');
+assert.equal(invalidProject.kind, 'clarify', 'unknown project asks instead of creating an unlinked task');
+assert.equal(invalidProject.field, 'project');
 
 const closedProject = resolveTaskCreation(
   'Create a task for Zain to update cover for the project named The Future of Books', ctx);
-assert.equal(closedProject.kind, 'error');
-assert.equal(closedProject.code, 'project_not_found', 'archived project must not be linked');
+assert.equal(closedProject.kind, 'clarify', 'archived project must not be linked');
+assert.ok(!closedProject.options.some((o) => o.title === 'The Future of Books'), 'archived project is not offered');
 
 // Genuine titles containing commas must be preferred over a shorter title
 // that happens to match the final comma-separated fragment.
@@ -130,7 +130,9 @@ const excludedEmployee = {
   ...ctx,
   data: { ...data, profiles: [admin, mkProfile('zain-id', 'Zain Ahmad', 'employee', { status: 'inactive' })] },
 };
-assert.equal(resolveTaskCreation(command, excludedEmployee).kind, 'error', 'inactive employee is never assigned');
+const excludedResult = resolveTaskCreation(command, excludedEmployee);
+assert.equal(excludedResult.kind, 'clarify', 'inactive employee is never assigned');
+assert.ok(!excludedResult.options.some((o) => o.id === 'zain-id'), 'inactive employee is not offered');
 
 const inactive = { ...ctx, currentProfile: mkProfile('emp-current', 'Employee Current') };
 const pending = await voiceQueryEngine.detectWriteIntent(command.toLowerCase(), command, ctx);
@@ -139,7 +141,7 @@ assert.equal(pending.success, true);
 assert.ok(pending.pendingAction, 'creation requires confirmation');
 assert.equal(pending.pendingAction.payload.assignedToId, zain.id);
 assert.equal(pending.pendingAction.payload.projectId, smart.id);
-assert.equal(pending.pendingAction.payload.title, 'update the e-book cover');
+assert.equal(pending.pendingAction.payload.title, 'Update the e-book cover');
 voiceQueryEngine.clearMemory();
 const denied = await voiceQueryEngine.detectWriteIntent(command.toLowerCase(), command, inactive);
 assert.equal(denied.error, 'permission_denied', 'employee cannot assign someone else');
