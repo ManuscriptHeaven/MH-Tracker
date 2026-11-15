@@ -2143,13 +2143,13 @@ export class VoiceQueryEngine {
       success: true, toolName: 'create_task', pendingAction: preview,
       spokenText: preview.spokenPrompt,
       displayText:
-        '### Review Task Before Creating\\n\\n' +
-        `• **Task:** ${title}\\n` +
-        `• **Assigned To:** ${assignee.full_name}\\n` +
-        `• **Project:** ${projectLabel}\\n` +
-        `• **Due:** ${dueLabel}\\n` +
-        `• **Priority:** ${priority}\\n` +
-        '\\n**Confirm** to create and assign this task.',
+        '### Review Task Before Creating\n\n' +
+        `• **Task:** ${title}\n` +
+        `• **Assigned To:** ${assignee.full_name}\n` +
+        `• **Project:** ${projectLabel}\n` +
+        `• **Due:** ${dueLabel}\n` +
+        `• **Priority:** ${priority}\n` +
+        '\n**Confirm** to create and assign this task.',
     };
   }
 

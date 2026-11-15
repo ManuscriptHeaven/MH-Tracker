@@ -1,5 +1,5 @@
 import { voiceQueryEngine } from './voiceQueryEngine';
-import { wakeWordService } from './wakeWordService';
+import { parseWakePhrase } from './wakeWordService';
 import { sampleProfiles } from '../sampleData';
 import type { TrackerData, Project } from '../types';
 import type { AIToolContext } from './aiTypes';
@@ -1012,16 +1012,10 @@ export async function runVoiceAssistantTests() {
   const aiInvoiceDenied = await voiceQueryEngine.processQuery('Show the latest invoice', createEmployeeCtx());
   assert(!aiInvoiceDenied.success && aiInvoiceDenied.error === 'permission_denied', 'Test 40i: Invoice lookup remains Admin-only');
 
-  // TEST 41: Wake Word "Hey James" service test
-  let wakeWordTriggered = false;
-  wakeWordService.onWakeWordDetected = () => {
-    wakeWordTriggered = true;
-  };
-  (wakeWordService as any).matchesWakeWord = (t: string) =>
-    ['hey james', 'james', 'ok james', 'wake up james', 'hey assistant'].some((kw) => t.toLowerCase().includes(kw));
-
-  assert((wakeWordService as any).matchesWakeWord('Hey James how are you'), 'Test 41: "Hey James how are you" triggers wake word detection');
-  console.log('   Wake Word: "Hey James how are you" -> Activated successfully');
+  // TEST 41: Hands-free wake phrase parsing ("Hey Nova ...")
+  const wake41 = parseWakePhrase('Hey Nova assign a task to Zain', 'Nova');
+  assert(Boolean(wake41 && wake41.command === 'assign a task to Zain'), 'Test 41: "Hey Nova ..." wakes and keeps the command');
+  assert(parseWakePhrase('we will discuss nova later', 'Nova') === null, 'Test 41b: name mid-sentence without greeting does not wake');
 
   console.log('====================================================');
   console.log(`📊 TEST RESULTS: ${passed}/${total} PASSED (${Math.round((passed / total) * 100)}%)`);

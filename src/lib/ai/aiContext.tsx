@@ -15,7 +15,7 @@ import type {
 import { aiService } from './aiService';
 import { voiceService } from './voiceService';
 import { voiceQueryEngine } from './voiceQueryEngine';
-import { wakeWordService } from './wakeWordService';
+import { DEFAULT_WAKE_NAME, wakeWordService } from './wakeWordService';
 import { buildDailyBriefing } from './dailyBriefing';
 import {
   buildOperatorIntelligence,
@@ -132,6 +132,30 @@ interface AIContextType {
   clearVoiceError: () => void;
   refreshDailyBriefing: () => void;
   refreshOperatorIntelligence: () => Promise<void>;
+  /** Hands-free mode (opt-in, per device): always listening for "Hey <name>". */
+  handsFree: HandsFreeState;
+  setHandsFreeEnabled: (enabled: boolean) => void;
+  setWakeName: (name: string) => void;
+}
+
+export interface HandsFreeState {
+  supported: boolean;
+  enabled: boolean;
+  listening: boolean;
+  name: string;
+  error: string | null;
+}
+
+const HANDS_FREE_KEY = 'mh_ai_hands_free_v1';
+
+function loadHandsFreePrefs(): { enabled: boolean; name: string } {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(HANDS_FREE_KEY) : null;
+    const parsed = raw ? JSON.parse(raw) : {};
+    return { enabled: parsed.enabled === true, name: String(parsed.name || DEFAULT_WAKE_NAME) };
+  } catch {
+    return { enabled: false, name: DEFAULT_WAKE_NAME };
+  }
 }
 
 const AIContext = createContext<AIContextType | undefined>(undefined);
@@ -450,15 +474,93 @@ export function AIProvider({
     voiceService.stopListening();
   }, []);
 
-  // Retire background wake-word recognition completely, including on unmount.
+  // ------------------------------------------------------------------
+  // Hands-free mode. Off by default; only the user's explicit switch turns
+  // it on (remembered on this device). While on, the browser listens only
+  // for "Hey <name>". The listener pauses while a command is being taken,
+  // processed or spoken, then resumes. Write actions still need Confirm.
+  // ------------------------------------------------------------------
+  const [handsFree, setHandsFree] = useState<HandsFreeState>(() => {
+    const prefs = loadHandsFreePrefs();
+    return { supported: wakeWordService.isSupported(), enabled: false, listening: false, name: prefs.name, error: null };
+  });
+  const [awaitingWakeCommand, setAwaitingWakeCommand] = useState(false);
+  const sendMessageRef = useRef<(text: string) => Promise<void>>(async () => {});
+
+  const persistHandsFree = useCallback((enabled: boolean, name: string) => {
+    try { localStorage.setItem(HANDS_FREE_KEY, JSON.stringify({ enabled, name })); } catch { /* ignore */ }
+  }, []);
+
+  const handsFreeRef = useRef(handsFree);
+  handsFreeRef.current = handsFree;
+
+  const setHandsFreeEnabled = useCallback((enabled: boolean) => {
+    const name = handsFreeRef.current.name;
+    setHandsFree((prev) => ({ ...prev, error: null }));
+    persistHandsFree(enabled, name);
+    if (enabled) wakeWordService.enable(name, settingsRef.current.voiceLanguage);
+    else wakeWordService.disable();
+  }, [persistHandsFree]);
+
+  const setWakeName = useCallback((name: string) => {
+    const clean = name.replace(/[^A-Za-z ]/g, '').replace(/\s+/g, ' ').trim().slice(0, 20);
+    if (clean.length < 3) return;
+    const pretty = clean.replace(/\b\w/g, (c) => c.toUpperCase());
+    wakeWordService.setName(pretty);
+    setHandsFree((prev) => {
+      persistHandsFree(prev.enabled, pretty);
+      return { ...prev, name: pretty };
+    });
+  }, [persistHandsFree]);
+
   useEffect(() => {
-    wakeWordService.stopListening();
+    wakeWordService.onStateChange = ({ enabled, listening, error }) => {
+      setHandsFree((prev) => ({ ...prev, enabled, listening, error: error ?? (enabled ? null : prev.error) }));
+      if (error && !enabled) persistHandsFree(false, loadHandsFreePrefs().name);
+    };
+    wakeWordService.onWake = (command) => {
+      setAwaitingWakeCommand(true);
+      setVoiceError(null);
+      // Off the AI page, open the floating assistant so replies are visible and spoken.
+      if (activeViewRef.current !== 'ai_assistant' && !isOpenRef.current) {
+        isOpenRef.current = true;
+        setIsOpen(true);
+      }
+      if (command.trim().length >= 2) {
+        void sendMessageRef.current(command.trim());
+      } else {
+        void voiceService.startListening(settingsRef.current.voiceLanguage);
+      }
+    };
+    // Resume a choice the user made earlier on this device.
+    const prefs = loadHandsFreePrefs();
+    if (prefs.enabled) wakeWordService.enable(prefs.name, settingsRef.current.voiceLanguage);
     return () => {
-      wakeWordService.stopListening();
+      wakeWordService.onWake = undefined;
+      wakeWordService.onStateChange = undefined;
+      wakeWordService.disable();
       voiceService.stopListening();
       voiceService.stopSpeaking();
     };
-  }, []);
+  }, [persistHandsFree]);
+
+  // Pause the wake listener while busy; resume shortly after everything is idle.
+  useEffect(() => {
+    if (!handsFree.enabled) return;
+    const busy = isListening || isSpeaking || isProcessing;
+    if (busy) {
+      if (awaitingWakeCommand) setAwaitingWakeCommand(false);
+      wakeWordService.pause();
+      return;
+    }
+    if (awaitingWakeCommand) {
+      // The command session is starting; never wait for it forever.
+      const giveUp = setTimeout(() => setAwaitingWakeCommand(false), 10000);
+      return () => clearTimeout(giveUp);
+    }
+    const resume = setTimeout(() => wakeWordService.resume(), 700);
+    return () => clearTimeout(resume);
+  }, [handsFree.enabled, isListening, isSpeaking, isProcessing, awaitingWakeCommand]);
 
   const clearVoiceError = useCallback(() => {
     setVoiceError(null);
@@ -480,6 +582,7 @@ export function AIProvider({
     };
 
     voiceService.onError = (err) => {
+      setAwaitingWakeCommand(false);
       setVoiceError(err);
       setIsListening(false);
       setLiveTranscript('');
@@ -861,7 +964,12 @@ export function AIProvider({
     [settings],
   );
 
+  sendMessageRef.current = sendMessage;
+
   const value = {
+    handsFree,
+    setHandsFreeEnabled,
+    setWakeName,
     isOpen,
     isChatMinimized,
     activeTab,
