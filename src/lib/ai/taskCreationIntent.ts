@@ -719,3 +719,112 @@ export function resolveTaskCreation(
 
   return { kind: 'ready', title, assignee, project, dueDate, dueDateSource, priority, projectSource };
 }
+
+// ------------------------------------------------------------------
+// Spoken edits to a task that is waiting for confirmation.
+// "make the due date Monday", "due date Monday kar do", "high priority",
+// "assign it to Atia instead", "change project to Money Tribe",
+// "no due date", "rename it to Create ebook version".
+// Returns null when the sentence is not an edit (so confirm/cancel and
+// other requests keep working).
+// ------------------------------------------------------------------
+export interface TaskPreviewPatch {
+  title?: string;
+  assignee?: Profile;
+  /** null = remove the project link */
+  project?: Project | null;
+  /** null = no due date */
+  dueDate?: string | null;
+  priority?: TaskPriority;
+}
+
+export function parseTaskPreviewEdit(
+  rawText: string,
+  ctx: Pick<AIToolContext, 'data' | 'visibleProjects' | 'currentProfile'>,
+  now: Date = new Date(),
+): { kind: 'patch'; patch: TaskPreviewPatch } | { kind: 'clarify'; message: string } | null {
+  let text = rawText.trim().replace(/[.!?]+$/, '')
+    .replace(/^(?:please|actually|no,|wait,?|and|also|ok,|okay,)\s+/i, '')
+    .replace(/\s+(?:kar\s*do|kardo|krdo|karo|kr\s*do|kar\s+dein|kar\s+dena|please|instead|bhi)(?=\s|,|$)/gi, '')
+    .trim();
+  if (!text || text.split(/\s+/).length > 30) return null;
+  // Plain confirmations / cancellations are handled elsewhere.
+  if (/^(?:yes|confirm|ok|okay|go ahead|do it|cancel|no|stop|never mind)$/i.test(text)) return null;
+
+  const patch: TaskPreviewPatch = {};
+  const people = ctx.data.profiles.filter(isAssignableTeamMember);
+  const activeProjects = ctx.visibleProjects.filter(isActiveTaskProject);
+
+  // Title / rename
+  const rename = text.match(/^(?:rename(?:\s+(?:it|the\s+task))?|change\s+(?:the\s+)?(?:task\s+)?(?:title|name)|(?:set\s+)?(?:the\s+)?(?:task\s+)?title(?:\s+is)?|call\s+it)\s*(?:to|as|:|=)?\s+["“']?(.+?)["”']?$/i);
+  if (rename) {
+    const t = rename[1].trim();
+    if (t.length >= 3) return { kind: 'patch', patch: { title: t.charAt(0).toUpperCase() + t.slice(1) } };
+  }
+
+  // Due date
+  if (/\b(?:no|remove|without|clear|hata\s*do|hatao)\b.*\b(?:due\s*date|deadline|date)\b|\b(?:due\s*date|deadline)\b.*\b(?:remove|hata\s*do|hatao|nahi|none)\b/i.test(text)) {
+    patch.dueDate = null;
+  } else {
+    const dueClause = text.match(/(?:^|\b)(?:(?:change|set|make|move|push|update|shift)\s+(?:the\s+)?(?:it\s+)?)?(?:due(?:\s+date)?|deadline|date)\s*(?:to|is|on|for|by|ko|:|=)?\s+(.+?)$/i)
+      || text.match(/^(?:make\s+it\s+|move\s+it\s+to\s+|push\s+it\s+to\s+)?(?:due|by)\s+(.+)$/i);
+    if (dueClause) {
+      const phrase = dueClause[1].replace(/\s+(?:and|,)\s+.*$/i, '').trim();
+      const date = parseTaskDate(phrase, now) || extractTaskDueDate(phrase, now).dueDate;
+      if (date) patch.dueDate = date;
+      else return { kind: 'clarify', message: `I couldn't understand the date "${phrase}". Try "Friday", "20 November" or "in 3 days".` };
+    }
+  }
+
+  // Priority
+  if (/\b(?:priority|urgent|asap|important|jaldi|critical|no\s+rush)\b/i.test(text)) {
+    const prio = extractTaskPriority(text.replace(/\b(?:make\s+it|set\s+(?:the\s+)?priority\s+(?:to|as)?|change\s+(?:the\s+)?priority\s+(?:to)?|priority\s+(?:is|to|ko)?)\s*/gi, ' ').replace(/^\s*(high|low|normal|medium|urgent)\s*$/i, '$1 priority'));
+    const bare = text.match(/\bpriority\s*(?:to|is|ko|:|=)?\s*(high|low|normal|medium|urgent)\b|\b(high|low|normal|medium|urgent)\s+priority\b/i);
+    const word = (bare?.[1] || bare?.[2] || '').toLowerCase();
+    patch.priority = word === 'high' ? 'High' : word === 'low' ? 'Low' : word === 'urgent' ? 'Urgent' : (word === 'normal' || word === 'medium') ? 'Normal' : prio.priority;
+    if (!patch.priority) delete patch.priority;
+  }
+
+  // Assignee
+  const assign = text.match(/(?:^|\b)(?:re)?assign\s+(?:it|this|the\s+task)?\s*to\s+(.+?)(?=$|\s+(?:and|with|by|due)\b|,)/i)
+    || text.match(/^(?:give|send)\s+(?:it|this)\s+to\s+(.+?)(?=$|\s+(?:and|with|by|due)\b|,)/i)
+    || text.match(/^(?:change|switch)\s+(?:the\s+)?(?:assignee|employee|person)\s+(?:to\s+)?(.+?)(?=$|\s+(?:and|with|by|due)\b|,)/i)
+    || text.match(/^(?:for\s+)?([A-Za-z][\w'.-]*(?:\s+[A-Za-z][\w'.-]*)?)\s+(?:ko\s+(?:de\s*do|dedo|do|assign)|should\s+do\s+it)$/i);
+  if (assign) {
+    const who = assign[1].replace(/\s+instead$/i, '').trim();
+    if (SELF_WORDS.test(who)) {
+      const me = people.find((person) => person.id === ctx.currentProfile.id);
+      if (me) patch.assignee = me;
+    } else {
+      const matches = resolveAssignee(who, people);
+      if (matches.length !== 1) {
+        return {
+          kind: 'clarify',
+          message: matches.length
+            ? `More than one person matches "${who}": ${matches.slice(0, 4).map((m) => m.full_name).join(', ')}. Say the full name.`
+            : `I couldn't find "${who}" in the active team. The task is unchanged.`,
+        };
+      }
+      patch.assignee = matches[0];
+    }
+  }
+
+  // Project
+  if (/\b(?:no|remove|without|unlink)\s+(?:the\s+)?project\b/i.test(text)) {
+    patch.project = null;
+  } else {
+    const proj = text.match(/(?:^|\b)(?:change|switch|move|set|link)\s+(?:it\s+|the\s+)?(?:project\s+)?(?:to|under|in|with)\s+(?:the\s+)?(?:project\s+)?(.+?)$/i)
+      || text.match(/^(?:(?:change|switch|set)\s+)?(?:the\s+)?project\s*(?:to|is|ko|:|=)?\s+(.+?)$/i)
+      || text.match(/^(?:it(?:'s| is)\s+)?(?:for|under)\s+(?:the\s+)?project\s+(.+)$/i);
+    if (proj && !patch.dueDate && !patch.assignee) {
+      const name = proj[1].trim();
+      const matches = resolveProject(name, activeProjects);
+      if (matches.length !== 1) {
+        return { kind: 'clarify', message: matches.length ? `More than one project matches "${name}". Say the full project title.` : `I couldn't find an active project called "${name}". The task is unchanged.` };
+      }
+      patch.project = matches[0];
+    }
+  }
+
+  return Object.keys(patch).length ? { kind: 'patch', patch } : null;
+}

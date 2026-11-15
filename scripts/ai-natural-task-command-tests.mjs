@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   isCreateTaskRequest, resolveTaskCreation, extractTaskDueDate, parseTaskDate,
-  answerTaskClarification, NO_PROJECT, NO_DUE_DATE,
+  answerTaskClarification, NO_PROJECT, NO_DUE_DATE, parseTaskPreviewEdit,
 } from '../src/lib/ai/taskCreationIntent.ts';
 import { voiceQueryEngine } from '../src/lib/ai/voiceQueryEngine.ts';
 
@@ -141,6 +141,42 @@ voiceQueryEngine.clearMemory();
 turn = await voiceQueryEngine.processQuery('Assign a task to Zen to create print version for A Snowman Patch by Friday, urgent', ctx);
 assert.equal(turn.pendingAction?.payload.priority, 'Urgent');
 assert.equal(turn.pendingAction?.payload.title, 'Create print version');
+voiceQueryEngine.clearMemory();
+
+// ---- spoken edits to the pending task card ----
+const e = (t) => parseTaskPreviewEdit(t, ctx, NOW);
+assert.equal(e('due date Monday kar do').patch.dueDate, '2026-11-16');
+assert.equal(e('make the due date 20 November').patch.dueDate, '2026-11-20');
+assert.equal(e('change the deadline to next week').patch.dueDate, '2026-11-23');
+assert.equal(e('no due date').patch.dueDate, null);
+assert.equal(e('high priority').patch.priority, 'High');
+assert.equal(e('make it urgent').patch.priority, 'Urgent');
+assert.equal(e('priority low kar do').patch.priority, 'Low');
+assert.equal(e('assign it to Atia instead').patch.assignee.id, 'atia');
+assert.equal(e('Atia ko de do').patch.assignee.id, 'atia');
+assert.equal(e('change project to Money Tribe').patch.project.id, money.id);
+assert.equal(e('no project').patch.project, null);
+assert.equal(e('rename it to Create ebook version').patch.title, 'Create ebook version');
+const both = e('due date Friday kar do and high priority');
+assert.equal(both.patch.dueDate, '2026-11-20'); assert.equal(both.patch.priority, 'High');
+assert.equal(e('assign it to Bilal').kind, 'clarify', 'unknown person does not change the card');
+assert.equal(e('confirm'), null); assert.equal(e('yes'), null); assert.equal(e('cancel'), null);
+assert.equal(e('what is overdue today'), null, 'unrelated questions are not edits');
+
+voiceQueryEngine.clearMemory();
+let card = await voiceQueryEngine.processQuery('Assign a task to Zen to create print version for A Snowman Patch', ctx);
+const firstId = card.pendingAction.actionId;
+card = await voiceQueryEngine.processQuery('high priority', ctx);
+assert.equal(card.pendingAction?.payload.priority, 'High', card.displayText);
+assert.equal(card.pendingAction.payload.title, 'Create print version', 'other fields kept');
+assert.equal(card.pendingAction.payload.projectId, snowman.id);
+assert.match(card.displayText, /Updated:\*\* priority → High/);
+assert.ok(voiceQueryEngine.isSupersededAction(firstId), 'old card cannot be confirmed');
+card = await voiceQueryEngine.processQuery('assign it to Atia', ctx);
+assert.equal(card.pendingAction.payload.assignedToId, 'atia');
+assert.equal(card.pendingAction.payload.priority, 'High', 'earlier edit kept');
+card = await voiceQueryEngine.processQuery('cancel', ctx);
+assert.equal(card.pendingAction, undefined, 'cancel still cancels');
 voiceQueryEngine.clearMemory();
 
 console.log('✅ natural-language task command tests passed');

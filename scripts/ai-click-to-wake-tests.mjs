@@ -89,6 +89,17 @@ assert.equal(starts, 1, 'microphone is not automatically restarted');
   assert.equal(instances[1].aborted, 1, 'turning hands-free off releases the mic');
   wakeWordService.resume();
   assert.equal(instances.length, 2, 'resume does nothing once disabled');
+  // Auto-off after the idle period (5 minutes in the app; shortened here).
+  let notice = null;
+  wakeWordService.onStateChange = (state) => { if (state.notice) notice = state.notice; };
+  wakeWordService.idleTimeoutMs = 30;
+  wakeWordService.enable('Nova', 'en-US');
+  await new Promise((r) => setTimeout(r, 80));
+  assert.equal(wakeWordService.isEnabled(), false, 'hands-free turns itself off when idle');
+  assert.match(notice || '', /turned off after/);
+  assert.equal(instances.at(-1).aborted, 1, 'idle auto-off releases the mic');
+  wakeWordService.idleTimeoutMs = 5 * 60 * 1000;
+  wakeWordService.onStateChange = undefined;
   wakeWordService.onWake = undefined;
 }
 

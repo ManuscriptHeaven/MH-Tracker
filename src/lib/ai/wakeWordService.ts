@@ -97,8 +97,11 @@ export class WakeWordService {
   private language = 'en-US';
   private restartTimer: any = null;
   private failures = 0;
+  private idleTimer: any = null;
+  /** Hands-free switches itself off after this long without a wake phrase. */
+  public idleTimeoutMs = 5 * 60 * 1000;
   public onWake?: (command: string) => void;
-  public onStateChange?: (state: { enabled: boolean; listening: boolean; error?: string }) => void;
+  public onStateChange?: (state: { enabled: boolean; listening: boolean; error?: string; notice?: string }) => void;
 
   private constructor() {}
 
@@ -127,6 +130,7 @@ export class WakeWordService {
     }
     this.enabled = true;
     this.failures = 0;
+    this.resetIdleTimer();
     if (!this.paused) this.startRecognition();
     else this.emit();
   }
@@ -135,8 +139,27 @@ export class WakeWordService {
   public disable() {
     this.enabled = false;
     this.paused = false;
+    clearTimeout(this.idleTimer);
     this.stopRecognition();
     this.emit();
+  }
+
+  /** Any wake or command keeps hands-free alive for another idle period. */
+  public noteActivity() {
+    if (this.enabled) this.resetIdleTimer();
+  }
+
+  private resetIdleTimer() {
+    clearTimeout(this.idleTimer);
+    if (!this.idleTimeoutMs) return;
+    this.idleTimer = setTimeout(() => {
+      if (!this.enabled) return;
+      if (this.paused) { this.resetIdleTimer(); return; } // never cut off a command in progress
+      this.enabled = false;
+      this.stopRecognition();
+      const minutes = Math.round(this.idleTimeoutMs / 60000);
+      this.onStateChange?.({ enabled: false, listening: false, notice: `Hands-free turned off after ${minutes} minutes without a command.` });
+    }, this.idleTimeoutMs);
   }
 
   /** Temporarily release the mic (a command is being taken or answered). */
@@ -147,6 +170,7 @@ export class WakeWordService {
   }
 
   public resume() {
+    if (this.paused && this.enabled) this.resetIdleTimer();
     this.paused = false;
     if (this.enabled && !this.recognition) this.startRecognition();
   }
@@ -182,6 +206,7 @@ export class WakeWordService {
         const wake = parseWakePhrase(transcript, this.name);
         if (wake) {
           this.failures = 0;
+          this.resetIdleTimer();
           playWakeChime();
           this.pause();
           this.onWake?.(wake.command);

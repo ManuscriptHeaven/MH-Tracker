@@ -541,7 +541,7 @@ export function AIAssistantPage({
                     <p className="text-xs font-bold text-slate-100">Hands-free mode</p>
                     <p className="mt-0.5 text-[10px] leading-relaxed text-slate-400">
                       {handsFree.enabled
-                        ? `Always listening for "Hey ${wakeName}" while the app is open. Changes still need your confirmation.`
+                        ? `Listening for "Hey ${wakeName}" while the app is open. Turns off after 5 minutes without a command. Changes still need your confirmation.`
                         : `Turn on to start with "Hey ${wakeName}" instead of tapping. Only this device.`}
                     </p>
                   </div>
@@ -578,6 +578,7 @@ export function AIAssistantPage({
                   )}
                 </div>
                 {handsFree.error ? <p className="mt-2 text-[10px] text-rose-300" role="alert">{handsFree.error}</p> : null}
+                {!handsFree.error && handsFree.notice ? <p className="mt-2 text-[10px] text-amber-200" role="status">{handsFree.notice}</p> : null}
               </div>
             ) : null}
             <div className="min-h-16 rounded-2xl border border-white/10 bg-white/5 p-3" aria-live="polite">

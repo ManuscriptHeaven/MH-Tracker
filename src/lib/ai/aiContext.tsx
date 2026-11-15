@@ -144,6 +144,8 @@ export interface HandsFreeState {
   listening: boolean;
   name: string;
   error: string | null;
+  /** Informational message, e.g. auto-off after inactivity. */
+  notice: string | null;
 }
 
 const HANDS_FREE_KEY = 'mh_ai_hands_free_v1';
@@ -482,7 +484,7 @@ export function AIProvider({
   // ------------------------------------------------------------------
   const [handsFree, setHandsFree] = useState<HandsFreeState>(() => {
     const prefs = loadHandsFreePrefs();
-    return { supported: wakeWordService.isSupported(), enabled: false, listening: false, name: prefs.name, error: null };
+    return { supported: wakeWordService.isSupported(), enabled: false, listening: false, name: prefs.name, error: null, notice: null };
   });
   const [awaitingWakeCommand, setAwaitingWakeCommand] = useState(false);
   const sendMessageRef = useRef<(text: string) => Promise<void>>(async () => {});
@@ -496,7 +498,7 @@ export function AIProvider({
 
   const setHandsFreeEnabled = useCallback((enabled: boolean) => {
     const name = handsFreeRef.current.name;
-    setHandsFree((prev) => ({ ...prev, error: null }));
+    setHandsFree((prev) => ({ ...prev, error: null, notice: null }));
     persistHandsFree(enabled, name);
     if (enabled) wakeWordService.enable(name, settingsRef.current.voiceLanguage);
     else wakeWordService.disable();
@@ -514,9 +516,14 @@ export function AIProvider({
   }, [persistHandsFree]);
 
   useEffect(() => {
-    wakeWordService.onStateChange = ({ enabled, listening, error }) => {
-      setHandsFree((prev) => ({ ...prev, enabled, listening, error: error ?? (enabled ? null : prev.error) }));
-      if (error && !enabled) persistHandsFree(false, loadHandsFreePrefs().name);
+    wakeWordService.onStateChange = ({ enabled, listening, error, notice }) => {
+      setHandsFree((prev) => ({
+        ...prev, enabled, listening,
+        error: error ?? (enabled ? null : prev.error),
+        notice: notice ?? (enabled ? null : prev.notice),
+      }));
+      // Auto-off and permission failures stay off after a reload too.
+      if ((error || notice) && !enabled) persistHandsFree(false, loadHandsFreePrefs().name);
     };
     wakeWordService.onWake = (command) => {
       setAwaitingWakeCommand(true);
@@ -606,6 +613,7 @@ export function AIProvider({
   const sendMessage = useCallback(
     async (text: string) => {
       if (!text.trim()) return;
+      wakeWordService.noteActivity();
 
       if (!isOpen) openChat();
 
@@ -762,6 +770,18 @@ export function AIProvider({
 
   const confirmAction = useCallback(
     async (action: AIActionPreview) => {
+      // An older card that was replaced by a spoken edit must not run.
+      if (voiceQueryEngine.isSupersededAction(action.actionId)) {
+        const note: AIMessage = {
+          id: `msg-${Date.now()}`,
+          conversationId: activeConvoRef.current || 'local',
+          role: 'assistant',
+          content: 'That card was replaced by an updated one. Please confirm the latest card.',
+          createdAt: new Date().toISOString(),
+        } as AIMessage;
+        setMessages((prev) => [...prev, note]);
+        return;
+      }
       setIsProcessing(true);
       setPendingAction(null);
       voiceQueryEngine.setPendingAction(null);
