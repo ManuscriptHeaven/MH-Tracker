@@ -1,7 +1,27 @@
 # Social Studio Phase 6 — Facebook connection and fake delivery
 
 Tracking: #56. Historical foundation PR: #87; current focused connection UI: Phase 7.
-Status: **DRY RUN ONLY**, never enable real posting from this release.
+Status (16 Nov 2026): **auto-publishing available**, off by default. See "Going live" below.
+The older dry-run notes further down are kept for history; where they conflict, this section wins.
+
+## Going live (Facebook Page)
+
+1. Apply migration 20261116120000_social_auto_publish_worker_20261116.sql (once).
+2. Deploy Edge Functions social-draft, social-facebook-connect (verify_jwt=false) and
+   social-delivery-worker (verify_jwt=false).
+3. Supabase secrets: META_APP_ID, META_APP_SECRET, META_OAUTH_REDIRECT_URI (exact URI below) and
+   SOCIAL_FB_RETURN_URL = the production MH Tracker URL. No worker secret is needed: the
+   scheduler secret is generated inside Supabase Vault by the migration.
+4. Meta app: add the redirect URI, keep pages_show_list, pages_read_engagement and
+   pages_manage_posts, and switch the app to **Live** mode (posts made by a Development-mode
+   app are visible only to people with a role on the app).
+5. In Social Media Studio: Connect through Facebook, then "Turn on auto-publishing" for the Page.
+6. Approve a Facebook post and plan a time. pg_cron job mh-social-delivery-worker checks every
+   5 minutes and publishes due posts. Result and a "View on Facebook" link appear in the pipeline.
+
+Emergency stop: set Supabase secret SOCIAL_ENABLE_LIVE_PUBLISH=false, or turn off auto-publishing
+for the Page. Instagram and LinkedIn are planning/manual only.
+
 
 ## Operator setup needed for an actual Facebook authorization
 

@@ -15,7 +15,7 @@ type DeliveryJob = {
   scheduled_at: string; lease_id: string; status: string;
 };
 type Outcome = { status: 'simulated' | 'published' | 'blocked' | 'unknown' | 'cancelled';
-  providerId?: string; error?: string };
+  providerId?: string; error?: string; tokenRejected?: boolean };
 
 function safeEqual(a: string, b: string) {
   if (!a || !b) return false;
@@ -60,8 +60,20 @@ async function graphPublish(
       method: 'POST', body: form, signal: controller.signal,
     });
     if (!response.ok) {
-      return { status: response.status >= 500 ? 'unknown' : 'blocked',
-        error: response.status >= 500 ? 'FACEBOOK_RESPONSE_UNCERTAIN' : 'FACEBOOK_REJECTED' };
+      if (response.status >= 500) return { status: 'unknown', error: 'FACEBOOK_RESPONSE_UNCERTAIN' };
+      // Keep only Facebook's numeric error code; never store provider messages or tokens.
+      let code = 0;
+      try {
+        const failure = await response.json() as { error?: { code?: number } };
+        if (Number.isInteger(failure?.error?.code)) code = failure.error!.code!;
+      } catch { /* numeric code unavailable */ }
+      const tokenRejected = code === 190 || code === 102;
+      const permission = code === 10 || code === 200 || (code >= 200 && code < 300);
+      return { status: 'blocked', tokenRejected,
+        error: tokenRejected ? 'FACEBOOK_TOKEN_EXPIRED'
+          : permission ? 'FACEBOOK_PERMISSION_MISSING'
+          : code === 4 || code === 32 || code === 368 ? 'FACEBOOK_RATE_LIMITED'
+          : 'FACEBOOK_REJECTED' + (code ? '_' + code : '') };
     }
     const payload = await response.json() as { id?: string; post_id?: string };
     const postId = payload.post_id || payload.id;
@@ -135,7 +147,12 @@ async function runJob(
       check.approved_revision_id !== job.revision_id ||
       check.scheduled_at !== job.scheduled_at) return { status: 'cancelled' };
 
-  return graphPublish(connection.page_id, token, revision.caption, asset, service);
+  const outcome = await graphPublish(connection.page_id, token, revision.caption, asset, service);
+  if (outcome.tokenRejected) {
+    // Stop further attempts with a dead token until the admin reconnects the Page.
+    await service.rpc('social_server_mark_facebook_expired', { p_connection: connection.id });
+  }
+  return outcome;
 }
 
 Deno.serve(async (request: Request) => {
@@ -150,7 +167,13 @@ Deno.serve(async (request: Request) => {
 
   const service = createClient(url, secretKey, { auth: { persistSession: false } });
   const workerSecret = getEnv('SOCIAL_WORKER_SECRET');
-  const isWorker = safeEqual(request.headers.get('x-worker-secret') || '', workerSecret);
+  const presented = request.headers.get('x-worker-secret') || '';
+  let isWorker = safeEqual(presented, workerSecret);
+  if (!isWorker && presented.length >= 32 && presented.length <= 200) {
+    // Database scheduler identity: secret generated and kept inside Supabase Vault.
+    const { data: verified } = await service.rpc('social_server_verify_worker', { p_secret: presented });
+    isWorker = verified === true;
+  }
   const bearer = request.headers.get('Authorization');
   let manualFake = false;
   let callerId: string | null = null;
@@ -178,9 +201,10 @@ Deno.serve(async (request: Request) => {
   if (manualFake && mode !== 'simulate') return json({ error: 'Only dry-run available to admins.' }, 403);
   if (mode === 'scheduled-worker' && !isWorker) return json({ error: 'Worker identity required.' }, 403);
 
+  // Live delivery needs: trusted scheduler identity + a Page whose publishing switch the admin
+  // turned on (checked per job). SOCIAL_ENABLE_LIVE_PUBLISH=false is a global emergency stop.
   const liveEnabled = !manualFake && isWorker && mode === 'scheduled-worker' &&
-    getEnv('SOCIAL_PUBLISH_MODE') === 'facebook' &&
-    getEnv('SOCIAL_ENABLE_LIVE_PUBLISH') === 'true';
+    getEnv('SOCIAL_ENABLE_LIVE_PUBLISH') !== 'false';
 
   const { data: jobs, error: claimError } = await service.rpc('social_server_claim_due',
     { p_limit: 5, p_owner: manualFake ? callerId : null });
@@ -204,6 +228,6 @@ Deno.serve(async (request: Request) => {
     else summary[outcome.status]++;
   }
   return json({ ...summary, mode: liveEnabled ? 'facebook' : 'fake',
-    note: liveEnabled ? 'Live Facebook delivery enabled by server and database gates.'
+    note: liveEnabled ? 'Live Facebook delivery for Pages with publishing switched on.'
       : 'Fake provider only; no social media posts were published.' });
 });

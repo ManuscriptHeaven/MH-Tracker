@@ -14,6 +14,38 @@ type DeliveryJob = {
 };
 type TargetSummary = { id: string; brandId: string; caption: string };
 
+export const OAUTH_RESULT_HELP: Record<string, string> = {
+  connected: 'Facebook Page connected. Now switch on auto-publishing for it below.',
+  denied: 'You cancelled or declined the Facebook permission screen. Try again and allow all requested permissions.',
+  invalid_callback: 'Facebook returned an incomplete response. Start the connection again.',
+  expired_state: 'The connection attempt expired (10 minutes) or was already used. Start again.',
+  token_exchange_failed: 'Meta rejected the app credentials. Check META_APP_ID, META_APP_SECRET and the Valid OAuth Redirect URI in the Meta app.',
+  long_lived_token_failed: 'Meta did not issue a long-lived token. Check the Meta app secret.',
+  page_permissions_missing: 'Facebook did not allow reading your Pages. Allow the Page permissions in the Facebook dialog.',
+  no_pages_returned: 'Facebook returned no Pages. In the Facebook dialog choose your Page (or "all current and future Pages"), and make sure your Facebook account has full control of the Page.',
+  page_content_access_missing: 'Your Facebook account cannot create content on that Page. You need Facebook access with full control (or content task) on the Page.',
+  selected_page_not_returned: 'The Page ID you typed was not among the Pages you allowed. Check the numeric Page ID or select that Page in the Facebook dialog.',
+  page_id_required: 'You manage more than one Page. Type the numeric Page ID first, then connect again.',
+  connection_save_failed: 'The Page was authorized but could not be saved. Apply the latest database migration, then connect again.',
+};
+export const DELIVERY_ERROR_HELP: Record<string, string> = {
+  PAGE_NOT_UNIQUELY_ENABLED: 'Auto-publishing is not switched on for a connected Page.',
+  PAGE_TOKEN_UNAVAILABLE: 'Page access is missing. Reconnect the Facebook Page.',
+  FACEBOOK_TOKEN_EXPIRED: 'Facebook access expired. Reconnect the Page, then plan the post again.',
+  FACEBOOK_PERMISSION_MISSING: 'Facebook refused permission to post. Reconnect and allow posting permissions.',
+  FACEBOOK_RATE_LIMITED: 'Facebook rate limit reached. Plan the post again later.',
+  ARTWORK_NOT_APPROVED: 'The attached artwork is not rights-cleared.',
+  PRIVATE_ASSET_UNAVAILABLE: 'The attached artwork file could not be read.',
+  ASSET_FORMAT_INVALID: 'The artwork format or size is not accepted (PNG/JPEG, max 8 MB).',
+  STALE_UNCERTAIN_OUTCOME: 'The result was not confirmed. Check the Facebook Page before planning it again.',
+  FACEBOOK_RESPONSE_UNCERTAIN: 'Facebook did not confirm the result. Check the Page before planning it again.',
+  FACEBOOK_NETWORK_OUTCOME_UNKNOWN: 'Network problem while posting. Check the Page before planning it again.',
+};
+export function facebookPostUrl(providerPostId: string | null): string | null {
+  return providerPostId && /^[0-9_]{3,80}$/.test(providerPostId)
+    ? 'https://www.facebook.com/' + providerPostId : null;
+}
+
 function errorText(e: unknown): string {
   return e instanceof Error ? e.message
     : e && typeof e === 'object' && 'message' in e
@@ -115,6 +147,21 @@ export function FacebookPublishingPanel({
     finally { setBusy(false); }
   }
 
+  async function setPublishing(connection: PageConnection, enabled: boolean) {
+    if (busy) return;
+    if (enabled && !window.confirm('Turn on auto-publishing for "' + connection.page_name
+      + '"? Approved Facebook posts will be posted to this Page automatically at their planned time.')) return;
+    setBusy(true); setError(''); setNotice('');
+    try {
+      await invoke('social-facebook-connect',{action:'set-publishing',connectionId:connection.id,enabled});
+      setNotice(enabled
+        ? 'Auto-publishing is ON. Approved Facebook posts go live at their planned time (checked every 5 minutes).'
+        : 'Auto-publishing is OFF. Planned posts will wait and nothing will be posted.');
+      await reload(); onAfterRun?.();
+    } catch (cause) { setError(errorText(cause)); }
+    finally { setBusy(false); }
+  }
+
   async function testDueJobs() {
     setBusy(true); setError(''); setNotice('');
     try {
@@ -139,8 +186,8 @@ export function FacebookPublishingPanel({
             <Link2 className="h-5 w-5 text-gold" /> Facebook Page Connection
           </h2>
           <p className="mt-2 max-w-xl text-sm text-muted">
-            Authorize a Page through Meta, then dry-run your approved scheduled posts.
-            All real publishing remains switched off until separately certified.
+            Connect your Facebook Page through Meta, then switch on auto-publishing.
+            Approved posts are published at their planned time; drafts are never posted.
           </p>
         </div>
         <button type="button" onClick={() => void reload()} disabled={loading || busy}
@@ -149,13 +196,13 @@ export function FacebookPublishingPanel({
         </button>
       </div>
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-        <strong>Connection does not mean publication.</strong> Meta App ID/Secret and approved
-        OAuth redirect must be configured by the administrator. Posts will only be
-        simulated at this stage. Never paste Page access tokens into the browser.
+        <strong>Connection does not mean publication.</strong> After connecting, turn on
+        auto-publishing for the Page below. Your Meta app must be in <strong>Live</strong> mode,
+        otherwise posts are visible only to you. Never paste Page access tokens into the browser.
       </div>
       {oauthStatus && <div className="rounded-lg border border-border bg-linen p-3 text-xs text-ink">
-        Meta authorization result: <strong>{oauthStatus.replace(/_/g,' ')}</strong>.
-        Refresh your connections after returning from Facebook.
+        Meta authorization result: <strong>{oauthStatus.replace(/_/g,' ')}</strong>.{' '}
+        {OAUTH_RESULT_HELP[oauthStatus] || 'Refresh your connections after returning from Facebook.'}
       </div>}
       {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
       {notice && <div role="status" className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-900">{notice}</div>}
@@ -182,8 +229,8 @@ export function FacebookPublishingPanel({
             <FlaskConical className="h-4 w-4 text-gold" /> Scheduled Publishing Test
           </h3>
           <p className="text-xs leading-relaxed text-muted">
-            Runs only due, approved Facebook plans through a fake provider. It never
-            publishes anything, even if a Page has been connected.
+            Optional safety check: runs due, approved Facebook plans through a fake provider.
+            It never publishes, and a post tested here is marked as tested, not posted.
           </p>
           <button type="button" onClick={() => void testDueJobs()} disabled={busy || !brandId}
             className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-3 text-sm font-semibold text-ink disabled:opacity-40">
@@ -194,7 +241,7 @@ export function FacebookPublishingPanel({
       <div>
         <h3 className="text-sm font-bold text-ink">Connected Page metadata</h3>
         {connections.length===0 && <p className="mt-2 text-sm text-muted">
-          No Facebook Pages connected for this brand. The connection is optional for fake publishing tests.
+          No Facebook Page connected for this brand yet. Connect one to enable automatic posting.
         </p>}
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
           {connections.map(connection => (
@@ -204,9 +251,21 @@ export function FacebookPublishingPanel({
                 <span className="text-xs font-semibold capitalize text-muted">{connection.status}</span>
               </div>
               <p className="mt-1 text-xs text-muted">Page ID: {connection.page_id}</p>
-              <p className="mt-1 text-xs font-semibold text-amber-900">
-                Real publishing: {connection.publish_enabled?'Enabled by server release gate':'Disabled'}
+              <p className={connection.publish_enabled
+                ? 'mt-1 text-xs font-bold text-green-700' : 'mt-1 text-xs font-semibold text-amber-900'}>
+                Auto-publishing: {connection.publish_enabled ? 'ON' : 'OFF'}
               </p>
+              {connection.status==='expired' && <p className="mt-1 text-xs font-semibold text-red-700">
+                Facebook access expired. Connect through Facebook again.
+              </p>}
+              {connection.status==='connected' &&
+                <button type="button" disabled={busy}
+                  onClick={() => void setPublishing(connection, !connection.publish_enabled)}
+                  className={connection.publish_enabled
+                    ? 'mt-3 mr-3 inline-flex items-center gap-1 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-ink disabled:opacity-40'
+                    : 'mt-3 mr-3 inline-flex items-center gap-1 rounded-lg bg-ink px-3 py-2 text-xs font-bold text-white disabled:opacity-40'}>
+                  {connection.publish_enabled ? 'Turn off auto-publishing' : 'Turn on auto-publishing'}
+                </button>}
               {connection.status==='connected' &&
                 <button type="button" onClick={() => void disconnect(connection)} disabled={busy}
                   className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-red-700 disabled:opacity-40">
@@ -219,7 +278,7 @@ export function FacebookPublishingPanel({
       <div>
         <h3 className="text-sm font-bold text-ink">Delivery results</h3>
         {jobs.length===0 && <p className="mt-2 text-sm text-muted">
-          No delivery attempts yet. Approve a post and plan a Facebook date to create a queued test job.
+          No delivery attempts yet. Approve a post and plan a Facebook date to queue it.
         </p>}
         <div className="mt-2 space-y-2">
           {jobs.map(job => {
@@ -229,12 +288,20 @@ export function FacebookPublishingPanel({
               <div className="min-w-0 flex-1">
                 <div className="line-clamp-2 text-sm text-ink">{target?.caption||'Facebook post'}</div>
                 <p className="mt-1 text-xs text-muted">{new Date(job.scheduled_at).toLocaleString()}
-                  {job.error_code ? ' · '+job.error_code : ''}</p>
+                  {job.error_code ? ' · '+(DELIVERY_ERROR_HELP[job.error_code] || job.error_code) : ''}</p>
+                {job.status==='published' && facebookPostUrl(job.provider_post_id) &&
+                  <a href={facebookPostUrl(job.provider_post_id)!} target="_blank" rel="noopener noreferrer"
+                    className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-gold hover:underline">
+                    <ExternalLink className="h-3.5 w-3.5" /> View on Facebook</a>}
               </div>
               <span className={uncertain?'text-xs font-bold text-red-700':'text-xs font-bold text-ink'}>
                 {uncertain ? <ShieldAlert className="mr-1 inline h-4 w-4"/> :
                   <CheckCircle2 className="mr-1 inline h-4 w-4"/>}
-                {job.status==='simulated'?'Test completed — not published':job.status}
+                {job.status==='simulated' ? 'Test completed — not published'
+                  : job.status==='published' ? 'Published'
+                  : job.status==='queued' ? 'Waiting for planned time'
+                  : job.status==='blocked' ? 'Not posted'
+                  : job.status==='unknown' ? 'Unconfirmed' : job.status}
               </span>
             </article>;
           })}

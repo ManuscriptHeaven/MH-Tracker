@@ -37,7 +37,7 @@ expectWeekStart('2028-02-29', '2028-02-28'); // Leap year
 assert.equal(localDayKey(new Date('2026-10-23T13:30:00')), '2026-10-23');
 
 assert.match(source, /entry\.status === 'scheduled' && entry\.scheduledAt/);
-assert.match(source, /No posts are published automatically/);
+assert.match(source, /Only approved Facebook posts can auto-publish/);
 assert.match(source, /Times are displayed in your browser/);
 assert.match(source, /Planned · not posted/);
 assert.match(source, /onChooseTopic\(WEEKLY_EDUCATIONAL_TOPICS\[i\]\)/);

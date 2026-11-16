@@ -117,7 +117,7 @@ Deno.serve(async (request: Request) => {
       p_page_name:chosen.name,p_page_token:chosen.access_token,
     });
     if (connectError || !connection) return redirect(returnUrl,'connection_save_failed');
-    // Publish flag is ALWAYS false after OAuth. Real delivery requires a separate release gate.
+    // Publish flag is ALWAYS false after OAuth. The admin turns it on explicitly in the Studio.
     return redirect(returnUrl,'connected');
   }
 
@@ -150,6 +150,20 @@ Deno.serve(async (request: Request) => {
     if (disconnectError || done!==true) return answer({error:'Disconnect failed.'},502);
     return answer({disconnected:true});
   }
+  if (payload.action==='set-publishing') {
+    if (!validUuid(payload.connectionId) || typeof payload.enabled!=='boolean')
+      return answer({error:'Invalid publishing request.'},400);
+    const {data:own}=await caller.from('social_facebook_connections')
+      .select('id,status').eq('id',payload.connectionId).eq('owner_id',user.id).single();
+    if (!own) return answer({error:'Connection inaccessible.'},403);
+    if (payload.enabled && own.status!=='connected')
+      return answer({error:'Reconnect this Facebook Page before turning on auto-publishing.'},409);
+    const {data:saved,error:saveError}=await service.rpc('social_server_set_publishing',{
+      p_connection:payload.connectionId,p_owner:user.id,p_enabled:payload.enabled,
+    });
+    if (saveError || saved!==true) return answer({error:'Publishing setting could not be saved.'},502);
+    return answer({publishEnabled:payload.enabled});
+  }
   if (payload.action!=='start' || !validUuid(payload.brandId) ||
       !(payload.pageId==null || payload.pageId==='' || validPage(payload.pageId))) {
     return answer({error:'Select a brand and optionally specify a numeric Facebook Page ID.'},400);
@@ -172,6 +186,6 @@ Deno.serve(async (request: Request) => {
   oauth.searchParams.set('response_type','code');
   oauth.searchParams.set('scope','pages_show_list,pages_read_engagement,pages_manage_posts');
   oauth.searchParams.set('state',state);
-  return answer({authorizationUrl:oauth.toString(),note:'Publishing stays disabled after connection until release certification.'});
+  return answer({authorizationUrl:oauth.toString(),note:'Auto-publishing stays off after connection until you switch it on in the Studio.'});
 });
 

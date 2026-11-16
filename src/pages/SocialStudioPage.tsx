@@ -3,7 +3,7 @@ import { CalendarClock, CheckCircle2, Copy, Edit3, Megaphone, Plus, RefreshCw, S
 import { supabase } from '../lib/supabase';
 import { SocialEditorialCalendar } from '../components/social/SocialEditorialCalendar';
 import { SocialArtworkLibrary } from '../components/social/SocialArtworkLibrary';
-import { FacebookPublishingPanel } from '../components/social/FacebookPublishingPanel';
+import { DELIVERY_ERROR_HELP, FacebookPublishingPanel, facebookPostUrl } from '../components/social/FacebookPublishingPanel';
 import type { SocialArtwork } from '../components/social/SocialArtworkLibrary';
 import type { Profile } from '../lib/types';
 
@@ -82,6 +82,10 @@ type Target = {
   approved_revision_id: string | null; approved_by: string | null; approved_at: string | null;
   scheduled_at: string | null;
 };
+type Delivery = {
+  id: string; target_id: string; revision_id: string; status: string; scheduled_at: string;
+  provider_post_id: string | null; error_code: string | null; created_at: string;
+};
 type FeedItem = { post: Post; target: Target; revision: Revision | undefined; brand: Brand | undefined };
 
 const CHANNELS = [
@@ -107,6 +111,8 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
   const [posts, setPosts] = useState<Post[]>([]);
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [targets, setTargets] = useState<Target[]>([]);
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [autoPublishBrands, setAutoPublishBrands] = useState<string[]>([]);
   const [selectedBrand, setSelectedBrand] = useState('');
   const [brandName, setBrandName] = useState('Manuscript Heaven');
   const [caption, setCaption] = useState('');
@@ -153,6 +159,16 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
         supabase.from('social_post_targets').select('id,post_id,channel,status,approved_revision_id,approved_by,approved_at,scheduled_at'),
       ]);
       for (const result of [b, p, r, t]) if (result.error) throw result.error;
+      // Delivery status is informational; the Studio still works if these reads fail.
+      const [d, c] = await Promise.all([
+        supabase.from('social_delivery_jobs')
+          .select('id,target_id,revision_id,status,scheduled_at,provider_post_id,error_code,created_at')
+          .order('created_at', { ascending: false }).limit(300),
+        supabase.from('social_facebook_connections')
+          .select('brand_id').eq('status', 'connected').eq('publish_enabled', true),
+      ]);
+      setDeliveries(d.error ? [] : (d.data || []) as Delivery[]);
+      setAutoPublishBrands(c.error ? [] : (c.data || []).map(item => item.brand_id as string));
       setBrands((b.data || []) as Brand[]);
       setPosts((p.data || []) as Post[]);
       setRevisions((r.data || []) as Revision[]);
@@ -201,16 +217,36 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
     });
   }, [posts, revisions, targets, brands]);
 
+  // Latest delivery attempt for the exact approved revision and planned time of each target.
+  const deliveryByTarget = useMemo(() => {
+    const map: Record<string, Delivery> = {};
+    for (const target of targets) {
+      if (target.status !== 'scheduled') continue;
+      const match = deliveries.find(job => job.target_id === target.id
+        && job.revision_id === target.approved_revision_id
+        && new Date(job.scheduled_at).getTime() === new Date(target.scheduled_at || 0).getTime());
+      if (match) map[target.id] = match;
+    }
+    return map;
+  }, [deliveries, targets]);
+  const autoPublishOn = autoPublishBrands.includes(selectedBrand);
+
   const visibleFeed = selectedBrand ? feed.filter(item => item.post.brand_id === selectedBrand) : feed;
   const counts = {
     drafts: visibleFeed.filter(item => item.target.status === 'draft').length,
     review: visibleFeed.filter(item => item.target.status === 'in_review').length,
     approved: visibleFeed.filter(item => item.target.status === 'approved').length,
-    scheduled: visibleFeed.filter(item => item.target.status === 'scheduled').length,
+    scheduled: visibleFeed.filter(item => item.target.status === 'scheduled'
+      && deliveryByTarget[item.target.id]?.status !== 'published').length,
+    published: visibleFeed.filter(item => deliveryByTarget[item.target.id]?.status === 'published').length,
   };
 
   async function createBrand() {
     if (!brandName.trim() || !supabase) return;
+    if (brands.some(item => item.name.trim().toLowerCase() === brandName.trim().toLowerCase())) {
+      setError('A brand workspace with this name already exists. Select it above instead of creating a duplicate.');
+      return;
+    }
     await run(async () => {
       const { error: err } = await supabase!.from('social_brands')
         .insert({ name: brandName.trim(), owner_id: currentProfile.id });
@@ -405,15 +441,18 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
           </button>
         </div>
         <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          <strong>Live pilot · planning only.</strong> Private artwork, AI-assisted drafts and the Facebook connection flow are available to admins.
-          Scheduled items create reviewable test jobs and are <strong>not automatically published</strong>. All real Facebook publishing remains disabled pending separate certification.
+          {autoPublishOn
+            ? <><strong>Facebook auto-publishing is ON.</strong> Approved Facebook posts are published at their planned time (checked every 5 minutes). Drafts and unapproved posts are never published.</>
+            : <><strong>Facebook auto-publishing is OFF.</strong> Planned posts are not automatically published until you connect your Facebook Page and switch on auto-publishing below.</>}
+          {' '}Instagram and LinkedIn posts are planned here and posted manually (use Copy caption).
         </div>
-        <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-5">
           {[
             { label: 'Drafts', value: counts.drafts },
             { label: 'In review', value: counts.review },
             { label: 'Approved', value: counts.approved },
             { label: 'Planned', value: counts.scheduled },
+            { label: 'Published', value: counts.published },
           ].map(item => (
             <div key={item.label} className="rounded-xl border border-border/80 bg-linen p-4">
               <div className="text-2xl font-bold text-ink">{item.value}</div>
@@ -471,7 +510,7 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
         <section id="social-draft-editor" className="scroll-mt-24 space-y-4 rounded-2xl border border-border bg-white p-5 shadow-sm lg:col-span-3">
           <h2 className="flex items-center gap-2 text-lg font-bold text-ink"><Edit3 className="h-5 w-5 text-gold" /> Create a Post</h2>
           <label className="block text-sm font-medium text-ink">
-            Destination (planning only)
+            Destination
             <select value={channel} onChange={e => setChannel(e.target.value)}
               className="mt-2 w-full rounded-lg border border-border bg-white p-3 text-sm">
               {CHANNELS.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
@@ -520,6 +559,7 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
           status: item.target.status,
           caption: item.revision?.caption || '',
           scheduledAt: item.target.scheduled_at,
+          delivery: deliveryByTarget[item.target.id]?.status,
         }))}
         onChooseTopic={selectedTopic => {
           setTopic(selectedTopic);
@@ -726,6 +766,11 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
             const isEditing = editing === item.post.id;
             const isApproved = t.status === 'approved';
             const isScheduled = t.status === 'scheduled';
+            const delivery = deliveryByTarget[t.id];
+            const isPublished = delivery?.status === 'published';
+            const failed = delivery && ['blocked', 'unknown'].includes(delivery.status);
+            const postUrl = isPublished ? facebookPostUrl(delivery.provider_post_id) : null;
+            const willAutoPost = t.channel === 'facebook' && autoPublishBrands.includes(item.post.brand_id);
             return (
               <article key={item.post.id} className="rounded-2xl border border-border bg-white p-5 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -734,7 +779,11 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
                     {' · '}Revision {r?.revision_number ?? 0}
                   </div>
                   <span className="rounded-full border border-border bg-linen px-3 py-1 text-xs font-bold capitalize text-ink">
-                    {isScheduled ? 'Planned (not published)' : t.status.replace('_', ' ')}
+                    {isPublished ? 'Published on Facebook'
+                      : failed ? 'Not posted — needs attention'
+                      : delivery?.status === 'simulated' ? 'Tested only (not published)'
+                      : isScheduled ? (willAutoPost ? 'Scheduled · will auto-post' : 'Planned (not published)')
+                      : t.status.replace('_', ' ')}
                   </span>
                 </div>
                 {isEditing ? (
@@ -783,9 +832,28 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
                     </p>
                   </div>
                 )}
+                {isPublished && <p className="mt-3 rounded-lg border border-green-200 bg-green-50 p-3 text-xs text-green-900">
+                  Posted to your Facebook Page.{' '}
+                  {postUrl && <a href={postUrl} target="_blank" rel="noopener noreferrer" className="font-bold underline">View on Facebook</a>}
+                </p>}
+                {failed && <p role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+                  {DELIVERY_ERROR_HELP[delivery.error_code || ''] || 'This post was not confirmed on Facebook.'}{' '}
+                  To try again: Return to draft → Submit for review → Approve → plan a new time.
+                </p>}
+                {isScheduled && !delivery && t.channel !== 'facebook' && <p className="mt-3 rounded-lg border border-border bg-linen p-3 text-xs text-muted">
+                  Reminder only: {CHANNELS.find(c => c.id === t.channel)?.label} is posted manually. Copy the caption at the planned time.
+                </p>}
+                {isScheduled && !delivery && t.channel === 'facebook' && !willAutoPost && <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                  This will not post by itself yet: connect your Facebook Page and turn on auto-publishing above.
+                </p>}
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
                   <div className="flex flex-wrap items-center gap-2">
-                    {!isEditing && t.status !== 'cancelled' &&
+                    {!isEditing && r &&
+                      <button type="button" onClick={() => void copyText(r.caption, 'Caption')}
+                        className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-2 text-xs font-semibold">
+                        <Copy className="h-3.5 w-3.5" /> Copy caption
+                      </button>}
+                    {!isEditing && t.status !== 'cancelled' && !isPublished &&
                       <button disabled={busy} onClick={() => {
                           setEditing(item.post.id);
                           setEditedCaption(r?.caption || '');
@@ -808,7 +876,7 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
                         className="inline-flex items-center gap-1 rounded-lg bg-ink px-3 py-2 text-xs font-bold text-white disabled:opacity-40">
                         <CheckCircle2 className="h-3.5 w-3.5" /> Approve revision
                       </button>}
-                    {(t.status === 'in_review' || isApproved || isScheduled) &&
+                    {(t.status === 'in_review' || isApproved || isScheduled) && !isPublished &&
                       <button disabled={busy} onClick={() => void transition(t, {
                         status: 'draft', approved_revision_id: null, approved_by: null,
                         approved_at: null, scheduled_at: null,
@@ -816,7 +884,8 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
                         className="rounded-lg border border-border px-3 py-2 text-xs font-semibold disabled:opacity-40">Return to draft</button>}
                   </div>
                   <div className="text-xs text-muted">
-                    {isScheduled ? 'Planned: ' + toDate(t.scheduled_at) :
+                    {isPublished ? 'Published: ' + toDate(t.scheduled_at) :
+                      isScheduled ? 'Planned: ' + toDate(t.scheduled_at) :
                       isApproved ? 'Approved: ' + toDate(t.approved_at) :
                         'Created: ' + toDate(item.post.created_at)}
                   </div>
@@ -832,9 +901,11 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
                     <button disabled={busy || !scheduledDates[t.id] || new Date(scheduledDates[t.id]).getTime() <= Date.now()}
                       onClick={() => void transition(t, {
                         status: 'scheduled', scheduled_at: new Date(scheduledDates[t.id]).toISOString(),
-                      }, 'Posting time planned. No automatic publishing will occur.')}
+                      }, willAutoPost
+                        ? 'Scheduled. This post will be published to Facebook automatically at the planned time.'
+                        : 'Posting time planned. It will not be published automatically.')}
                       className="inline-flex items-center gap-2 rounded-lg bg-ink px-4 py-3 text-xs font-bold text-white disabled:opacity-40">
-                      <CalendarClock className="h-4 w-4" /> Plan post
+                      <CalendarClock className="h-4 w-4" /> {willAutoPost ? 'Schedule auto-post' : 'Plan post'}
                     </button>
                   </div>
                 )}
@@ -843,7 +914,7 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
           })}
       </section>
       <footer className="flex items-center gap-2 text-xs text-muted">
-        <Send className="h-3.5 w-3.5" /> Private images and AI artwork require permission clearance. Facebook Page connection is optional; delivery tests never publish. Live posting and analytics are still disabled.
+        <Send className="h-3.5 w-3.5" /> Private images and AI artwork require permission clearance. Only approved Facebook posts are auto-published, and only while auto-publishing is switched on. Instagram and LinkedIn are posted manually.
       </footer>
     </div>
   );
