@@ -29,7 +29,8 @@ assert.match(sql,/revoke all on public\.social_facebook_token_refs from anon,aut
 assert.match(sql,/grant execute on function public\.social_server_facebook_token\(uuid\) to service_role/);
 assert.match(workerSource,/manualFake \? callerId : null/);
 assert.match(workerSource,/SOCIAL_ENABLE_LIVE_PUBLISH/);
-assert.match(workerSource,/SOCIAL_PUBLISH_MODE/);
+assert.match(workerSource,/social_server_verify_worker/);
+assert.match(workerSource,/social_server_mark_facebook_expired/);
 assert.match(workerSource,/PAGE_NOT_UNIQUELY_ENABLED/);
 assert.match(workerSource,/FACEBOOK_NETWORK_OUTCOME_UNKNOWN/);
 assert.match(workerSource,/getEnv\('SOCIAL_WORKER_SECRET'\)/);
@@ -59,8 +60,8 @@ const REVISION='aaaaaaaa-2222-4333-8444-555555555555';
 const JOB='cccccccc-2222-4333-8444-555555555555';
 const LEASE='dddddddd-2222-4333-8444-555555555555';
 
-function workerHarness({role='admin',due=true,liveFlags=true}={}) {
-  let serve, externalCalls=0, claimArgs=null, completionArgs=null;
+function workerHarness({role='admin',due=true,liveFlags=true,pageEnabled=false,graph=null}={}) {
+  let serve, externalCalls=0, claimArgs=null, completionArgs=null, expiredMarked=false;
   const fakeJob={id:JOB,owner_id:OWNER,target_id:TARGET,revision_id:REVISION,
     scheduled_at:'2026-10-23T14:00:00Z',lease_id:LEASE,status:'processing'};
   const records={
@@ -71,10 +72,16 @@ function workerHarness({role='admin',due=true,liveFlags=true}={}) {
     social_posts:{id:JOB,brand_id:BRAND,owner_id:OWNER},
   };
   const service={
-    from(table){return {select(){return this},eq(){return this},single:async()=>({
+    from(table){
+      if(table==='social_facebook_connections') return {select(){return this},eq(){return this},
+        limit:async()=>({data:pageEnabled?[{id:LEASE,page_id:'123456789',status:'connected',publish_enabled:true}]:[],error:null})};
+      return {select(){return this},eq(){return this},single:async()=>({
       data:records[table]||null,error:records[table]?null:{message:'not found'},
     })}},
     rpc:async(name,args)=>{
+      if(name==='social_server_verify_worker') return {data:args.p_secret==='vault-generated-worker-secret-0123456789',error:null};
+      if(name==='social_server_facebook_token') return {data:'page-token-'+'x'.repeat(40),error:null};
+      if(name==='social_server_mark_facebook_expired'){expiredMarked=true;return {data:true,error:null};}
       if(name==='social_server_claim_due'){
         claimArgs=args;return {data:due?[fakeJob]:[],error:null};
       }
@@ -93,13 +100,12 @@ function workerHarness({role='admin',due=true,liveFlags=true}={}) {
     SUPABASE_SERVICE_ROLE_KEY:'service-key',
     SUPABASE_ANON_KEY:'anon-key',
     SOCIAL_WORKER_SECRET:'safe-test-worker-secret',
-    SOCIAL_PUBLISH_MODE:liveFlags?'facebook':'fake',
-    SOCIAL_ENABLE_LIVE_PUBLISH:liveFlags?'true':'false',
+    SOCIAL_ENABLE_LIVE_PUBLISH:liveFlags?'':'false',
   };
   const context={
     __createClient:(url,key)=>key==='service-key'?service:caller,
     Deno:{env:{get:key=>envs[key]},serve:fn=>{serve=fn}},
-    fetch:async()=>{externalCalls++;throw Error('No Facebook network allowed in manual test');},
+    fetch:async()=>{externalCalls++;if(graph)return graph();throw Error('No Facebook network allowed in manual test');},
     Request,Response,FormData,Blob,TextEncoder,AbortController,setTimeout,clearTimeout,console,
     crypto:webcrypto,Uint8Array,
   };
@@ -107,12 +113,12 @@ function workerHarness({role='admin',due=true,liveFlags=true}={}) {
   const req=async({roleToken=true,secret=false,mode='simulate'}={})=>{
     const headers={'Content-Type':'application/json'};
     if(roleToken)headers.Authorization='Bearer user-jwt';
-    if(secret)headers['x-worker-secret']='safe-test-worker-secret';
+    if(secret)headers['x-worker-secret']=secret===true?'safe-test-worker-secret':secret;
     return serve(new Request('https://example.supabase.co/functions/v1/social-delivery-worker',{
       method:'POST',headers,body:JSON.stringify({mode}),
     }));
   };
-  return {req,stats:()=>({externalCalls,claimArgs,completionArgs})};
+  return {req,stats:()=>({externalCalls,claimArgs,completionArgs,expiredMarked})};
 }
 
 const noAuth=workerHarness();
@@ -137,7 +143,47 @@ const idle=workerHarness({due:false});
 const emptyResponse=await idle.req();
 assert.equal((await emptyResponse.json()).claimed,0);
 
-// Server-only Graph paths are present, but live publishing cannot be activated from the UI.
+// Scheduled worker: publishes only with a trusted secret AND a Page the admin switched on.
+const okGraph=()=>new Response(JSON.stringify({id:'123456789_987654321'}),{status:200});
+const vaultWorker='vault-generated-worker-secret-0123456789';
+const live=workerHarness({pageEnabled:true,graph:okGraph});
+const liveResult=await (await live.req({roleToken:false,secret:vaultWorker,mode:'scheduled-worker'})).json();
+assert.equal(liveResult.mode,'facebook');
+assert.equal(liveResult.published,1);
+assert.equal(live.stats().externalCalls,1);
+assert.equal(live.stats().completionArgs.p_provider_id,'123456789_987654321');
+assert.equal(live.stats().claimArgs.p_owner,null);
+// Wrong secret is rejected before any claim.
+const forged=workerHarness({pageEnabled:true,graph:okGraph});
+assert.equal((await forged.req({roleToken:false,secret:'x'.repeat(40),mode:'scheduled-worker'})).status,401);
+assert.equal(forged.stats().claimArgs,null);
+// Page switch off: nothing is sent to Facebook.
+const switchedOff=workerHarness({pageEnabled:false,graph:okGraph});
+const offResult=await (await switchedOff.req({roleToken:false,secret:true,mode:'scheduled-worker'})).json();
+assert.equal(offResult.blocked,1);
+assert.equal(switchedOff.stats().externalCalls,0);
+assert.equal(switchedOff.stats().completionArgs.p_error,'PAGE_NOT_UNIQUELY_ENABLED');
+// Global emergency stop keeps everything fake.
+const stopped=workerHarness({pageEnabled:true,graph:okGraph,liveFlags:false});
+const stopResult=await (await stopped.req({roleToken:false,secret:true,mode:'scheduled-worker'})).json();
+assert.equal(stopResult.mode,'fake');
+assert.equal(stopped.stats().externalCalls,0);
+// Admin browser calls stay fake even when a Page is switched on.
+const adminLive=workerHarness({pageEnabled:true,graph:okGraph});
+assert.equal((await (await adminLive.req()).json()).mode,'fake');
+assert.equal(adminLive.stats().externalCalls,0);
+// Expired token: job blocked with a clear code and the connection is marked expired.
+const expired=workerHarness({pageEnabled:true,graph:()=>new Response(JSON.stringify({error:{code:190}}),{status:400})});
+await expired.req({roleToken:false,secret:true,mode:'scheduled-worker'});
+assert.equal(expired.stats().completionArgs.p_error,'FACEBOOK_TOKEN_EXPIRED');
+assert.equal(expired.stats().expiredMarked,true);
+assert.match(connectSource,/social_server_set_publishing/);
+assert.match(uiSource,/Turn on auto-publishing/);
+const autoSql=read('supabase/migrations/20261116120000_social_auto_publish_worker_20261116.sql');
+for (const k of ['social_server_verify_worker','social_run_delivery_worker','mh-social-delivery-worker','net.http_post','auth.role()'])
+  assert.ok(autoSql.includes(k),'Missing auto-publish piece: '+k);
+assert.doesNotMatch(autoSql,/to authenticated|to anon/);
+
 // OAuth callback mocks demonstrate one-time state, server-side Page token, and safe redirects.
 function oauthHarness({role='admin',metaConfigured=true,pageRows=null}={}) {
   let serve, savedHash=null, used=false, savedToken=null, graphCalls=0;
@@ -245,5 +291,12 @@ for (const [pageRows,expected] of [
   assert.equal([...location.searchParams.keys()].join(','),'social_fb');
   assert.ok(!location.href.includes('test-token'));
 }
-console.log('Facebook OAuth state, fake-worker, admin isolation and no-publishing tests passed.');
+// Publishing switch: admin only, owned connection only.
+function switchHarness(role){
+  const h=oauthHarness({role});
+  return h;
+}
+assert.equal((await switchHarness('employee').post({action:'set-publishing',connectionId:OWNER,enabled:true})).status,403);
+assert.equal((await oauthHarness().post({action:'set-publishing',connectionId:'bad',enabled:true})).status,400);
+console.log('Facebook OAuth state, worker identity, publishing switch and delivery tests passed.');
 

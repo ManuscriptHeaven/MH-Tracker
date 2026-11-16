@@ -3,7 +3,7 @@ import { CalendarClock, CheckCircle2, Copy, Edit3, Megaphone, Plus, RefreshCw, S
 import { supabase } from '../lib/supabase';
 import { SocialEditorialCalendar } from '../components/social/SocialEditorialCalendar';
 import { SocialArtworkLibrary } from '../components/social/SocialArtworkLibrary';
-import { FacebookPublishingPanel } from '../components/social/FacebookPublishingPanel';
+import { DELIVERY_ERROR_HELP, FacebookPublishingPanel, facebookPostUrl } from '../components/social/FacebookPublishingPanel';
 import type { SocialArtwork } from '../components/social/SocialArtworkLibrary';
 import type { Profile } from '../lib/types';
 
@@ -17,7 +17,46 @@ type Platform = 'facebook' | 'instagram' | 'linkedin';
 type Suggestion = {
   caption: string; hashtags: string[]; imageBrief: string;
   variants: Record<Platform, string>; reviewNotes: string; model: string;
+  hook?: string; altText?: string; slides?: string[];
 };
+const PLATFORM_LIMITS: Record<Platform, number> = { facebook: 5000, instagram: 2200, linkedin: 3000 };
+const LANGUAGE_OPTIONS = [
+  { id: 'en', label: 'English' },
+  { id: 'roman_ur', label: 'Roman Urdu' },
+  { id: 'ur', label: 'Urdu (اردو)' },
+  { id: 'bilingual', label: 'English + Roman Urdu' },
+];
+const TONE_OPTIONS = [
+  { id: 'educational', label: 'Educational' },
+  { id: 'professional', label: 'Professional' },
+  { id: 'friendly', label: 'Friendly' },
+  { id: 'promotional', label: 'Promotional' },
+  { id: 'storytelling', label: 'Storytelling' },
+];
+const POST_TYPE_OPTIONS = [
+  { id: 'tip', label: 'Quick tip' },
+  { id: 'checklist', label: 'Checklist' },
+  { id: 'myth_fact', label: 'Myth vs fact' },
+  { id: 'carousel', label: 'Carousel (slides)' },
+  { id: 'before_after', label: 'Before / after' },
+  { id: 'question', label: 'Engagement question' },
+  { id: 'promo', label: 'Service promotion' },
+];
+const LENGTH_OPTIONS = [
+  { id: 'short', label: 'Short' },
+  { id: 'medium', label: 'Medium' },
+  { id: 'long', label: 'Long' },
+];
+export function composeCaption(text: string, hashtags: string[]): string {
+  const extra = hashtags.filter(tag => !text.toLowerCase().includes(tag.toLowerCase())).join(' ');
+  return [text.trim(), extra].filter(Boolean).join('\n\n').slice(0, 8000);
+}
+export function parseHashtagInput(value: string): string[] {
+  const seen = new Set<string>();
+  return value.split(/[\s,]+/).map(tag => tag.replace(/^#+/, '').replace(/[^\p{L}\p{N}_]/gu, ''))
+    .filter(tag => tag && !seen.has(tag.toLowerCase()) && seen.add(tag.toLowerCase()))
+    .slice(0, 30).map(tag => '#' + tag);
+}
 const TOPIC_STARTERS = [
   'Why running headers are omitted on chapter opening pages',
   '300 DPI images versus low-resolution images in print',
@@ -42,6 +81,10 @@ type Target = {
   id: string; post_id: string; channel: string; status: string;
   approved_revision_id: string | null; approved_by: string | null; approved_at: string | null;
   scheduled_at: string | null;
+};
+type Delivery = {
+  id: string; target_id: string; revision_id: string; status: string; scheduled_at: string;
+  provider_post_id: string | null; error_code: string | null; created_at: string;
 };
 type FeedItem = { post: Post; target: Target; revision: Revision | undefined; brand: Brand | undefined };
 
@@ -68,6 +111,8 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
   const [posts, setPosts] = useState<Post[]>([]);
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [targets, setTargets] = useState<Target[]>([]);
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [autoPublishBrands, setAutoPublishBrands] = useState<string[]>([]);
   const [selectedBrand, setSelectedBrand] = useState('');
   const [brandName, setBrandName] = useState('Manuscript Heaven');
   const [caption, setCaption] = useState('');
@@ -82,6 +127,14 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
   const [suggestionPlatform, setSuggestionPlatform] = useState<Platform>('facebook');
   const [generating, setGenerating] = useState(false);
+  const [language, setLanguage] = useState('en');
+  const [tone, setTone] = useState('educational');
+  const [postType, setPostType] = useState('tip');
+  const [postLength, setPostLength] = useState('medium');
+  const [keyPoints, setKeyPoints] = useState('');
+  const [callToAction, setCallToAction] = useState('');
+  const [hashtagText, setHashtagText] = useState('');
+  const [variantEdits, setVariantEdits] = useState<Partial<Record<Platform, string>>>({});
   const [channel, setChannel] = useState('facebook');
   const [editing, setEditing] = useState<string | null>(null);
   const [editedCaption, setEditedCaption] = useState('');
@@ -106,6 +159,16 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
         supabase.from('social_post_targets').select('id,post_id,channel,status,approved_revision_id,approved_by,approved_at,scheduled_at'),
       ]);
       for (const result of [b, p, r, t]) if (result.error) throw result.error;
+      // Delivery status is informational; the Studio still works if these reads fail.
+      const [d, c] = await Promise.all([
+        supabase.from('social_delivery_jobs')
+          .select('id,target_id,revision_id,status,scheduled_at,provider_post_id,error_code,created_at')
+          .order('created_at', { ascending: false }).limit(300),
+        supabase.from('social_facebook_connections')
+          .select('brand_id').eq('status', 'connected').eq('publish_enabled', true),
+      ]);
+      setDeliveries(d.error ? [] : (d.data || []) as Delivery[]);
+      setAutoPublishBrands(c.error ? [] : (c.data || []).map(item => item.brand_id as string));
       setBrands((b.data || []) as Brand[]);
       setPosts((p.data || []) as Post[]);
       setRevisions((r.data || []) as Revision[]);
@@ -121,11 +184,11 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
   }
 
   useEffect(() => { void reload(); }, [currentProfile.id]);
+  const selectedSavedBrief = brands.find(item => item.id === selectedBrand)?.brief || '';
   useEffect(() => {
-    const currentBrand = brands.find(item => item.id === selectedBrand);
-    setBrandBrief(currentBrand?.brief || '');
-    setSuggestion(null);
-  }, [brands, selectedBrand]);
+    setBrandBrief(selectedSavedBrief);
+  }, [selectedBrand, selectedSavedBrief]);
+  useEffect(() => { setSuggestion(null); }, [selectedBrand]);
   useEffect(() => { setDraftAssetId(null); setEditedAssetId(null); }, [selectedBrand]);
 
   async function run(action: () => Promise<void>, success: string) {
@@ -154,16 +217,36 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
     });
   }, [posts, revisions, targets, brands]);
 
+  // Latest delivery attempt for the exact approved revision and planned time of each target.
+  const deliveryByTarget = useMemo(() => {
+    const map: Record<string, Delivery> = {};
+    for (const target of targets) {
+      if (target.status !== 'scheduled') continue;
+      const match = deliveries.find(job => job.target_id === target.id
+        && job.revision_id === target.approved_revision_id
+        && new Date(job.scheduled_at).getTime() === new Date(target.scheduled_at || 0).getTime());
+      if (match) map[target.id] = match;
+    }
+    return map;
+  }, [deliveries, targets]);
+  const autoPublishOn = autoPublishBrands.includes(selectedBrand);
+
   const visibleFeed = selectedBrand ? feed.filter(item => item.post.brand_id === selectedBrand) : feed;
   const counts = {
     drafts: visibleFeed.filter(item => item.target.status === 'draft').length,
     review: visibleFeed.filter(item => item.target.status === 'in_review').length,
     approved: visibleFeed.filter(item => item.target.status === 'approved').length,
-    scheduled: visibleFeed.filter(item => item.target.status === 'scheduled').length,
+    scheduled: visibleFeed.filter(item => item.target.status === 'scheduled'
+      && deliveryByTarget[item.target.id]?.status !== 'published').length,
+    published: visibleFeed.filter(item => deliveryByTarget[item.target.id]?.status === 'published').length,
   };
 
   async function createBrand() {
     if (!brandName.trim() || !supabase) return;
+    if (brands.some(item => item.name.trim().toLowerCase() === brandName.trim().toLowerCase())) {
+      setError('A brand workspace with this name already exists. Select it above instead of creating a duplicate.');
+      return;
+    }
     await run(async () => {
       const { error: err } = await supabase!.from('social_brands')
         .insert({ name: brandName.trim(), owner_id: currentProfile.id });
@@ -226,18 +309,27 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
   const savedBrandBrief = brands.find(b => b.id === selectedBrand)?.brief || '';
   const briefIsSaved = !!brandBrief.trim() && savedBrandBrief.trim() === brandBrief.trim();
 
-  async function generateSuggestion() {
+  async function generateSuggestion(regenerate = false) {
     if (!supabase || !selectedBrand || !topic.trim() || !briefIsSaved) {
       setError('Save the approved brand brief before requesting AI content.');
       return;
     }
+    if (topic.trim().length < 4) {
+      setError('Write a topic of at least 4 characters.');
+      return;
+    }
+    const previous = regenerate && suggestion ? suggestion.caption.slice(0, 1500) : '';
     setGenerating(true);
-    setSuggestion(null);
     setError('');
     setMessage('');
     try {
       const { data, error: err } = await supabase.functions.invoke('social-draft', {
-        body: { brandId: selectedBrand, topic: topic.trim(), platform: channel },
+        body: {
+          brandId: selectedBrand, topic: topic.trim(), platform: channel,
+          language, tone, postType, length: postLength,
+          keyPoints: keyPoints.trim(), callToAction: callToAction.trim(),
+          avoidRepeating: previous,
+        },
       });
       if (err) {
         let reason = err.message;
@@ -256,8 +348,11 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
         throw new Error('AI returned an unexpected response. Please retry.');
       }
       setSuggestion(output);
+      setVariantEdits({});
+      setHashtagText(output.hashtags.join(' '));
       setSuggestionPlatform(channel as Platform);
-      setMessage('AI generated an editable suggestion. Review all claims before saving.');
+      setMessage(regenerate ? 'New version generated. Review all claims before saving.'
+        : 'AI generated an editable suggestion. Review all claims before saving.');
     } catch (cause) {
       setError(describeError(cause));
     } finally {
@@ -265,17 +360,54 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
     }
   }
 
+  function variantText(platform: Platform): string {
+    if (!suggestion) return '';
+    return variantEdits[platform] ?? (suggestion.variants[platform] || suggestion.caption);
+  }
+
+  function suggestionBrief(): string {
+    if (!suggestion) return '';
+    const parts = [suggestion.imageBrief];
+    if (suggestion.slides?.length) parts.push('Carousel slides:\n' + suggestion.slides.map((s, i) => (i + 1) + '. ' + s).join('\n'));
+    if (suggestion.altText) parts.push('Alt text: ' + suggestion.altText);
+    return parts.filter(Boolean).join('\n\n').slice(0, 2400);
+  }
+
   function useSuggestion() {
     if (!suggestion) return;
-    const variant = suggestion.variants[suggestionPlatform] || suggestion.caption;
-    const hashtags = suggestion.hashtags.filter(tag => !variant.includes(tag)).join(' ');
-    const composed = [variant.trim(), hashtags].filter(Boolean).join('\n\n').slice(0, 8000);
-    setCaption(composed);
-    setDraftImageBrief(suggestion.imageBrief);
+    setCaption(composeCaption(variantText(suggestionPlatform), parseHashtagInput(hashtagText)));
+    setDraftImageBrief(suggestionBrief());
     setDraftOrigin('ai_suggested');
     setChannel(suggestionPlatform);
-    setMessage('Suggestion copied into the editable draft. Save it when ready.');
+    setMessage('Suggestion copied into the editable draft. Review it, then press Save Draft.');
     setSuggestion(null);
+    document.getElementById('social-draft-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  async function saveAllPlatformDrafts() {
+    if (!suggestion || !selectedBrand || !supabase) return;
+    const tags = parseHashtagInput(hashtagText);
+    const brief = suggestionBrief();
+    await run(async () => {
+      for (const platform of CHANNELS.map(item => item.id as Platform)) {
+        const { error: err } = await supabase!.rpc('social_create_media_draft', {
+          p_brand_id: selectedBrand, p_caption: composeCaption(variantText(platform), tags),
+          p_channel: platform, p_image_brief: brief, p_content_origin: 'ai_suggested',
+          p_asset_id: draftAssetId,
+        });
+        if (err) throw err;
+      }
+      setSuggestion(null);
+    }, 'Three AI drafts saved (Facebook, Instagram, LinkedIn). Review each one in the Content Pipeline below.');
+  }
+
+  async function copyText(text: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setMessage(label + ' copied.');
+    } catch {
+      setError('Clipboard not available. Select and copy the text manually.');
+    }
   }
 
   async function copyVisualBrief(brief: string) {
@@ -309,15 +441,18 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
           </button>
         </div>
         <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          <strong>Live pilot · planning only.</strong> Private artwork, AI-assisted drafts and the Facebook connection flow are available to admins.
-          Scheduled items create reviewable test jobs and are <strong>not automatically published</strong>. All real Facebook publishing remains disabled pending separate certification.
+          {autoPublishOn
+            ? <><strong>Facebook auto-publishing is ON.</strong> Approved Facebook posts are published at their planned time (checked every 5 minutes). Drafts and unapproved posts are never published.</>
+            : <><strong>Facebook auto-publishing is OFF.</strong> Planned posts are not automatically published until you connect your Facebook Page and switch on auto-publishing below.</>}
+          {' '}Instagram and LinkedIn posts are planned here and posted manually (use Copy caption).
         </div>
-        <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-5">
           {[
             { label: 'Drafts', value: counts.drafts },
             { label: 'In review', value: counts.review },
             { label: 'Approved', value: counts.approved },
             { label: 'Planned', value: counts.scheduled },
+            { label: 'Published', value: counts.published },
           ].map(item => (
             <div key={item.label} className="rounded-xl border border-border/80 bg-linen p-4">
               <div className="text-2xl font-bold text-ink">{item.value}</div>
@@ -372,10 +507,10 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
           </div>}
         </section>
 
-        <section className="space-y-4 rounded-2xl border border-border bg-white p-5 shadow-sm lg:col-span-3">
+        <section id="social-draft-editor" className="scroll-mt-24 space-y-4 rounded-2xl border border-border bg-white p-5 shadow-sm lg:col-span-3">
           <h2 className="flex items-center gap-2 text-lg font-bold text-ink"><Edit3 className="h-5 w-5 text-gold" /> Create a Post</h2>
           <label className="block text-sm font-medium text-ink">
-            Destination (planning only)
+            Destination
             <select value={channel} onChange={e => setChannel(e.target.value)}
               className="mt-2 w-full rounded-lg border border-border bg-white p-3 text-sm">
               {CHANNELS.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
@@ -402,7 +537,11 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
               className="text-xs font-semibold text-red-700 hover:underline">Remove from draft</button>
           </div>}
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <span className="text-xs text-muted">{caption.length} / 8,000 characters</span>
+            <span className={caption.length > (PLATFORM_LIMITS[channel as Platform] || 8000)
+              ? 'text-xs font-semibold text-red-700' : 'text-xs text-muted'}>
+              {caption.length} / {(PLATFORM_LIMITS[channel as Platform] || 8000).toLocaleString()} characters
+              {caption.length > (PLATFORM_LIMITS[channel as Platform] || 8000) ? ' — too long for this platform' : ''}
+            </span>
             <button onClick={() => void createDraft()} disabled={busy || !caption.trim() || !selectedBrand}
               className="inline-flex items-center gap-2 rounded-lg bg-ink px-5 py-3 text-sm font-bold text-white disabled:opacity-40">
               <Plus className="h-4 w-4" /> Save Draft
@@ -420,6 +559,7 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
           status: item.target.status,
           caption: item.revision?.caption || '',
           scheduledAt: item.target.scheduled_at,
+          delivery: deliveryByTarget[item.target.id]?.status,
         }))}
         onChooseTopic={selectedTopic => {
           setTopic(selectedTopic);
@@ -437,11 +577,13 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
           <h2 className="text-lg font-bold text-ink">AI Content Generator</h2>
           <span className="rounded-full border border-border bg-linen px-2 py-1 text-[11px] font-semibold text-muted">Requires approval</span>
         </div>
-        <p className="text-sm text-muted">Generate an educational post, hashtags, three platform options and a visual brief. Nothing is saved or published until you choose and save a draft.</p>
+        <p className="text-sm text-muted">Generate a post in your language and tone, with hashtags, Facebook/Instagram/LinkedIn versions and an artwork brief. Nothing is saved or published until you save a draft.</p>
         <div className="flex flex-wrap gap-2">
           {TOPIC_STARTERS.map(item =>
             <button key={item} type="button" onClick={() => setTopic(item)}
-              className="rounded-full border border-border px-3 py-2 text-xs font-medium text-ink hover:bg-linen">{item}</button>)}
+              className={topic === item
+                ? 'rounded-full border border-ink bg-ink px-3 py-2 text-xs font-medium text-white'
+                : 'rounded-full border border-border px-3 py-2 text-xs font-medium text-ink hover:bg-linen'}>{item}</button>)}
         </div>
         <label className="block text-sm font-medium text-ink">
           Post topic or educational angle
@@ -449,40 +591,117 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
             placeholder="e.g., What is a running header in a nonfiction book?"
             className="mt-2 w-full rounded-lg border border-border p-3 text-sm" />
         </label>
-        <button disabled={busy || generating || !selectedBrand || !briefIsSaved || !topic.trim()}
-          onClick={() => void generateSuggestion()}
-          className="inline-flex items-center gap-2 rounded-lg bg-ink px-5 py-3 text-sm font-bold text-white disabled:opacity-40">
-          <Sparkles className="h-4 w-4" /> {generating ? 'Generating suggestions...' : 'Generate AI Content'}
-        </button>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {[
+            { label: 'Language', value: language, set: setLanguage, options: LANGUAGE_OPTIONS },
+            { label: 'Tone', value: tone, set: setTone, options: TONE_OPTIONS },
+            { label: 'Post type', value: postType, set: setPostType, options: POST_TYPE_OPTIONS },
+            { label: 'Length', value: postLength, set: setPostLength, options: LENGTH_OPTIONS },
+            { label: 'Main platform', value: channel, set: setChannel, options: CHANNELS },
+          ].map(field => (
+            <label key={field.label} className="block text-xs font-semibold text-muted">
+              {field.label}
+              <select value={field.value} onChange={e => field.set(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-border bg-white p-2.5 text-sm text-ink">
+                {field.options.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
+              </select>
+            </label>
+          ))}
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block text-xs font-semibold text-muted">
+            Key points to include (optional)
+            <textarea value={keyPoints} onChange={e => setKeyPoints(e.target.value)} maxLength={600} rows={2}
+              placeholder="e.g., mention 24-hour delivery for small books, InDesign + KDP ready files"
+              className="mt-1 w-full rounded-lg border border-border p-2.5 text-sm text-ink" />
+          </label>
+          <label className="block text-xs font-semibold text-muted">
+            Call to action (optional)
+            <textarea value={callToAction} onChange={e => setCallToAction(e.target.value)} maxLength={160} rows={2}
+              placeholder="e.g., DM us for a free formatting quote"
+              className="mt-1 w-full rounded-lg border border-border p-2.5 text-sm text-ink" />
+          </label>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button disabled={busy || generating || !selectedBrand || !briefIsSaved || topic.trim().length < 4}
+            onClick={() => void generateSuggestion(false)}
+            className="inline-flex items-center gap-2 rounded-lg bg-ink px-5 py-3 text-sm font-bold text-white disabled:opacity-40">
+            <Sparkles className="h-4 w-4" /> {generating ? 'Generating suggestions...' : 'Generate AI Content'}
+          </button>
+          {suggestion &&
+            <button disabled={busy || generating} onClick={() => void generateSuggestion(true)}
+              className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-3 text-sm font-semibold text-ink disabled:opacity-40">
+              <RefreshCw className="h-4 w-4" /> Try a different version
+            </button>}
+        </div>
         {!briefIsSaved && selectedBrand &&
           <p className="text-xs text-amber-800">Save or update your approved brand brief above before using AI generation.</p>}
+        {generating && !suggestion &&
+          <div className="animate-pulse rounded-xl border border-border bg-linen p-4 text-sm text-muted">Writing your post… this usually takes 5–15 seconds.</div>}
         {suggestion && (
           <div className="space-y-4 rounded-xl border border-gold/30 bg-linen p-4">
             <div className="flex flex-wrap gap-2">
-              {CHANNELS.map(item =>
-                <button type="button" key={item.id}
-                  onClick={() => setSuggestionPlatform(item.id as Platform)}
-                  className={suggestionPlatform === item.id
-                    ? 'rounded-lg bg-ink px-3 py-2 text-xs font-bold text-white'
-                    : 'rounded-lg border border-border bg-white px-3 py-2 text-xs font-semibold text-ink'}>
-                  {item.label}</button>)}
+              {CHANNELS.map(item => {
+                const length = variantText(item.id as Platform).length;
+                const over = length > PLATFORM_LIMITS[item.id as Platform];
+                return (
+                  <button type="button" key={item.id}
+                    onClick={() => setSuggestionPlatform(item.id as Platform)}
+                    className={suggestionPlatform === item.id
+                      ? 'rounded-lg bg-ink px-3 py-2 text-xs font-bold text-white'
+                      : 'rounded-lg border border-border bg-white px-3 py-2 text-xs font-semibold text-ink'}>
+                    {item.label} <span className={over ? 'text-red-400' : 'opacity-60'}>· {length}</span>
+                  </button>
+                );
+              })}
             </div>
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted">Proposed caption — editable after applying</div>
-              <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-ink">
-                {suggestion.variants[suggestionPlatform] || suggestion.caption}
-              </p>
-            </div>
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted">Suggested hashtags</div>
-              <p className="mt-1 break-words text-sm text-ink">{suggestion.hashtags.join(' ') || 'None suggested'}</p>
-            </div>
+            <label className="block">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted">
+                  {CHANNELS.find(c => c.id === suggestionPlatform)?.label} caption — edit here before saving
+                </span>
+                <button type="button"
+                  onClick={() => void copyText(composeCaption(variantText(suggestionPlatform), parseHashtagInput(hashtagText)), 'Caption with hashtags')}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-gold">
+                  <Copy className="h-3.5 w-3.5" /> Copy caption</button>
+              </div>
+              <textarea value={variantText(suggestionPlatform)} rows={8} maxLength={PLATFORM_LIMITS[suggestionPlatform]}
+                dir={language === 'ur' ? 'rtl' : 'auto'}
+                onChange={e => setVariantEdits(prev => ({ ...prev, [suggestionPlatform]: e.target.value }))}
+                className="mt-2 w-full rounded-lg border border-border bg-white p-3 text-sm leading-relaxed text-ink" />
+              <span className={variantText(suggestionPlatform).length > PLATFORM_LIMITS[suggestionPlatform] - 50
+                ? 'text-xs font-semibold text-red-700' : 'text-xs text-muted'}>
+                {variantText(suggestionPlatform).length} / {PLATFORM_LIMITS[suggestionPlatform].toLocaleString()} characters
+              </span>
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted">Hashtags (edit, separate with spaces)</span>
+              <input value={hashtagText} onChange={e => setHashtagText(e.target.value)} maxLength={600}
+                className="mt-1 w-full rounded-lg border border-border bg-white p-2.5 text-sm text-ink" />
+            </label>
+            {!!suggestion.slides?.length && (
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted">Carousel slides</div>
+                <ol className="mt-1 list-decimal space-y-1 pl-5 text-sm text-ink">
+                  {suggestion.slides.map((slide, index) => <li key={index}>{slide}</li>)}
+                </ol>
+              </div>
+            )}
             <div>
               <div className="text-xs font-semibold uppercase tracking-wide text-muted">Artwork brief · 1080 × 1350</div>
               <p className="mt-1 whitespace-pre-wrap text-sm text-ink">{suggestion.imageBrief}</p>
-              <button type="button" onClick={() => void copyVisualBrief(suggestion.imageBrief)}
-                className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-gold">
-                <Copy className="h-3.5 w-3.5" /> Copy artwork brief</button>
+              {suggestion.altText && <p className="mt-1 text-xs text-muted"><strong>Alt text:</strong> {suggestion.altText}</p>}
+              <div className="mt-2 flex flex-wrap gap-3">
+                <button type="button" onClick={() => void copyVisualBrief(suggestionBrief())}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-gold">
+                  <Copy className="h-3.5 w-3.5" /> Copy artwork brief</button>
+                <button type="button" onClick={() => {
+                    setDraftImageBrief(suggestionBrief());
+                    document.getElementById('social-artwork-library')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-gold">
+                  <Sparkles className="h-3.5 w-3.5" /> Send brief to artwork generator</button>
+              </div>
             </div>
             {suggestion.reviewNotes && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
@@ -493,10 +712,14 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
               <button type="button" onClick={useSuggestion}
                 className="rounded-lg bg-ink px-4 py-3 text-sm font-bold text-white">
                 Use in draft editor</button>
+              <button type="button" onClick={() => void saveAllPlatformDrafts()} disabled={busy || generating}
+                className="inline-flex items-center gap-2 rounded-lg border border-ink px-4 py-3 text-sm font-bold text-ink disabled:opacity-40">
+                <Plus className="h-4 w-4" /> Save drafts for all 3 platforms</button>
               <button type="button" onClick={() => setSuggestion(null)}
                 className="rounded-lg border border-border px-4 py-3 text-sm font-semibold text-ink">
                 Discard suggestion</button>
             </div>
+            <p className="text-[11px] text-muted">Model: {suggestion.model}. AI drafts still need Submit for review → Approve before planning.</p>
           </div>
         )}
       </section>
@@ -512,6 +735,7 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
         onAfterRun={() => { void reload(); }}
       />
 
+      <div id="social-artwork-library" className="scroll-mt-24" />
       <SocialArtworkLibrary
         brandId={selectedBrand}
         adminId={currentProfile.id}
@@ -542,6 +766,11 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
             const isEditing = editing === item.post.id;
             const isApproved = t.status === 'approved';
             const isScheduled = t.status === 'scheduled';
+            const delivery = deliveryByTarget[t.id];
+            const isPublished = delivery?.status === 'published';
+            const failed = delivery && ['blocked', 'unknown'].includes(delivery.status);
+            const postUrl = isPublished ? facebookPostUrl(delivery.provider_post_id) : null;
+            const willAutoPost = t.channel === 'facebook' && autoPublishBrands.includes(item.post.brand_id);
             return (
               <article key={item.post.id} className="rounded-2xl border border-border bg-white p-5 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -550,7 +779,11 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
                     {' · '}Revision {r?.revision_number ?? 0}
                   </div>
                   <span className="rounded-full border border-border bg-linen px-3 py-1 text-xs font-bold capitalize text-ink">
-                    {isScheduled ? 'Planned (not published)' : t.status.replace('_', ' ')}
+                    {isPublished ? 'Published on Facebook'
+                      : failed ? 'Not posted — needs attention'
+                      : delivery?.status === 'simulated' ? 'Tested only (not published)'
+                      : isScheduled ? (willAutoPost ? 'Scheduled · will auto-post' : 'Planned (not published)')
+                      : t.status.replace('_', ' ')}
                   </span>
                 </div>
                 {isEditing ? (
@@ -599,9 +832,28 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
                     </p>
                   </div>
                 )}
+                {isPublished && <p className="mt-3 rounded-lg border border-green-200 bg-green-50 p-3 text-xs text-green-900">
+                  Posted to your Facebook Page.{' '}
+                  {postUrl && <a href={postUrl} target="_blank" rel="noopener noreferrer" className="font-bold underline">View on Facebook</a>}
+                </p>}
+                {failed && <p role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+                  {DELIVERY_ERROR_HELP[delivery.error_code || ''] || 'This post was not confirmed on Facebook.'}{' '}
+                  To try again: Return to draft → Submit for review → Approve → plan a new time.
+                </p>}
+                {isScheduled && !delivery && t.channel !== 'facebook' && <p className="mt-3 rounded-lg border border-border bg-linen p-3 text-xs text-muted">
+                  Reminder only: {CHANNELS.find(c => c.id === t.channel)?.label} is posted manually. Copy the caption at the planned time.
+                </p>}
+                {isScheduled && !delivery && t.channel === 'facebook' && !willAutoPost && <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                  This will not post by itself yet: connect your Facebook Page and turn on auto-publishing above.
+                </p>}
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
                   <div className="flex flex-wrap items-center gap-2">
-                    {!isEditing && t.status !== 'cancelled' &&
+                    {!isEditing && r &&
+                      <button type="button" onClick={() => void copyText(r.caption, 'Caption')}
+                        className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-2 text-xs font-semibold">
+                        <Copy className="h-3.5 w-3.5" /> Copy caption
+                      </button>}
+                    {!isEditing && t.status !== 'cancelled' && !isPublished &&
                       <button disabled={busy} onClick={() => {
                           setEditing(item.post.id);
                           setEditedCaption(r?.caption || '');
@@ -624,7 +876,7 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
                         className="inline-flex items-center gap-1 rounded-lg bg-ink px-3 py-2 text-xs font-bold text-white disabled:opacity-40">
                         <CheckCircle2 className="h-3.5 w-3.5" /> Approve revision
                       </button>}
-                    {(t.status === 'in_review' || isApproved || isScheduled) &&
+                    {(t.status === 'in_review' || isApproved || isScheduled) && !isPublished &&
                       <button disabled={busy} onClick={() => void transition(t, {
                         status: 'draft', approved_revision_id: null, approved_by: null,
                         approved_at: null, scheduled_at: null,
@@ -632,7 +884,8 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
                         className="rounded-lg border border-border px-3 py-2 text-xs font-semibold disabled:opacity-40">Return to draft</button>}
                   </div>
                   <div className="text-xs text-muted">
-                    {isScheduled ? 'Planned: ' + toDate(t.scheduled_at) :
+                    {isPublished ? 'Published: ' + toDate(t.scheduled_at) :
+                      isScheduled ? 'Planned: ' + toDate(t.scheduled_at) :
                       isApproved ? 'Approved: ' + toDate(t.approved_at) :
                         'Created: ' + toDate(item.post.created_at)}
                   </div>
@@ -648,9 +901,11 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
                     <button disabled={busy || !scheduledDates[t.id] || new Date(scheduledDates[t.id]).getTime() <= Date.now()}
                       onClick={() => void transition(t, {
                         status: 'scheduled', scheduled_at: new Date(scheduledDates[t.id]).toISOString(),
-                      }, 'Posting time planned. No automatic publishing will occur.')}
+                      }, willAutoPost
+                        ? 'Scheduled. This post will be published to Facebook automatically at the planned time.'
+                        : 'Posting time planned. It will not be published automatically.')}
                       className="inline-flex items-center gap-2 rounded-lg bg-ink px-4 py-3 text-xs font-bold text-white disabled:opacity-40">
-                      <CalendarClock className="h-4 w-4" /> Plan post
+                      <CalendarClock className="h-4 w-4" /> {willAutoPost ? 'Schedule auto-post' : 'Plan post'}
                     </button>
                   </div>
                 )}
@@ -659,7 +914,7 @@ export function SocialStudioPage({ currentProfile }: { currentProfile: Profile }
           })}
       </section>
       <footer className="flex items-center gap-2 text-xs text-muted">
-        <Send className="h-3.5 w-3.5" /> Private images and AI artwork require permission clearance. Facebook Page connection is optional; delivery tests never publish. Live posting and analytics are still disabled.
+        <Send className="h-3.5 w-3.5" /> Private images and AI artwork require permission clearance. Only approved Facebook posts are auto-published, and only while auto-publishing is switched on. Instagram and LinkedIn are posted manually.
       </footer>
     </div>
   );

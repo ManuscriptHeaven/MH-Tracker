@@ -8,6 +8,7 @@ export type CalendarEntry = {
   status: string;
   caption: string;
   scheduledAt: string | null;
+  delivery?: string;
 };
 
 export const WEEKLY_EDUCATIONAL_TOPICS = [
@@ -86,7 +87,7 @@ export function SocialEditorialCalendar({
             <h2 className="text-xl font-bold text-ink">Weekly Content Calendar</h2>
           </div>
           <p className="mt-2 max-w-xl text-sm text-muted">
-            Your approved posting plans and seven educational content ideas. No posts are published automatically.
+            Your approved posting plans and seven educational content ideas. Only approved Facebook posts can auto-publish.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2" aria-label="Navigate calendar weeks">
@@ -106,7 +107,6 @@ export function SocialEditorialCalendar({
       <div className="flex flex-wrap gap-2 text-xs font-medium text-muted">
         <span className="rounded-full border border-border bg-linen px-3 py-1.5">{weekCount} planned this week</span>
         <span className="rounded-full border border-border bg-linen px-3 py-1.5">{noDate.length} awaiting planning or approval</span>
-        <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-amber-800">Planning mode · no publishing</span>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-7">
         {days.map((date, i) => {
@@ -131,7 +131,11 @@ export function SocialEditorialCalendar({
                     <p className="mt-1 line-clamp-4 break-words text-xs leading-relaxed text-ink">
                       {item.caption || 'Planned content'}
                     </p>
-                    <span className="mt-2 block text-[10px] font-semibold text-muted">Planned · not posted</span>
+                    <span className={item.delivery === 'published'
+                      ? 'mt-2 block text-[10px] font-bold text-green-700' : 'mt-2 block text-[10px] font-semibold text-muted'}>
+                      {item.delivery === 'published' ? 'Posted ✓'
+                        : item.delivery === 'blocked' || item.delivery === 'unknown' ? 'Not posted · check pipeline'
+                        : 'Planned · not posted'}</span>
                   </article>
                 )) : <p className="text-xs text-muted">No planned posts</p>}
               </div>

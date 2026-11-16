@@ -49,7 +49,8 @@ const goodGenerated = {
 };
 const UUID = '33333333-4444-4555-8666-777777777777';
 
-function makeHarness({ isAdmin = true, allowBrand = true, hasKey = true } = {}) {
+function makeHarness({ isAdmin = true, allowBrand = true, hasKey = true, replies = null } = {}) {
+  const requests = [];
   let handler;
   let modelCalls = 0;
   let writes = 0;
@@ -88,8 +89,13 @@ function makeHarness({ isAdmin = true, allowBrand = true, hasKey = true } = {}) 
       } },
     },
     Request, Response, AbortController, setTimeout, clearTimeout, console,
-    fetch: async () => {
+    fetch: async (_url, init) => {
       modelCalls++;
+      requests.push({ url: String(_url), body: JSON.parse(init.body) });
+      if (replies) {
+        const next = replies[Math.min(modelCalls - 1, replies.length - 1)];
+        return typeof next === 'function' ? next() : next;
+      }
       return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(goodGenerated) }] } }] }),
         { status: 200 });
     },
@@ -101,7 +107,7 @@ function makeHarness({ isAdmin = true, allowBrand = true, hasKey = true } = {}) 
       body: JSON.stringify(body),
     });
     return handler(request);
-  }, getWrites: () => writes, getModelCalls: () => modelCalls };
+  }, getWrites: () => writes, getModelCalls: () => modelCalls, requests };
 }
 
 const payload = { brandId: UUID, topic: 'Chapter opening design best practices', platform: 'facebook' };
@@ -135,5 +141,56 @@ assert.deepEqual(data.hashtags, goodGenerated.hashtags);
 assert.equal(data.imageBrief, goodGenerated.imageBrief);
 assert.equal(valid.getModelCalls(), 1);
 assert.equal(valid.getWrites(), 0);
+
+// Gemini 2.5 Flash thinking budget disabled so JSON is not truncated; output budget raised.
+assert.equal(valid.requests[0].body.generationConfig.thinkingConfig.thinkingBudget, 0);
+assert.ok(valid.requests[0].body.generationConfig.maxOutputTokens >= 4096);
+
+const gemini = (obj) => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: obj }] } }] }), { status: 200 });
+
+// Messy-but-usable model output is repaired instead of rejected.
+const messy = makeHarness({ replies: [gemini('```json\n' + JSON.stringify({
+  ...goodGenerated, hashtags: ['BookDesign', '#book-design!', '#BookDesign', 'KDP'],
+  variants: { facebook: goodGenerated.variants.facebook, instagram: '', linkedin: goodGenerated.variants.linkedin },
+}) + '\n```')] });
+const messyData = await (await messy.call(payload)).json();
+assert.deepEqual(messyData.hashtags, ['#BookDesign', '#KDP']);
+assert.equal(messyData.variants.instagram, goodGenerated.caption);
+assert.deepEqual(messyData.slides, []);
+
+// Transient provider failure retries, then succeeds.
+const retry = makeHarness({ replies: [new Response('busy', { status: 503 }), gemini(JSON.stringify(goodGenerated))] });
+assert.equal((await retry.call(payload)).status, 200);
+assert.equal(retry.getModelCalls(), 2);
+
+// Invalid API key is reported clearly and is not retried.
+const badKey = makeHarness({ replies: [new Response('{"error":{"message":"API key not valid"}}', { status: 400 })] });
+const badKeyRes = await badKey.call(payload);
+assert.equal(badKeyRes.status, 502);
+assert.match((await badKeyRes.json()).error, /GEMINI_API_KEY/);
+assert.equal(badKey.getModelCalls(), 1);
+
+// Language / tone / post-type options reach the model; unknown values fall back safely.
+const opts = makeHarness();
+await opts.call({ ...payload, language: 'roman_ur', tone: 'friendly', postType: 'carousel', length: 'short', callToAction: 'DM us' });
+const sent = JSON.parse(opts.requests[0].body.contents[0].parts[0].text);
+assert.match(sent.language, /Roman Urdu/);
+assert.match(sent.postType, /carousel/);
+assert.equal(sent.callToAction, 'DM us');
+const fallback = makeHarness();
+await fallback.call({ ...payload, language: 'klingon', tone: '<script>' });
+const sentFallback = JSON.parse(fallback.requests[0].body.contents[0].parts[0].text);
+assert.equal(sentFallback.language, 'English');
+
+// Page-level helpers.
+const pageHelpers = ts.transpileModule(
+  page.slice(page.indexOf('export function composeCaption'), page.indexOf('type Target =')),
+  { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+const helperCtx = { exports: {} };
+vm.runInNewContext(pageHelpers, helperCtx);
+assert.equal(JSON.stringify(helperCtx.exports.parseHashtagInput('#a b,  #A c!')), JSON.stringify(['#a', '#b', '#c']));
+assert.equal(helperCtx.exports.composeCaption('Hello #a', ['#a', '#b']), 'Hello #a\n\n#b');
+assert.match(page, /Save drafts for all 3 platforms/);
+assert.match(page, /Try a different version/);
 
 console.log('Social Studio AI security, validation and draft-only tests passed.');
