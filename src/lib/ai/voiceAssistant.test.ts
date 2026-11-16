@@ -1,5 +1,5 @@
 import { voiceQueryEngine } from './voiceQueryEngine';
-import { wakeWordService } from './wakeWordService';
+import { parseWakePhrase } from './wakeWordService';
 import { sampleProfiles } from '../sampleData';
 import type { TrackerData, Project } from '../types';
 import type { AIToolContext } from './aiTypes';
@@ -631,9 +631,9 @@ export async function runVoiceAssistantTests() {
 
   // TEST 26: Create Task with Voice Preview & Verbal Confirmation
   voiceQueryEngine.clearMemory();
-  const res26a = await voiceQueryEngine.processQuery('Create a task for Zain to check the print PDF tomorrow', createAdminCtx());
+  const res26a = await voiceQueryEngine.processQuery('Create a task for Zain to check the print PDF tomorrow, no project', createAdminCtx());
   assert(Boolean(res26a.success && res26a.pendingAction && res26a.pendingAction.toolName === 'create_task'), 'Test 26a: Task creation intent detected');
-  console.log(`   User: "Create a task for Zain to check the print PDF tomorrow"\n   Assistant (Preview): "${res26a.spokenText}"`);
+  console.log(`   User: "Create a task for Zain to check the print PDF tomorrow, no project"\n   Assistant (Preview): "${res26a.spokenText}"`);
 
   const res26b = await voiceQueryEngine.processQuery('Confirm', createAdminCtx());
   assert(Boolean(!res26b.success && res26b.error === 'task_creation_unavailable'), 'Test 26b: Confirmation fails closed when the test fixture has no task persistence');
@@ -1012,16 +1012,10 @@ export async function runVoiceAssistantTests() {
   const aiInvoiceDenied = await voiceQueryEngine.processQuery('Show the latest invoice', createEmployeeCtx());
   assert(!aiInvoiceDenied.success && aiInvoiceDenied.error === 'permission_denied', 'Test 40i: Invoice lookup remains Admin-only');
 
-  // TEST 41: Wake Word "Hey James" service test
-  let wakeWordTriggered = false;
-  wakeWordService.onWakeWordDetected = () => {
-    wakeWordTriggered = true;
-  };
-  (wakeWordService as any).matchesWakeWord = (t: string) =>
-    ['hey james', 'james', 'ok james', 'wake up james', 'hey assistant'].some((kw) => t.toLowerCase().includes(kw));
-
-  assert((wakeWordService as any).matchesWakeWord('Hey James how are you'), 'Test 41: "Hey James how are you" triggers wake word detection');
-  console.log('   Wake Word: "Hey James how are you" -> Activated successfully');
+  // TEST 41: Hands-free wake phrase parsing ("Hey Nova ...")
+  const wake41 = parseWakePhrase('Hey Nova assign a task to Zain', 'Nova');
+  assert(Boolean(wake41 && wake41.command === 'assign a task to Zain'), 'Test 41: "Hey Nova ..." wakes and keeps the command');
+  assert(parseWakePhrase('we will discuss nova later', 'Nova') === null, 'Test 41b: name mid-sentence without greeting does not wake');
 
   console.log('====================================================');
   console.log(`📊 TEST RESULTS: ${passed}/${total} PASSED (${Math.round((passed / total) * 100)}%)`);

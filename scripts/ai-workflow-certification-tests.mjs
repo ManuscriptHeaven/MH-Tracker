@@ -11,7 +11,7 @@ const hamza = { id: 'hamza', full_name: 'Hamza Khan', role: 'employee', email: '
 const client = { id: 'client', full_name: 'Author Client', role: 'client', email: 'client@example.test', status: 'active' };
 const project = {
   id: 'project-1', project_title: 'The End of Smart', project_number: 'MH-1039',
-  project_status: 'active', status: 'In Progress', client_name: 'Example Client'
+  project_status: 'active', status: 'In Progress', client_name: 'Example Client', internal_deadline: '2099-12-31'
 };
 const data = { profiles: [admin, manager, zain, hamza, client], projects: [project], tasks: [], revisionRequests: [] };
 let writes = 0;
@@ -77,7 +77,7 @@ assert.equal(writes, 1, 'Manager preview is not a write');
 
 voiceQueryEngine.clearMemory();
 const missingProject = await voiceQueryEngine.processQuery('Create a task for Zain to review EPUB for the project named Not a Real Project',ctx);
-assert.equal(missingProject.error, 'project_not_found');
+assert.ok(missingProject.disambiguation?.length && !missingProject.pendingAction, 'Unknown project asks which project instead of guessing');
 assert.equal(writes, 1, 'Unknown project must not create an unlinked task');
 
 voiceQueryEngine.clearMemory();

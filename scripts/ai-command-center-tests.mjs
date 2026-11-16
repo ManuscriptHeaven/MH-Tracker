@@ -26,9 +26,9 @@ const app = read('src/App.tsx');
 console.log('--- AI Command Center Static Tests ---');
 
 assert(
-  page.includes('AI Command Center') &&
+  page.includes('your MH assistant') &&
     page.includes('Conversation History') &&
-    page.includes('Live Workspace Intelligence'),
+    page.includes('Nothing changes until you confirm'),
   'full AI page is a business command center with saved chat history',
 );
 

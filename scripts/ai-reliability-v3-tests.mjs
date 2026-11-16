@@ -6,7 +6,7 @@ import { execute_create_task } from '../src/lib/ai/safeActionTools.ts';
 const profile = (id, full_name, role = 'employee', extra = {}) => ({ id, full_name, role, status: 'active', email: id + '@example.test', ...extra });
 const project = (id, title, status = 'active', extra = {}) => ({
   id, project_title: title, project_number: id, client_name: 'Client',
-  project_status: status, status: 'In Progress', ...extra,
+  project_status: status, status: 'In Progress', internal_deadline: '2099-12-31', ...extra,
 });
 const admin = profile('admin', 'Owner Admin', 'admin');
 const zain = profile('zain', 'Zain Ahmad');
@@ -39,13 +39,12 @@ const good = [
   ['create a task for Zain to review the design for the project named The End of Smart due date is next Monday', 'review the design', smart.id],
   ['create a task for Zain to update the cover for the project named The Smart, The End of Smart', 'update the cover', smart.id],
   ['create a task for Zain to update the cover for the project named MH-1039', 'update the cover', smart.id],
-  ['create a task for Zain to update the cover', 'update the cover', null],
 ];
 for (const [prompt, title, projectId] of good) {
   assert.equal(isCreateTaskRequest(prompt), true, 'Must recognize: ' + prompt);
   const parsed = resolveTaskCreation(prompt, ctx);
   assert.equal(parsed.kind, 'ready', JSON.stringify({ prompt, parsed }));
-  assert.equal(parsed.title, title, 'Correct title: ' + prompt);
+  assert.equal(parsed.title.toLowerCase(), title.toLowerCase(), 'Correct title: ' + prompt);
   assert.equal(parsed.assignee.id, zain.id, 'Correct assignee: ' + prompt);
   assert.equal(parsed.project?.id || null, projectId, 'Correct project: ' + prompt);
   voiceQueryEngine.clearMemory();
@@ -57,6 +56,13 @@ for (const [prompt, title, projectId] of good) {
 }
 voiceQueryEngine.clearMemory();
 
+// No project named: the assistant now asks which project (or "No project")
+// instead of silently creating an unlinked task.
+const noProject = resolveTaskCreation('create a task for Zain to update the cover', ctx);
+assert.equal(noProject.kind, 'clarify');
+assert.equal(noProject.field, 'project');
+assert.ok(noProject.options.some((o) => o.title === 'No project'));
+
 // A read question cannot become a write, including speech-to-text's task-force ambiguity.
 for (const question of [
   'What tasks are assigned to Zain?',
@@ -67,16 +73,19 @@ for (const question of [
 ]) {
   assert.equal(isCreateTaskRequest(question), false, 'Read question misclassified: ' + question);
 }
-for (const [prompt, code] of [
-  ['create a task for Zen to update cover for the project named Unknown Book', 'project_not_found'],
-  ['create a task for Nobody to update cover for the project named The End of Smart', 'employee_not_found'],
-  ['create a task for Zain to update cover for project named Old Book', 'project_not_found'],
-  ['create a task for Zen to', 'task_details_required'],
+// Unknown names/projects never produce a ready task: the assistant asks.
+for (const [prompt, field] of [
+  ['create a task for Zen to update cover for the project named Unknown Book', 'project'],
+  ['create a task for Nobody to update cover for the project named The End of Smart', 'employee'],
+  ['create a task for Zain to update cover for project named Old Book', 'project'],
 ]) {
   const result = resolveTaskCreation(prompt, ctx);
-  assert.equal(result.kind, 'error');
-  assert.equal(result.code, code);
+  assert.equal(result.kind, 'clarify', prompt);
+  assert.equal(result.field, field, prompt);
 }
+const noDetails = resolveTaskCreation('create a task for Zen to', ctx);
+assert.equal(noDetails.kind, 'error');
+assert.equal(noDetails.code, 'task_details_required');
 
 const dupEmployee = {...ctx, data: {...data, profiles: [...data.profiles, profile('zain2', 'Zain Raza')] }};
 assert.equal(resolveTaskCreation(good[0][0], dupEmployee).kind, 'clarify', 'Two Zains require selection');

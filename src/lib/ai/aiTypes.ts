@@ -130,7 +130,7 @@ export interface DisambiguationOption {
   id: string;
   title: string;
   subtitle?: string;
-  type: 'project' | 'task' | 'revision' | 'employee' | 'client';
+  type: 'project' | 'task' | 'revision' | 'employee' | 'client' | 'date';
   data?: any;
 }
 
@@ -350,6 +350,7 @@ export interface ConversationMemory {
     originalQuery: string;
     intentType: string;
     targetPayload: Record<string, any>;
+    field?: string;
   } | null;
   pendingProjectCreation?: {
     draft: ProjectCreationMemoryDraft;

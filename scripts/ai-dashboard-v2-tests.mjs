@@ -5,8 +5,9 @@ const page = readFileSync('src/pages/AIAssistantPage.tsx', 'utf8');
 const messages = readFileSync('src/components/ai/AIChatMessage.tsx', 'utf8');
 const context = readFileSync('src/lib/ai/aiContext.tsx', 'utf8');
 
-assert.match(page, /AI Assistant Dashboard V2/, 'V2 shell is present');
-for (const required of ['Quick Commands', 'Voice Command Center', 'Live transcript', 'AI Assistant V2 workspace', 'Conversation History', 'Workspace Intelligence &amp; Briefing']) {
+assert.match(page, /AI Assistant: greeting, live workspace pulse/, 'assistant header is present');
+assert.doesNotMatch(page, /Command Center <span|>V2</, 'no version label in the visible header');
+for (const required of ['Quick Commands', 'Talk to {wakeName}', 'Live transcript', 'AI assistant workspace', 'Hands-free mode', 'Conversation History', 'Workspace Intelligence &amp; Briefing']) {
   assert.ok(page.includes(required), 'V2 includes ' + required);
 }
 assert.ok(
@@ -20,7 +21,8 @@ assert.match(page, /const assistantState = voiceError/, 'voice state responds to
 assert.match(page, /isListening[\s\S]*isSpeaking[\s\S]*isProcessing/, 'listening, speaking, processing states are represented');
 assert.match(page, /onClick=\{handleVoiceToggle\}/, 'microphone remains a direct user action');
 assert.match(page, /stopVoice\(\);\s*stopSpeaking\(\)/, 'manual stop and navigation stop both voice paths');
-assert.doesNotMatch(page, /toggleWakeWordListener|Hey James On/, 'no always-on wake affordance');
+assert.match(page, /setHandsFreeEnabled\(!handsFree\.enabled\)/, 'hands-free is an explicit user switch');
+assert.match(page, /role="switch"/, 'hands-free switch is accessible');
 assert.match(page, /messageScrollRef\.current/, 'chat scroll stays scoped to messages');
 assert.doesNotMatch(page, /scrollIntoView/, 'conversation scroll does not jump the entire page');
 assert.match(page, /<AIChatMessage\s+dark/, 'V2 chat renders with dark bubbles');

@@ -9,7 +9,7 @@ import type {
 } from './aiTypes';
 import * as tools from './secureTools';
 import * as safeActions from './safeActionTools';
-import type { ProjectStatus } from '../types';
+import type { Profile, Project, ProjectStatus } from '../types';
 import { isClientRole, isManagerRole, firstName } from '../utils';
 import { formatDate, parseNaturalDate, todayInput, addDays } from '../date';
 import { aiUnderstandingEngine } from './aiUnderstandingEngine';
@@ -22,7 +22,7 @@ import {
   looksLikeCompoundAction,
 } from './aiPlannerService';
 import { rankEntityCandidates, resolveUniqueEntityMatch } from './aiEntityMatcher';
-import { isCreateTaskRequest, resolveTaskCreation } from './taskCreationIntent';
+import { answerTaskClarification, isCreateTaskRequest, NO_DUE_DATE, parseTaskPreviewEdit, resolveTaskCreation } from './taskCreationIntent';
 import type { TaskCreationOverrides } from './taskCreationIntent';
 import { verifyActionOutcome } from './aiActionVerifier';
 import { isMessageReadingIntent, readTrackerMessages } from './messageIntelligence';
@@ -34,6 +34,7 @@ function startsIndependentRequest(query: string): boolean {
 export class VoiceQueryEngine {
   private static instance: VoiceQueryEngine;
   private memory: ConversationMemory = {};
+  private supersededActionIds = new Set<string>();
   private executionLogs: ToolExecutionLog[] = [];
 
   public static getInstance(): VoiceQueryEngine {
@@ -95,6 +96,16 @@ export class VoiceQueryEngine {
     // ==========================================
     if (this.memory.pendingAction) {
       const pending = this.memory.pendingAction;
+
+      // Spoken edits to a task card: "due date Monday kar do", "high priority".
+      if (pending.toolName === 'create_task' && !isCreateTaskRequest(q)) {
+        const edited = this.editPendingTask(q, pending, ctx);
+        if (edited) {
+          this.updateMemory(edited, q);
+          this.logExecution(ctx, q, 'create_task', edited.success, edited.error);
+          return edited;
+        }
+      }
 
       if (
         pending.toolName === 'send_client_message' &&
@@ -169,6 +180,24 @@ export class VoiceQueryEngine {
           this.updateMemory(resolvedResult, q);
           this.logExecution(ctx, q, resolvedResult.toolName, resolvedResult.success, resolvedResult.error);
           return resolvedResult;
+        }
+      } else if (
+        this.memory.pendingDisambiguationContext?.intentType === 'create_task' &&
+        this.memory.pendingDisambiguationContext.field &&
+        !isCreateTaskRequest(q)
+      ) {
+        // A typed/spoken answer that is not one of the buttons: "20 November",
+        // "kal", "no project", "Snowman Patch". Only a confident answer resumes
+        // the task; anything else is handled as a fresh request below.
+        const context = this.memory.pendingDisambiguationContext;
+        const answer = answerTaskClarification(context.field as any, q, ctx);
+        if (answer) {
+          this.memory.pendingDisambiguation = null;
+          this.memory.pendingDisambiguationContext = null;
+          const result = this.prepareTaskCreation(context.originalQuery, ctx, { ...(context.targetPayload || {}), ...answer });
+          this.updateMemory(result, q);
+          this.logExecution(ctx, q, result.toolName, result.success, result.error);
+          return result;
         }
       }
     }
@@ -2054,13 +2083,15 @@ export class VoiceQueryEngine {
       };
     }
 
-    const resolved = resolveTaskCreation(originalQuery, ctx, overrides);
+    const selectedProject = (ctx as any).selectedProject || null;
+    const resolved = resolveTaskCreation(originalQuery, { ...ctx, selectedProject }, overrides);
     if (resolved.kind === 'clarify') {
       this.memory.pendingDisambiguation = resolved.options;
       this.memory.pendingDisambiguationContext = {
         originalQuery,
         intentType: 'create_task',
         targetPayload: overrides,
+        field: resolved.field,
       };
       return {
         success: true, toolName: 'create_task',
@@ -2075,7 +2106,19 @@ export class VoiceQueryEngine {
       };
     }
 
-    if (resolved.assignee.id !== ctx.currentProfile.id && !isManagerRole(ctx.currentProfile.role)) {
+    return this.buildTaskPreview(resolved, ctx);
+  }
+
+  /** Build (or rebuild after a spoken edit) the confirm card for a new task. */
+  private buildTaskPreview(
+    draft: {
+      title: string; assignee: Profile; project?: Project; dueDate?: string;
+      dueDateSource?: string; priority: string; projectSource?: string;
+    },
+    ctx: AIToolContext,
+    editNote?: string,
+  ): AIToolResult {
+    if (draft.assignee.id !== ctx.currentProfile.id && !isManagerRole(ctx.currentProfile.role)) {
       return {
         success: false, toolName: 'create_task', error: 'permission_denied',
         spokenText: 'Only managers or admins can assign tasks to other team members.',
@@ -2083,9 +2126,17 @@ export class VoiceQueryEngine {
       };
     }
 
-    const { title, assignee, project, dueDate } = resolved;
+    const { title, assignee, project, dueDate, dueDateSource, priority, projectSource } = draft;
+    const dueLabel = dueDate
+      ? `${formatDate(dueDate)}${dueDateSource === 'project' ? ' (project deadline)' : ''}`
+      : 'No due date';
+    const projectLabel = project
+      ? `${project.project_title} (${project.project_number})${projectSource === 'page' ? ' — current page' : ''}`
+      : 'No project linked';
+    const previous = this.memory.pendingAction;
+    if (previous?.toolName === 'create_task') this.supersededActionIds.add(previous.actionId);
     const preview: AIActionPreview = {
-      actionId: `act-${Date.now()}`,
+      actionId: `act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       toolName: 'create_task',
       category: 'safe_write',
       title: 'Create and Assign Task',
@@ -2096,19 +2147,22 @@ export class VoiceQueryEngine {
       changes: [
         { field: 'title', label: 'Task', newValue: title },
         { field: 'assigned_to', label: 'Assigned To', newValue: assignee.full_name },
-        { field: 'project', label: 'Active Project', newValue: project ? `${project.project_title} (${project.project_number})` : 'No project linked' },
-        ...(dueDate ? [{ field: 'due_date', label: 'Due Date', newValue: formatDate(dueDate) }] : []),
+        { field: 'project', label: 'Active Project', newValue: projectLabel },
+        { field: 'due_date', label: 'Due Date', newValue: dueLabel },
+        { field: 'priority', label: 'Priority', newValue: priority },
       ],
       payload: {
         title,
         assignedToId: assignee.id,
         projectId: project?.id,
         dueDate,
-        priority: 'Normal',
+        dueDateSource,
+        projectSource,
+        priority,
       },
       confirmButtonText: 'Create and Assign Task',
       cancelButtonText: 'Cancel',
-      spokenPrompt: `Create "${title}" for ${assignee.full_name}${project ? ` in ${project.project_title}` : ''}? Confirm?`,
+      spokenPrompt: `${editNote ? 'Updated. ' : ''}Create "${title}" for ${assignee.full_name}${project ? ` in ${project.project_title}` : ''}${dueDate ? `, due ${formatDate(dueDate)}` : ''}${priority !== 'Normal' ? `, ${priority} priority` : ''}? Confirm?`,
     };
     this.memory.pendingAction = preview;
 
@@ -2116,13 +2170,56 @@ export class VoiceQueryEngine {
       success: true, toolName: 'create_task', pendingAction: preview,
       spokenText: preview.spokenPrompt,
       displayText:
-        '### Review Task Before Creating\\n\\n' +
-        `• **Task:** ${title}\\n` +
-        `• **Assigned To:** ${assignee.full_name}\\n` +
-        `• **Project:** ${project ? `${project.project_title} (${project.project_number})` : 'Not linked'}\\n` +
-        (dueDate ? `• **Due:** ${formatDate(dueDate)}\\n` : '') +
-        '\\n**Confirm** to create and assign this task.',
+        (editNote ? `✏️ **Updated:** ${editNote}\n\n` : '') +
+        '### Review Task Before Creating\n\n' +
+        `• **Task:** ${title}\n` +
+        `• **Assigned To:** ${assignee.full_name}\n` +
+        `• **Project:** ${projectLabel}\n` +
+        `• **Due:** ${dueLabel}\n` +
+        `• **Priority:** ${priority}\n` +
+        '\n**Confirm** to create, or change it by voice — e.g. "make the due date Monday", "high priority", "assign it to Atia".',
     };
+  }
+
+  /** Apply a spoken change ("due date Monday kar do") to the pending task card. */
+  private editPendingTask(text: string, pending: AIActionPreview, ctx: AIToolContext): AIToolResult | null {
+    const edit = parseTaskPreviewEdit(text, ctx);
+    if (!edit) return null;
+    if (edit.kind === 'clarify') {
+      return { success: true, toolName: 'create_task', spokenText: edit.message, displayText: edit.message, pendingAction: pending };
+    }
+    const p = pending.payload || {};
+    const people = ctx.data.profiles;
+    const activeProjects = ctx.visibleProjects;
+    let assignee = people.find((person) => person.id === p.assignedToId);
+    let project = p.projectId ? activeProjects.find((item) => item.id === p.projectId) : undefined;
+    let dueDate: string | undefined = p.dueDate;
+    let dueDateSource: string | undefined = p.dueDateSource;
+    let projectSource: string | undefined = p.projectSource;
+    let priority: string = p.priority || 'Normal';
+    let title: string = p.title;
+    const notes: string[] = [];
+    const patch = edit.patch;
+    if (patch.title) { title = patch.title; notes.push(`task → ${title}`); }
+    if (patch.assignee) { assignee = patch.assignee; notes.push(`assigned to → ${assignee.full_name}`); }
+    if (patch.project !== undefined) {
+      project = patch.project || undefined;
+      projectSource = project ? 'command' : undefined;
+      notes.push(`project → ${project ? project.project_title : 'none'}`);
+    }
+    if (patch.dueDate !== undefined) {
+      dueDate = patch.dueDate || undefined;
+      dueDateSource = dueDate ? 'command' : undefined;
+      notes.push(`due → ${dueDate ? formatDate(dueDate) : 'no due date'}`);
+    }
+    if (patch.priority) { priority = patch.priority; notes.push(`priority → ${priority}`); }
+    if (!assignee || !title) return null;
+    return this.buildTaskPreview({ title, assignee, project, dueDate, dueDateSource, priority, projectSource }, ctx, notes.join(', '));
+  }
+
+  /** Cards replaced by a spoken edit must not be confirmable any more. */
+  public isSupersededAction(actionId: string): boolean {
+    return this.supersededActionIds.has(actionId);
   }
 
   private rememberRecoverableCompletion(result: AIToolResult, originalQuery: string): void {
@@ -2429,7 +2526,11 @@ export class VoiceQueryEngine {
     if (q === '3' || q === '#3' || q === 'third' || q === 'third one') return options[2];
     if (q === '4' || q === '#4' || q === 'fourth') return options[3];
 
-    // Match by title substring
+    // Match by title substring. Very short answers ("no", "ok") must not
+    // select an option merely because a title contains those letters.
+    if (q.replace(/[^a-z0-9]/g, '').length < 3) return undefined;
+    const exact = options.find((opt) => opt.title.toLowerCase() === q.replace(/[.!?]+$/, ''));
+    if (exact) return exact;
     return options.find((opt) => opt.title.toLowerCase().includes(q) || q.includes(opt.title.toLowerCase()));
   }
 
@@ -2442,6 +2543,10 @@ export class VoiceQueryEngine {
       const overrides: TaskCreationOverrides = { ...(context.targetPayload || {}) };
       if (selected.type === 'employee') overrides.employeeId = selected.id;
       if (selected.type === 'project') overrides.projectId = selected.id;
+      return this.prepareTaskCreation(context.originalQuery, ctx, overrides);
+    }
+    if (context?.intentType === 'create_task' && selected.type === 'date') {
+      const overrides: TaskCreationOverrides = { ...(context.targetPayload || {}), dueDate: selected.data?.dueDate || NO_DUE_DATE };
       return this.prepareTaskCreation(context.originalQuery, ctx, overrides);
     }
 
